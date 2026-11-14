@@ -50,7 +50,7 @@ web/
 
 ## Routing
 
-`@solidjs/router`. `index.tsx` makes the router with `createRouter({ routes, scrollRestoration: false })` (the browser restores scroll on back and forward) and renders the shell as its render-prop child. Mainnet pages are at the root and the other networks under `/signet`, `/testnet4` and `/regtest`, matching the server ([`ARCHITECTURE.md`](ARCHITECTURE.md)). `src/routes.ts` mounts every page's routes under all four prefixes, so a page is written once with network-free paths (`/tx/:txid`) and works on every network. The server sends the app shell for any page path, so deep links and reloads work; a disabled network's paths are a 404 from the server.
+`@solidjs/router`. `index.tsx` makes the router with `createRouter({ routes, scrollRestoration: false })` (the browser restores scroll on back and forward) and renders the shell as its render-prop child. Mainnet pages are at the root and the other networks under `/signet`, `/testnet4`, `/testnet5` and `/regtest`, matching the server ([`ARCHITECTURE.md`](ARCHITECTURE.md)). `src/routes.ts` mounts every page's routes under all four prefixes, so a page is written once with network-free paths (`/tx/:txid`) and works on every network. The server sends the app shell for any page path, so deep links and reloads work; a disabled network's paths are a 404 from the server.
 
 The network comes from the path. `useNetwork()` returns it; never keep it anywhere else.
 

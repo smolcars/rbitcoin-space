@@ -100,8 +100,8 @@ describe("classify: 64-hex ids", () => {
 });
 
 describe("classify: addresses", () => {
-  const TEST: Network[] = ["signet", "testnet4", "regtest"];
-  const TB: Network[] = ["signet", "testnet4"];
+  const TEST: Network[] = ["signet", "testnet4", "testnet5", "regtest"];
+  const TB: Network[] = ["signet", "testnet4", "testnet5"];
   it.each<[string, AddressType, Network[]]>([
     ["1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa", "p2pkh", ["mainnet"]],
     ["3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy", "p2sh", ["mainnet"]],
@@ -164,6 +164,7 @@ describe("classify: pasted links", () => {
     ["https://explorer.example/block/840000", height(840_000)],
     ["https://explorer.example/blocks/840000", height(840_000)],
     [`/testnet4/tx/${TXID}`, hash(TXID, "tx")],
+    [`/testnet5/tx/${TXID}`, hash(TXID, "tx")],
     // mempool.space style, with a fragment and query
     [`https://mempool.space/tx/${TXID}#vin=0`, hash(TXID, "tx")],
     [`https://mempool.space/testnet4/tx/${TXID}?mode=details`, hash(TXID, "tx")],

@@ -11,7 +11,7 @@
 
 ## What it is
 
-One Rust server beside a stock rbitcoin node (v0.9.2), serving a Solid frontend and an Esplora-compatible API for mainnet, signet and testnet4 (regtest for development). It shows blocks, the live mempool with projected blocks and fee recommendations, transactions, addresses, replacements, mining pools and block audits, and the Lightning graph.
+One Rust server beside a stock rbitcoin node (v0.9.2), serving a Solid frontend and an Esplora-compatible API for mainnet, signet, testnet4 and Testnet 5 (regtest for development; Testnet 5 needs a newer rbitcoin, [`docs/DEPLOY.md`](docs/DEPLOY.md#testnet-5)). It shows blocks, the live mempool with projected blocks and fee recommendations, transactions, addresses, replacements, mining pools and block audits, and the Lightning graph.
 
 rbitcoin already keeps the transaction index, the address index, the cluster mempool and per-transaction fees in one process. So there is no second indexer, no second copy of the mempool and no database server: the explorer talks to the node over Esplora, Electrum and JSON-RPC, keeps the little the node does not store in SQLite, and follows Lightning through a gossip-only LDK peer that holds no funds.
 

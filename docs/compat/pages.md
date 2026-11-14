@@ -87,7 +87,7 @@ mempool.space puts these under `/graphs`. Ours are hand-drawn SVG (W10) on `/min
 
 | Feature | What it does | Status | M | Live | Note |
 |---|---|---|---|---|---|---|
-| Network switch | Mainnet, signet, testnet4 | served | M1 | ref | Plus regtest for development; it lists the networks the server enables |
+| Network switch | Mainnet, signet, testnet4, Testnet 5 | served | M1 | ref | Plus regtest for development; it lists the networks the server enables |
 | Light and dark themes | Theme choice | served | M1 | — | W1 |
 | Units | BTC or sats | planned | M1 | — | Not built: amounts are in BTC, with sats beside fees |
 | Fiat currency choice | Currency for converted values | planned | M3 | — | Not built. Needs prices, which the owner has parked |

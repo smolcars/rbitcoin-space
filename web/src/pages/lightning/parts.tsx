@@ -11,7 +11,7 @@ import { Link } from "../../components/Link";
 import { Empty, ErrorState, Loading } from "../../components/States";
 import { ApiError, createRequest, fetchApp } from "../../lib/api";
 import { groupDigits, truncateMiddle } from "../../lib/format";
-import { NETWORK_NAMES, type Network, paths } from "../../lib/network";
+import { hasLightning, NETWORK_NAMES, type Network, paths } from "../../lib/network";
 import { useNetwork } from "../../lib/page";
 import {
   type BlockRef,
@@ -78,6 +78,13 @@ export function Gate(props: { children: JSX.Element }) {
           error={status.error}
           retry={refetch}
         />
+      </Match>
+      <Match when={state() === "off" && !hasLightning(network())}>
+        <Empty title={`There is no Lightning on ${NETWORK_NAMES[network()]} here`}>
+          The Lightning software this server runs does not know {NETWORK_NAMES[network()]} yet, so
+          it has no Lightning peer on it. Blocks and transactions are on the{" "}
+          <Link href={paths.home()}>home page</Link>.
+        </Empty>
       </Match>
       <Match when={state() === "off"}>
         <Empty title={`Lightning is switched off on ${NETWORK_NAMES[network()]}`}>

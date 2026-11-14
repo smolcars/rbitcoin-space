@@ -116,16 +116,17 @@ Series that are not fees take their own two colours, never a fee or status colou
 
 ### Network
 
-`<html data-network="mainnet|signet|testnet4|regtest">` sets `--color-network`.
+`<html data-network="mainnet|signet|testnet4|testnet5|regtest">` sets `--color-network`.
 
 | Token | Light | Dark |
 |---|---|---|
 | `--network-mainnet` | `#161b1e` | `#e6eaed` |
 | `--network-signet` | `#0b7285` | `#4fc3d9` |
 | `--network-testnet4` | `#8a5a00` | `#f0b43c` |
+| `--network-testnet5` | `#4f6d10` | `#a8d05a` |
 | `--network-regtest` | `#56616a` | `#9aa4ab` |
 
-Mainnet shows its name in the network switch and nothing else. Test networks add three signals: a slim band above the header, tinted with the network colour and underlined in it, whose words carry the warning ("Signet is a test network. Coins here have no value.") after a short hatched mark; the logo's crab and settled layers in the network colour; and the network switch outlined in the network colour. The page title is prefixed with the network name. Signet is teal so it never reads as a fee: the fee ramp ends in violet.
+Mainnet shows its name in the network switch and nothing else. Test networks add three signals: a slim band above the header, tinted with the network colour and underlined in it, whose words carry the warning ("Signet is a test network. Coins here have no value.") after a short hatched mark; the logo's crab and settled layers in the network colour; and the network switch outlined in the network colour. The page title is prefixed with the network name. Signet is teal so it never reads as a fee: the fee ramp ends in violet. Testnet 5 is moss green, a yellow-green well apart from testnet4's amber and signet's teal, and kept off violet for the same reason.
 
 ## Type
 
@@ -462,7 +463,7 @@ Decided while building it, where the layout above left it open:
 - **Block health is what was watched.** Only blocks this server saw arrive have an audit, so the chart counts them in its caption, says what share of the period's blocks they are and since when, hatches the time before the first and breaks wherever a block has none. The area stands on an axis from zero, so a bad block is a notch down from the top and an ordinary period a full band; past 1,000 blocks a point is the lowest of its run, so a bad block is never averaged away. A point opens its block: a click, a second tap, or Enter.
 - **Past adjustments are a list, not a period's.** The latest ten, newest first, each opening the block that began its period, with all of them a press away, under the next one's expected change; ups and downs read as an arrow and a word, never a colour. They sit after the block charts, so the page still opens on the network now.
 - **Unknown is a pool.** It is ranked like any other, its page exists, and its row says it is the blocks no tag or address on the list names.
-- **Test networks say what their figures mean.** Signet's blocks come from a few signers the list does not name; testnet4's minimum-difficulty rule makes its hashrate swing; regtest has no pools, a meaningless hashrate and no retargets. A note under the title says so, and figures that mean nothing there say "Not meaningful on regtest".
+- **Test networks say what their figures mean.** Signet's blocks come from a few signers the list does not name; testnet4's minimum-difficulty rule makes its hashrate swing; regtest has no pools, a meaningless hashrate and no retargets; Testnet 5's figures read as mainnet's, so it has no note. A note under the title says so, and figures that mean nothing there say "Not meaningful on regtest".
 - **A pool's page** has its name as the title (dataset text), its site as a plain link only when it is `http` or `https`, its blocks and shares, its weekly share and hashrate, and its blocks 25 at a time.
 - **Nothing moves as it loads.** Each section holds the height its content will take; the coverage notes on a pool's page sit below its figures.
 

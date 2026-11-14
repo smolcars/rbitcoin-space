@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { recognise } from "./address";
 
-const TEST = ["signet", "testnet4", "regtest"];
-const TB = ["signet", "testnet4"];
+const TEST = ["signet", "testnet4", "testnet5", "regtest"];
+const TB = ["signet", "testnet4", "testnet5"];
 
 describe("recognise", () => {
   it.each([
@@ -14,7 +14,7 @@ describe("recognise", () => {
     ["bc1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqzk5jj0", "p2tr", ["mainnet"]],
     ["bc1pfeessrawgf", "p2a", ["mainnet"]],
     ["bc1zw508d6qejxtdg4y5r3zarvaryvaxxpcs", "witness", ["mainnet"]],
-    // Signet and testnet4 share every form; regtest shares the base58 ones
+    // Signet, testnet4 and Testnet 5 share every form; regtest shares the base58 ones
     ["mipcBbFg9gMiCh81Kj8tqqdgoZub1ZJRfn", "p2pkh", TEST],
     ["n3GNqMveyvaPvUbH469vDRadqpJMPc84JA", "p2pkh", TEST],
     ["2ND8PB9RrfCaAcjfjP1Y6nAgFd9zWHYX4DN", "p2sh", TEST],

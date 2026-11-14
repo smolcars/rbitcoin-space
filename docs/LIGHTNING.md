@@ -479,7 +479,7 @@ cargo test -p ln -- --ignored --nocapture hostile::regtest          # needs dev/
 
 ## Test networks
 
-Signet and testnet4 run the same code as mainnet: the network decides only the chain hash, which every gossip message and peer must carry, and the default peers: mainnet and signet have them ([Peers](#peers)), testnet4 and regtest do not.
+Signet and testnet4 run the same code as mainnet: the network decides only the chain hash, which every gossip message and peer must carry, and the default peers: mainnet and signet have them ([Peers](#peers)), testnet4 and regtest do not. Testnet 5 has no Lightning: LDK does not know the network, so the server refuses `TESTNET5_LIGHTNING_ENABLED=true` at startup ([`CONFIG.md`](CONFIG.md#lightning)).
 
 **What is needed:** `{NET}_LIGHTNING_ENABLED=true`, `DATA_DIR`, the network's node configured as for its blocks, and, on testnet4 and regtest, `{NET}_LIGHTNING_PEERS` ([`CONFIG.md`](CONFIG.md#lightning)). Without a peer list the server does not start there: `config_invalid` with `TESTNET4_LIGHTNING_PEERS must list 1 to 64 peers as <pubkey>@<ip>:<port>, comma-separated (only mainnet and signet have defaults)`. Signet needs no list: the default peers are dialled.
 

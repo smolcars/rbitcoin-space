@@ -14,7 +14,7 @@ import { routes as tx } from "./pages/tx/routes";
 /** Every page, on every network: mainnet at the root, the others under their prefix. */
 export const routes: RouteDefinition[] = [
   {
-    path: ["/", "/signet", "/testnet4", "/regtest"],
+    path: ["/", "/signet", "/testnet4", "/testnet5", "/regtest"],
     children: [
       ...home,
       ...projected,

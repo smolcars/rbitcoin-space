@@ -7,8 +7,9 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
+use bitcoin::params::{self, Params};
 use bitcoin::{BlockHash, CompactTarget};
-use engine::difficulty::{Block, INTERVAL, Period, period_start};
+use engine::difficulty::{Block, INTERVAL, Period, TESTNET5, period_start};
 use logging::events::{DifficultyComputed, DifficultyRefreshFailed, DifficultyRetried};
 use node::electrum;
 use node::esplora::{Error, Esplora};
@@ -139,7 +140,7 @@ async fn refresh(ctx: &NetworkContext) -> Result<(), (u32, &'static str)> {
     };
     let network = ctx.config.network;
     let period = Period::new(
-        chain(network),
+        params(network),
         tip.height,
         tip.header.time.into(),
         first,
@@ -189,12 +190,25 @@ async fn fetch(esplora: &Esplora, height: u32, tip: BlockHash) -> Result<Block, 
     })
 }
 
+/// The network as rust-bitcoin names it, for address forms. It has no Testnet 5, which uses
+/// testnet4's, as rbitcoin does.
 pub(crate) fn chain(network: Network) -> bitcoin::Network {
     match network {
         Network::Mainnet => bitcoin::Network::Bitcoin,
         Network::Signet => bitcoin::Network::Signet,
-        Network::Testnet4 => bitcoin::Network::Testnet4,
+        Network::Testnet4 | Network::Testnet5 => bitcoin::Network::Testnet4,
         Network::Regtest => bitcoin::Network::Regtest,
+    }
+}
+
+/// The network's proof-of-work rules.
+fn params(network: Network) -> &'static Params {
+    match network {
+        Network::Mainnet => &params::MAINNET,
+        Network::Signet => &params::SIGNET,
+        Network::Testnet4 => &params::TESTNET4,
+        Network::Testnet5 => &TESTNET5,
+        Network::Regtest => &params::REGTEST,
     }
 }
 

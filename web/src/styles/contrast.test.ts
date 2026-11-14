@@ -49,6 +49,7 @@ const MARKS = [
   "pool-other",
   "network-signet",
   "network-testnet4",
+  "network-testnet5",
   "network-regtest",
 ];
 
@@ -87,7 +88,7 @@ describe("contrast from the tokens", () => {
 
     it(`keeps a test network's band readable, ${name}`, () => {
       const surface = rgb(theme.get("color-surface") ?? "");
-      for (const net of ["signet", "testnet4", "regtest"]) {
+      for (const net of ["signet", "testnet4", "testnet5", "regtest"]) {
         const colour = rgb(theme.get(`network-${net}`) ?? "");
         const band = mix(colour, 0.12, surface);
         expect(ratio(rgb(theme.get("color-text") ?? ""), band), `text on ${net}`).toBeGreaterThan(

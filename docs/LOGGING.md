@@ -16,7 +16,7 @@ The server writes structured logs to stdout. Every line is one **event**: a decl
 ## Field conventions
 
 - snake_case names; units in the name: `duration_ms`, `upstream_ms`, `bytes`, `request_timeout_secs`.
-- The same name for the same thing everywhere: `network` (`mainnet`, `signet`, `testnet4`, `regtest`), `request_id`, `route`, `status`, `method`.
+- The same name for the same thing everywhere: `network` (`mainnet`, `signet`, `testnet4`, `testnet5`, `regtest`), `request_id`, `route`, `status`, `method`.
 - Labels are fixed snake_case strings from our code (`refused: "client_rate"`), not formatted messages.
 - An optional field that does not apply is left out of the line, not written as `null`.
 - `ts`, `level` and `event` are reserved for the line header and are never field names.
@@ -159,7 +159,7 @@ Every response carries `X-Request-Id`, a 16-digit hex id that also appears in it
 | `electrum_lines_skipped` | warn | `network`, `total` | The node sent lines that are not valid JSON-RPC; at a total of 1, 2, 4, 8… |
 | `chain_reorg` | info | `network`, `fork_height` | Blocks above `fork_height` left the best chain. A fact about the chain, not a fault: testnet4 reorged 18 times in one 12-hour run, and nothing needs an operator |
 | `rpc_auth_failed` | error | `network` | The node refused `{NET}_RPC_USER` and `{NET}_RPC_PASSWORD`. Checked at startup and every 30 s ([`DEPLOY.md`](DEPLOY.md#health)); written when the refusals start. The server keeps running: fix the credentials. Clients see only `upstream unavailable` |
-| `rpc_wrong_network` | error | `network`, `node_chain` | The node behind `{NET}_RPC_*` reports another chain (`node_chain`, as `getblockchaininfo` says it: `main`, `testnet4`, `signet`, `regtest`) than the network it is configured as. Checked at startup and every 30 s; written when it is first found. `/readyz` says `rpc` `wrong_network` and is `503`. The server keeps running and its pages show the other chain's data, but nothing is written to the network's store until a check finds the right chain ([`STORE.md`](STORE.md#chain)): point the variables at the right node |
+| `rpc_wrong_network` | error | `network`, `node_chain` | The node behind `{NET}_RPC_*` reports another chain (`node_chain`, as `getblockchaininfo` says it: `main`, `testnet4`, `testnet5`, `signet`, `regtest`) than the network it is configured as. Checked at startup and every 30 s; written when it is first found. `/readyz` says `rpc` `wrong_network` and is `503`. The server keeps running and its pages show the other chain's data, but nothing is written to the network's store until a check finds the right chain ([`STORE.md`](STORE.md#chain)): point the variables at the right node |
 | `rpc_unreachable` | warn | `network`, `error`, `failures` | The RPC check got no answer (`timeout`, `unavailable`, `busy`, `decode`): at the 1st, 2nd, 4th, 8th… check in a row. Look at the network, or whether the node is up |
 | `rpc_reachable` | info | `network`, `height`, `failures` | The RPC check got an answer with our credentials: the first at startup, and the first after failures or a refused password |
 | `address_index_off` | warn | `network` | The node runs without `--sh-index`: address pages and the address and scripthash routes answer `503`. Asked once the Electrum connection is up and after every reconnect (one lookup of an unused scripthash); written at the first answer and when it changes. Also `address_index` in `/readyz` ([`DEPLOY.md`](DEPLOY.md#health)) |

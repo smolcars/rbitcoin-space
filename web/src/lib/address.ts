@@ -7,7 +7,7 @@ export interface Recognised {
   /** The form the API and the node use: bech32 in lower case, base58 as given. */
   address: string;
   type: AddressType;
-  /** The networks an address of this form belongs to. Signet and testnet4 share their forms. */
+  /** The networks an address of this form belongs to. Signet, testnet4 and Testnet 5 share their forms. */
   networks: readonly Network[];
 }
 
@@ -21,10 +21,10 @@ export const TYPE_NAMES: Record<AddressType, { short: string; long: string }> = 
   witness: { short: "SegWit", long: "A SegWit version not yet in use" },
 };
 
-const TEST_NETWORKS: readonly Network[] = ["signet", "testnet4", "regtest"];
+const TEST_NETWORKS: readonly Network[] = ["signet", "testnet4", "testnet5", "regtest"];
 const BECH32_NETWORKS: Record<string, readonly Network[]> = {
   bc: ["mainnet"],
-  tb: ["signet", "testnet4"],
+  tb: ["signet", "testnet4", "testnet5"],
   bcrt: ["regtest"],
 };
 const BECH32_CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";

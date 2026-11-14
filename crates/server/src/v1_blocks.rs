@@ -26,9 +26,10 @@ use node::esplora::model::BlockStatus;
 use serde::Serialize;
 
 use crate::NetworkContext;
+use crate::difficulty::chain;
 use crate::error::ApiError;
 use crate::esplora::{ApiOutcome, Source};
-use crate::mining::{chain, hex, number, round};
+use crate::mining::{hex, number, round};
 
 /// Blocks in a list, as the reference pages them.
 const LIST: u32 = 15;

@@ -1,6 +1,6 @@
 # WebSocket protocol
 
-The live channel between the server and the frontend: one socket per browser tab at `/app/ws`, or under a network's prefix (`/signet/app/ws`, `/testnet4/app/ws`, `/regtest/app/ws`). A socket belongs to one network. This page is the contract the frontend and every topic are written against. The code is `crates/server/src/ws.rs` and `crates/server/src/ws/`. Wallets and bots written for mempool.space have [their own socket](#the-mempoolspace-shaped-socket-apiv1ws) at `/api/v1/ws`, on the same hub.
+The live channel between the server and the frontend: one socket per browser tab at `/app/ws`, or under a network's prefix (`/signet/app/ws`, `/testnet4/app/ws`, `/testnet5/app/ws`, `/regtest/app/ws`). A socket belongs to one network. This page is the contract the frontend and every topic are written against. The code is `crates/server/src/ws.rs` and `crates/server/src/ws/`. Wallets and bots written for mempool.space have [their own socket](#the-mempoolspace-shaped-socket-apiv1ws) at `/api/v1/ws`, on the same hub.
 
 The socket is part of the private `/app` API: it may change in any release, since the frontend and server ship together. Breaking changes bump the protocol version.
 
@@ -347,7 +347,7 @@ A client closed for 1002 to 4002 has a bug; reconnecting will not help. After 40
 
 ## The mempool.space-shaped socket (`/api/v1/ws`)
 
-For wallets and bots written against mempool.space's WebSocket: `/api/v1/ws` on each network (`/signet/api/v1/ws`, `/testnet4/api/v1/ws`, `/regtest/api/v1/ws`). It runs on the same hub, framing, limits and tracking as `/app/ws` and speaks the reference's JSON, observed from mempool.space ([`compat/websocket.md`](compat/websocket.md)) and held to recorded messages by a test (`every_message_has_the_reference_shape`, against [`fixtures/websocket/reference.json`](../fixtures/websocket/reference.json)). It is a public API: unlike `/app/ws` it may change only to add, and other sites' pages may open it ([below](#why-other-sites-may-open-it)). It is not a drop-in replacement: what it leaves out is [listed](#differences-from-the-reference). The code is `crates/server/src/ws/v1.rs`.
+For wallets and bots written against mempool.space's WebSocket: `/api/v1/ws` on each network (`/signet/api/v1/ws`, `/testnet4/api/v1/ws`, `/testnet5/api/v1/ws`, `/regtest/api/v1/ws`). It runs on the same hub, framing, limits and tracking as `/app/ws` and speaks the reference's JSON, observed from mempool.space ([`compat/websocket.md`](compat/websocket.md)) and held to recorded messages by a test (`every_message_has_the_reference_shape`, against [`fixtures/websocket/reference.json`](../fixtures/websocket/reference.json)). It is a public API: unlike `/app/ws` it may change only to add, and other sites' pages may open it ([below](#why-other-sites-may-open-it)). It is not a drop-in replacement: what it leaves out is [listed](#differences-from-the-reference). The code is `crates/server/src/ws/v1.rs`.
 
 ### What a client sends
 

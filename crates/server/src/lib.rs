@@ -248,7 +248,8 @@ impl NetworkContext {
 }
 
 /// Routes every enabled network serves, written with paths starting `/api` or `/app`. They are
-/// mounted at the root for mainnet and under `/signet`, `/testnet4` and `/regtest` for the others.
+/// mounted at the root for mainnet and under `/signet`, `/testnet4`, `/testnet5` and `/regtest`
+/// for the others.
 pub fn network_routes() -> Router<Arc<NetworkContext>> {
     Router::new()
         .route("/app/ws", get(ws::handle))

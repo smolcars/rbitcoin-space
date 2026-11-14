@@ -441,6 +441,8 @@ const NOTES: Record<Network, string | undefined> = {
     "Signet's blocks are signed by a small set of authorized signers, not won by competing miners. The pool list names none of them, so most blocks show as Unknown, and the hashrate says little about the network.",
   testnet4:
     "Testnet4 lets anyone mine a block at the minimum difficulty when none has been found for 20 minutes, so its hashrate estimate swings widely and pool shares change from day to day.",
+  // Testnet 5 has no minimum-difficulty exception (BIP 95): its figures read as mainnet's.
+  testnet5: undefined,
   regtest:
     "Regtest blocks are made on demand by whoever runs the node, at the minimum difficulty. There are no pools and the hashrate is not meaningful here; the block figures are real.",
 };

@@ -43,6 +43,7 @@ A network is enabled by setting its variables (`.env.example`). Mainnet is serve
 | Mainnet | `/…` | `/api/…`, `/app/…` |
 | Signet | `/signet/…` | `/signet/api/…`, `/signet/app/…` |
 | Testnet4 | `/testnet4/…` | `/testnet4/api/…`, `/testnet4/app/…` |
+| Testnet 5 | `/testnet5/…` | `/testnet5/api/…`, `/testnet5/app/…` |
 | Regtest | `/regtest/…` | `/regtest/api/…`, `/regtest/app/…` |
 
 ## HTTP surface

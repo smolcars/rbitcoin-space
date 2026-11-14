@@ -183,7 +183,7 @@ async fn start(dir: &Path) -> (String, Log) {
     fill(dir).await;
     let (http, electrum, log) = mock_node().await;
     let mut vars: HashMap<String, String> = HashMap::new();
-    for net in ["MAINNET", "SIGNET", "TESTNET4", "REGTEST"] {
+    for net in ["MAINNET", "SIGNET", "TESTNET4", "TESTNET5", "REGTEST"] {
         for (k, v) in [
             ("RPC_HOST", "127.0.0.1".to_owned()),
             ("RPC_PORT", http.to_string()),
@@ -321,6 +321,13 @@ async fn every_kind_of_page_on_every_network_says_what_it_is() {
             "/testnet4",
             "Testnet4: ",
             "Testnet4",
+            "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+            "tb1qw508…7kxpjzsx",
+        ),
+        (
+            "/testnet5",
+            "Testnet5: ",
+            "Testnet5",
             "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
             "tb1qw508…7kxpjzsx",
         ),

@@ -53,6 +53,21 @@ describe("routes", () => {
     expect(document.title).toBe("Testnet4: Transaction | rbitcoin.space");
   });
 
+  it("marks Testnet 5 too, and offers no Lightning there", async () => {
+    const { el } = await open("/testnet5/tx/ab", ["mainnet", "testnet5"]);
+    expect(document.documentElement.dataset["network"]).toBe("testnet5");
+    expect(el.querySelector(".network-band")?.textContent).toBe(
+      "Testnet5 is a test network. Coins here have no value.",
+    );
+    const nav = [...el.querySelectorAll('nav[aria-label="Main"] a')];
+    expect(nav.map((a) => a.getAttribute("href"))).toStrictEqual([
+      "/testnet5/blocks",
+      "/testnet5/mempool",
+      "/testnet5/mining",
+    ]);
+    expect(document.title).toBe("Testnet5: Transaction | rbitcoin.space");
+  });
+
   it("offers the same page on every enabled network", async () => {
     const { el } = await open("/signet/block/5?x=1");
     await vi.waitFor(() => expect(el.querySelectorAll(".network__option")).toHaveLength(3));

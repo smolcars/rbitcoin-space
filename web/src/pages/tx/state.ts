@@ -212,6 +212,7 @@ const INTERVAL_MIN: Record<Network, number | undefined> = {
   mainnet: 10,
   signet: 10,
   testnet4: 10,
+  testnet5: 10,
   regtest: undefined,
 };
 

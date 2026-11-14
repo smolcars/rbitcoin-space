@@ -597,7 +597,7 @@ describe("address page", () => {
     serve({ "/app/config": { networks: ["mainnet", "signet"], version: "0" } });
     const tb = "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx";
     const el = open(`/address/${tb}`);
-    expect(text(el)).toContain("This is a Signet or Testnet4 address");
+    expect(text(el)).toContain("This is a Signet, Testnet4 or Testnet5 address");
     await until(() => expect(el.querySelector(".address-elsewhere a")).not.toBeNull());
     const links = [...el.querySelectorAll(".address-elsewhere a")];
     expect(links.map((a) => [text(a), a.getAttribute("href")])).toStrictEqual([

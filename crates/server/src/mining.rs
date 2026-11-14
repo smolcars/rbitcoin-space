@@ -486,7 +486,7 @@ async fn pool_page(ctx: &NetworkContext, s: &str, below: Option<u32>) -> Respons
         let rows = blocks::pool_page(store, p.id, span.from, below, POOL_PAGE)
             .await
             .map_err(|e| error(&e))?;
-        let network = chain(ctx.config.network);
+        let network = crate::difficulty::chain(ctx.config.network);
         let body: Vec<_> = rows.iter().map(|r| PoolBlock::new(r, p, network)).collect();
         let coverage = Coverage {
             from: Some((span.from, span.from_time)),
@@ -852,15 +852,6 @@ pub(crate) fn iso8601(t: u64) -> String {
         secs / 60 % 60,
         secs % 60
     )
-}
-
-pub(crate) fn chain(network: Network) -> bitcoin::Network {
-    match network {
-        Network::Mainnet => bitcoin::Network::Bitcoin,
-        Network::Signet => bitcoin::Network::Signet,
-        Network::Testnet4 => bitcoin::Network::Testnet4,
-        Network::Regtest => bitcoin::Network::Regtest,
-    }
 }
 
 // Computing answers.

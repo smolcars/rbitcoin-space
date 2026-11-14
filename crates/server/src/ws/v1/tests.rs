@@ -654,7 +654,7 @@ async fn every_message_has_the_reference_shape() {
         bits: bitcoin::CompactTarget::from_consensus(0x1702_6dcc),
     };
     let period = engine::difficulty::Period::new(
-        bitcoin::Network::Bitcoin,
+        &bitcoin::params::MAINNET,
         975_531,
         1_794_471_896,
         block(973_728, 1_793_301_298),

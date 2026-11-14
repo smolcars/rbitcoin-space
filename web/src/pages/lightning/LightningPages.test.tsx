@@ -45,7 +45,7 @@ beforeEach(() => {
   replies = { "/app/lightning/status": json(synced) };
   vi.stubGlobal("fetch", async (url: string) => {
     requests.push(url);
-    const reply = replies[url.replace(/^\/(regtest|signet|testnet4)/, "")];
+    const reply = replies[url.replace(/^\/(regtest|signet|testnet4|testnet5)/, "")];
     return reply ? reply() : Response.json({ error: "not found" }, { status: 404 });
   });
   vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(800);
@@ -66,7 +66,7 @@ function open(url: string): HTMLElement {
     { path: "/lightning/channel/:id", component: ChannelPage },
   ];
   const Router = createRouter({
-    routes: [{ path: ["/", "/signet", "/testnet4", "/regtest"], children: pages }],
+    routes: [{ path: ["/", "/signet", "/testnet4", "/testnet5", "/regtest"], children: pages }],
     history: memoryHistory(url),
   });
   const el = document.createElement("div");
@@ -94,6 +94,13 @@ describe("the Lightning section's states", () => {
     const el = mount(() => <LightningPage />, "/signet/lightning");
     await shows(el, "switched off on Signet");
     expect(requests).toStrictEqual(["/signet/app/lightning/status"]);
+  });
+
+  it("says Testnet 5 has no Lightning, not that it is switched off", async () => {
+    replies["/app/lightning/status"] = json({ state: "off" });
+    const el = mount(() => <LightningPage />, "/testnet5/lightning");
+    await shows(el, "There is no Lightning on Testnet5 here");
+    expect(text(el)).not.toContain("switched off");
   });
 
   it("shows how far a sync has come, then the pages once it is done, without a reload", async () => {

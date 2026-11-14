@@ -7,6 +7,7 @@ The server serves rbitcoin's Esplora REST API under `/api`: the same routes, sta
 | Mainnet | `/api` |
 | Signet | `/signet/api` |
 | Testnet4 | `/testnet4/api` |
+| Testnet 5 | `/testnet5/api` |
 | Regtest | `/regtest/api` |
 
 A disabled network's base is a `404`.
@@ -257,6 +258,7 @@ The remaining blocks are projected from now, or from the tip's timestamp if that
 |---|---|
 | Mainnet, signet | As above. Signet has its own, lower minimum difficulty |
 | Testnet4 | BIP94: a retarget scales the bits of the period's *first* block, because its last is usually a minimum-difficulty block mined after a 20-minute gap. `difficultyChange` and `previousRetarget` describe that real difficulty; minimum-difficulty blocks count toward the period and the average like any other. Miners often stamp blocks up to two hours ahead of the clock, which is why the projection starts from the tip's timestamp |
+| Testnet 5 | As mainnet: no minimum-difficulty blocks and no BIP94 (BIP 95). Its minimum difficulty is its genesis block's bits, `0x1a0fffff`, about 1,048,561, so a retarget never goes below that |
 | Regtest | Never retargets. `difficultyChange` and `previousRetarget` are always `0`; the period fields still count toward height multiples of 2016, where nothing happens. Blocks mined in bulk make `timeAvg` near zero, and the first period's average starts at the 2011 genesis block |
 
 How we differ from the reference backend, measured side by side: progress, heights, block counts and `previousTime` match exactly and `previousRetarget` up to floating-point rounding. The reference's `timeAvg` divides the time from the period's first block to *now* by the blocks mined, so it grows between blocks and is wrong when the tip is ahead of the clock; ours uses the tip's timestamp. Its `difficultyChange` follows from that average: within 0.01 percentage points of ours on mainnet and signet, but about two points off on testnet4, where tips run hours ahead. `estimatedRetargetDate` and `remainingTime` differ accordingly.

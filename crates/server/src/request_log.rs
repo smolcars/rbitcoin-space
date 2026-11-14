@@ -180,6 +180,7 @@ mod tests {
             Some("signet")
         );
         assert_eq!(network("/testnet4", FRONTEND), Some("testnet4"));
+        assert_eq!(network("/testnet5/tx/ab", FRONTEND), Some("testnet5"));
         assert_eq!(network("/signetx/tx", FRONTEND), Some("mainnet"));
         assert_eq!(network("/healthz", "/healthz"), None);
         assert_eq!(network("/assets/a.js", FRONTEND), None);

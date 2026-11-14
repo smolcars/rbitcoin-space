@@ -277,6 +277,7 @@ fn chain(network: Network) -> &'static str {
         Network::Mainnet => "Bitcoin",
         Network::Signet => "Signet",
         Network::Testnet4 => "Testnet4",
+        Network::Testnet5 => "Testnet5",
         Network::Regtest => "Regtest",
     }
 }
@@ -287,6 +288,7 @@ fn title_prefix(network: Network) -> &'static str {
         Network::Mainnet => "",
         Network::Signet => "Signet: ",
         Network::Testnet4 => "Testnet4: ",
+        Network::Testnet5 => "Testnet5: ",
         Network::Regtest => "Regtest: ",
     }
 }

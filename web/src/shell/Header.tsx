@@ -2,7 +2,7 @@ import { useIsRouting, useLocation } from "@solidjs/router";
 import { type Accessor, onSettled } from "solid-js";
 import { Link } from "../components/Link";
 import { SearchField } from "../components/SearchField";
-import { type Network, stripNetwork } from "../lib/network";
+import { hasLightning, type Network, networkFromPath, stripNetwork } from "../lib/network";
 import { Logo } from "./Logo";
 import { NetworkSwitch } from "./NetworkSwitch";
 import { ThemeToggle } from "./ThemeToggle";
@@ -19,6 +19,10 @@ export function Header(props: { networks: Accessor<readonly Network[] | undefine
   const location = useLocation();
   const isRouting = useIsRouting();
   const page = () => stripNetwork(location.pathname);
+  const nav = () =>
+    hasLightning(networkFromPath(location.pathname))
+      ? NAV
+      : NAV.filter((item) => item.href !== "/lightning");
   let search: HTMLInputElement | undefined;
   let header: HTMLElement | undefined;
 
@@ -87,7 +91,7 @@ export function Header(props: { networks: Accessor<readonly Network[] | undefine
           <SearchField ref={(el) => (search = el)} />
         </div>
         <nav class="nav" aria-label="Main">
-          {NAV.map((item) => (
+          {nav().map((item) => (
             // "true", the current section, not "page": the router marks and unmarks "page" on
             // links whose address is exactly the page's, and took the mark off when a query
             // or a child page differed. A value it did not write, it leaves alone.

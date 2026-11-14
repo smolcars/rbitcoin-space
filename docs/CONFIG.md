@@ -14,7 +14,7 @@ The server reads its configuration from the environment once, at startup. Invali
 
 ## Networks
 
-A network is enabled when all six of its variables are set, and disabled when none are. Setting only some is an error. `{NET}` is one of `MAINNET`, `SIGNET`, `TESTNET4`, `REGTEST`. Mainnet is served at `/`, the others under `/signet`, `/testnet4` and `/regtest`; a disabled network's paths are a 404.
+A network is enabled when all six of its variables are set, and disabled when none are. Setting only some is an error. `{NET}` is one of `MAINNET`, `SIGNET`, `TESTNET4`, `TESTNET5`, `REGTEST`. Mainnet is served at `/`, the others under `/signet`, `/testnet4`, `/testnet5` and `/regtest`; a disabled network's paths are a 404. Testnet 5 needs a node newer than rbitcoin v0.9.2, given a peer ([`DEPLOY.md`](DEPLOY.md#testnet-5)).
 
 | Variable | Format |
 |---|---|
@@ -35,7 +35,7 @@ A network is enabled when all six of its variables are set, and disabled when no
 
 ### Lightning
 
-The gossip-only Lightning peer ([`LIGHTNING.md`](LIGHTNING.md#in-the-server)), per network. Off unless switched on; it needs `DATA_DIR`, where it keeps its node key, graph file and saved answers in `<DATA_DIR>/lightning/<network>/` (32 bytes, about 33 MB and 3.3 MB on mainnet) beside the history it stores in the network's SQLite file. Setting `{NET}_LIGHTNING_ENABLED=true` without `DATA_DIR` stops the server at startup.
+The gossip-only Lightning peer ([`LIGHTNING.md`](LIGHTNING.md#in-the-server)), per network. Off unless switched on; it needs `DATA_DIR`, where it keeps its node key, graph file and saved answers in `<DATA_DIR>/lightning/<network>/` (32 bytes, about 33 MB and 3.3 MB on mainnet) beside the history it stores in the network's SQLite file. Setting `{NET}_LIGHTNING_ENABLED=true` without `DATA_DIR` stops the server at startup, and so does `TESTNET5_LIGHTNING_ENABLED=true`: LDK has no Testnet 5, so there is no Lightning there and its Lightning pages are not offered.
 
 | Variable | Default | What it does |
 |---|---|---|

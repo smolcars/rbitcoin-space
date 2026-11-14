@@ -13,9 +13,22 @@
 //!   the last may be a minimum-difficulty block mined after a 20-minute gap. Using the first
 //!   block's bits is therefore right on every network.
 //! - Regtest never retargets.
+//! - Testnet 5 (BIP 95) retargets as mainnet does, with no minimum-difficulty blocks and a
+//!   proof-of-work limit of its genesis block's bits ([`TESTNET5`]).
+
+use std::sync::LazyLock;
 
 use bitcoin::params::Params;
 use bitcoin::{CompactTarget, Network, Target};
+
+/// Testnet 5's rules, which rust-bitcoin does not have: testnet4's, without minimum-difficulty
+/// blocks and with the genesis block's bits as the proof-of-work limit, as rbitcoin builds them.
+pub static TESTNET5: LazyLock<Params> = LazyLock::new(|| {
+    let mut p = Params::new(Network::Testnet4);
+    p.allow_min_difficulty_blocks = false;
+    p.max_attainable_target = Target::from_compact(CompactTarget::from_consensus(0x1a0f_ffff));
+    p
+});
 
 /// Blocks in a difficulty period.
 pub const INTERVAL: u32 = 2016;
@@ -53,11 +66,10 @@ impl Invalid {
 
 /// The bits consensus gives the first block of the next period, from this period's first block's
 /// bits and the seconds from that block to the period's last. `None` if `first` is not a valid
-/// target on `network`.
-pub fn next_bits(network: Network, first: CompactTarget, timespan: i64) -> Option<CompactTarget> {
-    let params = Params::new(network);
-    target(&params, first)?;
-    Some(retarget(&params, first, timespan))
+/// target on `params`.
+pub fn next_bits(params: &Params, first: CompactTarget, timespan: i64) -> Option<CompactTarget> {
+    target(params, first)?;
+    Some(retarget(params, first, timespan))
 }
 
 /// `first` must be a valid target on `params`: then `target × timespan` fits in 256 bits on every
@@ -91,9 +103,9 @@ fn ratio(from: Target, to: Target) -> f64 {
 }
 
 /// The current period, checked. Build it with [`Period::new`] and ask [`Period::estimate`].
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy)]
 pub struct Period {
-    network: Network,
+    params: &'static Params,
     tip_height: u32,
     tip_time: u64,
     start: Block,
@@ -131,23 +143,22 @@ impl Period {
     /// period before it (`None` only in the first period). The next period's first height must
     /// fit a `u32`.
     pub fn new(
-        network: Network,
+        params: &'static Params,
         tip_height: u32,
         tip_time: u64,
         start: Block,
         previous: Option<Block>,
     ) -> Result<Self, Invalid> {
-        let params = Params::new(network);
         if start.height != period_start(tip_height)
             || previous.map(|p| p.height) != start.height.checked_sub(INTERVAL)
             || start.height.checked_add(INTERVAL).is_none()
         {
             return Err(Invalid::Height);
         }
-        let current = target(&params, start.bits).ok_or(Invalid::Bits)?;
+        let current = target(params, start.bits).ok_or(Invalid::Bits)?;
         let previous_change = match previous {
             Some(p) if !params.no_pow_retargeting => {
-                let before = target(&params, p.bits).ok_or(Invalid::Bits)?;
+                let before = target(params, p.bits).ok_or(Invalid::Bits)?;
                 (ratio(before, current) - 1.0) * 100.0
             }
             // Regtest's bits can still differ between periods (a fixed-bits option), but that
@@ -155,7 +166,7 @@ impl Period {
             _ => 0.0,
         };
         Ok(Self {
-            network,
+            params,
             tip_height,
             tip_time,
             start,
@@ -172,7 +183,7 @@ impl Period {
     /// runs from the later of now and the tip's timestamp (testnet4 miners run hours ahead);
     /// the estimated date is wall-clock, from now.
     pub fn estimate(&self, now_ms: u64) -> Estimate {
-        let params = Params::new(self.network);
+        let params = self.params;
         let spacing = params.pow_target_spacing as f64;
         let mined = self.tip_height - self.start.height;
         let remaining_blocks = INTERVAL - mined;
@@ -190,7 +201,7 @@ impl Period {
         };
         let timespan = (last - self.start.time as f64).round() as i64;
         let current = Target::from_compact(self.start.bits);
-        let next = Target::from_compact(retarget(&params, self.start.bits, timespan));
+        let next = Target::from_compact(retarget(params, self.start.bits, timespan));
         let remaining_ms = (f64::from(remaining_blocks) * avg * 1000.0).round() as u64;
         let since_start = now_ms as f64 / 1000.0 - self.start.time as f64;
         Estimate {

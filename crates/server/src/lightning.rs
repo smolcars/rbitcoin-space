@@ -248,7 +248,11 @@ async fn run(
     network: Network,
 ) {
     let name = network.name();
-    let mut config = ln::Config::new(network.ln(), l.dir.clone());
+    // Unreachable: the config refuses Lightning where LDK has no such network.
+    let Some(ln_network) = network.ln() else {
+        return;
+    };
+    let mut config = ln::Config::new(ln_network, l.dir.clone());
     config.peers.clone_from(&l.config.peers);
     config.max_peers = l.config.max_peers;
     config.max_channels = l.config.max_channels;

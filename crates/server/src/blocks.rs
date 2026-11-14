@@ -156,10 +156,18 @@ impl BlockTable {
 
 /// The genesis hash of `network`'s chain, which its store records ([`store::Options::genesis`]).
 pub fn genesis(network: Network) -> [u8; 32] {
+    if network == Network::Testnet5 {
+        // rust-bitcoin has no Testnet 5; its genesis block, mined 2026-11-14 (BIP 95).
+        return TESTNET5_GENESIS
+            .parse::<BlockHash>()
+            .map_or([0; 32], |h| h.to_byte_array());
+    }
     bitcoin::constants::genesis_block(crate::difficulty::chain(network))
         .block_hash()
         .to_byte_array()
 }
+
+const TESTNET5_GENESIS: &str = "00000000000008c1637e7d3252dc1c333d4546fd6fff6a474b200d674a91d497";
 
 /// Starts following the tip and, unless it is off, the backfill.
 pub fn spawn(ctx: &Arc<NetworkContext>, backfill: Backfill) {
@@ -359,4 +367,16 @@ async fn follow(ctx: Arc<NetworkContext>, backfill: Backfill) {
 
 fn ms(d: Duration) -> f64 {
     d.as_secs_f64() * 1000.0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn testnet5_has_its_own_genesis() {
+        let hash = BlockHash::from_byte_array(genesis(Network::Testnet5));
+        assert_eq!(hash.to_string(), TESTNET5_GENESIS);
+        assert_ne!(genesis(Network::Testnet5), genesis(Network::Testnet4));
+    }
 }

@@ -1,14 +1,18 @@
 // Networks and the paths that carry them. Mainnet has no prefix; the others live under /<name>.
 
-export const NETWORKS = ["mainnet", "signet", "testnet4", "regtest"] as const;
+export const NETWORKS = ["mainnet", "signet", "testnet4", "testnet5", "regtest"] as const;
 export type Network = (typeof NETWORKS)[number];
 
 export const NETWORK_NAMES: Record<Network, string> = {
   mainnet: "Mainnet",
   signet: "Signet",
   testnet4: "Testnet4",
+  testnet5: "Testnet5",
   regtest: "Regtest",
 };
+
+/** Whether a Lightning peer can run here: LDK, which runs it, has no Testnet 5. */
+export const hasLightning = (network: Network): boolean => network !== "testnet5";
 
 export function isNetwork(value: unknown): value is Network {
   return typeof value === "string" && (NETWORKS as readonly string[]).includes(value);

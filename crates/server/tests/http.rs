@@ -44,10 +44,10 @@ fn fixture() -> PathBuf {
     root.join("web")
 }
 
-/// Mainnet, signet and testnet4 enabled; regtest disabled. Nothing listens on the endpoints.
+/// Mainnet, signet, testnet4 and testnet5 enabled; regtest disabled. Nothing listens on the endpoints.
 fn config(limits: Limits) -> Config {
     let mut vars = std::collections::HashMap::new();
-    for net in ["MAINNET", "SIGNET", "TESTNET4"] {
+    for net in ["MAINNET", "SIGNET", "TESTNET4", "TESTNET5"] {
         for (k, v) in [
             ("RPC_HOST", "127.0.0.1"),
             ("RPC_PORT", "1"),
@@ -209,7 +209,7 @@ async fn app_config_lists_enabled_networks_at_the_root_only() {
     let json: serde_json::Value = serde_json::from_str(&r.body).unwrap();
     assert_eq!(
         json["networks"],
-        serde_json::json!(["mainnet", "signet", "testnet4"])
+        serde_json::json!(["mainnet", "signet", "testnet4", "testnet5"])
     );
     assert_eq!(json["version"], env!("CARGO_PKG_VERSION"));
     assert_json_error(
@@ -235,6 +235,7 @@ async fn each_enabled_network_gets_its_own_context() {
         ("/api/net", "mainnet"),
         ("/signet/api/net", "signet"),
         ("/testnet4/api/net", "testnet4"),
+        ("/testnet5/api/net", "testnet5"),
     ] {
         let r = get_path(&addr, path).await;
         assert_eq!(r.status, 200, "{path}");
@@ -260,7 +261,7 @@ async fn disabled_and_unknown_networks_are_404() {
 #[tokio::test]
 async fn api_paths_do_not_fall_back_to_the_app_shell() {
     let addr = start(limits()).await;
-    for prefix in ["", "/signet", "/testnet4"] {
+    for prefix in ["", "/signet", "/testnet4", "/testnet5"] {
         for path in [
             "/api",
             "/api/",
@@ -288,6 +289,7 @@ async fn pages_fall_back_to_the_app_shell() {
         "/signet/",
         "/signet/tx/abc",
         "/testnet4/",
+        "/testnet5/tx/abc",
     ] {
         let r = get_path(&addr, path).await;
         assert_eq!(r.status, 200, "{path}");

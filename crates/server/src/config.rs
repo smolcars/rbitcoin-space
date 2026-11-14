@@ -13,17 +13,26 @@ pub enum Network {
     Mainnet,
     Signet,
     Testnet4,
+    /// BIP 95. rust-bitcoin and LDK have no such network: it takes testnet4's address forms.
+    Testnet5,
     Regtest,
 }
 
 impl Network {
-    pub const ALL: [Self; 4] = [Self::Mainnet, Self::Signet, Self::Testnet4, Self::Regtest];
+    pub const ALL: [Self; 5] = [
+        Self::Mainnet,
+        Self::Signet,
+        Self::Testnet4,
+        Self::Testnet5,
+        Self::Regtest,
+    ];
 
     pub fn name(self) -> &'static str {
         match self {
             Self::Mainnet => "mainnet",
             Self::Signet => "signet",
             Self::Testnet4 => "testnet4",
+            Self::Testnet5 => "testnet5",
             Self::Regtest => "regtest",
         }
     }
@@ -34,6 +43,7 @@ impl Network {
             Self::Mainnet => "main",
             Self::Signet => "signet",
             Self::Testnet4 => "testnet4",
+            Self::Testnet5 => "testnet5",
             Self::Regtest => "regtest",
         }
     }
@@ -44,6 +54,7 @@ impl Network {
             Self::Mainnet => "",
             Self::Signet => "/signet",
             Self::Testnet4 => "/testnet4",
+            Self::Testnet5 => "/testnet5",
             Self::Regtest => "/regtest",
         }
     }
@@ -53,17 +64,19 @@ impl Network {
             Self::Mainnet => "MAINNET",
             Self::Signet => "SIGNET",
             Self::Testnet4 => "TESTNET4",
+            Self::Testnet5 => "TESTNET5",
             Self::Regtest => "REGTEST",
         }
     }
 
-    /// The network as LDK names it.
-    pub fn ln(self) -> ln::Network {
+    /// The network as LDK names it; `None` where LDK has no such network.
+    pub fn ln(self) -> Option<ln::Network> {
         match self {
-            Self::Mainnet => ln::Network::Bitcoin,
-            Self::Signet => ln::Network::Signet,
-            Self::Testnet4 => ln::Network::Testnet4,
-            Self::Regtest => ln::Network::Regtest,
+            Self::Mainnet => Some(ln::Network::Bitcoin),
+            Self::Signet => Some(ln::Network::Signet),
+            Self::Testnet4 => Some(ln::Network::Testnet4),
+            Self::Testnet5 => None,
+            Self::Regtest => Some(ln::Network::Regtest),
         }
     }
 }
@@ -754,7 +767,13 @@ fn lightning_config(
     var: &dyn Fn(&str) -> Option<String>,
 ) -> Result<LightningConfig, String> {
     let p = network.env_prefix();
-    let d = ln::Config::new(network.ln(), PathBuf::new());
+    let Some(chain) = network.ln() else {
+        return Err(format!(
+            "{p}_LIGHTNING_ENABLED cannot be true: LDK, the Lightning library, does not know {}",
+            network.name()
+        ));
+    };
+    let d = ln::Config::new(chain, PathBuf::new());
     let peers = match var(&format!("{p}_LIGHTNING_PEERS")) {
         None => d.peers,
         Some(list) => list
@@ -967,6 +986,21 @@ mod tests {
                 "{e}"
             );
         }
+        // LDK has no Testnet 5: refused whatever peers are named.
+        let mut t5 = renamed("TESTNET5", &on);
+        t5.push((
+            "TESTNET5_LIGHTNING_PEERS".into(),
+            format!("{peer}@203.0.113.1:9735"),
+        ));
+        let e = parse_owned(&t5).unwrap_err();
+        assert!(
+            e.contains("TESTNET5_LIGHTNING_ENABLED cannot be true") && e.contains("testnet5"),
+            "{e}"
+        );
+        // Without Lightning it is a network like the others.
+        let c = parse_owned(&renamed("TESTNET5", &[])).unwrap();
+        assert_eq!(c.networks[0].network, Network::Testnet5);
+        assert_eq!(c.networks[0].network.path_prefix(), "/testnet5");
     }
 
     #[test]

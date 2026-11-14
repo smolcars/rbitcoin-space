@@ -287,7 +287,7 @@ When the tip moves, the first block of the last projection on the old tip is kep
 | Condition | What happens |
 |---|---|
 | Empty mempool | Every block is empty, with zero totals |
-| Smaller than a block (signet, testnet4, regtest) | Everything in the first block; the rest empty |
+| Smaller than a block (signet, testnet4, Testnet 5, regtest) | Everything in the first block; the rest empty |
 | A cluster request fails or answers `Busy` | The affected transactions keep their last chunks, `stale` is set on the projection and in its deltas, and nothing is asked until the backoff ends (2 s, doubling to 30 s), however often the tracker publishes. New transactions wait with the rest, placed by their own fee rate |
 | The tracker's own cycles fail (the node is down) | The last good projection stays, marked `stale` until the tracker's next good cycle |
 | A transaction left between the tracker's listing and our request | Its slot answers "not in mempool": it keeps its record until the tracker removes it |
