@@ -10,24 +10,30 @@ test.use({ consoleErrorsAllowed: [/status of (404|429|502|503)/] });
 test("a first visit says it is being added up, with real progress, then shows it", async ({
   page,
 }) => {
-  let state: () => unknown = () => ({ state: "queued", position: 3 });
-  await stubLarge(page, { ledger: () => state() });
+  let state: unknown = { state: "queued", position: 3 };
+  // The page's clock stands still but when the test moves it, so every timer the page starts
+  // starts at one instant: its asks and its count are exact, and nothing waits.
+  await page.clock.install();
+  await page.clock.pauseAt(Date.now() + 1000);
+  await stubLarge(page, { ledger: () => state });
   await page.goto(`/regtest/address/${LARGE}`);
   const adding = page.getByRole("region", { name: "Adding up this address for the first time" });
   await expect(adding).toBeVisible();
   await expect(adding).toContainText("2 addresses ahead of it");
   // What the node says of it is still shown meanwhile.
   await expect(page.getByRole("region", { name: "What is known" })).toContainText(/3\s665\s660/);
-  // The server's own count, read at each ask; between asks the page counts on by itself, so it
-  // moves every second: no spinner that cannot end.
-  const began = Date.now() - 12_000;
-  state = () => ({ state: "seeding", seconds: Math.floor((Date.now() - began) / 1000) });
-  await expect(adding).toContainText(/started 1\d s ago/, { timeout: LEDGER_POLL_MS + 3000 });
-  await expect(adding).toContainText(/started (1[5-9]|2\d) s ago/, { timeout: 6000 });
-  state = () => KEPT;
-  await expect(page.getByRole("table", { name: /^Newest confirmed transactions/ })).toBeVisible({
-    timeout: LEDGER_POLL_MS + 3000,
-  });
+  // The server's own count, read at the next ask; between asks the page counts on by itself, so
+  // it moves every second: no spinner that cannot end.
+  state = { state: "seeding", seconds: 12 };
+  await page.clock.runFor(LEDGER_POLL_MS);
+  await expect(adding).toContainText(/started 1\d s ago/);
+  const heard = Number(/started (\d+) s ago/.exec((await adding.textContent()) ?? "")?.[1]);
+  // Two seconds, and no ask between: the next is a poll away.
+  await page.clock.runFor(2000);
+  await expect(adding).toContainText(`started ${heard + 2} s ago`);
+  state = KEPT;
+  await page.clock.runFor(LEDGER_POLL_MS);
+  await expect(page.getByRole("table", { name: /^Newest confirmed transactions/ })).toBeVisible();
   await expect(adding).toHaveCount(0);
 });
 

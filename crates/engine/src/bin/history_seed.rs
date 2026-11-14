@@ -1,9 +1,10 @@
 //! Gives a fresh data directory some mempool history, for the browser tests: the server records
 //! its first minute only 60 to 120 s after it starts, so `web/scripts/e2e.sh` runs this first.
 //! It stores minutes through `history::record`, the sampler's own writer, so the rows are exactly
-//! what a running server stores.
+//! what a running server stores. A binary, not an example: an example is built with the crate's
+//! dev-dependencies, which would compile the engine a second time for every browser test run.
 //!
-//! `cargo run -p engine --example history_seed -- <DATA_DIR>` writes `<DATA_DIR>/regtest.sqlite`:
+//! `cargo run -p engine --bin history_seed -- <DATA_DIR>` writes `<DATA_DIR>/regtest.sqlite`:
 //! the 20 minutes that end an hour ago, without the five in their middle. The minute `i` (0 the
 //! oldest) holds `901 + i` transactions, so a test can tell each one apart and see the hole where
 //! 909 to 913 would be.
