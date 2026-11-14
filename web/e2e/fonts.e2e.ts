@@ -1,7 +1,7 @@
 // Every page type in a stand-in for a wider system font than a Mac's, across widths and in both
 // schemes: nothing runs into anything, nothing is cut, amounts stay whole, tables fit their panels.
 import { stripVTControlCharacters } from "node:util";
-import { type Prose, expect, test } from "./fixtures";
+import { type Prose, chain, expect, test } from "./fixtures";
 import { frames, layoutFaults } from "./layout";
 import { PAGES } from "./pages";
 import { amountsIntact, tablesFit } from "./rows";
@@ -65,6 +65,28 @@ for (const { path, stub } of PAGES) {
     expect(faults).toStrictEqual([]);
   });
 }
+
+// Every phone width a card's exact amount is near its edge, not one: Chromium on Linux draws this
+// font's digits a whole pixel wide each, so at 320 px alone it never met the widths that
+// WebKit's and Firefox's fractional digits ran past their card at (SB19).
+test("a flow card's amount stays inside its card at every width from 320 to 340 px", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 900 });
+  await page.goto(`/regtest/tx/${chain.txs.script_types}`);
+  await expect(page.locator(".tx-flow__item .amount").first()).toBeVisible();
+  const faults: string[] = [];
+  for (let width = 320; width <= 340; width++) {
+    await page.setViewportSize({ width, height: 900 });
+    await frames(page);
+    try {
+      await amountsIntact(page, `${width} px`);
+    } catch (error) {
+      faults.push(said(error));
+    }
+  }
+  expect(faults).toStrictEqual([]);
+});
 
 // The check itself: each kind of fault it exists for, built on a page, is found; the same text
 // in a box that scrolls on that axis is not.

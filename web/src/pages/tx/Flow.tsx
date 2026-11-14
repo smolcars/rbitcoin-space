@@ -93,8 +93,11 @@ export function Flow(props: {
       const card = amount.closest(".tx-flow__item");
       if (!exact || !card) continue;
       amount.classList.remove("amount--tight");
-      // 2 px clear of the border on each side, inside the card's padding.
-      const wide = exact.getBoundingClientRect().width > card.clientWidth - 4;
+      // 2 px clear of the border on each side, where it actually sits: an amount wider than its
+      // line runs out on one side only, so it has one side's padding to spare, not both.
+      const e = exact.getBoundingClientRect();
+      const inner = card.getBoundingClientRect().left + card.clientLeft;
+      const wide = e.left < inner + 2 || e.right > inner + card.clientWidth - 2;
       amount.classList.toggle("amount--tight", wide);
     }
   };
