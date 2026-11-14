@@ -321,19 +321,20 @@ test.describe("Lightning's lists", () => {
     }
   });
 
-  test("every table fits its panel or shows that it scrolls, at 320, 390 and 720 px", async ({
-    page,
-  }) => {
-    await serve(page, mainnet());
-    for (const width of [320, 390, 720]) {
+  // A test a width: all three in one outran 30 s in WebKit at a phone's pixel density on CI's runner.
+  for (const width of [320, 390, 720]) {
+    test(`every table fits its panel or shows that it scrolls, at ${width} px`, async ({
+      page,
+    }) => {
+      await serve(page, mainnet());
       await page.setViewportSize({ width, height: 900 });
       for (const path of pages) {
         await page.goto(path);
         await expect(page.locator("table.table--rows tbody tr").first()).toBeVisible();
         await tablesFit(page, `${path} at ${width} px`);
       }
-    }
-  });
+    });
+  }
 });
 
 test("the overview's own links mark one current place at a time", async ({ page }) => {
