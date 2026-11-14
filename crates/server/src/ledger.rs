@@ -35,7 +35,7 @@ use engine::store::Store;
 use logging::events::{
     LedgerChecked, LedgerFillFailed, LedgerFilled, LedgerFollowFailed, LedgerFollowed,
     LedgerHistory, LedgerHistoryBound, LedgerHistoryFailed, LedgerSeedFailed, LedgerSeedRefused,
-    LedgerSeeded,
+    LedgerSeeded, LedgerTotalsRoute,
 };
 use node::esplora::model::ScriptInfo;
 use node::esplora::{Error, Esplora, RawResponse, Route, ScriptHash, ScriptRef, ScriptSize};
@@ -620,6 +620,7 @@ impl Ledger {
                 esplora: Esplora::with_limits(url, SEED_TIMEOUT, Esplora::DEFAULT_MAX_RESPONSE)
                     .ok()?,
                 electrum: network.electrum.clone(),
+                uncapped: Default::default(),
             },
             config,
             lane,
@@ -639,6 +640,31 @@ impl Ledger {
 
     pub fn store(&self) -> &Arc<Store> {
         &self.store
+    }
+
+    /// Asks the node whether its socket adds up totals above its cap (docs/RBITCOIN.md, "Totals of
+    /// large addresses"), and logs the answer. Called when the node's connection is first ready
+    /// and after every reconnect; over TCP it asks nothing.
+    pub async fn detect(&self) {
+        if let Some(uncapped) = self.source.detect().await {
+            // Seeds the cap refused before the node was upgraded may run at once.
+            if uncapped {
+                self.seeds()
+                    .ended
+                    .retain(|_, (e, _)| !matches!(e, Ended::Refused(_)));
+            }
+            logging::emit(&LedgerTotalsRoute {
+                network: self.network,
+                uncapped,
+            });
+        }
+    }
+
+    /// Whether seeds add up addresses above the node's cap, as last found.
+    fn uncapped(&self) -> bool {
+        self.source
+            .uncapped
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     pub fn is_tracked(&self, sh: ScriptHash) -> bool {
@@ -1159,7 +1185,11 @@ async fn run(ctx: Arc<NetworkContext>) {
                     },
                     duration_ms: ms(started.elapsed()),
                 });
-                if size == Some(Size::TooLarge) {
+                // Above the node's cap: added up through its socket when it can, else shown
+                // as refused for a while.
+                if size == Some(Size::TooLarge) && ledger.uncapped() {
+                    ledger.queue_found(script);
+                } else if size == Some(Size::TooLarge) {
                     remember(
                         &mut ledger.seeds().ended,
                         ScriptHash::from_script(&script),

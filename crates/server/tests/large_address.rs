@@ -65,6 +65,16 @@ struct Node {
     orphaned: Mutex<Vec<String>>,
     /// History pages fail: no fill ends, so none tells an address's followers anything.
     fail_pages: std::sync::atomic::AtomicBool,
+    /// The node serves the uncapped totals route on its socket (rbitcoin PR 1628): totals of any
+    /// address, those refused for size included. Without it the route is the unknown path, 404.
+    internal: std::sync::atomic::AtomicBool,
+    /// The route's probe answers 503: a node that does not say.
+    probe_fails: std::sync::atomic::AtomicBool,
+    /// Electrum completes its handshake (answers `blockchain.headers.subscribe`), so the server
+    /// asks the node which routes it serves.
+    handshake: std::sync::atomic::AtomicBool,
+    /// Closes every Electrum connection: the node restarted (upgraded, say).
+    restart: tokio::sync::Notify,
 }
 
 impl Node {
@@ -91,6 +101,17 @@ impl Node {
                 path == format!("/address/{a}") || path == format!("/scripthash/{sh}")
             })
             .count()
+    }
+
+    /// Paths asked under `/internal`, with their query.
+    fn internal_paths(&self) -> Vec<String> {
+        self.seen
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|p| p.starts_with("/internal"))
+            .cloned()
+            .collect()
     }
 
     /// History pages asked for any script, with their query.
@@ -189,6 +210,12 @@ fn rpc_error(code: i64) -> Response {
 async fn esplora(node: Arc<Node>, pq: String) -> Response {
     let (path, query) = pq.split_once('?').unwrap_or((&pq, ""));
     let parts: Vec<&str> = path.trim_start_matches('/').split('/').collect();
+    // The uncapped totals route: the totals route's own paths under `/internal`.
+    let internal = parts.len() == 3 && parts[0] == "internal";
+    let parts = if internal { &parts[1..] } else { &parts[..] };
+    if internal && !node.internal.load(Ordering::SeqCst) {
+        return (StatusCode::NOT_FOUND, "Not Found").into_response();
+    }
     let stamp_height = query
         .strip_prefix("asof=")
         .map_or(Some(TIP), height_of)
@@ -203,7 +230,15 @@ async fn esplora(node: Arc<Node>, pq: String) -> Response {
         h.insert("x-bitcoin-chain-tip-height", stamp_height.into());
         r
     };
-    match parts.as_slice() {
+    match parts {
+        ["scripthash", id] if internal && *id == "00".repeat(32) => {
+            if node.probe_fails.load(Ordering::SeqCst) {
+                return (StatusCode::SERVICE_UNAVAILABLE, "busy").into_response();
+            }
+            let body =
+                json!({"scripthash": id, "chain_stats": stats(0), "mempool_stats": stats(0)});
+            stamped(StatusCode::OK, body.to_string())
+        }
         [kind @ ("address" | "scripthash"), id] => {
             let k = node.kinds.lock().unwrap().get(*id).copied();
             let now = node.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
@@ -211,6 +246,8 @@ async fn esplora(node: Arc<Node>, pq: String) -> Response {
             let k = match k {
                 Some(Kind::Grew { .. }) if stamp_height < 100 => Some(Kind::Small),
                 Some(Kind::Grew { ms }) => Some(Kind::Large { ms }),
+                // No cap on the internal route.
+                Some(Kind::Refused { ms }) if internal => Some(Kind::Large { ms }),
                 k => k,
             };
             let r = match k {
@@ -306,11 +343,21 @@ async fn electrum(node: Arc<Node>) -> String {
             tokio::spawn(async move {
                 let (rd, mut wr) = stream.into_split();
                 let mut lines = tokio::io::BufReader::new(rd).lines();
-                while let Ok(Some(line)) = lines.next_line().await {
+                loop {
+                    let line = tokio::select! {
+                        l = lines.next_line() => l,
+                        () = node.restart.notified() => return,
+                    };
+                    let Ok(Some(line)) = line else { return };
                     let req: Value = serde_json::from_str(&line).unwrap_or_default();
                     let id = req["id"].clone();
                     let reply = match req["method"].as_str().unwrap_or_default() {
                         "server.version" => json!({"id": id, "result": ["mock", "1.4"]}),
+                        "blockchain.headers.subscribe" if node.handshake.load(Ordering::SeqCst) => {
+                            let tip = bitcoin::constants::genesis_block(Network::Regtest).header;
+                            json!({"id": id, "result": {"height": 0,
+                                "hex": bitcoin::consensus::encode::serialize_hex(&tip)}})
+                        }
                         "blockchain.scripthash.get_history" => {
                             node.list_calls.fetch_add(1, Ordering::SeqCst);
                             let sh = req["params"][0].as_str().unwrap_or_default().to_owned();
@@ -368,7 +415,7 @@ async fn electrum(node: Arc<Node>) -> String {
     addr
 }
 
-async fn mock() -> (String, Arc<Node>) {
+async fn mock(socket: Option<&std::path::Path>) -> (String, Arc<Node>) {
     let node = Arc::new(Node::default());
     let n = Arc::clone(&node);
     let app = Router::new().fallback(any(move |method: Method, uri: Uri, body: Bytes| {
@@ -383,6 +430,11 @@ async fn mock() -> (String, Arc<Node>) {
             }
         }
     }));
+    if let Some(path) = socket {
+        let listener = tokio::net::UnixListener::bind(path).unwrap();
+        let app = app.clone();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    }
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -393,6 +445,7 @@ struct Server {
     addr: String,
     node: Arc<Node>,
     _dir: Option<Dir>,
+    _sock: Option<Dir>,
 }
 
 impl Server {
@@ -428,12 +481,36 @@ async fn start(store: bool, vars: &[(&str, &str)]) -> Server {
 }
 
 async fn start_with(store: bool, extra: &[(&str, &str)], before: impl FnOnce(&Node)) -> Server {
+    start_via(false, store, extra, before).await
+}
+
+/// With `socket`, the server reaches the mock's Esplora over a unix socket, and the mock's
+/// Electrum completes its handshake.
+async fn start_via(
+    socket: bool,
+    store: bool,
+    extra: &[(&str, &str)],
+    before: impl FnOnce(&Node),
+) -> Server {
     static N: AtomicUsize = AtomicUsize::new(0);
-    let (mock, node) = mock().await;
+    // A short path: a socket's path has a limit of about 100 bytes.
+    let sock = socket.then(|| {
+        let d = std::env::temp_dir().join(format!(
+            "rbs-{}-{}",
+            std::process::id(),
+            N.fetch_add(1, Ordering::SeqCst)
+        ));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        Dir(d)
+    });
+    let sock_path = sock.as_ref().map(|d| d.0.join("e.sock"));
+    let (mock, node) = mock(sock_path.as_deref()).await;
+    node.handshake.store(socket, Ordering::SeqCst);
     before(&node);
     let electrum_addr = electrum(Arc::clone(&node)).await;
     let (host, port) = mock.split_once(':').unwrap();
-    let url = format!("http://{mock}");
+    let url = sock_path.map_or_else(|| format!("http://{mock}"), |p| p.display().to_string());
     let mut vars: HashMap<String, String> = [
         ("REGTEST_RPC_HOST", host),
         ("REGTEST_RPC_PORT", port),
@@ -483,6 +560,7 @@ async fn start_with(store: bool, extra: &[(&str, &str)], before: impl FnOnce(&No
         addr,
         node,
         _dir: dir,
+        _sock: sock,
     };
     if store {
         // The store takes writes once the RPC check has found the node on the right chain.
@@ -736,6 +814,158 @@ async fn a_seed_the_node_refuses_leaves_the_address_as_it_was_and_says_why() {
     let calls = s.node.totals_calls(&a);
     assert_eq!(ledger(&s, 1, &a).await["state"], "refused");
     assert_eq!(s.node.totals_calls(&a), calls);
+    // Over TCP the uncapped route never exists: nothing is asked under `/internal`.
+    assert!(
+        s.node.internal_paths().is_empty(),
+        "{:?}",
+        s.node.internal_paths()
+    );
+}
+
+const PROBE: &str =
+    "/internal/scripthash/0000000000000000000000000000000000000000000000000000000000000000";
+
+/// The server reaches the mock over a unix socket; whether the mock serves the uncapped route.
+async fn on_socket(route: bool) -> Server {
+    let s = start_via(true, true, &[], |n| {
+        n.internal.store(route, Ordering::SeqCst)
+    })
+    .await;
+    wait_for("the probe", || async {
+        s.node.internal_paths().iter().any(|p| p == PROBE)
+    })
+    .await;
+    s
+}
+
+/// Reads the address's totals the way a reader does (refused for size), then has the page ask
+/// for its ledger until `state`.
+async fn refused_then(s: &Server, a: &Address, state: &str) -> Value {
+    let r = get(&s.addr, 1, &format!("/regtest/api/address/{a}")).await;
+    assert_eq!((r.status, r.body["error"].as_str()), (503, Some(TOO_LARGE)));
+    wait_for(state, || async { ledger(s, 1, a).await["state"] == state }).await;
+    ledger(s, 1, a).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_address_above_the_cap_is_added_up_through_the_socket_and_its_list_stays_refused() {
+    let s = on_socket(true).await;
+    let a = address(90);
+    s.node.set(&a, Kind::Refused { ms: 0 });
+    let sh = ScriptHash::from_script(&a.script_pubkey()).to_string();
+    let v = refused_then(&s, &a, "tracked").await;
+    assert_eq!(v["chain_stats"]["funded_txo_count"], 50_000);
+    // Added up once, through the uncapped route, pinned to a block the ledger holds.
+    let asked: Vec<String> = s
+        .node
+        .internal_paths()
+        .into_iter()
+        .filter(|p| p.starts_with(&format!("/internal/scripthash/{sh}?asof=")))
+        .collect();
+    assert_eq!(asked.len(), 1, "{:?}", s.node.internal_paths());
+    // Electrum still refuses its whole list: the ledger says so, and takes the newest page.
+    wait_for("list refused", || async {
+        ledger(&s, 1, &a).await["history"] == "refused"
+    })
+    .await;
+    wait_for("filled", || async {
+        ledger(&s, 1, &a).await["filling"] == false
+    })
+    .await;
+    // Its totals are the ledger's now; its history pages are still refused, at once.
+    let r = get(&s.addr, 1, &format!("/regtest/api/address/{a}")).await;
+    assert_eq!(r.status, 200);
+    assert_eq!(r.body["chain_stats"]["funded_txo_count"], 50_000);
+    let r = get(&s.addr, 1, &format!("/regtest/api/address/{a}/txs/chain")).await;
+    assert_eq!((r.status, r.body["error"].as_str()), (503, Some(TOO_LARGE)));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn on_a_socket_without_the_route_a_seed_above_the_cap_is_refused_as_before() {
+    let s = on_socket(false).await;
+    let a = address(91);
+    s.node.set(&a, Kind::Refused { ms: 0 });
+    let v = refused_then(&s, &a, "refused").await;
+    assert_eq!(v["creates"], 20_000);
+    assert_eq!(s.node.internal_paths(), vec![PROBE.to_owned()]);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_node_that_loses_the_route_is_probed_again_and_asked_the_capped_route() {
+    let s = on_socket(true).await;
+    // Downgraded since the probe: the route is the unknown path again.
+    s.node.internal.store(false, Ordering::SeqCst);
+    let a = address(92);
+    s.node.set(&a, Kind::Refused { ms: 0 });
+    refused_then(&s, &a, "refused").await;
+    let sh = ScriptHash::from_script(&a.script_pubkey()).to_string();
+    let internal = s.node.internal_paths();
+    // The probe, the seed's 404, the probe again; then the capped route refused the seed.
+    assert_eq!(internal.len(), 3, "{internal:?}");
+    assert!(internal[1].starts_with(&format!("/internal/scripthash/{sh}?asof=")));
+    assert_eq!(internal[2], PROBE);
+    // A later seed asks the capped route only.
+    let b = address(93);
+    s.node.set(&b, Kind::Refused { ms: 0 });
+    refused_then(&s, &b, "refused").await;
+    assert_eq!(s.node.internal_paths().len(), 3);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_node_upgraded_under_the_server_is_probed_again_and_adds_up_a_refused_address() {
+    let s = on_socket(false).await;
+    let a = address(96);
+    s.node.set(&a, Kind::Refused { ms: 0 });
+    refused_then(&s, &a, "refused").await;
+    // Restarted with the route: the server reconnects, asks again, and the refusal it remembered
+    // no longer holds the address back.
+    s.node.internal.store(true, Ordering::SeqCst);
+    s.node.restart.notify_waiters();
+    wait_for("the second probe", || async {
+        s.node
+            .internal_paths()
+            .iter()
+            .filter(|p| *p == PROBE)
+            .count()
+            == 2
+    })
+    .await;
+    wait_for("tracked", || async {
+        ledger(&s, 1, &a).await["state"] == "tracked"
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_probe_without_an_answer_leaves_the_route_unused() {
+    let s = start_via(true, true, &[], |n| {
+        n.internal.store(true, Ordering::SeqCst);
+        n.probe_fails.store(true, Ordering::SeqCst);
+    })
+    .await;
+    wait_for("the probe", || async {
+        s.node.internal_paths().iter().any(|p| p == PROBE)
+    })
+    .await;
+    let a = address(94);
+    s.node.set(&a, Kind::Refused { ms: 0 });
+    refused_then(&s, &a, "refused").await;
+    assert_eq!(s.node.internal_paths(), vec![PROBE.to_owned()]);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn discovery_adds_up_a_script_above_the_cap_through_the_socket() {
+    let d = address(95);
+    let s = start_via(true, true, &[("LEDGER_DISCOVER", "true")], |node| {
+        node.internal.store(true, Ordering::SeqCst);
+        node.paid.lock().unwrap().push(d.script_pubkey());
+        node.set(&d, Kind::Refused { ms: 0 });
+    })
+    .await;
+    wait_for("found and tracked", || async {
+        ledger(&s, 1, &d).await["state"] == "tracked"
+    })
+    .await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

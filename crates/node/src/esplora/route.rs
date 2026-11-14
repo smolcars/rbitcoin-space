@@ -240,6 +240,12 @@ pub enum Route {
     InternalBlockTxs(BlockHash),
     InternalOutspendsByTxid(Vec<Txid>),
     InternalOutspendsByOutpoint(Vec<OutPoint>),
+    /// [`Route::ScriptStats`] without the node's `--max-sh-creates` refusal (rbitcoin PR 1628,
+    /// after v0.9.2): the same JSON, `?asof=` and chain-tip stamp.
+    InternalScriptStats {
+        script: ScriptRef,
+        asof: Option<BlockHash>,
+    },
 }
 
 impl Route {
@@ -266,6 +272,7 @@ impl Route {
                 | Self::InternalBlockTxs(_)
                 | Self::InternalOutspendsByTxid(_)
                 | Self::InternalOutspendsByOutpoint(_)
+                | Self::InternalScriptStats { .. }
         )
     }
 
@@ -439,6 +446,11 @@ impl Route {
             Self::InternalOutspendsByOutpoint(_) => {
                 o.push_str("/internal/txs/outspends/by-outpoint")
             }
+            Self::InternalScriptStats { script, asof: a } => {
+                o.push_str("/internal");
+                write_script(o, script)?;
+                asof = *a;
+            }
         }
         if let Some(h) = asof {
             // Only ScriptTxs can already have a query (`after_txid`).
@@ -518,12 +530,21 @@ mod tests {
         );
         assert_eq!(
             path(&Route::ScriptTxsSummary {
-                script: sh,
+                script: sh.clone(),
                 last_seen: Some(t),
                 asof: None
             }),
             format!("/scripthash/{H}/txs/summary/{H}")
         );
+        let uncapped = Route::InternalScriptStats {
+            script: sh,
+            asof: Some(h),
+        };
+        assert_eq!(
+            path(&uncapped),
+            format!("/internal/scripthash/{H}?asof={H}")
+        );
+        assert!(uncapped.is_internal());
         assert_eq!(
             path(&Route::InternalMempoolTxs {
                 after: Some(t),

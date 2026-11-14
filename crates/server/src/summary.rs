@@ -437,22 +437,28 @@ pub fn lister(network: Network) -> Lister {
     })
 }
 
-/// Asks the node which source lists its blocks when the Electrum connection is first ready, then
-/// after every reconnect, since the node may have been upgraded meanwhile. A reconnect is the
-/// client's `Resynced` event, which unlike the health watch is never merged with the next one.
-pub async fn detect_listing(ctx: Arc<NetworkContext>) {
+/// Asks the node which routes it serves when the Electrum connection is first ready, then after
+/// every reconnect, since the node may have been upgraded or downgraded meanwhile (a new node
+/// means a restart, so a reconnect): which source lists its blocks, and whether its socket adds
+/// up large addresses' totals above its cap. A reconnect is the client's `Resynced` event, which
+/// unlike the health watch is never merged with the next one.
+pub async fn detect_routes(ctx: Arc<NetworkContext>) {
+    let detect = async || {
+        ctx.lister.detect(&ctx.esplora).await;
+        if let Some(ledger) = &ctx.guard.ledger {
+            ledger.detect().await;
+        }
+    };
     // Subscribed before the first probe, so a reconnect during it is still heard.
     let mut events = ctx.electrum.events();
     if ctx.electrum.health().wait_for(|h| h.ready).await.is_err() {
         return;
     }
-    ctx.lister.detect(&ctx.esplora).await;
+    detect().await;
     loop {
         match events.recv().await {
             // A lagged receiver may have missed a reconnect.
-            Ok(ElectrumEvent::Resynced) | Err(RecvError::Lagged(_)) => {
-                ctx.lister.detect(&ctx.esplora).await;
-            }
+            Ok(ElectrumEvent::Resynced) | Err(RecvError::Lagged(_)) => detect().await,
             Ok(_) => {}
             Err(RecvError::Closed) => return,
         }

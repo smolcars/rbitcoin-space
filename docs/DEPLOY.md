@@ -17,6 +17,10 @@ rbitcoin at **v0.9.2**, the version this release was built and tested against. T
 | `--rpc-listen` with `--rpc-cookie-file` | The live mempool, projected blocks, block statistics and the backfill. The cookie file holds `user:password`; rbitcoin has no `--rpcuser` | No mempool, no block table, no mining pages |
 | `--sh-index` | Address pages and the address and scripthash API routes | Those answer `503` `address index is disabled on this server`; everything else works. The server says so at startup (`address_index_off`, and `address_index` in [`/readyz`](#health)). It is off by default in rbitcoin |
 
+#### Large addresses and the node's cap
+
+Keep `--max-sh-creates` on (rbitcoin's default, 10,000 paying transactions) on a node that serves anyone but the server, its public Electrum port above all: raising it lets anyone start joins of millions of transactions. The explorer keeps the busiest addresses' totals itself and needs the node to add each up once ([`API.md`](API.md#very-large-addresses)). With the server on the node's Esplora unix socket and a node that has rbitcoin PR 1628 (no release yet; nightly images from `nightly-20261114` on), it does that through the socket alone, one address at a time, so the cap can stay where it is. The log says which at startup and after every reconnect: `ledger_totals_route` with `uncapped: true` ([`RBITCOIN.md`](RBITCOIN.md#totals-of-large-addresses)). What the cap still costs is the whole history of an address above it: rbitcoin has no socket-only list yet, so such an address shows its totals and newest 200 transactions, and its older pages are refused. On v0.9.2, or over TCP, an address above the cap is shown as too large for this server unless the cap is raised for everyone.
+
 Esplora and Electrum have no authentication. Never let anything but the server reach them. The [interfaces and what the explorer relies on](RBITCOIN.md) are documented separately.
 
 ### The host
@@ -112,7 +116,7 @@ with `server.env` holding the six `MAINNET_*` variables ([`CONFIG.md`](CONFIG.md
 
 - **The node's Esplora, Electrum and RPC are on a network.** None of them encrypts, and the first two do not authenticate. Put them on a private network or a tunnel (WireGuard, SSH) that only the server's host can reach.
 - **Every node call crosses it.** With the mempool engine on, the server reads 120 to 200 MB a minute of RPC answers on mainnet, more as the mempool grows ([`CONFIG.md`](CONFIG.md#the-live-mempool)): 7 to 12 GB an hour between the two hosts, measured. The backfill's old blocks are mostly round trips, so it runs slower over a network ([`STORE.md`](STORE.md#backfill)).
-- **No bulk routes.** rbitcoin's `/internal/*` routes are only on its unix socket. Today the server calls none of them, so nothing is lost yet; a later release may use them when they are there.
+- **No bulk routes.** rbitcoin's `/internal/*` routes are only on its unix socket. The server uses one: totals of addresses above the node's `--max-sh-creates` ([large addresses](#large-addresses-and-the-nodes-cap)). Over TCP those addresses are shown as too large for this server unless the cap is raised for everyone.
 
 ### The node in another compose project
 

@@ -101,6 +101,7 @@ async fn main() {
         .unwrap(),
         esplora: Esplora::new("http://127.0.0.1:1").unwrap(),
         electrum: var(&net, "ELECTRUM_ADDR"),
+        uncapped: Default::default(),
     });
     let dir = std::env::temp_dir().join(format!("history_list_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);

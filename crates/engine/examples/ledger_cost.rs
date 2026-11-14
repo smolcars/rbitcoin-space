@@ -109,6 +109,7 @@ async fn main() {
         rpc: rpc.clone(),
         esplora: Esplora::new("http://127.0.0.1:1").unwrap(),
         electrum: String::new(),
+        uncapped: Default::default(),
     };
     let tip = node.height().await.unwrap();
     let from = tip - n;

@@ -1050,6 +1050,7 @@ mod regtest {
             .unwrap(),
             esplora: Esplora::new(&var("REGTEST_ESPLORA_URL")).unwrap(),
             electrum: var("REGTEST_ELECTRUM_ADDR"),
+            uncapped: Default::default(),
         }
     }
 

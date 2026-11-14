@@ -795,6 +795,15 @@ pub struct LedgerSeeded {
 }
 event!(LedgerSeeded, "ledger_seeded", Info);
 
+/// Whether the node's Esplora socket adds up totals above its `--max-sh-creates`, so seeds of
+/// addresses above the cap ask it: at startup and on every reconnect, on a socket only.
+#[derive(Debug, Serialize)]
+pub struct LedgerTotalsRoute {
+    pub network: &'static str,
+    pub uncapped: bool,
+}
+event!(LedgerTotalsRoute, "ledger_totals_route", Info);
+
 /// The node refused to add an address up: its `--max-sh-creates` is in force. Said once until a
 /// seed works again.
 #[derive(Debug, Serialize)]
@@ -2082,6 +2091,10 @@ mod tests {
                 evicted: 0,
                 via: "reader",
                 duration_ms: 8000.0,
+            }),
+            both(&LedgerTotalsRoute {
+                network: n,
+                uncapped: true,
             }),
             both(&LedgerSeedRefused {
                 network: n,
