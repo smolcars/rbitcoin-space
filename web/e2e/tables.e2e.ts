@@ -169,15 +169,16 @@ test.describe("a tap anywhere on any list's row", () => {
   });
 });
 
-// A test to a width and half the lists: each is its own client, so no reader's allowance is spent
-// on 24 page loads. All eleven in one outran 30 s in WebKit at a phone's pixel density on CI's
-// runner, where a page's first frames after loading take up to a second each.
+// A test to a width and kind of list: each is its own client, so no reader's allowance is spent on
+// 24 page loads. All eleven in one outran 30 s in WebKit at a phone's pixel density on CI's runner,
+// where a page's first frames after loading take up to a second each.
 for (const width of [320, 390, 720]) {
-  for (const [half, lists] of [
-    ["first", LISTS.slice(0, 6)],
-    ["second", LISTS.slice(6)],
+  for (const [kind, lists] of [
+    ["the chain's", LISTS.slice(0, 4)],
+    ["an address's", LISTS.slice(4, 8)],
+    ["mining's", LISTS.slice(8)],
   ] as const) {
-    test(`every table fits its panel or shows that it scrolls, at ${width} px, ${half} half of the lists`, async ({
+    test(`every table fits its panel or shows that it scrolls, at ${width} px: ${kind} lists`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height: 900 });
