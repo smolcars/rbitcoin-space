@@ -44,7 +44,9 @@ test("a kept address shows its totals, newest transactions and balance at once",
   await page.goto(`/regtest/address/${LARGE}`);
   const totals = page.getByRole("region", { name: "Totals" });
   await expect(totals).toContainText(/3\s800\s001/);
-  await expect(page.getByText(/added this address up at block 105/)).toBeVisible();
+  await expect(
+    page.getByText(/whole history\. This server counted them once, at block 105/),
+  ).toBeVisible();
   await expect(page.getByText(/exact at block 110/)).toBeVisible();
   const txs = page.getByRole("table", { name: /^Newest confirmed transactions/ });
   await expect(txs.locator("tbody tr")).toHaveCount(3);

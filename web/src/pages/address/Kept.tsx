@@ -69,9 +69,10 @@ export function KeptAddress(props: {
     <>
       <Totals stats={props.stats} retry={props.retry} />
       <p class="address-kept">
-        This server added this address up at block {groupDigits(props.ledger.seeded.height)} (
-        {date(props.ledger.seeded.time)}) and has kept its totals since, from each new block, so it
-        shows them at once. They are exact at block {groupDigits(props.ledger.at.height)}.
+        These totals cover this address's whole history. This server counted them once, at block{" "}
+        {groupDigits(props.ledger.seeded.height)} ({date(props.ledger.seeded.time)}), and has
+        updated them from each new block since, so it shows them at once. They are exact at block{" "}
+        {groupDigits(props.ledger.at.height)}.
       </p>
       <KeptChart ledger={props.ledger} />
       <Show
