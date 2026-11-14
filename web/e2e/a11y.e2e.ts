@@ -65,31 +65,86 @@ interface Stop {
   covered: boolean;
 }
 
-/** Where focus is now: its name, whether it shows a focus ring, and whether the header covers it. */
-const here = (page: Page) =>
-  page.evaluate((): Stop | null => {
-    const e = document.activeElement;
-    if (!(e instanceof HTMLElement) || e === document.body) return null;
-    e.dataset["walked"] = "";
-    // The ring is the element's own outline, or its field's (the search draws it on its box).
-    let ring = false;
-    for (const x of [e, e.parentElement]) {
-      const s = x && getComputedStyle(x);
-      if (s && s.outlineStyle !== "none" && Number.parseFloat(s.outlineWidth) >= 2) ring = true;
-    }
-    const header = document.querySelector(".site-header");
-    const box = e.getBoundingClientRect();
-    const bottom =
-      header && getComputedStyle(header).position === "sticky"
-        ? header.getBoundingClientRect().bottom
-        : 0;
-    // Under the header where the header is painted over its top edge (the skip link is above it).
-    const top = document.elementFromPoint(box.left + box.width / 2, Math.max(box.top + 1, 0));
-    const covered =
-      !header?.contains(e) && box.top < bottom - 1 && box.bottom > 0 && !!header?.contains(top);
-    const name = (e.getAttribute("aria-label") ?? e.textContent ?? "").trim().slice(0, 40);
-    return { name: `${e.tagName.toLowerCase()} "${name}"`, ring, covered };
+interface Walked {
+  /** Where focus was as each key was pressed, so after the key before had moved and scrolled it. */
+  seen: (Stop | null)[];
+  /** The focused element at each key pressed, every one since the walk began. */
+  at: (Element | null)[];
+  here: () => Stop | null;
+}
+
+/**
+ * Notes where focus is at every Tab pressed from now on: its name, whether it shows a focus ring,
+ * and whether the header covers it. Noted in the page, so a stop costs no round trip of its own.
+ */
+const record = (page: Page) =>
+  page.evaluate(() => {
+    const w = window as unknown as Walked;
+    w.seen = [];
+    w.at = [];
+    w.here = (): Stop | null => {
+      const e = document.activeElement;
+      if (!(e instanceof HTMLElement) || e === document.body) return null;
+      e.dataset["walked"] = "";
+      // The ring is the element's own outline, or its field's (the search draws it on its box).
+      let ring = false;
+      for (const x of [e, e.parentElement]) {
+        const s = x && getComputedStyle(x);
+        if (s && s.outlineStyle !== "none" && Number.parseFloat(s.outlineWidth) >= 2) ring = true;
+      }
+      const header = document.querySelector(".site-header");
+      const box = e.getBoundingClientRect();
+      const bottom =
+        header && getComputedStyle(header).position === "sticky"
+          ? header.getBoundingClientRect().bottom
+          : 0;
+      // Under the header where the header is painted over its top edge (the skip link is above it).
+      const top = document.elementFromPoint(box.left + box.width / 2, Math.max(box.top + 1, 0));
+      const covered =
+        !header?.contains(e) && box.top < bottom - 1 && box.bottom > 0 && !!header?.contains(top);
+      const name = (e.getAttribute("aria-label") ?? e.textContent ?? "").trim().slice(0, 40);
+      return { name: `${e.tagName.toLowerCase()} "${name}"`, ring, covered };
+    };
+    // Tab's own keydown only: a press of Shift+Tab or Alt+Tab is two.
+    addEventListener(
+      "keydown",
+      (e) => {
+        if (e.key !== "Tab") return;
+        w.seen.push(w.here());
+        w.at.push(document.activeElement);
+      },
+      { capture: true },
+    );
   });
+
+/** The stops noted since the last call, and focus as it is now. */
+const noted = (page: Page) =>
+  page.evaluate(() => {
+    const w = window as unknown as Walked;
+    return { seen: w.seen.splice(0), now: w.here() };
+  });
+
+/**
+ * Presses Tab, or Shift+Tab, `n` times. Chromium is sent every press at once over its protocol,
+ * which it handles in order; a round trip per press was most of this file's time in CI.
+ */
+async function press(page: Page, browserName: string, back: boolean, n: number) {
+  if (browserName !== "chromium") {
+    // Safari's Tab reaches only form fields unless the reader asks for more; Option-Tab reaches all.
+    const tab = browserName === "webkit" ? "Alt+Tab" : "Tab";
+    for (let i = 0; i < n; i++) await page.keyboard.press(back ? `Shift+${tab}` : tab);
+    return;
+  }
+  const cdp = await page.context().newCDPSession(page);
+  const key = { key: "Tab", code: "Tab", windowsVirtualKeyCode: 9, modifiers: back ? 8 : 0 };
+  await Promise.all(
+    Array.from({ length: n }, () => [
+      cdp.send("Input.dispatchKeyEvent", { type: "rawKeyDown", ...key }),
+      cdp.send("Input.dispatchKeyEvent", { type: "keyUp", ...key }),
+    ]).flat(),
+  );
+  await cdp.detach();
+}
 
 /**
  * Tabs through the whole page from the top, then back up with Shift+Tab: the skip link comes
@@ -97,19 +152,26 @@ const here = (page: Page) =>
  * in sight is reached in the order the page reads, header, main, then footer.
  */
 async function walk(page: Page, browserName: string) {
-  // Safari's Tab reaches only form fields unless the reader asks for more; Option-Tab reaches all.
-  const tab = browserName === "webkit" ? "Alt+Tab" : "Tab";
-  await page.evaluate(() => {
+  await record(page);
+  const controls = await page.evaluate(() => {
     (document.activeElement as HTMLElement | null)?.blur();
     window.scrollTo(0, 0);
+    return document.querySelectorAll(
+      "a[href], button, input, select, textarea, summary, [tabindex]",
+    ).length;
   });
-  const stops: Stop[] = [];
-  for (let i = 0; i < 400; i++) {
-    await page.keyboard.press(tab);
-    const s = await here(page);
-    if (!s || (i > 0 && s.name === stops[0]?.name)) break;
-    stops.push(s);
+  // Focus after each press, until it leaves the page or comes back to the first stop. Presses go
+  // in batches a little longer than the page's controls, and the walk is cut where it ended.
+  const after: (Stop | null)[] = [];
+  let end = -1;
+  while (end < 0 && after.length < 400) {
+    await press(page, browserName, false, controls + 2);
+    // The first noted is focus before the batch's first press, which the last batch's end held.
+    const { seen } = await noted(page);
+    after.push(...(after.length > 0 ? seen : seen.slice(1)));
+    end = after.findIndex((s, i) => !s || (i > 0 && s.name === after[0]?.name));
   }
+  const stops = after.slice(0, end < 0 ? after.length : end) as Stop[];
   expect.soft(stops[0]?.name, "the first stop").toBe('a "Skip to content"');
   expect
     .soft(
@@ -154,13 +216,17 @@ async function walk(page: Page, browserName: string) {
       "header, then main, then footer",
     )
     .toBe(true);
-  // Back up the page: focus scrolled into view from below must clear the sticky header.
-  const back: string[] = [];
-  for (let i = 1; i < stops.length; i++) {
-    await page.keyboard.press(`Shift+${tab}`);
-    const s = await here(page);
-    if (s?.covered) back.push(s.name);
-  }
+  // Back up the page from the last stop: focus scrolled into view from below must clear the
+  // sticky header.
+  // at[0] is focus before the first press, so the last stop's element is at[stops.length].
+  await page.evaluate(
+    (i) => ((window as unknown as Walked).at[i] as HTMLElement | null)?.focus(),
+    stops.length,
+  );
+  await press(page, browserName, true, stops.length - 1);
+  // The first noted is the last stop itself, focused from a script rather than by a key.
+  const { seen, now } = await noted(page);
+  const back = [...seen.slice(1), now].filter((s) => s?.covered).map((s) => s?.name);
   expect.soft(back, "stops under the header, tabbing up").toEqual([]);
 }
 

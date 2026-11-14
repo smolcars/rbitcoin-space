@@ -46,13 +46,14 @@ else
 fi
 browser_pid=$!
 bun run build --outDir "$run/dist" --emptyOutDir --logLevel warn
-(cd "$root" && cargo build --locked --quiet -p rbitcoin-space &&
-  cargo build --locked --quiet -p engine --example history_seed)
+# One build: the seeder shares the server's features, so the engine is compiled once.
+(cd "$root" && cargo build --locked --quiet -p rbitcoin-space -p engine \
+  --bin rbitcoin-space --bin history_seed)
 echo "e2e: built at ${SECONDS}s" >&2
 bin="${CARGO_TARGET_DIR:-$root/target}/debug/rbitcoin-space"
 case "$bin" in /*) ;; *) bin="$root/$bin" ;; esac
 # The server records its first minute 60 to 120 s after it starts, so it starts with some history.
-"$(dirname "$bin")/examples/history_seed" "$run/data"
+"$(dirname "$bin")/history_seed" "$run/data"
 
 wait "$node_pid" || { cat "$run/regtest.log" >&2; exit 1; }
 wait "$browser_pid"
