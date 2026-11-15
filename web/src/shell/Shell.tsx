@@ -80,7 +80,7 @@ export function Shell(props: { children?: JSX.Element }) {
           </p>
         </div>
       </Show>
-      <Header networks={networks} ark={() => config()?.ark} />
+      <Header networks={networks} ark={() => config()?.ark} lightning={() => config()?.lightning} />
       <main id="main" class="site-main" tabindex="-1" ref={main}>
         <Errored
           fallback={(error, reset) => {

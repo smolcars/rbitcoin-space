@@ -2,9 +2,10 @@
 // leads on Enter. Kept out of the first load (components/SearchField.tsx imports it lazily).
 import { TYPE_NAMES } from "../lib/address";
 import { fetchApi, fetchApp, isNotFound } from "../lib/api";
+import { type AppConfig, loadConfig } from "../lib/config";
 import { groupDigits } from "../lib/format";
 import { NETWORK_NAMES, type Network, paths } from "../lib/network";
-import { cleanAlias, isSearchResult, isStatus, searchProblem } from "../pages/lightning/lightning";
+import { cleanAlias, isSearchResult, searchProblem } from "../pages/lightning/lightning";
 import { classify, type HashKind, MAX_QUERY, type Query } from "./query";
 
 export type { Query } from "./query";
@@ -111,10 +112,14 @@ export interface Suggestions {
 /**
  * One search and one suggestion request at a time: starting either, or cancelling, aborts the one
  * in flight, whose promise then answers undefined so a slow answer can never replace a newer one.
- * Whether a network has Lightning is asked once (its status route, which always answers); a
- * network without it is never asked to search.
+ * Whether a network has Lightning comes from the server's config, which the shell has already read;
+ * a network without it is never asked to search.
  */
-export function createSearch(fetch: Get = get, app: Get = getApp) {
+export function createSearch(
+  fetch: Get = get,
+  app: Get = getApp,
+  config: () => Promise<AppConfig | null> = loadConfig,
+) {
   let current: AbortController | undefined;
   const cancel = () => {
     current?.abort();
@@ -125,22 +130,8 @@ export function createSearch(fetch: Get = get, app: Get = getApp) {
     current = new AbortController();
     return current;
   };
-  const known = new Map<Network, Promise<boolean>>();
-  // Not tied to a search's signal: one status answers every search after it.
-  const lightning = (network: Network): Promise<boolean> => {
-    let on = known.get(network);
-    if (!on) {
-      on = app(network, "/lightning/status", new AbortController().signal).then(
-        (v) => isStatus(v) && v.state !== "off",
-        () => {
-          known.delete(network);
-          return false;
-        },
-      );
-      known.set(network, on);
-    }
-    return on;
-  };
+  const lightning = async (network: Network) =>
+    (await config())?.lightning.includes(network) ?? false;
 
   const run = async (raw: string, network: Network): Promise<Outcome | undefined> => {
     const controller = start();

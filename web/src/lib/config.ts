@@ -7,6 +7,8 @@ export interface AppConfig {
   version: string;
   /** The Ark implementations each network looks VTXOs up on (`bark`, `arkade`), only where it has one. */
   ark: Partial<Record<Network, string[]>>;
+  /** The networks whose operator switched Lightning on; the Lightning tab shows on these alone. */
+  lightning: Network[];
 }
 
 /** The `ark` map: known networks, each with a list of short lower-case names. */
@@ -28,8 +30,9 @@ export function parseConfig(body: unknown): AppConfig | null {
   if (!networks) return null;
   const version = "version" in body && typeof body.version === "string" ? body.version : "";
   const ark = parseArk("ark" in body ? body.ark : undefined);
-  // oxlint-disable-next-line unicorn/no-array-callback-reference -- isNetwork takes one argument
-  return { networks: networks.filter(isNetwork), version, ark };
+  const lightning = "lightning" in body && Array.isArray(body.lightning) ? body.lightning : [];
+  const known = (list: unknown[]) => list.filter((n) => isNetwork(n));
+  return { networks: known(networks), version, ark, lightning: known(lightning) };
 }
 
 /**

@@ -16,7 +16,7 @@ use axum::body::{Body, Bytes};
 use axum::extract::{ConnectInfo, State};
 use axum::http::Request;
 use axum::routing::{get, post};
-use rbitcoin_space::config::{IpNet, TrustedProxy};
+use rbitcoin_space::config::{IpNet, LightningConfig, TrustedProxy};
 use rbitcoin_space::{
     App, CLOUDFLARE_CSP, Config, IMMUTABLE, Limits, NetworkContext, SECURITY_HEADERS,
 };
@@ -237,6 +237,7 @@ async fn app_config_lists_enabled_networks_at_the_root_only() {
     assert_eq!(json["version"], env!("CARGO_PKG_VERSION"));
     // No network has an Ark implementation configured.
     assert_eq!(json["ark"], serde_json::json!({}));
+    assert_eq!(json["lightning"], serde_json::json!([]));
     assert_json_error(
         &get_path(&addr, "/signet/app/config").await,
         404,
@@ -250,6 +251,11 @@ async fn app_config_lists_enabled_networks_at_the_root_only() {
     c.networks[0].bark = Some(bark::Endpoint::parse("http://127.0.0.1:1").unwrap());
     c.networks[0].arkade = Some(arkade::Endpoint::parse("http://127.0.0.1:1").unwrap());
     c.networks[1].arkade = Some(arkade::Endpoint::parse("http://127.0.0.1:1").unwrap());
+    c.networks[1].lightning = Some(LightningConfig {
+        peers: Vec::new(),
+        max_peers: 1,
+        max_channels: 1,
+    });
     let addr = start_with(c).await;
     let json: serde_json::Value =
         serde_json::from_str(&get_path(&addr, "/app/config").await.body).unwrap();
@@ -259,6 +265,8 @@ async fn app_config_lists_enabled_networks_at_the_root_only() {
         json["ark"],
         serde_json::json!({ "signet": ["bark", "arkade"], "testnet4": ["arkade"] })
     );
+    // Lightning switched on for testnet4 alone: the header offers its tab there only.
+    assert_eq!(json["lightning"], serde_json::json!(["testnet4"]));
     assert_json_error(&get_path(&addr, "/app/other").await, 404, "not found");
 }
 

@@ -85,8 +85,8 @@ test("a title already in the head is replaced as the reader moves between pages"
   await expect(page).toHaveTitle("Regtest: Block 106 | rbitcoin.space");
   await page.getByRole("link", { name: /^Next: 107/ }).click();
   await expect(page).toHaveTitle("Regtest: Block 107 | rbitcoin.space");
-  await page.getByRole("navigation").getByRole("link", { name: "Lightning" }).click();
-  await expect(page).toHaveTitle("Regtest: Lightning | rbitcoin.space");
+  await page.getByRole("navigation").getByRole("link", { name: "Mining" }).click();
+  await expect(page).toHaveTitle("Regtest: Mining | rbitcoin.space");
   await page.goBack();
   await expect(page).toHaveTitle("Regtest: Block 107 | rbitcoin.space");
 });

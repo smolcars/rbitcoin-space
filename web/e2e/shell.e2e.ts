@@ -2,6 +2,7 @@ import type { Page } from "@playwright/test";
 import { groupDigits } from "../src/lib/format";
 import { chain, expect, test } from "./fixtures";
 import { layoutFaults } from "./layout";
+import { lightningOn } from "./lightning-answers";
 
 test("the app shell loads on /regtest/ with the regtest network shown", async ({ page }) => {
   await page.goto("/regtest/");
@@ -144,6 +145,8 @@ for (const [name, viewport] of [
   ["a small phone", { width: 320, height: 640 }],
 ] as const) {
   test(`the header keeps search, network and sections apart on ${name}`, async ({ page }) => {
+    // All four sections, as on a network with Lightning on.
+    await lightningOn(page);
     await page.setViewportSize(viewport);
     await page.goto("/regtest/blocks");
     const header = page.getByRole("banner");
@@ -177,7 +180,8 @@ for (const [name, viewport] of [
     );
     // On a phone, searching takes the row: the field and its answer are nearly the page's width.
     if (viewport.width < 700) {
-      await header.getByRole("combobox", { name: "Search" }).fill("nonsense query");
+      // Too short for a node name, so Lightning, on here, does not take it.
+      await header.getByRole("combobox", { name: "Search" }).fill("zz");
       await header.getByRole("combobox", { name: "Search" }).press("Enter");
       const panel = page.getByText("Nothing matches", { exact: true });
       await expect(panel).toBeVisible();
@@ -193,6 +197,7 @@ test.describe("the main nav", () => {
   // cancels an "access control" failure, though the app is same-origin and the page catches it.
   test.use({ consoleErrorsAllowed: [/due to access control checks/] });
   test("marks the current section on every page under it, whatever the query", async ({ page }) => {
+    await lightningOn(page);
     const routes: [string, string][] = [
       ["/regtest/blocks", "Blocks"],
       [`/regtest/block/${chain.blocks[106]}`, "Blocks"],
@@ -383,6 +388,7 @@ test.describe("on a phone at a large text size", () => {
     browserName,
   }) => {
     test.skip(browserName !== "chromium", "only Chromium lets a test set the browser's text size");
+    await lightningOn(page);
     const cdp = await page.context().newCDPSession(page);
     for (const text of [16, 20, 24, 32]) {
       await cdp.send("Page.setFontSizes", {

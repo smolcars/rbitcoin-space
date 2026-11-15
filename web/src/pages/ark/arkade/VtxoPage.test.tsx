@@ -11,7 +11,12 @@ import VtxoPage from "./VtxoPage";
 // The shell's config, as the server would give it: Arkade on signet unless a test says otherwise.
 const ark = vi.hoisted(() => ({ signet: ["arkade"] }));
 vi.mock(import("../../../lib/config"), () => ({
-  loadConfig: async () => ({ networks: ["signet"], version: "1", ark: { signet: ark.signet } }),
+  loadConfig: async () => ({
+    networks: ["signet"],
+    version: "1",
+    ark: { signet: ark.signet },
+    lightning: [],
+  }),
 }));
 
 let reply: () => Response;

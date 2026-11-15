@@ -21,7 +21,8 @@ fn ark(n: &NetworkConfig) -> Vec<&'static str> {
 
 pub fn routes(config: &Config) -> Router {
     // The answer never changes while the process runs, so it is built once. `ark` names only the
-    // networks that have an implementation; the frontend offers Ark pages on those alone.
+    // networks that have an implementation; the frontend offers Ark pages on those alone, and
+    // Lightning pages only on the networks in `lightning`.
     let ark: serde_json::Map<String, Value> = config
         .networks
         .iter()
@@ -32,6 +33,7 @@ pub fn routes(config: &Config) -> Router {
         "networks": config.networks.iter().map(|n| n.network.name()).collect::<Vec<_>>(),
         "version": env!("CARGO_PKG_VERSION"),
         "ark": ark,
+        "lightning": config.networks.iter().filter(|n| n.lightning.is_some()).map(|n| n.network.name()).collect::<Vec<_>>(),
     });
     Router::new().route(
         "/app/config",

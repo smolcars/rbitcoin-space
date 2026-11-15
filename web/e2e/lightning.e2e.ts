@@ -2,12 +2,14 @@ import { chain, expect, test } from "./fixtures";
 import { ACINQ, mainnet, recorded, serve } from "./lightning-answers";
 import { tablesFit, tapRow } from "./rows";
 
-test("the header leads to Lightning, which says it is switched off on regtest", async ({
+test("the header offers no Lightning on regtest, where it is off, and a typed address says so", async ({
   page,
 }) => {
   await page.goto("/regtest/");
-  await page.getByRole("navigation").getByRole("link", { name: "Lightning" }).click();
-  await expect(page).toHaveURL(/\/regtest\/lightning$/);
+  const nav = page.getByRole("navigation", { name: "Main" });
+  await expect(nav.getByRole("link", { name: "Mining" })).toBeVisible();
+  await expect(nav.getByRole("link", { name: "Lightning" })).toHaveCount(0);
+  await page.goto("/regtest/lightning");
   await expect(page.getByText("Lightning is switched off on Regtest")).toBeVisible();
   await expect(page.getByRole("slider")).toHaveCount(0);
 

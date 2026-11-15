@@ -13,8 +13,21 @@ export const ACINQ = "03864ef025fde8fb587d989186ce6a4a186895ee44a926bfc370e2c366
 /** FUNK-BTCPay: one channel, 10 ppm out and 300 ppm in. */
 export const ONE = "03874dc955fba789b08db50beb6839d41379071f4f4747ae8546329a14176e339a";
 
-/** Answers `/regtest/app/lightning/…` from `answers`, keyed by the path after it and its query. */
+/** Has `/app/config` list regtest as having Lightning on, so the header and search offer it. */
+export async function lightningOn(page: Page) {
+  await page.route(/\/app\/config$/, async (route) => {
+    const response = await route.fetch();
+    const config = (await response.json()) as Record<string, unknown>;
+    await route.fulfill({ response, json: { ...config, lightning: ["regtest"] } });
+  });
+}
+
+/**
+ * Answers `/regtest/app/lightning/…` from `answers`, keyed by the path after it and its query, with
+ * Lightning listed as on, as a server with these answers would.
+ */
 export async function serve(page: Page, answers: Record<string, unknown>) {
+  await lightningOn(page);
   await page.route(/\/regtest\/app\/lightning\//, async (route) => {
     const url = new URL(route.request().url());
     const key = url.pathname.replace(/^\/regtest\/app\/lightning\//, "") + url.search;

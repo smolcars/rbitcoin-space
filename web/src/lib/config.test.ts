@@ -9,6 +9,7 @@ describe("parseConfig", () => {
       networks: ["mainnet", "signet"],
       version: "0.1.0",
       ark: {},
+      lightning: [],
     });
   });
 
@@ -16,7 +17,12 @@ describe("parseConfig", () => {
     for (const body of [null, "x", [], {}, { networks: "mainnet" }]) {
       expect(parseConfig(body)).toBeNull();
     }
-    expect(parseConfig({ networks: [] })).toStrictEqual({ networks: [], version: "", ark: {} });
+    expect(parseConfig({ networks: [] })).toStrictEqual({
+      networks: [],
+      version: "",
+      ark: {},
+      lightning: [],
+    });
   });
 
   it("keeps each network's Ark implementations", () => {
@@ -31,5 +37,14 @@ describe("parseConfig", () => {
       signet: ["bark", "arkade"],
       mainnet: ["arkade"],
     });
+  });
+
+  it("keeps the known networks with Lightning on", () => {
+    const lightning = ["signet", "liquid", 3, "testnet4", null];
+    expect(parseConfig({ networks: ["signet"], lightning })?.lightning).toStrictEqual([
+      "signet",
+      "testnet4",
+    ]);
+    expect(parseConfig({ networks: ["signet"], lightning: "signet" })?.lightning).toStrictEqual([]);
   });
 });

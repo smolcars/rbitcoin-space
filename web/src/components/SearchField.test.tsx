@@ -3,8 +3,15 @@ import { type Component, flush, lazy, Loading } from "solid-js";
 import { type JSX, render } from "@solidjs/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { clearApiCache } from "../lib/api";
+import type { Network } from "../lib/network";
 import { SearchField } from "./SearchField";
 import { mount } from "./test-utils";
+
+/** The networks the faked server config has Lightning on; each test sets it through `server`. */
+const config = vi.hoisted(() => ({ lightning: [] as Network[] }));
+vi.mock(import("../lib/config"), () => ({
+  loadConfig: async () => ({ networks: [], version: "", ark: {}, lightning: config.lightning }),
+}));
 
 const TXID = "65428488a6202f1d681d053b3ff5d8ea9f5b0e5e1e0dcf7bf2e4c1e5a3f9c2e1";
 
@@ -218,14 +225,14 @@ describe("SearchField and navigation", () => {
 describe("SearchField and Lightning", () => {
   const KEY = "03864ef025fde8fb587d989186ce6a4a186895ee44a926bfc370e2c366597a3f8f";
   const OTHER = `02${"ab".repeat(32)}`;
-  /** A server whose Lightning is `state`, finding two nodes for any name (one for a name with
-   * "one" in it); records each path. */
-  function server(state: string) {
+  /** A server with Lightning `on` everywhere or nowhere, finding two nodes for any name (one for
+   * a name with "one" in it); records each path. */
+  function server(on: boolean) {
+    config.lightning = on ? ["mainnet", "signet"] : [];
     const asked: string[] = [];
     vi.stubGlobal("fetch", (url: string) => {
       const path = new URL(url, "http://x").pathname + new URL(url, "http://x").search;
       asked.push(path);
-      if (path.endsWith("/lightning/status")) return Promise.resolve(reply(200, { state }));
       const nodes = [
         { id: KEY, alias: "<b>ACINQ</b>", capacity: 27_383_219_285, channels: 1807 },
         { id: OTHER, alias: null, capacity: 5000, channels: 1 },
@@ -242,18 +249,15 @@ describe("SearchField and Lightning", () => {
   };
 
   it("suggests nodes as a name is typed, names as text with their keys, and opens one by keyboard", async () => {
-    const asked = server("synced");
+    const asked = server(true);
     const { el, input, path, type } = setup("/signet/");
     type("ac");
     type("aci");
     type("acinq");
     const list = () => el.querySelector('[role="listbox"]');
     await vi.waitFor(() => expect(list()).not.toBeNull());
-    // One status, then one search: the edits before the pause asked nothing.
-    expect(asked).toStrictEqual([
-      "/signet/app/lightning/status",
-      "/signet/app/lightning/search?q=acinq",
-    ]);
+    // One search: the edits before the pause asked nothing.
+    expect(asked).toStrictEqual(["/signet/app/lightning/search?q=acinq"]);
     const options = [...el.querySelectorAll('[role="option"]')];
     expect(options.map((o) => o.textContent)).toStrictEqual([
       `<b>ACINQ</b>273.83 BTC${KEY.slice(0, 10)}…${KEY.slice(-10)}`,
@@ -273,7 +277,7 @@ describe("SearchField and Lightning", () => {
   });
 
   it("opens the results page for a name on Enter, and closes the list on Escape", async () => {
-    server("synced");
+    server(true);
     const { el, input, path, type, enter } = setup("/signet/");
     type("noderunner");
     await vi.waitFor(() => expect(el.querySelector('[role="listbox"]')).not.toBeNull());
@@ -285,7 +289,7 @@ describe("SearchField and Lightning", () => {
   });
 
   it("goes straight to a node or a channel by its id", async () => {
-    const asked = server("synced");
+    const asked = server(true);
     const { path, type, enter } = setup("/signet/");
     type(KEY);
     enter();
@@ -297,10 +301,9 @@ describe("SearchField and Lightning", () => {
   });
 
   it("never searches a network without Lightning, where a name is still not recognised", async () => {
-    const asked = server("off");
+    const asked = server(false);
     const { el, type, enter } = setup();
     type("noderunner");
-    await vi.waitFor(() => expect(asked).toStrictEqual(["/app/lightning/status"]));
     await new Promise((resolve) => {
       setTimeout(resolve, 400);
     });
@@ -310,7 +313,7 @@ describe("SearchField and Lightning", () => {
     await vi.waitFor(() =>
       expect(el.querySelector(".search__panel")?.textContent).toContain("Nothing matches"),
     );
-    expect(asked).toStrictEqual(["/app/lightning/status"]);
+    expect(asked).toStrictEqual([]);
   });
 
   const pause = (ms: number) =>
@@ -319,7 +322,7 @@ describe("SearchField and Lightning", () => {
     });
 
   it("never opens a list the reader closed before it answered", async () => {
-    const asked = server("synced");
+    const asked = server(true);
     const { el, input, type } = setup("/signet/");
     type("acinq");
     document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
@@ -346,7 +349,7 @@ describe("SearchField and Lightning", () => {
   });
 
   it("drops the highlight when a newer list replaces the one it was on", async () => {
-    server("synced");
+    server(true);
     const { el, input, type } = setup("/signet/");
     type("acinq");
     await vi.waitFor(() => expect(el.querySelectorAll('[role="option"]')).toHaveLength(3));
@@ -358,7 +361,7 @@ describe("SearchField and Lightning", () => {
   });
 
   it("brings the highlighted option into view", async () => {
-    server("synced");
+    server(true);
     const scrolled: Element[] = [];
     Element.prototype.scrollIntoView = function scrollIntoView(this: Element) {
       scrolled.push(this);

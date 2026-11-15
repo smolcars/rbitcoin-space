@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { ApiError } from "../lib/api";
-import type { Network } from "../lib/network";
+import { NETWORKS, type Network } from "../lib/network";
 import { classify } from "./query";
 import { createSearch, describe as read, type Get, probeOrder, resolve as lead } from "./search";
 
@@ -221,40 +221,41 @@ describe("createSearch", () => {
 });
 
 describe("createSearch and Lightning", () => {
-  const status = (state: string) => ({ state });
-  /** A fake `/app` whose status is `state`, recording each path; searches wait for `release`. */
-  function lightning(state: string) {
+  /** A config with Lightning `on` everywhere or nowhere, and a fake `/app` recording each path;
+   * searches wait for `release`. */
+  function lightning(on: boolean) {
     const asked: string[] = [];
     const searches: { signal: AbortSignal; release: (v: unknown) => void }[] = [];
+    const config = () =>
+      Promise.resolve({ networks: [], version: "", ark: {}, lightning: on ? [...NETWORKS] : [] });
     const app: Get = (_network, path, signal) => {
       asked.push(path);
-      if (path === "/lightning/status") return Promise.resolve(status(state));
       return new Promise((resolve, reject) => {
         signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
         searches.push({ signal, release: resolve });
       });
     };
-    return { asked, searches, app };
+    return { asked, searches, app, config };
   }
   const nodes = (alias: string) => ({
     nodes: [{ id: KEY, alias, capacity: 5, channels: 1 }],
     channels: [],
   });
 
-  it("opens the results page for a name on Enter, and asks the status once", async () => {
-    const { asked, app } = lightning("synced");
-    const search = createSearch(notFound, app);
+  it("opens the results page for a name on Enter, asking the index nothing", async () => {
+    const { asked, app, config } = lightning(true);
+    const search = createSearch(notFound, app, config);
     await expect(search.run(" noderunner ", "signet")).resolves.toStrictEqual({
       kind: "go",
       path: "/lightning/search?q=noderunner",
     });
     await search.run("acinq", "signet");
-    expect(asked).toStrictEqual(["/lightning/status"]);
+    expect(asked).toStrictEqual([]);
   });
 
   it("says nothing matches a name where Lightning is off, and never searches there", async () => {
-    const { asked, app } = lightning("off");
-    const search = createSearch(notFound, app);
+    const { asked, app, config } = lightning(false);
+    const search = createSearch(notFound, app, config);
     await expect(search.run("noderunner", "mainnet")).resolves.toStrictEqual({
       kind: "missing",
       query: null,
@@ -263,12 +264,12 @@ describe("createSearch and Lightning", () => {
       lightning: false,
       nodes: [],
     });
-    expect(asked).toStrictEqual(["/lightning/status"]);
+    expect(asked).toStrictEqual([]);
   });
 
   it("asks nothing for an id or a query the index refuses", async () => {
-    const { asked, app } = lightning("synced");
-    const search = createSearch(notFound, app);
+    const { asked, app, config } = lightning(true);
+    const search = createSearch(notFound, app, config);
     for (const q of [TXID, KEY, "811984x2037x0", "840000", "ab", "x".repeat(67)]) {
       await expect(search.suggest(q, "signet")).resolves.toStrictEqual({
         lightning: undefined,
@@ -279,8 +280,8 @@ describe("createSearch and Lightning", () => {
   });
 
   it("suggests nodes with their names cleaned, and a newer suggestion overtakes an older", async () => {
-    const { searches, app } = lightning("synced");
-    const search = createSearch(notFound, app);
+    const { searches, app, config } = lightning(true);
+    const search = createSearch(notFound, app, config);
     const first = search.suggest("node", "signet");
     await vi.waitFor(() => expect(searches).toHaveLength(1));
     const second = search.suggest("noderunner", "signet");
@@ -296,16 +297,16 @@ describe("createSearch and Lightning", () => {
   });
 
   it("answers nothing once cancelled, and offers nothing when the search fails", async () => {
-    const { searches, app } = lightning("syncing");
-    const search = createSearch(notFound, app);
+    const { searches, app, config } = lightning(true);
+    const search = createSearch(notFound, app, config);
     const cancelled = search.suggest("noderunner", "signet");
     await vi.waitFor(() => expect(searches).toHaveLength(1));
     search.cancel();
     await expect(cancelled).resolves.toBeUndefined();
-    const failing = createSearch(notFound, (_n, path) =>
-      path === "/lightning/status"
-        ? Promise.resolve(status("syncing"))
-        : Promise.reject(new ApiError(503, "Syncing.")),
+    const failing = createSearch(
+      notFound,
+      () => Promise.reject(new ApiError(503, "Syncing.")),
+      config,
     );
     await expect(failing.suggest("noderunner", "signet")).resolves.toStrictEqual({
       lightning: true,
