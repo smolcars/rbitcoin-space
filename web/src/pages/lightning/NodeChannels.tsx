@@ -55,6 +55,8 @@ import {
   readList,
   rowName,
   rowState,
+  shownDir,
+  sortName,
   viewHref,
 } from "./lightning";
 import { Alias, ask, BlockLink, ChannelId, ChannelLink, Tag } from "./parts";
@@ -135,7 +137,7 @@ function useList<T>(
   };
   const sorting = () => ({
     by: view().sort,
-    dir: view().dir,
+    dir: shownDir(view().sort, view().dir),
     onSort: (by: string) =>
       by === view().sort ? sortBy(by, view().dir === "asc" ? "desc" : "asc") : sortBy(by),
   });
@@ -293,12 +295,17 @@ const Whole = (props: { children: JSX.Element }) => (
   <span class="ln-node-whole">{props.children}</span>
 );
 
-/** The sort a phone picks from a list: each figure, each way. */
+/** The sort a phone picks from a list: each figure, each way, its own way first. */
 function SortPicker(props: {
-  sorts: readonly { id: string; label: string; first: "asc" | "desc" }[];
+  sorts: readonly string[];
+  closed: boolean;
   view: ListView;
   onPick: (by: string, dir: "asc" | "desc") => void;
 }) {
+  const ways = (id: string) => {
+    const first = props.closed ? "desc" : firstDir(id);
+    return [first, first === "desc" ? "asc" : "desc"] as const;
+  };
   return (
     <label class="ln-node-sortpick">
       <span>Sort</span>
@@ -311,15 +318,10 @@ function SortPicker(props: {
         }}
       >
         <For each={props.sorts}>
-          {(s) => (
-            <>
-              <option value={`${s.id}:${s.first}`}>
-                {s.label}, {s.first === "desc" ? "highest" : "lowest"} first
-              </option>
-              <option value={`${s.id}:${s.first === "desc" ? "asc" : "desc"}`}>
-                {s.label}, {s.first === "desc" ? "lowest" : "highest"} first
-              </option>
-            </>
+          {(id) => (
+            <For each={ways(id)}>
+              {(dir) => <option value={`${id}:${dir}`}>{sortName(id, dir)}</option>}
+            </For>
           )}
         </For>
       </select>
@@ -327,16 +329,13 @@ function SortPicker(props: {
   );
 }
 
-const OPEN_SORTS = [
-  { id: "capacity", label: "Capacity", first: "desc" },
-  { id: "age", label: "Age", first: "desc" },
-  { id: "out", label: "Fee out, this node", first: "asc" },
-  { id: "in", label: "Fee in, the peer", first: "asc" },
-  { id: "cltv", label: "CLTV delta, this node", first: "asc" },
-  { id: "htlc", label: "Max HTLC, this node", first: "desc" },
-  { id: "update", label: "Last policy update", first: "desc" },
-  { id: "peer", label: "Peer's total capacity", first: "desc" },
-] as const;
+const OPEN_SORTS = ["capacity", "age", "out", "in", "cltv", "htlc", "update", "peer"] as const;
+
+/** A table's caption: what it lists and how it is sorted, in the picker's words. */
+const sortedBy = (what: string, v: ListView) => {
+  const name = sortName(v.sort, v.dir);
+  return `${what}, sorted by ${name.charAt(0).toLowerCase()}${name.slice(1)}`;
+};
 
 /** A card's figure for a sort it does not already show. */
 function sortedFigure(by: string, c: OpenChannel): string | null {
@@ -486,7 +485,7 @@ export function OpenList(props: ListProps) {
             )}
           </For>
         </div>
-        <SortPicker sorts={OPEN_SORTS} view={l.view()} onPick={l.sortBy} />
+        <SortPicker sorts={OPEN_SORTS} closed={false} view={l.view()} onPick={l.sortBy} />
       </div>
       <Show when={l.view().peer}>
         {(p) => (
@@ -551,7 +550,7 @@ export function OpenList(props: ListProps) {
                 }
               >
                 <DataTable
-                  caption={`Its open channels, sorted by ${OPEN_SORTS.find((s) => s.id === l.view().sort)?.label.toLowerCase() ?? "capacity"}, ${l.view().dir === "asc" ? "lowest" : "highest"} first`}
+                  caption={sortedBy("Its open channels", l.view())}
                   columns={columns()}
                   rows={shown()}
                   rowHref={(c) => paths.lightningChannel(c.id)}
@@ -743,12 +742,7 @@ function OpenCard(props: { c: OpenChannel; now: number; peerHref: string; extra:
   );
 }
 
-const CLOSED_SORTS = [
-  { id: "closed", label: "Closed", first: "desc" },
-  { id: "capacity", label: "Capacity", first: "desc" },
-  { id: "fee", label: "Closing fee", first: "desc" },
-  { id: "lived", label: "Lived", first: "desc" },
-] as const;
+const CLOSED_SORTS = ["closed", "capacity", "fee", "lived"] as const;
 
 /** How long a closed channel lived, in whole days; unknown while its funding time is not stored. */
 const lived = (c: ClosedChannel) =>
@@ -893,7 +887,7 @@ export function ClosedList(props: ListProps) {
               )}
             </For>
           </div>
-          <SortPicker sorts={CLOSED_SORTS} view={l.view()} onPick={l.sortBy} />
+          <SortPicker sorts={CLOSED_SORTS} closed view={l.view()} onPick={l.sortBy} />
         </div>
         <Show when={l.view().peer}>
           {(p) => (
@@ -943,7 +937,7 @@ export function ClosedList(props: ListProps) {
                   }
                 >
                   <DataTable
-                    caption={`Its closed channels, sorted by ${CLOSED_SORTS.find((s) => s.id === l.view().sort)?.label.toLowerCase() ?? "close"}, ${l.view().dir === "asc" ? "lowest" : "highest"} first`}
+                    caption={sortedBy("Its closed channels", l.view())}
                     columns={columns()}
                     rows={shown()}
                     rowHref={(c) => paths.lightningChannel(c.id)}

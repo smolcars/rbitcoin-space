@@ -1019,6 +1019,9 @@ mod operators {
             serde_json::json!({"median": 100, "weighted": 200, "lowest": 100, "highest": 500, "policies": 3})
         );
         assert_eq!(one["fee_rates"]["incoming"]["policies"], 4);
+        // The newest policy either way over its channels: its peer's on c2.
+        assert_eq!(one["last_policy_update"], U + 9);
+        assert_eq!(f(4)["last_policy_update"], U + 3);
         // One channel, no funding time stored, and no policy toward it.
         let four = f(4);
         assert_eq!(
@@ -1045,5 +1048,6 @@ mod operators {
             six["states"],
             serde_json::json!({"active": 0, "here": 0, "peer": 0, "inactive": 1})
         );
+        assert_eq!(six["last_policy_update"], serde_json::Value::Null);
     }
 }

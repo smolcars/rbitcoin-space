@@ -47,8 +47,6 @@ async function lightning(page: Page) {
     status: recorded("status"),
     [`nodes/${ACINQ}`]: node,
     [`nodes/${ACINQ}/history`]: recorded("node-acinq-history"),
-    // Its newest policy, asked with `?sort=update`: the key here leaves out the query.
-    [`nodes/${ACINQ}/channels`]: recorded("node-acinq-updated"),
     "channels/811984x2037x0": channel,
   };
   await page.route(/\/regtest\/app\/lightning\//, async (route) => {

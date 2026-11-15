@@ -182,6 +182,8 @@ export interface NodeFigures {
   funded: { median: number | null; oldest: number | null; youngest: number | null };
   states: Record<OpState, number>;
   fee_rates: { outgoing: FeeFigures | null; incoming: FeeFigures | null };
+  /** The newest policy's time over its open channels, either end's; null with none. */
+  last_policy_update: number | null;
 }
 
 export interface Feature {
@@ -438,7 +440,8 @@ const isFigures = (v: unknown): v is NodeFigures => {
     nullable(f["youngest"], num) &&
     isStates(v["states"]) &&
     nullable(r["outgoing"], isFeeFigures) &&
-    nullable(r["incoming"], isFeeFigures)
+    nullable(r["incoming"], isFeeFigures) &&
+    nullable(v["last_policy_update"], num)
   );
 };
 
@@ -1016,6 +1019,38 @@ export type OpenSort = (typeof OPEN_SORTS)[number];
 export const CLOSED_SORTS = ["closed", "capacity", "fee", "lived"] as const;
 export type ClosedSort = (typeof CLOSED_SORTS)[number];
 export const CLOSE_KINDS: readonly CloseKind[] = ["cooperative", "force", "penalty", "other"];
+
+/**
+ * Each sort in words, as a reader says it: its name, and what comes first each way. Sizes are
+ * largest or smallest, fees and delays lowest or highest, an age oldest or youngest, a moment
+ * newest or oldest, a lifetime longest or shortest.
+ */
+export const SORT_WORDS: Record<string, { label: string; desc: string; asc: string }> = {
+  capacity: { label: "Capacity", desc: "largest", asc: "smallest" },
+  age: { label: "Age", desc: "oldest", asc: "youngest" },
+  out: { label: "Fee out, this node", desc: "highest", asc: "lowest" },
+  in: { label: "Fee in, the peer", desc: "highest", asc: "lowest" },
+  cltv: { label: "CLTV delta, this node", desc: "highest", asc: "lowest" },
+  htlc: { label: "Max HTLC, this node", desc: "largest", asc: "smallest" },
+  update: { label: "Last policy update", desc: "newest", asc: "oldest" },
+  peer: { label: "Peer's total capacity", desc: "largest", asc: "smallest" },
+  closed: { label: "Closed", desc: "newest", asc: "oldest" },
+  fee: { label: "Closing fee", desc: "highest", asc: "lowest" },
+  lived: { label: "Lived", desc: "longest", asc: "shortest" },
+};
+
+/** A sort one way, in words: `Capacity, largest first`. */
+export function sortName(sort: string, dir: "asc" | "desc"): string {
+  const w = SORT_WORDS[sort] ?? { label: sort, desc: "highest", asc: "lowest" };
+  return `${w.label}, ${w[dir]} first`;
+}
+
+/**
+ * The direction the sorted column's figures run on screen, for `aria-sort`: the server's, but for
+ * the policy update, whose column shows how long ago, so newest first is its smallest first.
+ */
+export const shownDir = (sort: string, dir: "asc" | "desc"): "asc" | "desc" =>
+  sort === "update" ? (dir === "asc" ? "desc" : "asc") : dir;
 
 /** The way the server sorts each figure when not told: cheapest fees and shortest delta first. */
 export const firstDir = (sort: string): "asc" | "desc" =>

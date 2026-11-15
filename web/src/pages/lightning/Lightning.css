@@ -1274,10 +1274,6 @@
   .ln-node-head__line strong {
     font-size: var(--text-md);
   }
-  /* Its line held while it loads, so nothing under it moves when it comes. */
-  .ln-node-head__fresh {
-    min-height: 1.5em;
-  }
 
   /* One view at a time, chosen by tabs that are links, the choice in the address. */
   .ln-node-views {

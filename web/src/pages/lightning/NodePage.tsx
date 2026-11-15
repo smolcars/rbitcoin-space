@@ -25,7 +25,6 @@ import {
   days,
   isNodeDetail,
   isNodeHistory,
-  isOpenPage,
   isPublicKey,
   KIND_SHORT,
   KIND_TAG,
@@ -121,7 +120,7 @@ function Body(props: { node: NodeDetail; network: Network }) {
   const base = () => paths.lightningNode(props.node.id);
   return (
     <>
-      <Header node={props.node} network={props.network} />
+      <Header node={props.node} />
       <div class="ln-node-views">
         {/* noscroll: a view change keeps the tabs where they are on screen. */}
         <nav class="ln-picker ln-node-tabs" aria-label="Node views">
@@ -177,17 +176,10 @@ function Body(props: { node: NodeDetail; network: Network }) {
 }
 
 /** Name and key, and the figures that size a node, on a line or two. */
-function Header(props: { node: NodeDetail; network: Network }) {
+function Header(props: { node: NodeDetail }) {
   const name = () => cleanAlias(props.node.alias);
   const title = () => (name() === null ? null : cut(name() ?? "", NAME_IN_TITLE));
   const [whole, setWhole] = createSignal(false);
-  // When a policy on its channels last changed: the newest of its list sorted that way, a page
-  // the Channels view asks for too when sorted by it.
-  const [updated] = createRequest(
-    () => props.node.id,
-    (id, signal) => ask(props.network, `/nodes/${id}/channels?sort=update`, isOpenPage, signal),
-  );
-  const newest = () => updated.latest?.channels[0]?.last_update ?? null;
   return (
     <header class="ln-node-head">
       <div class="ln-node-head__title">
@@ -229,16 +221,14 @@ function Header(props: { node: NodeDetail; network: Network }) {
           {props.node.channels.open === 1 ? "open channel" : "open channels"},{" "}
           <span class="muted">{ordinal(props.node.rank.channels)} by channels</span>
         </span>
-        {/* Its space held while it loads, so the line never moves. */}
-        <span class="muted ln-node-head__fresh">
-          <Show when={newest()}>
-            {(t) => (
-              <>
-                Policies updated <TimeAgo time={t()} />
-              </>
-            )}
-          </Show>
-        </span>
+        {/* When a policy on its channels last changed, either end's: in the node's own answer. */}
+        <Show when={props.node.figures.last_policy_update}>
+          {(t) => (
+            <span class="muted">
+              Policies updated <TimeAgo time={t()} />
+            </span>
+          )}
+        </Show>
       </p>
     </header>
   );

@@ -244,12 +244,11 @@ describe("a node", () => {
     expect(text(el)).toContain("data-loss-protect (required)");
     // Addresses are text, never links.
     expect(links(el).some((h) => (h ?? "").includes("9735"))).toBe(false);
-    // The first page is the node's own answer: no request for it.
+    // The first page and when its policies changed are the node's own answer: no list asked.
     expect(el.querySelectorAll("tbody tr")).toHaveLength(25);
     expect(text(el)).toContain("Page 1 of 73");
-    expect(requests.filter((r) => r.includes("/channels"))).toStrictEqual([
-      `/regtest${list("sort=update")}`.replace("/regtest", ""),
-    ]);
+    expect(text(el)).toContain("Policies updated");
+    expect(requests.filter((r) => r.includes("/channels"))).toStrictEqual([]);
     // Each header that sorts says so; the one in force says how.
     expect(el.querySelector("th[aria-sort]")?.textContent).toContain("Capacity");
     expect(el.querySelector("th[aria-sort]")?.getAttribute("aria-sort")).toBe("descending");

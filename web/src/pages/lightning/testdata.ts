@@ -189,6 +189,7 @@ export const acinq = (n: Partial<NodeDetail> = {}): NodeDetail => ({
       outgoing: { median: 499, weighted: 1522, lowest: 499, highest: 3999, policies: 1747 },
       incoming: { median: 100, weighted: 1810, lowest: 0, highest: 2_000_000, policies: 1729 },
     },
+    last_policy_update: 1_794_715_678,
   },
   channels: {
     open: 1807,

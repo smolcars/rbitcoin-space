@@ -31,7 +31,7 @@ async function serveLists(
   // Registered after `serve`, so it answers first.
   await page.route(new RegExp(`/regtest/app/lightning/nodes/${ACINQ}/channels\\?`), (r: Route) => {
     const q = new URL(r.request().url()).searchParams;
-    if (q.get("sort") !== "update") asked.push(q.toString());
+    asked.push(q.toString());
     return r.fulfill({ json: list(q) });
   });
   return asked;
@@ -83,6 +83,7 @@ test("its channels sort by a header on a desktop and by the picker on a phone, i
     await expect(page).toHaveURL(/\?sort=out$/);
     await expect(table.locator("th[aria-sort]")).toContainText("Fee out");
     await expect(table.locator("th[aria-sort]")).toHaveAttribute("aria-sort", "ascending");
+    await expect(table).toHaveAccessibleName(/sorted by fee out, this node, lowest first$/);
     expect(await pageFaults(page), `1440 px, ${colorScheme}`).toStrictEqual([]);
     // The back button steps back through the sort.
     await page.goBack();
@@ -90,9 +91,27 @@ test("its channels sort by a header on a desktop and by the picker on a phone, i
 
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(page.locator(".ln-node-card").first()).toBeVisible();
-    await page
-      .getByRole("combobox", { name: "Sort" })
-      .selectOption({ label: "Age, highest first" });
+    // Each choice worded for what it sorts, its own way first.
+    const picker = page.getByRole("combobox", { name: "Sort" });
+    await expect(picker.locator("option")).toHaveText([
+      "Capacity, largest first",
+      "Capacity, smallest first",
+      "Age, oldest first",
+      "Age, youngest first",
+      "Fee out, this node, lowest first",
+      "Fee out, this node, highest first",
+      "Fee in, the peer, lowest first",
+      "Fee in, the peer, highest first",
+      "CLTV delta, this node, lowest first",
+      "CLTV delta, this node, highest first",
+      "Max HTLC, this node, largest first",
+      "Max HTLC, this node, smallest first",
+      "Last policy update, newest first",
+      "Last policy update, oldest first",
+      "Peer's total capacity, largest first",
+      "Peer's total capacity, smallest first",
+    ]);
+    await picker.selectOption({ label: "Age, oldest first" });
     await expect(page).toHaveURL(/\?sort=age$/);
     expect(await pageFaults(page), `390 px, ${colorScheme}`).toStrictEqual([]);
     // Three lines a card: the peer and channel, the fee each way, then size, state and age.
@@ -120,6 +139,10 @@ test("every filter, the back button through views, and a filter that matches not
   await page.goto(`/regtest/lightning/node/${ACINQ}`);
   const total = page.locator(".ln-node-total");
   await expect(total).toHaveText("1 803 open channels");
+  // The node's answer holds its first page and when its policies changed: no list is asked,
+  // `?sort=update` included.
+  await expect(page.getByText(/^Policies updated/)).toBeVisible();
+  expect(asked).toStrictEqual([]);
 
   await page.getByRole("link", { name: /^Off here/ }).click();
   await expect(page).toHaveURL(/\?state=here$/);

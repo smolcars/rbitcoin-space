@@ -814,13 +814,14 @@ fn fee_figures(rates: &[(u32, u64)]) -> Value {
 
 /// The node page's figures over its open channels.
 pub(crate) fn figures(index: &Index, n: &Node) -> Value {
-    let (mut caps, mut funded) = (Vec::new(), Vec::new());
+    let (mut caps, mut funded, mut updated) = (Vec::new(), Vec::new(), None);
     let (mut out, mut inc, mut counts) = (Vec::new(), Vec::new(), [0; 4]);
     for link in index.links(n) {
         let c = link.channel;
         let (own, theirs, _) = ends(c, &n.id);
         caps.push(c.capacity);
         funded.extend(link.funded);
+        updated = updated.max(c.last_update());
         out.extend(own.map(|p| (p.fee_rate, c.capacity)));
         inc.extend(theirs.map(|p| (p.fee_rate, c.capacity)));
         if let Some(count) = counts.get_mut(OpState::of(own, theirs) as usize) {
@@ -834,6 +835,7 @@ pub(crate) fn figures(index: &Index, n: &Node) -> Value {
         "funded": { "median": age, "oldest": oldest, "youngest": youngest },
         "states": states_json(counts),
         "fee_rates": { "outgoing": fee_figures(&out), "incoming": fee_figures(&inc) },
+        "last_policy_update": updated,
     })
 }
 

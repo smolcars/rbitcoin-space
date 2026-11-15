@@ -35,6 +35,8 @@ import {
   readView,
   rowBuckets,
   rowState,
+  shownDir,
+  sortName,
   viewHref,
   weekAgo,
 } from "./lightning";
@@ -526,6 +528,20 @@ describe("a node's week", () => {
 });
 
 describe("a node's words", () => {
+  it("words each sort for what it sorts, and says how its column runs on screen", () => {
+    expect(sortName("capacity", "desc")).toBe("Capacity, largest first");
+    expect(sortName("age", "desc")).toBe("Age, oldest first");
+    expect(sortName("age", "asc")).toBe("Age, youngest first");
+    expect(sortName("cltv", "asc")).toBe("CLTV delta, this node, lowest first");
+    expect(sortName("update", "desc")).toBe("Last policy update, newest first");
+    expect(sortName("closed", "desc")).toBe("Closed, newest first");
+    expect(sortName("fee", "asc")).toBe("Closing fee, lowest first");
+    expect(sortName("lived", "desc")).toBe("Lived, longest first");
+    // The update column shows how long ago: newest first is its smallest first.
+    expect(shownDir("update", "desc")).toBe("asc");
+    expect(shownDir("age", "desc")).toBe("desc");
+  });
+
   it("writes ranks as ordinals", () => {
     expect([1, 2, 3, 4, 11, 12, 13, 21, 22, 101, 111, 1234].map((n) => ordinal(n))).toStrictEqual([
       "1st",
@@ -579,6 +595,13 @@ describe("a node's words", () => {
     expect(isNodeDetail(figures(none, none))).toBe(true);
     expect(isNodeDetail(figures({ ...out, weighted: null }, none))).toBe(true);
     expect(isNodeDetail(figures({ ...out, median: "1" }, none))).toBe(false);
+    // When its policies last changed: a time, or none with no policy.
+    const updated = (t: unknown) => ({
+      ...node,
+      figures: { ...node.figures, last_policy_update: t },
+    });
+    expect(isNodeDetail(updated(null))).toBe(true);
+    expect(isNodeDetail(updated("1794715678"))).toBe(false);
   });
 
   it("reads a page of open channels, and refuses one whose rows are not its shape", () => {

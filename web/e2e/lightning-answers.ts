@@ -31,12 +31,9 @@ export const mainnet = (): Record<string, unknown> => ({
   "statistics/1w": recorded("statistics-1w"),
   [`nodes/${ACINQ}`]: recorded("node-acinq"),
   [`nodes/${ACINQ}/history`]: recorded("node-acinq-history"),
-  // The page's header asks for the newest policy: the list sorted that way.
-  [`nodes/${ACINQ}/channels?sort=update`]: recorded("node-acinq-updated"),
   [`nodes/${ACINQ}/channels?status=closed`]: recorded("node-acinq-closed"),
   [`nodes/${ONE}`]: recorded("node-one"),
   [`nodes/${ONE}/history`]: recorded("node-one-history"),
-  [`nodes/${ONE}/channels?sort=update`]: recorded("node-one-updated"),
   "channels/811984x2037x0": recorded("channel-811984x2037x0"),
   "search?q=acinq": recorded("search-acinq"),
   "rankings/capacity?limit=100": recorded("rankings-capacity"),

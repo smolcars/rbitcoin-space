@@ -135,7 +135,6 @@ test("hostile names stay inert text and never widen the page", async ({ page }) 
       color: "red;x",
     },
     [`nodes/${ACINQ}/history`]: recorded("node-acinq-history"),
-    [`nodes/${ACINQ}/channels?sort=update`]: recorded("node-acinq-updated"),
   });
   await page.goto("/regtest/lightning/search?q=acinq");
   await expect(page.getByText("�QNICA")).toBeVisible();

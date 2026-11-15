@@ -862,7 +862,8 @@ GET /app/lightning/nodes/03864ef025fde8fb587d989186ce6a4a186895ee44a926bfc370e2c
              "funded": {"median": 1772013542, "oldest": 1551152144, "youngest": 1794694919},
              "states": {"active": 1684, "here": 37, "peer": 20, "inactive": 63},
              "fee_rates": {"outgoing": {"median": 499, "weighted": 1538, "lowest": 499, "highest": 3999, "policies": 1750},
-                           "incoming": {"median": 100, "weighted": 1829, "lowest": 0, "highest": 2000000, "policies": 1736}}},
+                           "incoming": {"median": 100, "weighted": 1829, "lowest": 0, "highest": 2000000, "policies": 1736}},
+             "last_policy_update": 1794715678},
  "fees": {"incoming": [{"bucket": null, "count": 68, "capacity": 158964561}, {"bucket": 0, "count": 60, "capacity": 1144632090}, …],
           "outgoing": [{"bucket": null, "count": 54, "capacity": 128336005}, {"bucket": 400, "count": 1473, "capacity": 6323026212}, …]},
  "open_channels": {"status": "open", "page": 0, "per_page": 25, "total": 1804, "sort": "capacity", "dir": "desc",
@@ -873,7 +874,7 @@ GET /app/lightning/nodes/03864ef025fde8fb587d989186ce6a4a186895ee44a926bfc370e2c
     "last_update": 1794550008, "funded": 1697189564, "closed": null}, …]}}
 ```
 
-`rank` is the node's place among the nodes held by capacity and by open channels (1 the largest, ties broken as the rankings break them) and how many nodes that is out of. `figures` are over its open channels: `capacity` and `funded` (funding block times, `null` while none is stored) as median, smallest and largest; `states`, the channels in each operator state (below); and `fee_rates`, `outgoing` for the rates it charges and `incoming` for those its peers charge toward it, each `{median, weighted, lowest, highest, policies}` over the channels with a policy that way: `weighted` is the average weighted by capacity, leaving out rates above 1,000,000 ppm as the network's averages do (`null` when every rate is above it); with no policy that way each figure is `null` and `policies` is 0. Medians are the lower middle value, as everywhere here. `open_channels` is the first page of the channel list's default view.
+`rank` is the node's place among the nodes held by capacity and by open channels (1 the largest, ties broken as the rankings break them) and how many nodes that is out of. `figures` are over its open channels: `capacity` and `funded` (funding block times, `null` while none is stored) as median, smallest and largest; `states`, the channels in each operator state (below); and `fee_rates`, `outgoing` for the rates it charges and `incoming` for those its peers charge toward it, each `{median, weighted, lowest, highest, policies}` over the channels with a policy that way: `weighted` is the average weighted by capacity, leaving out rates above 1,000,000 ppm as the network's averages do (`null` when every rate is above it); with no policy that way each figure is `null` and `policies` is 0. `last_policy_update` is the newest policy's time over its open channels, either end's (the newest `last_update` of its channel list), so the page says when its policies last changed without asking for the list sorted that way; `null` when no channel has a policy. Medians are the lower middle value, as everywhere here. `open_channels` is the first page of the channel list's default view.
 
 `features` names a bit by BOLT 9 (`null` when it names none); `fees` buckets the fee rates others charge into the node (`incoming`) and the node charges (`outgoing`) over its open channels: exact under 10 ppm, then rounded down to tens, hundreds and, from 1,000, thousands; `null` counts channels with no policy that way. A closed channel in a list has `"fee_rate": null` and `closed` as below.
 
