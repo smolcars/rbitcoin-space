@@ -54,7 +54,7 @@ A network is enabled by setting its variables (`.env.example`). Mainnet is serve
 
 | Prefix | Contract | Notes |
 |---|---|---|
-| `/api/*` | Esplora REST, as rbitcoin serves it | Passed through an allow-list of routes with typed parameters. Public and stable |
+| `/api/*` | Esplora REST and the approved BlindBit v1 surface, as rbitcoin serves them | Passed through an allow-list of routes with typed parameters. Public and stable |
 | `/api/v1/*` | mempool.space-shaped subset | Only the endpoints listed as served in [`COMPAT.md`](COMPAT.md) |
 | `/app/*` | Private API for our frontend | May change in any release; the frontend and server ship together |
 | `/app/ws` | WebSocket for live updates | See below |

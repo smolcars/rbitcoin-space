@@ -65,7 +65,7 @@ VTXO pages for Ark implementations, per network ([`ARK.md`](ARK.md)). Off unless
 
 | Variable | Default | What it does |
 |---|---|---|
-| `BROADCAST_ENABLED` | `true` | `false` turns off `POST /api/tx` on every network (it answers `403`). Broadcast is the only write the server makes to the node; its size cap and per-client rate limit are fixed ([`API.md`](API.md#broadcast)) |
+| `BROADCAST_ENABLED` | `true` | `false` turns off `POST /api/tx` and `POST /api/blindbit/v1/forward-tx` on every network (it answers `403`). Broadcast is the only write the server makes to the node; its size cap and per-client rate limit are fixed ([`API.md`](API.md#broadcast)) |
 
 ## Cloudflare Web Analytics
 

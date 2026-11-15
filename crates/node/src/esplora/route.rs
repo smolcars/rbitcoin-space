@@ -118,6 +118,23 @@ impl OutPositions {
 /// only the routes that accept `?asof=` have the field.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Route {
+    /// BlindBit v1 silent-payments routes, served when the node enables `--sp-tweaks`.
+    BlindbitInfo,
+    BlindbitBlockHeight,
+    BlindbitBlockHash(u32),
+    BlindbitTweaks {
+        height: u32,
+        dust_limit: Option<u64>,
+    },
+    BlindbitTweakIndex {
+        height: u32,
+        dust_limit: Option<u64>,
+    },
+    BlindbitUtxos(u32),
+    BlindbitSpentIndex(u32),
+    BlindbitFilterNewUtxos(u32),
+    BlindbitFilterSpent(u32),
+    BlindbitForwardTx(Transaction),
     TipHeight,
     TipHash,
     /// Ten blocks, newest first, ending at `start_height` or the tip.
@@ -252,6 +269,7 @@ impl Route {
     pub fn method(&self) -> Method {
         match self {
             Self::Broadcast(_)
+            | Self::BlindbitForwardTx(_)
             | Self::OutputsAt { .. }
             | Self::InternalTxs(_)
             | Self::InternalMempoolTxsByTxid(_)
@@ -285,6 +303,26 @@ impl Route {
     fn write(&self, o: &mut String) -> fmt::Result {
         let mut asof = None;
         match self {
+            Self::BlindbitInfo => o.push_str("/blindbit/v1/info"),
+            Self::BlindbitBlockHeight => o.push_str("/blindbit/v1/block-height"),
+            Self::BlindbitBlockHash(h) => write!(o, "/blindbit/v1/block-hash/{h}")?,
+            Self::BlindbitTweaks { height, dust_limit }
+            | Self::BlindbitTweakIndex { height, dust_limit } => {
+                let kind = if matches!(self, Self::BlindbitTweaks { .. }) {
+                    "tweaks"
+                } else {
+                    "tweak-index"
+                };
+                write!(o, "/blindbit/v1/{kind}/{height}")?;
+                if let Some(dust) = dust_limit {
+                    write!(o, "?dustLimit={dust}")?;
+                }
+            }
+            Self::BlindbitUtxos(h) => write!(o, "/blindbit/v1/utxos/{h}")?,
+            Self::BlindbitSpentIndex(h) => write!(o, "/blindbit/v1/spent-index/{h}")?,
+            Self::BlindbitFilterNewUtxos(h) => write!(o, "/blindbit/v1/filter/new-utxos/{h}")?,
+            Self::BlindbitFilterSpent(h) => write!(o, "/blindbit/v1/filter/spent/{h}")?,
+            Self::BlindbitForwardTx(_) => o.push_str("/blindbit/v1/forward-tx"),
             Self::TipHeight => o.push_str("/blocks/tip/height"),
             Self::TipHash => o.push_str("/blocks/tip/hash"),
             Self::Blocks { start_height: None } => o.push_str("/blocks"),
@@ -465,6 +503,9 @@ impl Route {
         let json =
             |v: serde_json::Result<Vec<u8>>| v.ok().map(|b| (Bytes::from(b), "application/json"));
         match self {
+            Self::BlindbitForwardTx(tx) => json(serde_json::to_vec(&serde_json::json!({
+                "data": bitcoin::consensus::encode::serialize_hex(tx)
+            }))),
             Self::Broadcast(tx) => {
                 let hex = bitcoin::consensus::encode::serialize_hex(tx);
                 Some((Bytes::from(hex), "text/plain"))

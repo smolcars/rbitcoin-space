@@ -367,6 +367,11 @@ impl App {
                         ))
                         .route("/api/{*rest}", any(esplora::handle))
                         .route(
+                            "/api/blindbit/v1/forward-tx",
+                            any(esplora::handle)
+                                .layer(DefaultBodyLimit::max(esplora::MAX_BROADCAST_BODY)),
+                        )
+                        .route(
                             "/api/tx",
                             any(esplora::handle)
                                 .layer(DefaultBodyLimit::max(esplora::MAX_BROADCAST_BODY)),

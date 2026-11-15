@@ -38,7 +38,7 @@ pub const LIVE: &str = "public, max-age=1";
 /// Largest transaction broadcast accepts: no standard transaction weighs more than 400,000
 /// weight units, and a transaction's size in bytes never exceeds its weight.
 pub const MAX_TX_BYTES: usize = 400_000;
-/// Body limit of `POST /api/tx`. Hex doubles the size; the slack covers a trailing newline or two.
+/// Body limit of both broadcast routes. Hex doubles the size; the slack covers JSON framing.
 pub const MAX_BROADCAST_BODY: usize = 2 * MAX_TX_BYTES + 16;
 /// Broadcasts per client: a burst of this many, then one per [`BROADCAST_EVERY`].
 pub const BROADCAST_BURST: u32 = 5;
@@ -178,6 +178,7 @@ enum Call {
     Read(Route),
     /// `POST /tx`; the body is parsed by the handler.
     Broadcast,
+    BlindbitForwardTx,
     /// `POST /block-heights/txs/outs`; the body is parsed by the handler.
     Outputs {
         asof: Option<BlockHash>,
@@ -239,7 +240,7 @@ async fn serve(ctx: &NetworkContext, client: &Client, req: Request) -> Result<Re
             ))?;
             Ok(read(ctx, client, Route::OutputsAt { positions, asof }).await)
         }
-        Call::Broadcast => {
+        Call::Broadcast | Call::BlindbitForwardTx => {
             let limiter = ctx.api.broadcast.as_ref().ok_or(ApiError::new(
                 StatusCode::FORBIDDEN,
                 "broadcast is disabled on this server",
@@ -251,7 +252,19 @@ async fn serve(ctx: &NetworkContext, client: &Client, req: Request) -> Result<Re
                 return Ok(res);
             }
             let body = read_body(req).await?;
-            let route = Route::Broadcast(parse_tx(&body)?);
+            let route = if matches!(call, Call::BlindbitForwardTx) {
+                #[derive(serde::Deserialize)]
+                #[serde(deny_unknown_fields)]
+                struct ForwardTx {
+                    data: String,
+                }
+                let forward: ForwardTx = serde_json::from_slice(&body).map_err(|_| {
+                    ApiError::bad_request("body must be a JSON object with data transaction hex")
+                })?;
+                Route::BlindbitForwardTx(parse_tx(forward.data.as_bytes())?)
+            } else {
+                Route::Broadcast(parse_tx(&body)?)
+            };
             let started = Instant::now();
             let answer = ctx.esplora.raw(&route).await;
             Ok(respond(&route, answer, Source::Upstream(started.elapsed())))
@@ -434,7 +447,13 @@ pub(crate) async fn json<T: serde::de::DeserializeOwned>(
 fn is_heavy(route: &Route) -> bool {
     matches!(
         route,
-        Route::ScriptStats { .. }
+        Route::BlindbitTweaks { .. }
+            | Route::BlindbitTweakIndex { .. }
+            | Route::BlindbitUtxos(_)
+            | Route::BlindbitSpentIndex(_)
+            | Route::BlindbitFilterNewUtxos(_)
+            | Route::BlindbitFilterSpent(_)
+            | Route::ScriptStats { .. }
             | Route::ScriptUtxo { .. }
             | Route::ScriptTxs { .. }
             | Route::ScriptTxsChain { .. }
@@ -913,7 +932,7 @@ fn cache_control(route: &Route, body: &[u8]) -> &'static str {
         // Byte 4 of a witness serialization is the 0x00 marker; otherwise it is the input count.
         Route::TxRaw(_) if body.get(4).is_some_and(|&b| b != 0) => IMMUTABLE,
         Route::TxHex(_) if body.get(8..10).is_some_and(|b| b != b"00") => IMMUTABLE,
-        Route::Broadcast(_) => "no-store",
+        Route::Broadcast(_) | Route::BlindbitForwardTx(_) => "no-store",
         _ => LIVE,
     }
 }
@@ -931,7 +950,9 @@ fn upstream_error(e: &Error, route: &Route) -> ApiError {
             StatusCode::SERVICE_UNAVAILABLE,
             "chain tip moved during the request; retry",
         ),
-        Error::Rejected { message, .. } if matches!(route, Route::Broadcast(_)) => {
+        Error::Rejected { message, .. }
+            if matches!(route, Route::Broadcast(_) | Route::BlindbitForwardTx(_)) =>
+        {
             ApiError::bad_request(reject_reason(message))
         }
         Error::Rejected { status: s, .. } if *s == StatusCode::UNPROCESSABLE_ENTITY => {
@@ -951,6 +972,16 @@ fn upstream_error(e: &Error, route: &Route) -> ApiError {
 fn route_name(route: &Route) -> &'static str {
     use Route as R;
     match route {
+        R::BlindbitInfo => "blindbit_info",
+        R::BlindbitBlockHeight => "blindbit_block_height",
+        R::BlindbitBlockHash(_) => "blindbit_block_hash",
+        R::BlindbitTweaks { .. } => "blindbit_tweaks",
+        R::BlindbitTweakIndex { .. } => "blindbit_tweak_index",
+        R::BlindbitUtxos(_) => "blindbit_utxos",
+        R::BlindbitSpentIndex(_) => "blindbit_spent_index",
+        R::BlindbitFilterNewUtxos(_) => "blindbit_filter_new_utxos",
+        R::BlindbitFilterSpent(_) => "blindbit_filter_spent",
+        R::BlindbitForwardTx(_) => "blindbit_forward_tx",
         R::TipHeight => "tip_height",
         R::TipHash => "tip_hash",
         R::Blocks { .. } => "blocks",
@@ -1061,6 +1092,26 @@ fn parse(path: &str, query: Option<&str>, network: Network) -> Result<Call, ApiE
 fn parse_segments(segs: &[&str], q: &mut Query<'_>, network: Network) -> Result<Call, ApiError> {
     use Route as R;
     let route = match *segs {
+        ["blindbit", "v1", "info"] => R::BlindbitInfo,
+        ["blindbit", "v1", "block-height"] => R::BlindbitBlockHeight,
+        ["blindbit", "v1", "block-hash", h] => R::BlindbitBlockHash(int(h, "invalid height")?),
+        ["blindbit", "v1", "tweaks", h] => R::BlindbitTweaks {
+            height: int(h, "invalid height")?,
+            dust_limit: q.dust_limit()?,
+        },
+        ["blindbit", "v1", "tweak-index", h] => R::BlindbitTweakIndex {
+            height: int(h, "invalid height")?,
+            dust_limit: q.dust_limit()?,
+        },
+        ["blindbit", "v1", "utxos", h] => R::BlindbitUtxos(int(h, "invalid height")?),
+        ["blindbit", "v1", "spent-index", h] => R::BlindbitSpentIndex(int(h, "invalid height")?),
+        ["blindbit", "v1", "filter", "new-utxos", h] => {
+            R::BlindbitFilterNewUtxos(int(h, "invalid height")?)
+        }
+        ["blindbit", "v1", "filter", "spent", h] => {
+            R::BlindbitFilterSpent(int(h, "invalid height")?)
+        }
+        ["blindbit", "v1", "forward-tx"] => return Ok(Call::BlindbitForwardTx),
         ["tx"] => return Ok(Call::Broadcast),
         ["block-heights", "txs", "outs"] => return Ok(Call::Outputs { asof: q.asof()? }),
 
@@ -1267,6 +1318,18 @@ impl<'a> Query<'a> {
                 .map(Some)
                 .ok_or(ApiError::bad_request("invalid after_txid")),
         }
+    }
+
+    fn dust_limit(&mut self) -> Result<Option<u64>, ApiError> {
+        self.take("dustLimit")
+            .map(|s| {
+                if s.is_empty() || !s.bytes().all(|b| b.is_ascii_digit()) {
+                    return Err(ApiError::bad_request("invalid dustLimit"));
+                }
+                s.parse()
+                    .map_err(|_| ApiError::bad_request("invalid dustLimit"))
+            })
+            .transpose()
     }
 
     fn max_txs(&mut self) -> Result<Option<u32>, ApiError> {

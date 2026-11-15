@@ -89,6 +89,14 @@ All of these need `--sh-index` on the node. Unpaged stats and `/utxo` answer 503
 | `X-Bitcoin-Chain-Tip`, `X-Bitcoin-Chain-Tip-Height` | Names the chain view a response was read at | rbitcoin Esplora | served | M1 | node | Block, tx and header routes stamp the live tip; address and scripthash routes stamp the address-index watermark, which can lag the tip. Unstamped: `/mempool`, `/mempool/txids`, `/mempool/recent`, `/fee-estimates`, `POST /tx`, `POST /txs/package` and `/address/:address/txs/mempool` (and its scripthash form). The paged `/mempool/txids/page[/:last_txid]` is stamped with the live tip. Pass through and expose to browsers. mempool.space has nothing like it |
 | `?asof=<blockhash>` | Pins a status, outspend, position or address read to an ancestor block | rbitcoin Esplora | served | M1 | node | `/tx/:txid?asof=` is 404 by design; `/tx/:txid/status?asof=` works |
 
+## BlindBit v1
+
+The maintainer-approved routes under `/api/blindbit/v1` are served: info,
+block-height, block-hash, tweaks, tweak-index, utxos, spent-index, both filters,
+and forward-tx. The node requires `--sp-tweaks`; the original comparison node
+had it off, so the original probe returned 404. The allowed routes, parameters
+and limits now live in [`API.md`](../API.md#blindbit-v1-silent-payments).
+
 ## Not served by rbitcoin
 
 | Endpoint | What it is | Status | M | Live | Why |
@@ -97,4 +105,3 @@ All of these need `--sh-index` on the node. Unpaged stats and `/utxo` answer 503
 | `GET /address-prefix/:prefix` | Address autocomplete | skipped | — | node | 404. Out of scope (no prefix index) |
 | `/asset/*`, `/assets/*` | Liquid assets | skipped | — | node | 404. Out of scope |
 | `GET /broadcast?tx=` | Broadcast through a GET | skipped | — | node | 404 on rbitcoin. A write behind a GET is cacheable and cross-site triggerable |
-| `/blindbit/v1/*` | Silent-payments tweak oracle (opt-in `--sp-tweaks`) | skipped | — | node | Wallet backend, not explorer data. 404 on the test node, where the flag is off |

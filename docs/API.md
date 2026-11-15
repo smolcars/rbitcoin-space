@@ -34,6 +34,40 @@ Request and response shapes are rbitcoin v0.9.2's: [`docs/esplora-openapi.yaml`]
 
 `HEAD` is accepted wherever `GET` is. Any other path under `/api` is a `404`, and a known path with the wrong method is a `405` with `Allow`.
 
+### BlindBit v1 silent payments
+
+The maintainer-approved BlindBit v1 surface is allowed through at `/api/blindbit/v1`
+(and each network's API prefix), using rbitcoin v0.9.2's
+[`BlindBit handlers`](https://github.com/rbitcoin-org/rbitcoin/blob/v0.9.2/crates/rbitcoin-esplora/src/blindbit.rs).
+Point a BlindBit client at this prefix. The upstream node must enable `--sp-tweaks`;
+the backend does not enable or build the index. Unindexed heights return `404`,
+and no indexed height returns `503` on the info and block-height routes.
+
+| Method | Path relative to `/api/blindbit/v1` | Parameters |
+|---|---|---|
+| GET, HEAD | `/info`, `/block-height` | None |
+| GET, HEAD | `/block-hash/:height` | Decimal `u32` height |
+| GET, HEAD | `/tweaks/:height`, `/tweak-index/:height` | Decimal `u32` height, optional `?dustLimit=` decimal `u64` satoshis |
+| GET, HEAD | `/utxos/:height`, `/spent-index/:height` | Decimal `u32` height |
+| GET, HEAD | `/filter/new-utxos/:height`, `/filter/spent/:height` | Decimal `u32` height |
+| POST | `/forward-tx` | JSON `{"data":"<raw transaction hex>"}`; no other fields |
+
+Only these named routes are allowed. Unknown or repeated query parameters are
+`400`; unknown paths are `404`; wrong methods are `405`. Parameters are rebuilt
+in canonical decimal form. Successful response bytes and content types are the
+node's; errors are sanitized as below. Reads use `public, max-age=1`, including
+height-keyed answers because reorgs and later spends can change them. Identical
+reads share an upstream call. Tweaks, tweak-index, UTXOs, spent-index and both
+filter routes share the address and batch heavy-work budget below, including
+per-client limits and holding slots until upstream work ends.
+
+`/forward-tx` is transaction broadcast: it shares `BROADCAST_ENABLED`, the
+per-network per-client broadcast rate limit and the 400,000-byte decoded
+transaction cap with `POST /api/tx`. Its JSON body has the same 800,016-byte cap
+as that route. The node receives rebuilt JSON containing canonical transaction
+hex and returns a JSON txid string; responses use `no-store`. This does not
+permit package relay or any other write.
+
 ### Not served
 
 | Route | Why |
@@ -42,7 +76,6 @@ Request and response shapes are rbitcoin v0.9.2's: [`docs/esplora-openapi.yaml`]
 | `POST /addresses/txs`, `POST /scripthashes/txs` and their `/summary` | One request can ask for up to 300 address-index joins. That is unbounded load for one client to cause (rule 11). Ask per address instead |
 | `POST /txs/test`, `POST /txs/package` | Broadcast is the only write we serve (rule 5). Package relay and test-accept may come later with their own limits |
 | `GET /block-template` | Off on the node by default, about 5 MB, and the server uses RPC for templates |
-| `/blindbit/v1/*` | Silent-payments oracle; not part of the Esplora surface |
 
 ## Differences from the node
 
@@ -106,7 +139,7 @@ Block JSON has no confirmation status (the node drops a block that leaves the be
 
 - **Identical requests share one call** (rule 8). Requests that arrive while the same upstream call is in flight wait for it and get its answer. Once answered, the next request asks the node again. Measured: 300 concurrent identical requests made one upstream call.
 - **Hot answers are held for one second:** `/blocks/tip/height`, `/blocks/tip/hash`, `/blocks`, `/mempool`, `/mempool/txids`, `/mempool/recent` and `/fee-estimates`. Their keys are fixed, so this cache holds at most seven answers per network. Measured: 20,303 sequential `/blocks/tip/height` requests in 3 seconds made three upstream calls.
-- **Address and batch routes have a cost limit** (rules 8 and 11). Every address and scripthash route, `/txs/outspends` and `POST /block-heights/txs/outs` can cost the node far more than a lookup: totals for one busy signet address took 9.7 s. At most four run at once per network, and eight more wait for a slot; a client has a share of those and a rate of its own ([`CONFIG.md`](CONFIG.md#address-and-batch-routes)). Past that the answer is immediate, `503` `node busy; retry` or `429`, with `Retry-After: 1`. Joining an identical call already running is free. A call runs in a task of its own that holds its slots until the node has answered, or 60 seconds have passed, even after the request has timed out (`504` at `REQUEST_TIMEOUT_SECS`): retrying a slow query cannot pile more work onto the node than the limit allows. On a regtest node, rbitcoin v0.9.2 stopped using CPU within half a second of its clients hanging up on 200 large address answers, but that work was mostly encoding the answer; nothing shows that a long index scan is abandoned, so the limit assumes it is not.
+- **Address, batch and BlindBit scanning routes have a cost limit** (rules 8 and 11). Every address and scripthash route, `/txs/outspends`, `POST /block-heights/txs/outs` and the BlindBit scanning routes listed above can cost the node far more than a lookup: totals for one busy signet address took 9.7 s. At most four run at once per network, and eight more wait for a slot; a client has a share of those and a rate of its own ([`CONFIG.md`](CONFIG.md#address-and-batch-routes)). Past that the answer is immediate, `503` `node busy; retry` or `429`, with `Retry-After: 1`. Joining an identical call already running is free. A call runs in a task of its own that holds its slots until the node has answered, or 60 seconds have passed, even after the request has timed out (`504` at `REQUEST_TIMEOUT_SECS`): retrying a slow query cannot pile more work onto the node than the limit allows. On a regtest node, rbitcoin v0.9.2 stopped using CPU within half a second of its clients hanging up on 200 large address answers, but that work was mostly encoding the answer; nothing shows that a long index scan is abandoned, so the limit assumes it is not.
 - **Address histories the node will not finish are refused at once** ([below](#very-large-addresses)).
 - **`?asof=` is served, under that limit.** It pins an answer to a block and makes every request a distinct key, so sharing calls never helps; but the limit counts calls started, not keys, so distinct keys buy nothing. Dropping it would break Esplora clients that page consistently through a history, for no protection the limit does not already give.
 - **Every request** passes the server-wide limits in [`CONFIG.md`](CONFIG.md): body size, timeout, per-client rate and concurrency.
@@ -209,7 +242,7 @@ Once a kept address's whole history is in the store, `/api/address/:a/txs`, `/tx
 
 ## Broadcast
 
-`POST /tx` with the raw transaction as hex in the body, optionally surrounded by whitespace. The answer is the txid as `text/plain`.
+`POST /tx` with the raw transaction as hex in the body, optionally surrounded by whitespace. The answer is the txid as `text/plain`. BlindBit [`POST /blindbit/v1/forward-tx`](#blindbit-v1-silent-payments) offers the same operation with JSON request and response bodies and shares all the limits below.
 
 - **Parsed before sending:** the body must decode as exactly one transaction. The node is sent our own serialization of it, never the client's bytes.
 - **Size cap:** 400,000 bytes of transaction (800,000 hex characters), the most a standard transaction can be. Larger is `413`.

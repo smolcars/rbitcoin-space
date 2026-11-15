@@ -92,6 +92,32 @@ fn answer(method: &Method, pq: &str, body: &[u8]) -> Response {
         return r;
     }
     match (method.as_str(), pq) {
+        ("GET", p) if p.starts_with("/blindbit/v1/") => {
+            if p == "/blindbit/v1/block-hash/42" {
+                return (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    with(&json, &[]),
+                    r#"{"error":"private detail"}"#,
+                )
+                    .into_response();
+            }
+            if p == "/blindbit/v1/block-hash/43" {
+                return (
+                    StatusCode::NOT_FOUND,
+                    with(&json, &[]),
+                    r#"{"error":"height not indexed"}"#,
+                )
+                    .into_response();
+            }
+            (with(&json, &[]), r#"["00", "ff"]"#).into_response()
+        }
+        ("POST", "/blindbit/v1/forward-tx") => {
+            assert_eq!(
+                serde_json::from_slice::<serde_json::Value>(body).unwrap(),
+                serde_json::json!({"data": TX})
+            );
+            (with(&json, &[]), format!("\"{H}\"")).into_response()
+        }
         ("GET", "/blocks/tip/height") => (with(&text, &stamp), "800001").into_response(),
         ("GET", "/fee-estimates") => (with(&json, &[]), r#"{"1":2.5,"6":1.0}"#).into_response(),
         ("GET", p) if p == format!("/tx/{H}") => (
@@ -1041,4 +1067,136 @@ async fn replies(tasks: Vec<tokio::task::JoinHandle<Reply>>) -> Vec<Reply> {
         out.push(t.await.unwrap());
     }
     out
+}
+
+#[tokio::test]
+async fn blindbit_routes_are_typed_and_forwarded_on_each_network() {
+    let (addr, seen) = start(Duration::ZERO, false).await;
+    let paths = [
+        "info",
+        "block-height",
+        "block-hash/0007",
+        "tweaks/7?dustLimit=000546",
+        "tweak-index/7?dustLimit=18446744073709551615",
+        "utxos/7",
+        "spent-index/7",
+        "filter/new-utxos/7",
+        "filter/spent/7",
+    ];
+    for prefix in ["", "/signet"] {
+        for path in paths {
+            let r = get(&addr, &format!("{prefix}/api/blindbit/v1/{path}")).await;
+            assert_eq!(r.status, 200, "{path}: {r:?}");
+            assert_eq!(r.text(), r#"["00", "ff"]"#);
+            assert_eq!(r.header("content-type"), Some("application/json"));
+            assert_eq!(r.header("cache-control"), Some(LIVE));
+            assert_eq!(r.header("access-control-allow-origin"), Some("*"));
+        }
+    }
+    assert!(hits(&seen).contains(&"/blindbit/v1/block-hash/7".to_owned()));
+    assert!(hits(&seen).contains(&"/blindbit/v1/tweaks/7?dustLimit=546".to_owned()));
+    let r = send(&addr, "HEAD /api/blindbit/v1/info", "", b"").await;
+    assert_eq!(r.status, 200);
+    assert!(r.body.is_empty());
+    assert_eq!(
+        get(&addr, "/api/blindbit/v1/block-hash/42").await.error(),
+        "node unavailable"
+    );
+    assert_eq!(
+        get(&addr, "/api/blindbit/v1/block-hash/43").await.status,
+        404
+    );
+}
+
+#[tokio::test]
+async fn blindbit_refusals_never_reach_the_node() {
+    let (addr, seen) = start(Duration::ZERO, true).await;
+    for (path, status) in [
+        ("tweaks/-1", 400),
+        ("tweaks/4294967296", 400),
+        ("tweaks/%31", 400),
+        ("tweaks/1?dustLimit=-1", 400),
+        ("tweaks/1?dustLimit=18446744073709551616", 400),
+        ("tweaks/1?dustLimit=", 400),
+        ("tweaks/1?dustLimit=1&dustLimit=2", 400),
+        ("utxos/1?dustLimit=1", 400),
+        ("info?asof=1", 400),
+        ("filter/unknown/1", 404),
+        ("unknown", 404),
+        ("info/", 404),
+    ] {
+        assert_eq!(
+            get(&addr, &format!("/api/blindbit/v1/{path}")).await.status,
+            status,
+            "{path}"
+        );
+    }
+    let r = post(&addr, "/api/blindbit/v1/info", b"").await;
+    assert_eq!(r.status, 405);
+    assert_eq!(r.header("allow"), Some("get, head"));
+    assert_eq!(get(&addr, "/api/blindbit/v1/forward-tx").await.status, 405);
+    for body in [b"{}".as_slice(), b"{\"data\":\"bad\"}", TX.as_bytes()] {
+        assert_eq!(
+            post(&addr, "/api/blindbit/v1/forward-tx", body)
+                .await
+                .status,
+            400
+        );
+    }
+    assert!(hits(&seen).is_empty());
+}
+
+#[tokio::test]
+async fn blindbit_forward_shares_the_broadcast_switch_and_budget() {
+    let body = serde_json::to_vec(&serde_json::json!({"data": TX.to_uppercase()})).unwrap();
+    let (addr, seen) = start(Duration::ZERO, false).await;
+    assert_eq!(
+        post(&addr, "/api/blindbit/v1/forward-tx", &body)
+            .await
+            .status,
+        403
+    );
+    assert!(hits(&seen).is_empty());
+    let (addr, seen) = start(Duration::ZERO, true).await;
+    let r = post(&addr, "/signet/api/blindbit/v1/forward-tx", &body).await;
+    assert_eq!(r.status, 200);
+    assert_eq!(r.text(), format!("\"{H}\""));
+    assert_eq!(r.header("cache-control"), Some("no-store"));
+    for _ in 1..BROADCAST_BURST {
+        assert_eq!(
+            post(&addr, "/signet/api/tx", TX.as_bytes()).await.status,
+            200
+        );
+    }
+    assert_eq!(
+        post(&addr, "/signet/api/blindbit/v1/forward-tx", &body)
+            .await
+            .status,
+        429
+    );
+    assert_eq!(hits(&seen).len(), BROADCAST_BURST as usize);
+}
+
+#[tokio::test]
+async fn blindbit_forward_has_the_broadcast_body_cap() {
+    let (addr, seen) = start(Duration::ZERO, true).await;
+    // Larger than the default 16 KiB body limit, but one valid transaction after trimming.
+    let body =
+        serde_json::to_vec(&serde_json::json!({"data": format!("{}{TX}", " ".repeat(20_000))}))
+            .unwrap();
+    assert_eq!(
+        post(&addr, "/api/blindbit/v1/forward-tx", &body)
+            .await
+            .status,
+        200
+    );
+    let body =
+        serde_json::to_vec(&serde_json::json!({"data": "00".repeat(MAX_TX_BYTES + 1)})).unwrap();
+    assert_eq!(
+        post(&addr, "/api/blindbit/v1/forward-tx", &body)
+            .await
+            .status,
+        413
+    );
+    assert_eq!(hits(&seen).len(), 1);
 }
