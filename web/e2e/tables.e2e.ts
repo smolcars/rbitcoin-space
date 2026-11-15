@@ -1,5 +1,6 @@
 // Every table fits a phone's width with nothing cut off, and no page scrolls sideways (WCAG 1.4.10).
 import type { Locator, Page } from "@playwright/test";
+import { ARKADE_ID, withArkade } from "./ark-answers";
 import { chain, expect, stubRetargets, test } from "./fixtures";
 import { AUDIT } from "../src/components/audit/fakes";
 import { ACINQ, mainnet, ONE, recorded, serve } from "./lightning-answers";
@@ -20,12 +21,17 @@ const PAGES = [
     table: "Unspent outputs of this address, newest first",
   },
   { path: `/regtest/tx/${chain.txs.script_types}`, table: null },
+  {
+    path: `/regtest/ark/arkade/vtxo/${ARKADE_ID}`,
+    table: "The exit's transactions, in broadcast order",
+  },
 ];
 
 // The narrowest phone, strictly: 390 and 720 px are in the fit-or-scroll test below.
 for (const width of [320]) {
   test(`every table fits at ${width} px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 800 });
+    await withArkade(page, true);
     for (const { path, table } of PAGES) {
       await page.goto(path);
       await expect(page.getByRole("heading", { level: 1 })).toBeVisible();

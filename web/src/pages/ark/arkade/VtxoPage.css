@@ -403,6 +403,9 @@
   }
   .arkade-state--confirmed {
     color: var(--color-positive);
+    /* Its block goes under it where a phone's table has no room for both. */
+    flex-wrap: wrap;
+    row-gap: 0;
   }
   .arkade-state--mempool {
     color: var(--color-caution);

@@ -502,6 +502,14 @@ async fn every_kind_of_page_on_every_network_says_what_it_is() {
                 ),
             ),
             (
+                format!("/ark/arkade/vtxo/{}:7", "ab".repeat(32)),
+                "Arkade VTXO".into(),
+                format!(
+                    "Arkade VTXO {}:7 on {chain}: its amount, its expiry and its exit path, as Arkade reports them.",
+                    "ab".repeat(32)
+                ),
+            ),
+            (
                 "/lightning/search?q=acinq".into(),
                 "Lightning search".into(),
                 format!(
@@ -683,6 +691,11 @@ async fn paths_that_do_not_parse_get_the_shell_as_built() {
         "/lightning/node/%E2%80%AE".to_owned(),
         "/regtestx/".to_owned(),
         "/mempool/extra".to_owned(),
+        format!("/ark/arkade/vtxo/{TXID}"),
+        format!("/ark/arkade/vtxo/{TXID}:01"),
+        format!("/ark/arkade/vtxo/{TXID}:4294967296"),
+        format!("/ark/arkade/vtxo/{TXID}:0/x"),
+        "/ark/arkade/vtxo/not-an-outpoint".to_owned(),
     ];
     for path in &hostile {
         let r = get(&addr, path).await;

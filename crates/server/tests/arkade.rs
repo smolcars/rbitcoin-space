@@ -195,6 +195,24 @@ async fn get(addr: &str, target: &str, ip: &str) -> Reply {
     }
 }
 
+/// The answer for signet's `d922b2c3…:0`, from its recorded Arkade answers, is what the browser
+/// tests stub the route with (`web/e2e/ark-answers.ts`). `ARKADE_RECORD=1` writes it again.
+fn held_equal_to_the_recorded_answer(body: &[u8]) {
+    let path = format!(
+        "{}/../../fixtures/arkade/answer-preconfirmed.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let answer = String::from_utf8(body.to_vec()).unwrap() + "\n";
+    if std::env::var_os("ARKADE_RECORD").is_some() {
+        std::fs::write(&path, &answer).unwrap();
+    }
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        answer,
+        "ARKADE_RECORD=1 writes it again"
+    );
+}
+
 fn vtxo(txid: &str, vout: &str) -> String {
     format!("/regtest/app/ark/arkade/vtxo/{txid}/{vout}")
 }
@@ -225,6 +243,7 @@ async fn a_vtxo_comes_with_its_tree_and_where_each_transaction_is() {
     assert_eq!(v["batches"][0]["tree"].as_array().unwrap().len(), 255);
     assert_eq!(v["batches"][0]["vtxos"], 128);
     assert_eq!(ark.hits.load(Ordering::SeqCst), 5);
+    held_equal_to_the_recorded_answer(&r.body);
 
     // Asked again, the Arkade server is not.
     let again = get(&addr, &vtxo(PRE, "0"), "192.0.2.1").await;

@@ -3,6 +3,7 @@
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import type { Page } from "@playwright/test";
+import { ARKADE_ID, withArkade, withBoth } from "./ark-answers";
 import { chain, expect, stubRetargets, test } from "./fixtures";
 import { KEPT, LARGE, stubLarge } from "./large-address";
 import { ACINQ, mainnet, serve } from "./lightning-answers";
@@ -87,13 +88,22 @@ const record = (page: Page) =>
     const ids = new Map<Element, number>();
     w.here = (): Stop | null => {
       const e = document.activeElement;
-      if (!(e instanceof HTMLElement) || e === document.body) return null;
+      // A picture's controls are SVG elements (the Arkade exit path's nodes).
+      if (!(e instanceof HTMLElement || e instanceof SVGElement) || e === document.body)
+        return null;
       if (!ids.has(e)) ids.set(e, ids.size);
       // The ring is the element's own outline, or its field's (the search draws it on its box).
       let ring = false;
       for (const x of [e, e.parentElement]) {
         const s = x && getComputedStyle(x);
         if (s && s.outlineStyle !== "none" && Number.parseFloat(s.outlineWidth) >= 2) ring = true;
+      }
+      // A picture's control draws its ring as a stroke on a shape inside it.
+      if (e instanceof SVGElement) {
+        for (const x of e.querySelectorAll("*")) {
+          const s = getComputedStyle(x);
+          if (s.stroke !== "none" && Number.parseFloat(s.strokeWidth) >= 2) ring = true;
+        }
       }
       const header = document.querySelector(".site-header");
       const box = e.getBoundingClientRect();
@@ -178,7 +188,7 @@ async function walk(page: Page, browserName: string) {
   // Only the stops kept count as reached: presses past the end went round again.
   await page.evaluate((n) => {
     for (const e of (window as unknown as Walked).at.slice(1, n + 1)) {
-      if (e instanceof HTMLElement) e.dataset["walked"] = "";
+      if (e instanceof HTMLElement || e instanceof SVGElement) e.dataset["walked"] = "";
     }
   }, stops.length);
   expect.soft(stops[0]?.name, "the first stop").toBe('a "Skip to content"');
@@ -197,7 +207,7 @@ async function walk(page: Page, browserName: string) {
   const order = await page.evaluate(() => {
     const parts = [".site-header", "#main", ".site-footer"];
     const tabbable = [
-      ...document.querySelectorAll<HTMLElement>(
+      ...document.querySelectorAll<HTMLElement | SVGElement>(
         "a[href], button, input, select, textarea, summary, [tabindex]",
       ),
     ].filter(
@@ -206,7 +216,9 @@ async function walk(page: Page, browserName: string) {
         !(e as HTMLButtonElement).disabled &&
         e.getClientRects().length > 0 &&
         getComputedStyle(e).visibility !== "hidden" &&
-        !e.closest("[inert]"),
+        !e.closest("[inert]") &&
+        // Folded away in a closed <details>, which Tab rightly passes.
+        !e.closest("details:not([open]) > :not(summary)"),
     );
     return {
       positive: tabbable.filter((e) => e.tabIndex > 0).length,
@@ -371,6 +383,24 @@ const PAGES: PageType[] = [
     path: `/regtest/address/${LARGE}?ledger=adding`,
     ready: (p) => p.getByRole("region", { name: "Adding up this address for the first time" }),
     before: (p) => stubLarge(p, { ledger: () => ({ state: "seeding", seconds: 95 }) }),
+  },
+  {
+    name: "Ark entry, two implementations",
+    path: "/regtest/ark",
+    ready: (p) => p.getByRole("button", { name: "Arkade" }),
+    before: withBoth,
+  },
+  {
+    name: "Arkade VTXO, swept",
+    path: `/regtest/ark/arkade/vtxo/${ARKADE_ID}`,
+    ready: (p) => p.getByRole("button", { name: "Play exit" }),
+    before: (p) => withArkade(p),
+  },
+  {
+    name: "Arkade VTXO, unspent and not settled",
+    path: `/regtest/ark/arkade/vtxo/${ARKADE_ID}`,
+    ready: (p) => p.getByRole("button", { name: "Play exit" }),
+    before: (p) => withArkade(p, true),
   },
 ];
 

@@ -20,6 +20,8 @@
   }
 
   .ark-entry__tab {
+    /* "Bark" alone is narrower than a thumb. */
+    min-width: var(--touch);
     min-height: var(--touch);
     padding: 0;
     border: 0;

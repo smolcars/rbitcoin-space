@@ -84,7 +84,19 @@ impl Pages {
         let (network, rest) = split(path);
         let ctx = self.networks.iter().find(|c| c.config.network == network)?;
         let on = chain(network);
-        // The one page four segments deep (docs/ARK.md).
+        // The pages four segments deep (docs/ARK.md).
+        if let Some(id) = rest.strip_prefix("/ark/arkade/vtxo/") {
+            let (txid, vout) = id.split_once(':')?;
+            let txid = esplora::txid(txid).ok()?;
+            let vout = arkade::parse_vout(vout)?;
+            let head = Head {
+                title: "Arkade VTXO".into(),
+                description: format!(
+                    "Arkade VTXO {txid}:{vout} on {on}: its amount, its expiry and its exit path, as Arkade reports them."
+                ),
+            };
+            return Some((network, head));
+        }
         if let Some(id) = rest.strip_prefix("/ark/bark/vtxo/") {
             let id: bark::VtxoId = id.parse().ok()?;
             let head = Head {

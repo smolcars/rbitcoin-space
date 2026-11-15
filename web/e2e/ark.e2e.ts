@@ -1,5 +1,5 @@
-// The Ark pages (docs/ARK.md), on regtest without a Bark server and with one from a fixture.
-import { ID, withBark } from "./ark-answers";
+// The Ark pages (docs/ARK.md), on regtest without an Ark server and with one from recorded answers.
+import { ARKADE_ID, ID, withArkade, withBark, withBoth } from "./ark-answers";
 import { expect, test } from "./fixtures";
 
 const UNKNOWN = `${"ab".repeat(32)}:1`;
@@ -69,5 +69,79 @@ test.describe("with Bark", () => {
     await expect(page.getByText("Bark does not know this VTXO")).toBeVisible();
     await page.goto("/regtest/ark/bark/vtxo/nonsense");
     await expect(page.getByText("Not a VTXO ID")).toBeVisible();
+  });
+});
+
+test.describe("with Arkade", () => {
+  // Reduced motion: Play exit shows its end at once rather than over ten steps.
+  test.use({ consoleErrorsAllowed: [/status of 404/], reducedMotion: "reduce" });
+
+  test("the entry page offers Bark and Arkade side by side, and opens an Arkade VTXO", async ({
+    page,
+  }) => {
+    await withBoth(page);
+    await page.goto("/regtest/ark");
+    const tabs = page.getByRole("group", { name: "Implementation" });
+    await expect(tabs.getByRole("button")).toHaveText(["Bark", "Arkade"]);
+    await tabs.getByRole("button", { name: "Arkade" }).click();
+    await expect(tabs.getByRole("button", { name: "Arkade" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await page.getByLabel("Arkade VTXO ID").fill(` ${ARKADE_ID.toUpperCase()} `);
+    await page.getByRole("button", { name: "Open" }).click();
+    await expect(page).toHaveURL(`/regtest/ark/arkade/vtxo/${ARKADE_ID}`);
+    await expect(page.getByRole("button", { name: "Play exit" })).toBeVisible();
+    const ark = page.getByRole("navigation").getByRole("link", { name: "Ark" });
+    await expect(ark).toHaveAttribute("aria-current", "true");
+
+    await page.getByRole("link", { name: "Another VTXO" }).click();
+    await expect(page).toHaveURL(/\/regtest\/ark$/);
+  });
+
+  test("a VTXO: arkd's words, its tree, Play exit and a transaction picked", async ({ page }) => {
+    await withArkade(page, true);
+    await page.goto(`/regtest/ark/arkade/vtxo/${ARKADE_ID}`);
+    await expect(page.locator(".arkade-badge")).toHaveText(["Unspent", "Not settled yet"]);
+    await expect(page.getByText("1 000 sats", { exact: false }).first()).toBeVisible();
+    await expect(page.getByText("10 transactions")).toBeVisible();
+    const table = page.getByRole("table", { name: /exit's transactions/ });
+    await expect(table.getByRole("row")).toHaveCount(12);
+
+    await page.getByRole("button", { name: "Play exit" }).click();
+    await expect(page.getByText(/then wait ~2 days/)).toBeVisible();
+
+    const checkpoint = page.getByRole("button", { name: "9. Checkpoint" });
+    await checkpoint.focus();
+    await page.keyboard.press("Enter");
+    await expect(checkpoint).toHaveAttribute("aria-pressed", "true");
+    const picked = page.getByRole("region", { name: "Selected transaction" });
+    await expect(picked).toContainText("#9 Checkpoint");
+    await picked.getByRole("button", { name: "Close" }).click();
+    await expect(picked).toHaveCount(0);
+  });
+
+  test("swept, as signet's VTXO is", async ({ page }) => {
+    await withArkade(page);
+    await page.goto(`/regtest/ark/arkade/vtxo/${ARKADE_ID}`);
+    await expect(page.locator(".arkade-badge").first()).toHaveText("Swept");
+  });
+
+  test("an outpoint Arkade does not know, one that is not an outpoint, and a network without it", async ({
+    page,
+    request,
+  }) => {
+    await withArkade(page);
+    await page.goto(`/regtest/ark/arkade/vtxo/${UNKNOWN}`);
+    await expect(page.getByText("Arkade knows no such VTXO")).toBeVisible();
+    await page.goto("/regtest/ark/arkade/vtxo/nonsense");
+    await expect(page.getByText("Not a VTXO", { exact: true })).toBeVisible();
+
+    await page.unrouteAll();
+    await page.goto(`/regtest/ark/arkade/vtxo/${ARKADE_ID}`);
+    await expect(page.getByText("Arkade is not available on this network")).toBeVisible();
+    const off = await request.get(`/regtest/app/ark/arkade/vtxo/${ARKADE_ID.replace(":", "/")}`);
+    expect(off.status()).toBe(404);
+    expect(await off.json()).toStrictEqual({ error: "arkade is not available here" });
   });
 });
