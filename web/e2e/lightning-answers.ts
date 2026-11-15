@@ -42,6 +42,10 @@ export const mainnet = (): Record<string, unknown> => ({
   status: recorded("status"),
   overview: recorded("overview"),
   "statistics/1w": recorded("statistics-1w"),
+  // Recorded 2026-11-15 from a mainnet server with the overview's feed; the feed cut to two of each.
+  "movers?period=1w": recorded("movers-1w"),
+  "closes?days=30": recorded("closes-30"),
+  feed: recorded("feed"),
   [`nodes/${ACINQ}`]: recorded("node-acinq"),
   [`nodes/${ACINQ}/history`]: recorded("node-acinq-history"),
   [`nodes/${ACINQ}/channels?status=closed`]: recorded("node-acinq-closed"),

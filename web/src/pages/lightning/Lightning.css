@@ -1990,14 +1990,19 @@
       display: flex;
       flex-wrap: wrap;
       gap: 0 var(--space-4);
-      margin-top: calc(var(--space-2) - var(--space-7));
       font-size: var(--text-sm);
     }
     .ln-jumps a {
       display: inline-flex;
       align-items: center;
+      justify-content: center;
+      min-width: var(--touch);
       min-height: var(--touch);
     }
+  }
+  /* A time in words may take two lines in a narrow table; a figure in it never does. */
+  .ln-ago time {
+    white-space: normal;
   }
   .ln-h3 {
     margin: 0 0 var(--space-2);
@@ -2040,13 +2045,19 @@
     font-size: var(--text-sm);
     color: var(--color-text-muted);
   }
+  .ln-feed__box {
+    height: min(30rem, 75svh);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border-top: 1px solid var(--color-line);
+    border-bottom: 1px solid var(--color-line);
+  }
   .ln-feed {
     display: grid;
     margin: 0;
     padding: 0;
     list-style: none;
     font-size: var(--text-sm);
-    border-top: 1px solid var(--color-line);
   }
   .ln-feed__row {
     display: grid;
@@ -2144,6 +2155,25 @@
     }
   }
 
+  @media (pointer: coarse) {
+    /* A channel's id reaches a thumb high as .tap-line does, over the words of the lines beside
+       it; the lines of a row, and its two ends, stand apart for it. */
+    .ln-feed__what .ln-id {
+      position: relative;
+      z-index: 1;
+      display: inline-block;
+      padding-block: calc((var(--touch) - 1lh) / 2);
+      margin-block: calc((var(--touch) - 1lh) / -2);
+    }
+    .ln-feed__row {
+      row-gap: var(--space-3);
+      padding-block: var(--space-3);
+    }
+    .ln-feed__ends {
+      row-gap: var(--space-3);
+    }
+  }
+
   /* Closes by kind: a bar a day. */
   .ln-bars__readout {
     display: flex;
@@ -2156,8 +2186,12 @@
   }
   .ln-bars__key {
     display: inline-flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: var(--space-1);
+  }
+  .ln-bars__readout .num,
+  .ln-bars__ends .num {
     white-space: nowrap;
   }
   .ln-bars__swatch {
@@ -2225,6 +2259,8 @@
   }
   .ln-bars__ends {
     display: flex;
+    flex-wrap: wrap;
+    gap: 0 var(--space-3);
     justify-content: space-between;
     margin: var(--space-1) 0 0;
     font-size: var(--text-xs);

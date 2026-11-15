@@ -39,7 +39,7 @@ function gappyDay() {
 const PAGES = [
   { path: "/regtest/mempool?interval=all", charts: [/The mempool's size/] },
   { path: "/regtest/lightning?interval=24h", charts: [/Lightning channels/] },
-  { path: "/regtest/lightning?interval=all", charts: [/Lightning channels/] },
+  { path: "/regtest/lightning?interval=1m", charts: [/Lightning channels/] },
   // Regtest has no pools, hashrate or audits: of the mining charts, it draws the blocks'.
   { path: "/regtest/mining?period=all", charts: [/Average fees per block/] },
 ];
@@ -113,7 +113,9 @@ for (const { path, charts } of PAGES) {
     await serve(page, {
       ...mainnet(),
       "statistics/24h": gappyDay(),
-      "statistics/all": recorded("statistics-1w"),
+      "statistics/1m": { ...(recorded("statistics-1w") as object), interval: "1m" },
+      "movers?period=24h": { ...(recorded("movers-1w") as object), period: "24h" },
+      "movers?period=1m": { ...(recorded("movers-1w") as object), period: "1m" },
     });
     const found: string[] = [];
     for (const size of SIZES) {

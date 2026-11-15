@@ -54,7 +54,9 @@ test("the overview, a node and a channel, from mainnet's answers", async ({ page
   await page.goto("/regtest/lightning");
   await expect(page.getByRole("heading", { name: "The network now" })).toBeVisible();
   await expect(page.locator("dl").getByText(/^36\s228$/)).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Newest channels" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Movers" })).toBeVisible();
+  // Lightning is off on regtest, so the topic says nothing and the page asks for the feed.
+  await expect(page.locator(".ln-feed li")).toHaveCount(6);
 
   const connected = page.getByRole("table", { name: "The five nodes with the most channels" });
   await connected.getByRole("link", { name: "ACINQ" }).click();

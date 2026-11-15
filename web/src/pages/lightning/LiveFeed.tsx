@@ -155,7 +155,7 @@ export function LiveFeed(props: { network: Network }) {
 
   const view = () => shown(rows(), filter());
   return (
-    <section aria-labelledby="ln-feed-title">
+    <section aria-labelledby="ln-feed-title" aria-busy={loaded() ? "false" : "true"}>
       <SectionHeader title="As it happens" id="ln-feed-title">
         <span class="ln-live">
           <span
@@ -209,53 +209,56 @@ export function LiveFeed(props: { network: Network }) {
           </Show>
         </p>
       </div>
-      <Switch>
-        <Match when={!loaded() && failed() !== undefined}>
-          <ErrorState
-            title="Could not load the live feed"
-            error={failed()}
-            retry={() => void load()}
-          />
-        </Match>
-        <Match when={!loaded()}>
-          <Loading label="Waiting for the live feed" />
-        </Match>
-        <Match when={view().length === 0}>
-          <Empty title={rows().length === 0 ? "Nothing yet" : "None of these yet"}>
-            Changes appear here as this server finds them, after it has caught up with the chain.
-          </Empty>
-        </Match>
-      </Switch>
-      <Show when={loaded() && view().length > 0}>
-        <ol
-          class="ln-feed"
-          aria-label="Newest first"
-          onPointerEnter={(e) => setHover(e.pointerType === "mouse")}
-          onPointerLeave={() => setHover(false)}
-          onFocusIn={() => setFocus(true)}
-          onFocusOut={(e) => {
-            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocus(false);
-          }}
-        >
-          <For each={view()}>
-            {(row) => (
-              <li class={["ln-feed__row", { "ln-feed__row--new": row.batch === newest() }]}>
-                <Show
-                  when={row.ev}
-                  fallback={
-                    <span class="ln-feed__more">
-                      and <span class="num">{groupDigits(row.more ?? 0)}</span> more in this batch,
-                      not listed
-                    </span>
-                  }
-                >
-                  {(ev) => <FeedRow ev={ev()} />}
-                </Show>
-              </li>
-            )}
-          </For>
-        </ol>
-      </Show>
+      {/* One height whatever it holds, so its arrival moves nothing below it. */}
+      <div class="ln-feed__box">
+        <Switch>
+          <Match when={!loaded() && failed() !== undefined}>
+            <ErrorState
+              title="Could not load the live feed"
+              error={failed()}
+              retry={() => void load()}
+            />
+          </Match>
+          <Match when={!loaded()}>
+            <Loading label="Waiting for the live feed" />
+          </Match>
+          <Match when={view().length === 0}>
+            <Empty title={rows().length === 0 ? "Nothing yet" : "None of these yet"}>
+              Changes appear here as this server finds them, after it has caught up with the chain.
+            </Empty>
+          </Match>
+        </Switch>
+        <Show when={loaded() && view().length > 0}>
+          <ol
+            class="ln-feed"
+            aria-label="Newest first"
+            onPointerEnter={(e) => setHover(e.pointerType === "mouse")}
+            onPointerLeave={() => setHover(false)}
+            onFocusIn={() => setFocus(true)}
+            onFocusOut={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocus(false);
+            }}
+          >
+            <For each={view()}>
+              {(row) => (
+                <li class={["ln-feed__row", { "ln-feed__row--new": row.batch === newest() }]}>
+                  <Show
+                    when={row.ev}
+                    fallback={
+                      <span class="ln-feed__more">
+                        and <span class="num">{groupDigits(row.more ?? 0)}</span> more in this
+                        batch, not listed
+                      </span>
+                    }
+                  >
+                    {(ev) => <FeedRow ev={ev()} />}
+                  </Show>
+                </li>
+              )}
+            </For>
+          </ol>
+        </Show>
+      </div>
     </section>
   );
 }

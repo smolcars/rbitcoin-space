@@ -23,10 +23,18 @@ import { SectionHeader } from "../../components/SectionHeader";
 import { Empty, ErrorState, Loading } from "../../components/States";
 import { TimeAgo } from "../../components/Time";
 import { type ApiRequest, createRequest } from "../../lib/api";
-import { formatBtc, formatBtcShort, groupDigits } from "../../lib/format";
+import { formatBtcShort, groupDigits } from "../../lib/format";
 import { type Network, paths } from "../../lib/network";
 import { useNetwork, usePageTitle } from "../../lib/page";
-import { type DayCloses, isCloses, isMovers, type Mover, moversFor } from "./feed";
+import {
+  type Closes,
+  type DayCloses,
+  isCloses,
+  isMovers,
+  type Mover,
+  type Movers,
+  moversFor,
+} from "./feed";
 import {
   type Before,
   btcAxis,
@@ -105,21 +113,31 @@ function Overview(props: { network: Network }) {
   const period = createMemo(
     (): Period => PERIODS.find((p) => p.id === search["interval"]) ?? PERIODS[1],
   );
-  const [overview, { refetch }] = createRequest(
+  const overviewRequest = createRequest(
     () => props.network,
     (n, signal) => ask(n, "/overview", isOverview, signal),
   );
+  const [overview, { refetch }] = overviewRequest;
   // The chart's series; its first record also says from when the closes are known.
   const series = createRequest(
     () => period().id,
     (id, signal) => ask(props.network, `/statistics/${id}`, isSeries, signal),
   );
+  const movers = createRequest(
+    () => period().id,
+    (id, signal) => ask(props.network, `/movers?period=${id}`, isMovers, signal),
+  );
+  const closes = createRequest(
+    () => props.network,
+    (n, signal) => ask(n, `/closes?days=${CLOSE_DAYS}`, isCloses, signal),
+  );
   onSettled(() => void Chart.preload());
-  // "History" in the section's links lands on the chart: once the figures above it have arrived,
-  // so they do not push it out of view after the jump.
+  // "History" in the section's links lands on the chart: once the sections above it have answered,
+  // so they do not push it out of view after the jump (the feed's box holds its height).
   const location = useLocation();
+  const settled = (r: ApiRequest<unknown>) => r[0].latest !== undefined || r[0].state === "errored";
   createEffect(
-    () => [location.hash, overview.latest !== undefined] as const,
+    () => [location.hash, settled(overviewRequest) && settled(movers) && settled(closes)] as const,
     ([hash, ready]) => {
       if (hash === "#history" && ready) document.getElementById("history")?.scrollIntoView();
     },
@@ -151,7 +169,7 @@ function Overview(props: { network: Network }) {
       <nav class="ln-jumps" aria-label="On this page">
         <For each={JUMPS}>
           {(j) => (
-            <a class="tap" href={`#${j.id}`} rel="external">
+            <a href={`#${j.id}`} rel="external">
               {j.label}
             </a>
           )}
@@ -163,8 +181,8 @@ function Overview(props: { network: Network }) {
         </Show>
       </Show>
       <LiveFeed network={props.network} />
-      <MoversSection network={props.network} period={period()} />
-      <ClosesSection network={props.network} first={series[0].latest?.first} />
+      <MoversSection request={movers} period={period()} />
+      <ClosesSection request={closes} first={series[0].latest?.first} />
       <History request={series} period={period()} />
       <Show when={overview.latest}>
         {(o) => (
@@ -273,14 +291,11 @@ const signed = (n: number, measure: "capacity" | "channels") =>
     ? `${plus(n)}${formatBtcShort(n)}`
     : `${n > 0 ? "+" : n < 0 ? "−" : ""}${groupDigits(Math.abs(n))}`;
 
-function MoversSection(props: { network: Network; period: Period }) {
+function MoversSection(props: { request: ApiRequest<Movers>; period: Period }) {
   const [search, setSearch] = useSearchParams();
   const measure = () => (search["measure"] === "channels" ? "channels" : "capacity");
   const way = () => WAYS.find((w) => w.id === search["moved"])?.id ?? "gained";
-  const [movers, { refetch }] = createRequest(
-    () => props.period.id,
-    (id, signal) => ask(props.network, `/movers?period=${id}`, isMovers, signal),
-  );
+  const [movers, { refetch }] = props.request;
   const columns = createMemo((): Column<Mover>[] => {
     const m = measure();
     const unit = m === "capacity" ? "BTC" : "channels";
@@ -301,6 +316,7 @@ function MoversSection(props: { network: Network; period: Period }) {
         header: `Now, ${unit}`,
         short: "Now",
         numeric: true,
+        drop: 1,
         cell: (r) =>
           m === "capacity" ? (
             <Amount sats={r.capacity} unit={false} short />
@@ -340,10 +356,18 @@ function MoversSection(props: { network: Network; period: Period }) {
     {
       header: left ? "Last close" : "First channel",
       numeric: true,
-      cell: (r) => (r.time === undefined ? "–" : <TimeAgo time={r.time} />),
+      cell: (r) =>
+        r.time === undefined ? (
+          "–"
+        ) : (
+          <span class="ln-ago">
+            <TimeAgo time={r.time} />
+          </span>
+        ),
     },
     {
       header: left ? "Channels closed" : "Channels",
+      drop: 1,
       ...(left ? { short: "Closed" } : {}),
       numeric: true,
       cell: (r) => groupDigits(left ? Math.abs(r.channels_change) : r.channels),
@@ -414,11 +438,8 @@ function barTop(most: number): number {
   return ([2, 4, 6, 8, 10].find((m) => m * p >= most) ?? 10) * p;
 }
 
-function ClosesSection(props: { network: Network; first: number | null | undefined }) {
-  const [closes, { refetch }] = createRequest(
-    () => props.network,
-    (n, signal) => ask(n, `/closes?days=${CLOSE_DAYS}`, isCloses, signal),
-  );
+function ClosesSection(props: { request: ApiRequest<Closes>; first: number | null | undefined }) {
+  const [closes, { refetch }] = props.request;
   return (
     <section aria-labelledby="ln-closes-title">
       <SectionHeader title="Closes by kind" id="ln-closes-title">
@@ -472,10 +493,10 @@ function CloseBars(props: { days: DayCloses[]; sum: string; first: number | null
         </For>
       </p>
       <div class="ln-bars" aria-hidden="true">
-        <span class="ln-bars__axis num">
-          <span>{groupDigits(top())}</span>
-          <span>{groupDigits(top() / 2)}</span>
-          <span>0</span>
+        <span class="ln-bars__axis">
+          <span class="num">{groupDigits(top())}</span>
+          <span class="num">{groupDigits(top() / 2)}</span>
+          <span class="num">0</span>
         </span>
         <div
           class="ln-bars__plot"
@@ -511,9 +532,9 @@ function CloseBars(props: { days: DayCloses[]; sum: string; first: number | null
           </For>
         </div>
       </div>
-      <p class="ln-bars__ends num" aria-hidden="true">
-        <span>{formatDay(props.days[0]?.time ?? 0)}</span>
-        <span>{formatDay(props.days.at(-1)?.time ?? 0)}</span>
+      <p class="ln-bars__ends" aria-hidden="true">
+        <span class="num">{formatDay(props.days[0]?.time ?? 0)}</span>
+        <span class="num">{formatDay(props.days.at(-1)?.time ?? 0)}</span>
       </p>
       <p class="ln-aside">
         {partial() ? `Recorded from ${formatDay(props.first ?? 0)}` : `In ${CLOSE_DAYS} days`}:{" "}
@@ -647,7 +668,8 @@ function HistoryChart(props: { s: Series; interval: Interval }) {
                 draw: "line",
                 axis: "right",
                 tone: 2,
-                format: formatBtc,
+                // In magnitude, as the figures above read it: whole at any size.
+                format: formatBtcShort,
                 unit: "BTC",
                 marks: true,
               },
