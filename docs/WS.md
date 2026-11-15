@@ -134,14 +134,14 @@ For the Lightning overview: channels opened, channels closed and fee changes, as
 
 | Message | Meaning |
 |---|---|
-| `{"topic":"lightning-feed","type":"recent","events":[…]}` | The snapshot on subscribe: the newest 50 events of each kind, newest first, exactly as `GET /app/lightning/feed` answers them ([`API.md`](API.md#applightning)). Not sent before the feed has filled |
+| `{"topic":"lightning-feed","type":"recent","events":[…]}` | The snapshot on subscribe: the newest 20 events of each kind, newest first, exactly as `GET /app/lightning/feed` answers them ([`API.md`](API.md#applightning)). Not sent before the feed has filled |
 | `{"topic":"lightning-feed","type":"events","events":[…],"more":0}` | What one index build found, sent once per build that found something (one every 30 s at most): at most 50 of each kind, newest first, and `more`, how many were left out, for "and N more". At once folded into the snapshot; a socket that subscribes in that instant gets the older `recent` and then this message |
 
 An event is the route's: `event` (`opened`, `closed` or `fee`), `time`, `id`, `scid`, `capacity`, `node_one` and `node_two` (`{id, alias}`, the alias a plain string or `null`), then for an open or close `height` (the funding or closing block) and for a close `kind`, and for a fee change `by` (`node_one` or `node_two`, whose policy changed) and `before` and `after` (`{fee_rate, base_fee_msat, inbound_fee}`).
 
-**Keeping up.** Keep the snapshot, put each `events` message's events in front, and drop duplicates by `event`, `scid`, `time` and `by`. A missed message is not resent: after a reconnect the snapshot again holds the newest 50 of each kind. The events' order is by `time`, not by arrival: an open is dated by its funding block, an hour or more before it reaches the feed.
+**Keeping up.** Keep the snapshot, put each `events` message's events in front, and drop duplicates by `event`, `scid`, `time` and `by`. A missed message is not resent: after a reconnect the snapshot again holds the newest 20 of each kind. The events' order is by `time`, not by arrival: an open is dated by its funding block, an hour or more before it reaches the feed.
 
-**Cost.** One subscriber, mainnet, 18 minutes: 36 frames, the median 5.2 KB and the largest 24 KB (the 50 fee changes of a capped burst), 12 KB a minute, plus the `recent` snapshot on subscribe, 60 KB with 150 events. Each frame is encoded once per build whatever the number of subscribers, and the snapshot once per build that found something. No upstream work: the events come from what the index task and the history consumer already do ([`LIGHTNING.md`](LIGHTNING.md#the-overview)).
+**Cost.** One subscriber, mainnet, 18 minutes: 36 frames, the median 5.2 KB and the largest 24 KB (the 50 fee changes of a capped burst), 12 KB a minute, plus the `recent` snapshot on subscribe: 24.5 KB with 60 events, measured on the recorded mainnet store (the socket never compresses, so this is what every visitor to the overview receives). Each frame is encoded once per build whatever the number of subscribers, and the snapshot once per build that found something. No upstream work: the events come from what the index task and the history consumer already do ([`LIGHTNING.md`](LIGHTNING.md#the-overview)).
 
 ### When a block is found
 

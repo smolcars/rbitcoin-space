@@ -956,7 +956,7 @@ What the Lightning pages read; one request for each page's main content. Real ma
 | Route | Answer |
 |---|---|
 | `GET /overview` | `{statistics, before, top_capacity, top_channels, opened, closed}`: the newest totals as `statistics/latest` gives them (`null` where it answers `404`), the totals a period ago (below), the top 10 nodes by capacity and by open channels (`{id, alias, capacity, channels}`), and the 10 newest opens and closes as in the channel lists above |
-| `GET /feed` | `{events}`: the newest 50 opens, 50 closes and 50 fee changes, newest first, from memory ([`LIGHTNING.md`](LIGHTNING.md#the-overview)); `[]` until the feed has filled, once the close-watcher has caught up after a start. The same events go out live on the [`lightning-feed`](WS.md#lightning-feed) topic |
+| `GET /feed` | `{events}`: the newest 20 opens, 20 closes and 20 fee changes, newest first, from memory ([`LIGHTNING.md`](LIGHTNING.md#the-overview)); `[]` until the feed has filled, once the close-watcher has caught up after a start. The same events go out live on the [`lightning-feed`](WS.md#lightning-feed) topic |
 | `GET /movers?period=` | `{period, from, time, capacity_up, capacity_down, channels_up, channels_down, new, left}` for `24h` (the default), `1w` or `1m` (30 days): up to 10 nodes each, from memory, worked out every ten minutes (`time`) for the span since `from` |
 | `GET /closes?days=` | `{time, days, total}`: each UTC day's closes, oldest first and ending today, `{time, cooperative, force, penalty, other, capacity}`, every day present, and the same counts summed over the span; `days` 1 to 90, default 30. From memory, worked out every ten minutes (`time`) |
 | `GET /search?q=` | `{nodes: [{id, alias, capacity, channels}], channels: [{id, scid, capacity, state}]}` |
@@ -1120,7 +1120,7 @@ GET /app/lightning/closes?days=30
 
 | Request | Answer | ms |
 |---|---|---|
-| `/feed`, 150 events | 60 KB | 0.008, 0.03, 0.10 |
+| `/feed`, 60 events | 24 KB | 0.015, 0.03, 0.10 |
 | `/movers`, any period | 11 KB | 0.010, 0.02, 0.06 |
 | `/closes?days=90` (`30`: 2.6 KB) | 7.4 KB | 0.032, 0.06, 0.19 |
 | `/overview`, with `before` | 14 KB | 0.36, 0.46, 1.18 |

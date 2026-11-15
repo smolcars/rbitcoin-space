@@ -24,8 +24,11 @@ use super::{Lightning, hex, json_response, scid_text};
 use crate::NetworkContext;
 use crate::ws::{Frame, Hub, Snapshot, Topic};
 
-/// Events of each kind kept, and sent in one frame.
-pub(crate) const KEPT: usize = 50;
+/// Events of each kind kept: what the route answers and a new subscriber is sent first, about
+/// as many rows as the page shows.
+pub(crate) const KEPT: usize = 20;
+/// Events of each kind sent in one frame; the rest are counted in `more`.
+pub(crate) const SENT: usize = 50;
 /// Opens and closes waiting for the next build; past it the oldest are counted as left out.
 const WAITING: usize = 1_000;
 
@@ -255,7 +258,7 @@ impl Feed {
     }
 }
 
-/// What one build sends: at most [`KEPT`] of each kind, newest first, and how many were left out.
+/// What one build sends: at most [`SENT`] of each kind, newest first, and how many were left out.
 pub(crate) fn frame_events(mut events: Vec<Event>, dropped: u64) -> (Vec<Event>, u64) {
     newest_first(&mut events);
     let mut counts = [0usize; 3];
@@ -263,7 +266,7 @@ pub(crate) fn frame_events(mut events: Vec<Event>, dropped: u64) -> (Vec<Event>,
     events.retain(|e| {
         let n = counts.get_mut(e.what.slot());
         match n {
-            Some(n) if *n < KEPT => {
+            Some(n) if *n < SENT => {
                 *n += 1;
                 true
             }
@@ -606,9 +609,16 @@ mod tests {
             .collect();
         events.push(Event::from_change(&Change::Opened(open(S))).unwrap());
         let (sent, left) = frame_events(events, 3);
-        assert_eq!(sent.len(), KEPT + 1, "the open is not crowded out");
+        assert_eq!(sent.len(), SENT + 1, "the open is not crowded out");
         assert_eq!(left, 70 + 3);
         assert_eq!(sent[0].time, u64::from(T + 119), "newest first");
+
+        // What is kept for the route and new subscribers is fewer: the newest 20 of each kind.
+        let mut f = Feed::default();
+        f.keep(&sent);
+        let all = f.all();
+        assert_eq!(all.len(), KEPT + 1);
+        assert_eq!(all[0]["time"], u64::from(T + 119));
 
         // Waiting opens and closes are bounded too, and nothing is taken before the feed is live.
         let mut f = Feed::default();
