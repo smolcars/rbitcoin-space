@@ -50,7 +50,12 @@ struct Head {
 /// compares the graph with, and what a node's newest changes are looked up by. Mirrors the
 /// table: changed only by what a write reports it stored or found.
 #[derive(Debug, Default)]
-pub struct Heads(HashMap<(u64, u8), Head>);
+pub struct Heads(HashMap<(u64, u8), Head>, Epoch);
+
+/// Moves at every [`Heads::forget`]: a write's outcomes from before it may predate a deleted
+/// history, so [`Heads::apply`] drops them, and the next round asks the table again.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct Epoch(u64);
 
 /// What [`record`] did with one record.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -90,8 +95,17 @@ impl Heads {
         out
     }
 
-    /// Takes in what a write did with each record of a [`Heads::diff`].
-    pub fn apply(&mut self, records: &[(u64, u8, FeeRecord)], outcomes: &[Outcome]) {
+    /// The epoch to hand [`Heads::apply`] with a [`Heads::diff`] taken now.
+    pub fn epoch(&self) -> Epoch {
+        self.1
+    }
+
+    /// Takes in what a write did with each record of a [`Heads::diff`] taken at `epoch`; nothing
+    /// if a history was forgotten since, which the write may have raced.
+    pub fn apply(&mut self, epoch: Epoch, records: &[(u64, u8, FeeRecord)], outcomes: &[Outcome]) {
+        if epoch != self.1 {
+            return;
+        }
         for (&(scid, side, record), o) in records.iter().zip(outcomes) {
             match *o {
                 Outcome::Stored { changed } => {
@@ -116,7 +130,9 @@ impl Heads {
     /// Forgets a channel whose history was deleted, so the next round records its starting
     /// point again if the graph still holds it (an open moved by a reorg).
     pub fn forget(&mut self, scid: u64) {
-        self.0.retain(|(s, _), _| *s != scid);
+        self.0.remove(&(scid, 0));
+        self.0.remove(&(scid, 1));
+        self.1 = Epoch(self.1.0.wrapping_add(1));
     }
 
     /// When the newest change of this direction was made, if its newest record is a change.
@@ -193,7 +209,7 @@ pub async fn heads(store: &Store) -> Result<Heads, Error> {
                 };
                 out.insert((scid, side), head);
             }
-            Ok(Heads(out))
+            Ok(Heads(out, Epoch::default()))
         })
         .await
 }

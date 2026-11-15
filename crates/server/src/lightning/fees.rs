@@ -49,20 +49,19 @@ pub(crate) async fn round(l: &Arc<Lightning>, store: &Store, run: &mut Option<u6
         let (l, index) = (Arc::clone(l), Arc::clone(&index));
         tokio::task::spawn_blocking(move || {
             // Requests read the heads meanwhile; only the forgetting below holds them.
-            let records = l
-                .fees
-                .read()
-                .unwrap_or_else(PoisonError::into_inner)
-                .diff(index.channels());
+            let heads = l.fees.read().unwrap_or_else(PoisonError::into_inner);
+            let taken = (heads.epoch(), heads.diff(index.channels()));
+            drop(heads);
             l.fees
                 .write()
                 .unwrap_or_else(PoisonError::into_inner)
                 .retain(|scid| index.channel(scid).is_some());
-            records
+            taken
         })
         .await
         .unwrap_or_default()
     };
+    let (epoch, records) = records;
     let started = Instant::now();
     // At least one write a round, so the run's end moves with it.
     for chunk in records
@@ -79,7 +78,7 @@ pub(crate) async fn round(l: &Arc<Lightning>, store: &Store, run: &mut Option<u6
                 l.fees
                     .write()
                     .unwrap_or_else(PoisonError::into_inner)
-                    .apply(chunk, &outcomes);
+                    .apply(epoch, chunk, &outcomes);
             }
             Err(_) => {
                 l.fee_failures.fetch_add(1, Ordering::Relaxed);

@@ -1004,11 +1004,11 @@ async fn fee_round(
     graph: &[GraphChannel],
     run: u64,
 ) -> Vec<fees::Outcome> {
-    let records = heads.diff(graph);
+    let (epoch, records) = (heads.epoch(), heads.diff(graph));
     let outcomes = fees::record(store, records.clone(), run, u64::from(T) + 9_999)
         .await
         .unwrap();
-    heads.apply(&records, &outcomes);
+    heads.apply(epoch, &records, &outcomes);
     outcomes
 }
 
@@ -1126,12 +1126,24 @@ async fn fee_history_keeps_each_change_at_its_own_time_fifty_a_direction() {
         .unwrap();
     assert_eq!(o, [fees::Outcome::NotOpen]);
     assert!(fees::history(&t.store, B).await.unwrap().0[1].is_empty());
-    // Opened again in another block: once forgotten, the next round starts it again.
+    // Opened again in another block: once forgotten, the next round starts it again, even when
+    // a round whose write committed before the undone open takes in its outcome after.
     apply(&t.store, vec![Change::Opened(open(B, 2))])
         .await
         .unwrap();
     assert!(heads.diff(&g[1..]).is_empty());
+    let raced = heads.epoch();
+    let late = fees::FeeRecord {
+        time: T,
+        fees: priced(7, 0, None).fees(),
+    };
     heads.forget(B);
+    heads.apply(
+        raced,
+        &[(B, 1, late)],
+        &[fees::Outcome::Stored { changed: false }],
+    );
+    assert!(!heads.diff(&g[1..]).is_empty());
     assert_eq!(
         fee_round(&t.store, &mut heads, &g[1..], 1).await,
         [fees::Outcome::Stored { changed: false }]
