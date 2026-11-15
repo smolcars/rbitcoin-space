@@ -100,8 +100,17 @@ export interface RankedNode {
   last_update?: number | null;
 }
 
+/** The network's totals at the start of a period. */
+export type Before = Pick<
+  Stats,
+  "time" | "channels" | "nodes" | "capacity" | "med_fee_rate" | "med_base_fee_msat"
+>;
+
 export interface Overview {
   statistics: Stats | null;
+  /** Each period's totals at its start; null where the statistics do not reach back that far.
+   *  Missing from a server older than it: read as none. */
+  before?: Partial<Record<"24h" | "1w" | "1m", Before | null>>;
   top_capacity: RankedNode[];
   top_channels: RankedNode[];
   opened: ListedChannel[];
@@ -409,9 +418,16 @@ export const isListedChannel = (v: unknown): v is ListedChannel =>
 const isRanked = (v: unknown): v is RankedNode =>
   obj(v) && num(v["capacity"]) && num(v["channels"]) && isNodeRef(v);
 
+const BEFORE_KEYS = ["time", "channels", "nodes", "capacity", "med_fee_rate", "med_base_fee_msat"];
+const isBefore = (v: unknown): boolean =>
+  v === undefined ||
+  (obj(v) &&
+    Object.values(v).every((b) => b === null || (obj(b) && BEFORE_KEYS.every((k) => num(b[k])))));
+
 export const isOverview = (v: unknown): v is Overview =>
   obj(v) &&
   nullable(v["statistics"], isStats) &&
+  isBefore(v["before"]) &&
   list(v["top_capacity"], isRanked) &&
   list(v["top_channels"], isRanked) &&
   list(v["opened"], isListedChannel) &&
@@ -1126,7 +1142,9 @@ export type IconName =
   | "warn"
   | "cross"
   | "branch"
-  | "stop";
+  | "stop"
+  | "plus"
+  | "fee";
 
 /** A close as its own transaction shows it: a penalty's close is a revoked commitment, a force close. */
 export const closeShown = (kind: CloseKind): CloseKind => (kind === "penalty" ? "force" : kind);

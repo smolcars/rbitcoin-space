@@ -1,7 +1,9 @@
 // Answers for the Lightning pages' tests, taken from the mainnet examples in docs/API.md and from
 // a mainnet server on 2026-11-12, trimmed. Closes of each kind are those answers' shape.
+import type { Closes, FeedEvent, Mover, Movers } from "./feed";
 import type {
   ChannelDetail,
+  CloseKind,
   ListedChannel,
   NodeDetail,
   OpenChannel,
@@ -293,4 +295,86 @@ export const closedChannel = (
     penalty: l.penalty,
     ...c,
   });
+};
+
+// The overview's feed, movers and closes (docs/API.md "The overview"), in the server's shapes.
+
+const ends = { node_one: { id: ACINQ, alias: "ACINQ" }, node_two: { id: BFX, alias: "bfx-lnd0" } };
+const fees = (fee_rate: number, inbound: number | null = null) => ({
+  fee_rate,
+  base_fee_msat: 1000,
+  inbound_fee: inbound === null ? null : { base_fee_msat: 0, fee_rate: inbound },
+});
+
+/** An open, `n` blocks after 975 000: its id and time follow from `n`. */
+export const openEvent = (n: number): FeedEvent => ({
+  event: "opened",
+  time: T0 + n * 600,
+  id: `${975_000 + n}x1x0`,
+  scid: String(1_072_000_000 + n),
+  capacity: 5_000_000,
+  ...ends,
+  height: 975_000 + n,
+});
+export const closeEvent = (n: number, kind: CloseKind): FeedEvent => {
+  const { height, ...rest } = openEvent(n) as Extract<FeedEvent, { event: "opened" }>;
+  return { ...rest, event: "closed", height, kind };
+};
+/** A fee change on channel `n`, its rate from `from` to `to`; or its inbound fee when `inbound`. */
+export const feeEvent = (n: number, from = 100, to = 200, inbound = false): FeedEvent => ({
+  event: "fee",
+  time: T0 + n * 60,
+  id: `${900_000 + n}x2x1`,
+  scid: String(990_000_000 + n),
+  capacity: 2_000_000,
+  ...ends,
+  by: "node_two",
+  before: inbound ? fees(100, from) : fees(from),
+  after: inbound ? fees(100, to) : fees(to),
+});
+
+export const mover = (
+  id: string,
+  alias: string | null,
+  capacity: number,
+  channels: number,
+): Mover => ({
+  id,
+  alias,
+  capacity_change: capacity,
+  channels_change: channels,
+  capacity: 10_000_000_000 + capacity,
+  channels: 100 + channels,
+});
+
+export const movers = (m: Partial<Movers> = {}): Movers => ({
+  period: "1w",
+  from: T0 - 7 * 86_400,
+  time: T0,
+  capacity_up: [mover(ACINQ, "ACINQ", 556_000_000, 3), mover(BFX, "bfx-lnd0", 100_000_000, 68)],
+  capacity_down: [mover(BINANCE, "Binance", -900_000_000, -1)],
+  channels_up: [mover(BFX, "bfx-lnd0", 100_000_000, 68)],
+  channels_down: [mover(BINANCE, "Binance", -900_000_000, -1)],
+  new: [{ ...mover(PENUMBRA, "penumbra", 200_000, 1), time: T0 - 3600 }],
+  left: [{ ...mover(LNFI, null, -1_022_000, -2), capacity: 0, channels: 0, time: T0 - 7200 }],
+  ...m,
+});
+
+const DAY = 86_400;
+/** Thirty UTC days to T0's, oldest first: a few closes on the last three. */
+export const closes = (): Closes => {
+  const last = Math.floor(T0 / DAY) * DAY;
+  const days = Array.from({ length: 30 }, (_, i) => ({
+    time: last - (29 - i) * DAY,
+    cooperative: i >= 27 ? 3 : 0,
+    force: i === 29 ? 1 : 0,
+    penalty: i === 28 ? 1 : 0,
+    other: 0,
+    capacity: i >= 27 ? 9_000_000 : 0,
+  }));
+  return {
+    time: T0,
+    days,
+    total: { cooperative: 9, force: 1, penalty: 1, other: 0, capacity: 27_000_000 },
+  };
 };

@@ -196,13 +196,25 @@ export function Alias(props: { alias: string | null; max?: number }) {
   );
 }
 
-/** A node in a list: its name linked to its page, and its public key, the identity, under it. */
-export function NodeName(props: { node: NodeRef }) {
+/**
+ * A node in a list: its name linked to its page, and its public key, the identity, under it.
+ * `link={false}` for a node the graph no longer holds, whose page would say so and nothing more.
+ */
+export function NodeName(props: { node: NodeRef; link?: boolean }) {
   return (
     <span class="ln-node">
-      <Link class="ln-node__name" href={paths.lightningNode(props.node.id)}>
-        <Alias alias={props.node.alias} />
-      </Link>
+      <Show
+        when={props.link !== false}
+        fallback={
+          <span class="ln-node__name">
+            <Alias alias={props.node.alias} />
+          </span>
+        }
+      >
+        <Link class="ln-node__name" href={paths.lightningNode(props.node.id)}>
+          <Alias alias={props.node.alias} />
+        </Link>
+      </Show>
       <span class="ln-key" title={props.node.id}>
         {truncateMiddle(props.node.id, 8, 6)}
       </span>
@@ -292,6 +304,14 @@ const ICONS: Record<IconName, () => JSX.Element> = {
       <rect x="5.5" y="5.5" width="5" height="5" fill="currentColor" stroke="none" />
     </>
   ),
+  plus: () => (
+    <>
+      <circle cx="8" cy="8" r="6.5" />
+      <path d="M8 5v6M5 8h6" />
+    </>
+  ),
+  // A fee moved: a line that steps up.
+  fee: () => <path d="M1.5 11.5h4l2-4h3l2-3h2" />,
 };
 
 /** A state as its icon, in the tone's colour, and its word. */

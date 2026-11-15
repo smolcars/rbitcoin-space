@@ -1975,3 +1975,259 @@
     }
   }
 }
+
+/* The overview, for operators: the period, the live feed, movers and closes by kind. */
+@layer pages {
+  /* The period sits under the page's title, nearer than the gap between sections. */
+  .ln-periods {
+    margin-top: calc(var(--space-4) - var(--space-7));
+  }
+  .ln-jumps {
+    display: none;
+  }
+  @media (max-width: 40em) {
+    .ln-jumps {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0 var(--space-4);
+      margin-top: calc(var(--space-2) - var(--space-7));
+      font-size: var(--text-sm);
+    }
+    .ln-jumps a {
+      display: inline-flex;
+      align-items: center;
+      min-height: var(--touch);
+    }
+  }
+  .ln-h3 {
+    margin: 0 0 var(--space-2);
+    font-size: var(--text-md);
+  }
+  .ln-pair--flat {
+    margin-top: var(--space-6);
+  }
+  .ln-controls,
+  .ln-feed__bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3) var(--space-5);
+    margin-bottom: var(--space-3);
+  }
+  @media (pointer: coarse) {
+    :is(.ln-controls, .ln-feed__bar) .ln-picker__item {
+      min-height: var(--touch);
+    }
+  }
+
+  /* The feed. */
+  .ln-live {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  .ln-live__dot {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    background: var(--color-positive);
+  }
+  .ln-live__dot--off {
+    background: var(--color-text-muted);
+  }
+  .ln-feed__counts {
+    margin: 0;
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+  .ln-feed {
+    display: grid;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: var(--text-sm);
+    border-top: 1px solid var(--color-line);
+  }
+  .ln-feed__row {
+    display: grid;
+    grid-template-columns: 10.5rem 8.5rem 15rem minmax(0, 1fr) 6.5rem;
+    grid-template-areas: "kind what fig ends time";
+    align-items: center;
+    gap: var(--space-1) var(--space-4);
+    padding: var(--space-2) 0;
+    border-bottom: 1px solid var(--color-line);
+    container-type: inline-size;
+  }
+  .ln-feed__row > * {
+    min-width: 0;
+  }
+  /* A batch lands at once, with one flash, never row by row (DESIGN.md "Motion" rule 4). */
+  .ln-feed__row--new {
+    animation: ln-flash calc(var(--dur-slow) * 3) var(--ease-out);
+  }
+  @keyframes ln-flash {
+    from {
+      background: var(--color-accent-soft);
+    }
+  }
+  .ln-feed__kind {
+    grid-area: kind;
+  }
+  .ln-feed__what {
+    grid-area: what;
+  }
+  .ln-feed__fig {
+    grid-area: fig;
+    text-align: right;
+  }
+  .ln-feed__ends {
+    grid-area: ends;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 var(--space-2);
+  }
+  .ln-feed__what-moved {
+    color: var(--color-text-muted);
+  }
+  .ln-feed__join {
+    color: var(--color-text-muted);
+  }
+  .ln-feed__time {
+    grid-area: time;
+    text-align: right;
+    color: var(--color-text-muted);
+  }
+  .ln-feed__more {
+    grid-column: 1 / -1;
+    color: var(--color-text-muted);
+  }
+  /* From and to break between them, never inside a figure. */
+  .ln-feed__moved {
+    display: inline-flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0 var(--space-1);
+  }
+  .ln-feed .num {
+    white-space: nowrap;
+  }
+  @container (max-width: 22em) {
+    .ln-feed__row .ln-fig--longer > .ln-fig__exact {
+      display: none;
+    }
+    .ln-feed__row .ln-fig--longer > .ln-fig__short {
+      display: inline;
+    }
+  }
+  @media (max-width: 65em) {
+    .ln-feed__row {
+      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-areas:
+        "kind time"
+        "what fig"
+        "ends ends";
+    }
+  }
+  /* Large text on a phone: everything one under another, each the row's width. */
+  @media (max-width: 22.5em) {
+    .ln-feed__row {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas: "kind" "time" "what" "fig" "ends";
+    }
+    .ln-feed__fig,
+    .ln-feed__time {
+      text-align: left;
+    }
+    .ln-feed__moved {
+      justify-content: flex-start;
+    }
+  }
+
+  /* Closes by kind: a bar a day. */
+  .ln-bars__readout {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0 var(--space-4);
+    min-height: 2.75rem;
+    margin: 0 0 var(--space-2);
+    font-size: var(--text-sm);
+  }
+  .ln-bars__key {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    white-space: nowrap;
+  }
+  .ln-bars__swatch {
+    width: 12px;
+    height: 12px;
+    border-radius: var(--radius-s);
+    background: var(--sw);
+    box-shadow: inset 0 0 0 1px var(--color-line-strong);
+  }
+  .ln-bars {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: var(--space-2);
+    height: 160px;
+  }
+  .ln-bars__axis {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    align-items: flex-end;
+    font-size: var(--text-xs);
+    line-height: 1;
+    color: var(--color-text-muted);
+  }
+  .ln-bars__plot {
+    display: flex;
+    align-items: stretch;
+    gap: 2px;
+    border-bottom: 1px solid var(--color-line-strong);
+    background: linear-gradient(var(--color-line), var(--color-line)) 0 50% / 100% 1px no-repeat;
+  }
+  .ln-bars__day {
+    flex: 1 1 0;
+    display: flex;
+    flex-direction: column-reverse;
+    gap: 1px;
+    min-width: 0;
+  }
+  .ln-bars__day--at {
+    background: var(--color-surface-sunken);
+  }
+  /* Before this server's record began: hatched, as the chart's time before its first record. */
+  .ln-bars__day--unknown {
+    background: repeating-linear-gradient(-45deg, transparent 0 3px, var(--color-line) 3px 4px);
+  }
+  .ln-bars__seg {
+    flex: none;
+    height: calc(var(--h) * 100%);
+    min-height: 2px;
+    background: var(--sw);
+  }
+  /* Neutrals for the ordinary closes, the status colours for the exceptions; never the blue and
+     ochre that mean a channel's two directions. */
+  .ln-close-cooperative {
+    --sw: color-mix(in srgb, var(--color-text) 30%, var(--color-surface));
+  }
+  .ln-close-force {
+    --sw: var(--ln-caution);
+  }
+  .ln-close-penalty {
+    --sw: var(--color-negative);
+  }
+  .ln-close-other {
+    --sw: var(--color-text-muted);
+  }
+  .ln-bars__ends {
+    display: flex;
+    justify-content: space-between;
+    margin: var(--space-1) 0 0;
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+  }
+}

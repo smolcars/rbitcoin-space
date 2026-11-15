@@ -4,6 +4,7 @@ import { flush } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mount } from "../../components/test-utils";
 import { clearApiCache } from "../../lib/api";
+import { FakeSocket } from "../../lib/fakes";
 import ChannelPage from "./ChannelPage";
 import LightningPage from "./LightningPage";
 import NodePage from "./NodePage";
@@ -21,13 +22,21 @@ import {
   CLOSING,
   closedChannel,
   closedOf,
+  closeEvent,
+  closes,
   EARLIER,
+  feeEvent,
   FUNDING,
+  LNFI,
+  movers,
   NEXT,
+  openEvent,
   opened,
   openChannel,
   overview,
+  PENUMBRA,
   series,
+  stats,
   SWEEP,
   synced,
   syncing,
@@ -54,6 +63,8 @@ beforeEach(() => {
     return reply ? reply() : Response.json({ error: "not found" }, { status: 404 });
   });
   vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(800);
+  FakeSocket.all = [];
+  vi.stubGlobal("WebSocket", FakeSocket);
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -148,50 +159,232 @@ describe("the Lightning section's states", () => {
 
 describe("the overview", () => {
   beforeEach(() => {
-    replies["/app/lightning/overview"] = json(overview());
+    replies["/app/lightning/overview"] = json(
+      overview({
+        before: {
+          "24h": { ...stats, channels: 36_200, capacity: 322_000_000_000 },
+          "1w": null,
+          "1m": null,
+        },
+      }),
+    );
     replies["/app/lightning/statistics/1w"] = json(series());
+    replies["/app/lightning/statistics/24h"] = json(series({ interval: "24h" }));
+    replies["/app/lightning/movers?period=1w"] = json(movers());
+    replies["/app/lightning/movers?period=24h"] = json(movers({ period: "24h" }));
+    replies["/app/lightning/closes?days=30"] = json(closes());
+    replies["/app/lightning/feed"] = json({ events: [] });
   });
 
-  it("shows the network now, with the snapshot's figures", async () => {
-    const el = mount(() => <LightningPage />, "/lightning");
-    await shows(el, "Channels36 228");
-    expect(text(el)).toContain("Nodes13 639");
-    expect(text(el)).toContain("3 220.85363482 BTC");
+  it("shows the network now, each total's change over the period, none where the record is short", async () => {
+    const el = mount(() => <LightningPage />, "/regtest/lightning?interval=24h");
+    await shows(el, "Channels36 228↑ Up 28 (<0.1%)");
+    expect(text(el)).toContain("Nodes13 639No change");
+    expect(text(el)).toContain("↑ Up 0.854 BTC");
     expect(text(el)).toContain("Median fee rate130 ppm");
-    expect(text(el)).toContain("Median base fee484 msat");
     expect(text(el)).toContain("As of 12 Nov 2026, 18:30 UTC");
-    expect(text(el)).toContain("Only channels whose funding output this server found on the chain");
+    // A week back is before the record: the figures, no change.
+    const week = mount(() => <LightningPage />, "/regtest/lightning");
+    await shows(week, "Channels36 228");
+    expect(text(week)).not.toContain("↑");
+    expect(text(week)).not.toContain("No change");
   });
 
-  it("lists the newest opens and closes with their kinds, linked to channel, node and block", async () => {
-    const el = mount(() => <LightningPage />, "/lightning");
-    await shows(el, "Newest closes");
-    const closes = el.querySelector("[aria-labelledby=ln-closed-title]") as HTMLElement;
-    expect(text(closes)).toContain("Force");
-    expect(text(closes)).toContain("Cooperative");
-    expect(links(el)).toContain(`/lightning/channel/${opened.id}`);
-    expect(links(el)).toContain(`/lightning/node/${opened.node_one.id}`);
-    expect(links(el)).toContain(`/block/${opened.opened?.hash ?? ""}`);
-    expect(links(el)).toContain("/lightning/rankings?by=age");
+  it("shows each kind of event, with its channel, its ends and what moved", async () => {
+    const el = mount(() => <LightningPage />, "/regtest/lightning");
+    (await socket()).hello();
+    await vi.waitFor(() =>
+      expect(FakeSocket.last().sent).toContainEqual({
+        op: "subscribe",
+        topics: ["lightning-feed"],
+      }),
+    );
+    recent([
+      openEvent(1),
+      closeEvent(2, "penalty"),
+      closeEvent(3, "other"),
+      feeEvent(1, 100, 250),
+      feeEvent(2, 0, -200, true),
+    ]);
+    const feed = await feedOf(el);
+    expect(text(feed)).toContain("Opened");
+    expect(text(feed)).toContain("Penalty");
+    expect(text(feed)).toContain("Other close");
+    expect(text(feed)).toContain("100 ppm→to250 ppm");
+    expect(text(feed)).toContain("Inboundnone→to−200 ppm");
+    expect(links(feed)).toContain(`/regtest/lightning/channel/${openEvent(1).id}`);
+    expect(links(feed)).toContain(`/regtest/lightning/node/${ACINQ}`);
+    // No assertive live region: a reader is not read every row.
+    expect(el.querySelector("[aria-live=assertive]")).toBeNull();
+    expect(feed.querySelector("[aria-live]")).toBeNull();
   });
 
-  it("says so when no close was seen and no snapshot is stored yet", async () => {
-    replies["/app/lightning/overview"] = json(overview({ statistics: null, closed: [] }));
+  it("puts a batch on top at once, says how many it left out, and drops a reconnect's repeats", async () => {
+    const el = mount(() => <LightningPage />, "/regtest/lightning");
+    (await socket()).hello();
+    recent([openEvent(1), feeEvent(1)]);
+    const feed = await feedOf(el);
+    const first = feed.querySelector("li");
+    FakeSocket.last().receive({
+      topic: "lightning-feed",
+      type: "events",
+      more: 23,
+      events: Array.from({ length: 40 }, (_, i) => feeEvent(10 + i)),
+    });
+    expect(feed.querySelectorAll("li")).toHaveLength(30);
+    expect(text(feed)).toContain("and 34 more in this batch, not listed");
+    expect(text(el)).toContain("0 opened, 0 closed, 40 fees moved, 23 more not listed");
+    expect(first?.isConnected).toBe(false);
+    // The opens stay a filter away.
+    click(el, "Opens");
+    expect(feed.querySelectorAll("li")).toHaveLength(1);
+    expect(text(feed)).toContain(openEvent(1).id);
+    click(el, "All");
+    // A reconnect: the snapshot again, one missed open in it.
+    FakeSocket.last().drop();
+    await vi.waitFor(() => expect(FakeSocket.all.length).toBeGreaterThan(1), { timeout: 3000 });
+    (await socket()).hello();
+    recent([openEvent(1), openEvent(2), feeEvent(1)]);
+    click(el, "Opens");
+    expect(feed.querySelectorAll("li")).toHaveLength(2);
+  });
+
+  it("holds arrivals while paused, counting them, and shows them on resume", async () => {
+    const el = mount(() => <LightningPage />, "/regtest/lightning");
+    (await socket()).hello();
+    recent([feeEvent(1)]);
+    const feed = await feedOf(el);
+    click(el, "Pause");
+    events([openEvent(5), feeEvent(9)]);
+    expect(feed.querySelectorAll("li")).toHaveLength(1);
+    expect(text(el)).toContain("Paused, 2 waiting");
+    expect(text(el)).toContain("1 opened, 0 closed, 1 fees moved");
+    click(el, "Resume");
+    expect(feed.querySelectorAll("li")).toHaveLength(3);
+    expect(text(el)).toContain("Live");
+  });
+
+  it("starts paused under reduced motion", async () => {
+    vi.spyOn(globalThis, "matchMedia").mockReturnValue({ matches: true } as MediaQueryList);
+    const el = mount(() => <LightningPage />, "/regtest/lightning");
+    await shows(el, "As it happens");
+    const button = [...el.querySelectorAll("button")].find((b) => b.textContent === "Resume");
+    expect(button?.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  // A one-second clock read while building a list once replaced its buttons every second.
+  it("keeps a focused control in the feed through a tick and an arriving batch", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
+    const el = mount(() => <LightningPage />, "/regtest/lightning");
+    (await socket()).hello();
+    recent([openEvent(1), feeEvent(1)]);
+    const feed = await feedOf(el);
+    const link = feed.querySelector("a") as HTMLAnchorElement;
+    link.focus();
+    link.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    vi.advanceTimersByTime(3000);
+    flush();
+    events([feeEvent(7)]);
+    expect(link.isConnected).toBe(true);
+    expect(document.activeElement).toBe(link);
+    // Focus in the list holds the batch until it leaves.
+    expect(text(el)).toContain("Paused, 1 waiting");
+  });
+
+  it("asks over HTTP when the topic sends nothing, and says the feed is empty", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+    const el = mount(() => <LightningPage />, "/regtest/lightning");
+    (await socket()).hello();
+    await vi.advanceTimersByTimeAsync(3100);
+    await shows(el, "Nothing yet");
+    expect(requests).toContain("/regtest/app/lightning/feed");
+  });
+
+  it("switches movers without a request, and lists the newest nodes and those that left", async () => {
+    const el = mount(() => <LightningPage />, "/regtest/lightning");
+    await shows(el, "Net change, the last week");
+    const section = el.querySelector("[aria-labelledby=ln-movers-title]") as HTMLElement;
+    expect(text(section)).toContain("+5.56 BTC");
+    click(section, "Lost");
+    await shows(section, "−9.00 BTC");
+    click(section, "Channels");
+    await shows(section, "−1 channels");
+    click(section, "Either way");
+    click(section, "Capacity");
+    await vi.waitFor(() =>
+      expect(rowsOf(section, "Nodes by capacity moved")).toStrictEqual([
+        "Binance",
+        "ACINQ",
+        "bfx-lnd0",
+      ]),
+    );
+    expect(requests.filter((r) => r.includes("/movers"))).toStrictEqual([
+      "/regtest/app/lightning/movers?period=1w",
+    ]);
+    expect(text(section)).toContain("penumbra");
+    // A node gone from the graph is not linked to a page that would say so.
+    expect(links(section)).not.toContain(`/regtest/lightning/node/${LNFI}`);
+    expect(links(section)).toContain(`/regtest/lightning/node/${PENUMBRA}`);
+  });
+
+  it("says when a period moved nothing, and asks for a period's movers once", async () => {
+    replies["/app/lightning/movers?period=24h"] = json(
+      movers({
+        period: "24h",
+        capacity_up: [],
+        capacity_down: [],
+        channels_up: [],
+        channels_down: [],
+        new: [],
+        left: [],
+      }),
+    );
+    const el = mount(() => <LightningPage />, "/regtest/lightning?interval=24h");
+    await shows(el, "No change in this period");
+    expect(text(el)).toContain("None in this period");
+  });
+
+  it("draws closes a day by kind, hatching the days before the record, and gives the figures", async () => {
+    const el = mount(() => <LightningPage />, "/regtest/lightning");
+    const section = await vi.waitFor(() => {
+      const s = el.querySelector("[aria-labelledby=ln-closes-title]") as HTMLElement;
+      expect(s.querySelectorAll(".ln-bars__day")).toHaveLength(30);
+      return s;
+    });
+    await shows(section, "Recorded from 12 Nov 2026: 9 cooperative, 1 force, 1 penalty");
+    expect(section.querySelectorAll(".ln-bars__day--unknown")).toHaveLength(29);
+    expect(section.querySelector(".ln-bars")?.getAttribute("aria-hidden")).toBe("true");
+    const details = section.querySelector("details") as HTMLDetailsElement;
+    details.open = true;
+    details.dispatchEvent(new Event("toggle"));
+    flush();
+    await vi.waitFor(() => expect(section.querySelectorAll("tbody tr")).toHaveLength(30));
+  });
+
+  it("shows a section that could not load as such, and the rest of the page", async () => {
+    replies["/app/lightning/movers?period=1w"] = json({ error: "still syncing" }, 404);
+    const el = mount(() => <LightningPage />, "/regtest/lightning");
+    await shows(el, "Could not load the movers");
+    await shows(el, "Channels36 228");
+    await shows(el, "Closes by kind");
+    expect(text(el)).toContain("Largest nodes");
+  });
+
+  it("says so when no snapshot is stored yet", async () => {
+    replies["/app/lightning/overview"] = json(overview({ statistics: null }));
     replies["/app/lightning/statistics/1w"] = json(series({ first: null, points: [] }));
-    const el = mount(() => <LightningPage />, "/lightning");
-    await shows(el, "No close seen yet");
+    const el = mount(() => <LightningPage />, "/regtest/lightning");
     await shows(el, "No snapshot yet");
     await shows(el, "Nothing recorded yet");
     expect(el.querySelector("[role=slider]")).toBeNull();
   });
 
-  it("draws ten minutes of history from where it starts, hatching before", async () => {
-    const el = mount(() => <LightningPage />, "/lightning");
-    await shows(el, "Everything recorded, since 12 Nov");
+  it("draws the period's whole width, hatching before the first record", async () => {
+    const el = mount(() => <LightningPage />, "/regtest/lightning");
+    await shows(el, "Recorded from 12 Nov");
     await vi.waitFor(() => expect(el.querySelector("[role=slider] svg")).not.toBeNull());
-    // Fitted to what is recorded: "Recorded" is the choice marked, never "1 w" for a narrower view.
     expect(el.querySelector(".periods [aria-current=page]")?.textContent).toBe(
-      "Recorded: since this server began recording",
+      "1 w: the last week",
     );
   });
 
@@ -204,13 +397,40 @@ describe("the overview", () => {
         points: [-3600, -3000, -1200, -600].map((d) => at(T0 + d)),
       }),
     );
-    const el = mount(() => <LightningPage />, "/lightning?interval=24h");
+    const el = mount(() => <LightningPage />, "/regtest/lightning?interval=24h");
     await vi.waitFor(() => expect(el.querySelector("[role=slider] svg")).not.toBeNull());
     const line = el.querySelector("[role=slider] .chart__line")?.getAttribute("d") ?? "";
     expect(line.match(/M/g)).toHaveLength(2);
-    expect(requests).toContain("/app/lightning/statistics/24h");
+    expect(requests).toContain("/regtest/app/lightning/statistics/24h");
   });
 });
+
+/** The page's socket, once the status has let the page open it. */
+const socket = () => vi.waitFor(() => FakeSocket.last());
+const recent = (evs: unknown[]) =>
+  FakeSocket.last().receive({ topic: "lightning-feed", type: "recent", events: evs });
+const events = (evs: unknown[], more = 0) =>
+  FakeSocket.last().receive({ topic: "lightning-feed", type: "events", events: evs, more });
+const feedOf = (el: HTMLElement) =>
+  vi.waitFor(() => {
+    const f = el.querySelector(".ln-feed");
+    expect(f).not.toBeNull();
+    return f as HTMLElement;
+  });
+function click(el: HTMLElement, label: string) {
+  const b = [...el.querySelectorAll("button")].find((x) => x.textContent === label);
+  if (!b) throw new Error(`no button ${label}`);
+  b.click();
+  flush();
+}
+const rowsOf = (el: HTMLElement, caption: string) => {
+  const t = [...el.querySelectorAll("table")].find(
+    (x) => x.caption?.textContent?.startsWith(caption) === true,
+  );
+  return [...(t?.querySelectorAll("tbody tr") ?? [])].map(
+    (r) => r.querySelector("bdi")?.textContent,
+  );
+};
 
 describe("a node", () => {
   const node = `/app/lightning/nodes/${ACINQ}`;
