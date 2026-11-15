@@ -21,14 +21,15 @@ import { More } from "../../components/More";
 import { Periods } from "../../components/Periods";
 import { SectionHeader } from "../../components/SectionHeader";
 import { Empty, ErrorState, Loading } from "../../components/States";
-import { TimeAgo } from "../../components/Time";
 import { type ApiRequest, createRequest } from "../../lib/api";
-import { formatBtcShort, groupDigits } from "../../lib/format";
+import { formatBtcShort, formatUtc, groupDigits } from "../../lib/format";
+import { useNow } from "../../lib/clock";
 import { type Network, paths } from "../../lib/network";
 import { useNetwork, usePageTitle } from "../../lib/page";
 import {
   type Closes,
   type DayCloses,
+  drawnDays,
   isCloses,
   isMovers,
   type Mover,
@@ -36,6 +37,7 @@ import {
   moversFor,
 } from "./feed";
 import {
+  ageShort,
   type Before,
   btcAxis,
   changeWords,
@@ -355,15 +357,9 @@ function MoversSection(props: { request: ApiRequest<Movers>; period: Period }) {
     { header: "Node", cell: (r) => <NodeName node={r} link={!left} /> },
     {
       header: left ? "Last close" : "First channel",
+      sub: "ago",
       numeric: true,
-      cell: (r) =>
-        r.time === undefined ? (
-          "–"
-        ) : (
-          <span class="ln-ago">
-            <TimeAgo time={r.time} />
-          </span>
-        ),
+      cell: (r) => (r.time === undefined ? "–" : <Ago time={r.time} />),
     },
     {
       header: left ? "Channels closed" : "Channels",
@@ -430,6 +426,19 @@ function MoversSection(props: { request: ApiRequest<Movers>; period: Period }) {
   );
 }
 
+/**
+ * How long ago, in the node page's short form (`5 h`, `28 d`) under a header that says "ago", so
+ * a narrow table's cell holds one line. The clock is read here, in the leaf, never by the list.
+ */
+function Ago(props: { time: number }) {
+  const now = useNow();
+  return (
+    <span class="num" title={formatUtc(props.time)}>
+      {ageShort(now() - props.time)}
+    </span>
+  );
+}
+
 const total = (d: DayCloses) => d.cooperative + d.force + d.penalty + d.other;
 
 /** A round top for the bars' scale, at least the largest day, its half a whole number too. */
@@ -468,11 +477,12 @@ function ClosesSection(props: { request: ApiRequest<Closes>; first: number | nul
 function CloseBars(props: { days: DayCloses[]; sum: string; first: number | null }) {
   const [at, setAt] = createSignal<number>();
   const [figures, setFigures] = createSignal(false);
-  const day = () => props.days[at() ?? props.days.length - 1];
+  const days = createMemo(() => drawnDays(props.days, props.first));
+  const day = () => days()[at() ?? days().length - 1];
   // A day over before this server's record began is unknown, not a day without closes.
   const unknown = (d: DayCloses) => props.first !== null && d.time + 86_400 <= props.first;
   const partial = () => props.first !== null && props.first > (props.days[0]?.time ?? 0);
-  const top = () => barTop(Math.max(0, ...props.days.map(total)));
+  const top = () => barTop(Math.max(0, ...days().map((d) => total(d))));
   return (
     <>
       <p class="ln-bars__readout">
@@ -502,14 +512,14 @@ function CloseBars(props: { days: DayCloses[]; sum: string; first: number | null
           class="ln-bars__plot"
           onPointerMove={(e) => {
             const r = e.currentTarget.getBoundingClientRect();
-            const i = Math.floor(((e.clientX - r.left) / r.width) * props.days.length);
-            setAt(Math.max(0, Math.min(props.days.length - 1, i)));
+            const i = Math.floor(((e.clientX - r.left) / r.width) * days().length);
+            setAt(Math.max(0, Math.min(days().length - 1, i)));
           }}
           onPointerLeave={(e) => {
             if (e.pointerType === "mouse") setAt(undefined);
           }}
         >
-          <For each={props.days}>
+          <For each={days()}>
             {(d, i) => (
               <span
                 class={[
@@ -533,8 +543,8 @@ function CloseBars(props: { days: DayCloses[]; sum: string; first: number | null
         </div>
       </div>
       <p class="ln-bars__ends" aria-hidden="true">
-        <span class="num">{formatDay(props.days[0]?.time ?? 0)}</span>
-        <span class="num">{formatDay(props.days.at(-1)?.time ?? 0)}</span>
+        <span class="num">{formatDay(days()[0]?.time ?? 0)}</span>
+        <span class="num">{formatDay(days().at(-1)?.time ?? 0)}</span>
       </p>
       <p class="ln-aside">
         {partial() ? `Recorded from ${formatDay(props.first ?? 0)}` : `In ${CLOSE_DAYS} days`}:{" "}
@@ -545,7 +555,7 @@ function CloseBars(props: { days: DayCloses[]; sum: string; first: number | null
         <div class="more__body">
           <Show when={figures()}>
             <DataTable
-              caption={`Closes each day by kind, the last ${CLOSE_DAYS} days`}
+              caption={`Closes each day by kind, the last ${days().length} days`}
               columns={[
                 { header: "Day", cell: (d: DayCloses) => formatDay(d.time) },
                 ...CLOSE_KINDS.map((k): Column<DayCloses> => ({
@@ -555,7 +565,7 @@ function CloseBars(props: { days: DayCloses[]; sum: string; first: number | null
                   cell: (d) => (unknown(d) ? "–" : groupDigits(d[k])),
                 })),
               ]}
-              rows={sorted(props.days, (a, b) => b.time - a.time)}
+              rows={sorted(days(), (a, b) => b.time - a.time)}
             />
           </Show>
         </div>

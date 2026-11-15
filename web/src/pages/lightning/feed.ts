@@ -214,6 +214,21 @@ export function place(
   });
 }
 
+/** The fewest days the closes chart draws, so one day's bar is never a panel wide. */
+export const MIN_DAYS = 7;
+
+/**
+ * The days the closes chart draws: from the first day this server recorded when its record is
+ * shorter than the span, so the bars use the width rather than hatching most of it; at least
+ * `MIN_DAYS` all the same, the days among them before the record still unknown.
+ */
+export function drawnDays(days: readonly DayCloses[], first: number | null): DayCloses[] {
+  if (first === null) return [...days];
+  const known = days.findIndex((d) => d.time + 86_400 > first);
+  const start = Math.min(known === -1 ? days.length : known, days.length - MIN_DAYS);
+  return days.slice(Math.max(0, start));
+}
+
 export type FeedFilter = "all" | "opened" | "closed" | "fee";
 
 /** The rows shown for a filter: at most `KEEP`; "and N more" only in the whole list, since a

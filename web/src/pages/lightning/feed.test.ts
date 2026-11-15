@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  drawnDays,
   feedTopic,
   isCloses,
+  MIN_DAYS,
   isFeedEvent,
   KEEP,
   moversFor,
@@ -101,6 +103,19 @@ describe("the feed's list", () => {
     const rows = place([], [openEvent(1)], 0, 0);
     const next = place(rows, [openEvent(2)], 0, 1);
     expect(next[1]).toBe(rows[0]);
+  });
+});
+
+describe("closes by day", () => {
+  it("draws from the first recorded day when the record is shorter, a week at least", () => {
+    const days = closes().days;
+    const at = (i: number) => (days[i]?.time ?? 0) + 3600;
+    expect(drawnDays(days, null)).toHaveLength(30);
+    expect(drawnDays(days, (days[0]?.time ?? 0) - 86_400)).toHaveLength(30);
+    expect(drawnDays(days, at(10))).toHaveLength(20);
+    expect(drawnDays(days, at(10))[0]).toBe(days[10]);
+    expect(drawnDays(days, at(25))).toHaveLength(MIN_DAYS);
+    expect(drawnDays(days, at(29))).toHaveLength(MIN_DAYS);
   });
 });
 

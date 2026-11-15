@@ -2001,10 +2001,6 @@
       min-height: var(--touch);
     }
   }
-  /* A time in words may take two lines in a narrow table; a figure in it never does. */
-  .ln-ago time {
-    white-space: normal;
-  }
   .ln-h3 {
     margin: 0 0 var(--space-2);
     font-size: var(--text-md);

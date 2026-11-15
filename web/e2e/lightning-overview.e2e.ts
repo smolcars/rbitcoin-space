@@ -66,8 +66,12 @@ function overview() {
   const s = o.statistics;
   const then = {
     ...s,
+    // A day ago: channels rose, capacity fell, nodes held, the fee rate rose, and the base fee
+    // fell by the longest figure a change writes.
     channels: (s["channels"] ?? 0) - 300,
     capacity: (s["capacity"] ?? 0) + 99_000_000_000,
+    med_fee_rate: (s["med_fee_rate"] ?? 0) - 12,
+    med_base_fee_msat: (s["med_base_fee_msat"] ?? 0) + 1_234_567_890,
   };
   return { ...o, before: { "24h": then, "1w": null, "1m": null } };
 }
@@ -116,7 +120,7 @@ const answers = (more: Record<string, unknown> = {}) => ({
   overview: overview(),
   "statistics/24h": { ...(recorded("statistics-1w") as object), interval: "24h" },
   "movers?period=1w": MOVERS,
-  "movers?period=24h": EMPTY,
+  "movers?period=24h": { ...MOVERS, period: "24h" },
   "closes?days=30": closes(),
   ...more,
 });
@@ -158,7 +162,7 @@ async function open(page: Page, path = "/regtest/lightning") {
 test("the overview draws every state at a desktop's and a phone's width, light and dark", async ({
   page,
 }) => {
-  await serve(page, answers());
+  await serve(page, answers({ "movers?period=24h": EMPTY }));
   const send = await liveFeed(page);
   await page.setViewportSize({ width: 1280, height: 900 });
   await open(page);
@@ -283,7 +287,13 @@ test.describe("on a touch screen", () => {
       await serve(page, answers());
       const send = await liveFeed(page);
       await page.setViewportSize({ width: 390, height: 844 });
-      await open(page);
+      // A day: every total with its change, and the movers' newest nodes and those that left.
+      await open(page, "/regtest/lightning?interval=24h");
+      const now = page.locator("[aria-labelledby=ln-now-title]");
+      for (const change of ["↑ Up 300", "No change", "↓ Down 990.00 BTC", "↑ Up 12 ppm"])
+        await expect(now).toContainText(change);
+      await expect(now).toContainText(/↓ Down 1\u202F234\u202F567\u202F890 msat/);
+      await expect(page.getByRole("table", { name: "Newest nodes" })).toBeVisible();
       send({ type: "events", events: BURST, more: 23 });
       await expect(page.locator(".ln-feed li")).toHaveCount(30);
       const faults: string[] = [];

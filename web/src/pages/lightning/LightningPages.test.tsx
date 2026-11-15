@@ -370,27 +370,33 @@ describe("the overview", () => {
     expect(text(el)).toContain("None in this period");
   });
 
-  it("draws closes a day by kind, hatching the days before the record, and gives the figures", async () => {
+  it("draws closes from the first recorded day, a week at least, and gives the same days' figures", async () => {
     const el = mount(() => <LightningPage />, "/regtest/lightning");
+    // The record began on the last of the 30 days: a week is drawn, its first six days unknown.
     const section = await vi.waitFor(() => {
       const s = el.querySelector("[aria-labelledby=ln-closes-title]") as HTMLElement;
-      expect(s.querySelectorAll(".ln-bars__day")).toHaveLength(30);
+      expect(s.querySelectorAll(".ln-bars__day")).toHaveLength(7);
       return s;
     });
     await shows(section, "Recorded from 12 Nov 2026: 9 cooperative, 1 force, 1 penalty");
-    expect(section.querySelectorAll(".ln-bars__day--unknown")).toHaveLength(29);
+    expect(section.querySelectorAll(".ln-bars__day--unknown")).toHaveLength(6);
+    expect(text(section.querySelector(".ln-bars__ends") as HTMLElement)).toBe(
+      "6 Nov 202612 Nov 2026",
+    );
+    expect(text(section.querySelector(".ln-bars__readout") as HTMLElement)).toBe(
+      "12 Nov 2026Cooperative 3Force 1Penalty 0Other 0",
+    );
     expect(section.querySelector(".ln-bars")?.getAttribute("aria-hidden")).toBe("true");
     const details = section.querySelector("details") as HTMLDetailsElement;
     details.open = true;
     details.dispatchEvent(new Event("toggle"));
     flush();
-    await vi.waitFor(() => expect(section.querySelectorAll("tbody tr")).toHaveLength(30));
+    await vi.waitFor(() => expect(section.querySelectorAll("tbody tr")).toHaveLength(7));
     // The days before the record are unknown in the figures too, never "0".
     const rows = [...section.querySelectorAll("tbody tr")].map((r) => text(r as HTMLElement));
     expect(rows[0]).toBe("12 Nov 20263100");
-    expect(rows[29]).toMatch(/–––––?$/);
+    expect(rows[6]).toBe("6 Nov 2026––––");
   });
-
   it("shows a section that could not load as such, and the rest of the page", async () => {
     replies["/app/lightning/movers?period=1w"] = json({ error: "still syncing" }, 404);
     const el = mount(() => <LightningPage />, "/regtest/lightning");
