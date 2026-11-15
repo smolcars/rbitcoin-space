@@ -47,7 +47,7 @@ use axum::http::header::{
 use axum::http::{HeaderMap, HeaderValue, Method};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
-use axum::routing::{any, get};
+use axum::routing::{any, get, post};
 use axum::{Json, Router, middleware};
 use node::esplora::Esplora;
 use serde_json::json;
@@ -141,6 +141,8 @@ pub struct NetworkContext {
     pub guard: Arc<ledger::Guard>,
     /// Bark VTXO lookups, when `{NET}_BARK_URL` is set (`ark_bark`).
     pub bark: Option<ark_bark::Bark>,
+    /// Bark VTXOs clients send as hex, on every network (`ark_bark`).
+    pub bark_sent: ark_bark::Sent,
     /// The Arkade server the VTXO page asks, when `{NET}_ARKADE_URL` is set (`ark_arkade`).
     pub arkade: Option<ark_arkade::Arkade>,
 }
@@ -226,6 +228,7 @@ impl NetworkContext {
                 .bark
                 .clone()
                 .map(|e| ark_bark::Bark::new(e, all.limits.max_tracked_clients)),
+            bark_sent: ark_bark::sent(all.limits.max_tracked_clients),
             guard,
             blocks: table,
             data_dir: all.data_dir.is_some(),
@@ -280,6 +283,10 @@ pub fn network_routes() -> Router<Arc<NetworkContext>> {
         .route("/app/address/{address}/size", get(verdicts::size_route))
         .route("/app/address/{address}/ledger", get(ledger::route))
         .route("/app/ark/bark/vtxo/{id}", get(ark_bark::route))
+        .route(
+            "/app/ark/bark/vtxo",
+            post(ark_bark::sent_route).layer(DefaultBodyLimit::max(ark_bark::MAX_SENT_BODY)),
+        )
         .merge(statistics::app_routes())
         .merge(api_v1::routes())
         .merge(audits::routes())

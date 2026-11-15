@@ -1,5 +1,5 @@
 // The Ark pages (docs/ARK.md), on regtest without an Ark server and with one from recorded answers.
-import { ARKADE_ID, ID, withArkade, withBark, withBoth } from "./ark-answers";
+import { ARKADE_ID, HEX, ID, withArkade, withBark, withBarkHex, withBoth } from "./ark-answers";
 import { expect, test } from "./fixtures";
 
 const UNKNOWN = `${"ab".repeat(32)}:1`;
@@ -69,6 +69,66 @@ test.describe("with Bark", () => {
     await expect(page.getByText("Bark does not know this VTXO")).toBeVisible();
     await page.goto("/regtest/ark/bark/vtxo/nonsense");
     await expect(page.getByText("Not a VTXO ID")).toBeVisible();
+  });
+});
+
+test.describe("a Bark VTXO from its hex", () => {
+  // The anchor is on no regtest chain (404); the refusals below are the server's (400, 422).
+  test.use({ consoleErrorsAllowed: [/status of 4(00|04|22)/] });
+
+  test("is checked by the server with no Bark server, and the hex stays out of every URL", async ({
+    page,
+    context,
+    browserName,
+  }) => {
+    const urls: string[] = [];
+    const bodies: (string | null)[] = [];
+    page.on("request", (r) => {
+      urls.push(r.url());
+      if (r.method() === "POST") bodies.push(r.postData());
+    });
+    await page.goto(`/regtest/ark/bark/hex#${HEX}`);
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("VTXO");
+    // Regtest's node does not hold ark-lib's anchor, so nothing is called checked.
+    const state = page.getByRole("list", { name: "State" });
+    await expect(state.getByText("Not verified")).toBeVisible();
+    await expect(state.getByText("Signatures OK")).toHaveCount(0);
+    await expect(page.getByText("3 tree, 2 transfers")).toBeVisible();
+    expect(bodies).toStrictEqual([HEX]);
+    expect(urls.filter((u) => u.includes(HEX.slice(0, 64)))).toStrictEqual([]);
+
+    // A reload keeps the fragment, and so the VTXO.
+    await page.reload();
+    await expect(page.getByText("3 tree, 2 transfers")).toBeVisible();
+
+    // The copy control copies the VTXO's id, not its hex.
+    if (browserName === "chromium") {
+      await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+      await page.getByRole("button", { name: "Copy the VTXO ID" }).click();
+      expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(ID);
+    }
+  });
+
+  test("checked whole where the node holds the anchor", async ({ page }) => {
+    await withBarkHex(page);
+    await page.goto(`/regtest/ark/bark/hex#${HEX}`);
+    await expect(
+      page.getByRole("list", { name: "State" }).getByText("Signatures OK"),
+    ).toBeVisible();
+    await expect(page.getByRole("button", { name: "Play exit" })).toBeVisible();
+  });
+
+  test("no hex, not hex, not a VTXO, and a VTXO that does not check out", async ({ page }) => {
+    await page.goto("/regtest/ark/bark/hex");
+    await expect(page.getByText("No VTXO hex")).toBeVisible();
+    await page.goto("/regtest/ark/bark/hex#zz");
+    await expect(page.getByText("Not VTXO hex")).toBeVisible();
+    await page.goto(`/regtest/ark/bark/hex#${"00".repeat(40)}`);
+    await expect(page.getByText("This hex is not a Bark VTXO")).toBeVisible();
+    // The point's vout changed: the exit chain no longer leads to it.
+    const last = (Number.parseInt(HEX.slice(-2), 16) ^ 1).toString(16).padStart(2, "0");
+    await page.goto(`/regtest/ark/bark/hex#${HEX.slice(0, -2)}${last}`);
+    await expect(page.getByText("This VTXO did not check out")).toBeVisible();
   });
 });
 

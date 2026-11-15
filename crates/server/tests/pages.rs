@@ -502,6 +502,13 @@ async fn every_kind_of_page_on_every_network_says_what_it_is() {
                 ),
             ),
             (
+                "/ark/bark/hex".into(),
+                "Bark VTXO".into(),
+                format!(
+                    "A Bark VTXO on {chain}, read from its hex: its amount, its expiry and its exit path, checked."
+                ),
+            ),
+            (
                 format!("/ark/arkade/vtxo/{}:7", "ab".repeat(32)),
                 "Arkade VTXO".into(),
                 format!(
@@ -696,6 +703,7 @@ async fn paths_that_do_not_parse_get_the_shell_as_built() {
         format!("/ark/arkade/vtxo/{TXID}:4294967296"),
         format!("/ark/arkade/vtxo/{TXID}:0/x"),
         "/ark/arkade/vtxo/not-an-outpoint".to_owned(),
+        "/ark/bark/hex/00".to_owned(),
     ];
     for path in &hostile {
         let r = get(&addr, path).await;

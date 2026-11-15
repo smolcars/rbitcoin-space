@@ -190,7 +190,7 @@ export default function VtxoPage() {
   );
 }
 
-function Body(props: { vtxo: BarkVtxo }) {
+export function Body(props: { vtxo: BarkVtxo }) {
   const network = useNetwork();
   const [tipText, { refetch: refetchTip }] = createApi<string>(() => "/blocks/tip/height", {
     as: "text",

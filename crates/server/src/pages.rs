@@ -97,6 +97,16 @@ impl Pages {
             };
             return Some((network, head));
         }
+        // The VTXO itself is in the fragment, which never reaches the server.
+        if rest == "/ark/bark/hex" {
+            let head = Head {
+                title: "Bark VTXO".into(),
+                description: format!(
+                    "A Bark VTXO on {on}, read from its hex: its amount, its expiry and its exit path, checked."
+                ),
+            };
+            return Some((network, head));
+        }
         if let Some(id) = rest.strip_prefix("/ark/bark/vtxo/") {
             let id: bark::VtxoId = id.parse().ok()?;
             let head = Head {

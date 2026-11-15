@@ -92,7 +92,7 @@ Every request passes these before any handler runs ([`SECURITY.md`](SECURITY.md)
 
 | Variable | Default | Protects against |
 |---|---|---|
-| `MAX_BODY_BYTES` | `16384` | Memory exhaustion from large request bodies. Enforced when a handler reads the body (axum's body extractors); a route that never reads its body ignores it, and the server discards it unread and closes the connection. A route that needs more raises it for itself; broadcast takes up to 800,000 hex characters ([`API.md`](API.md#broadcast)) |
+| `MAX_BODY_BYTES` | `16384` | Memory exhaustion from large request bodies. Enforced when a handler reads the body (axum's body extractors); a route that never reads its body ignores it, and the server discards it unread and closes the connection. A route that needs more raises it for itself; broadcast takes up to 800,000 hex characters ([`API.md`](API.md#broadcast)), a Bark VTXO sent as hex up to 131,072 ([`ARK.md`](ARK.md#from-its-hex)) |
 | `REQUEST_TIMEOUT_SECS` | `10` | Slow handlers and slow uploads holding a slot forever. The same value bounds how long a connection may take to send its request headers or sit idle between requests, so half-sent requests (slowloris) and idle keep-alives are closed, and how long a write to the client may make no progress, so a client that stops reading its responses is disconnected |
 | `MAX_CONNECTIONS` | `1024` | Running out of file descriptors. Past it the server stops accepting until a connection closes. Keep it below the process's open-file limit |
 | `MAX_CONCURRENT_REQUESTS` | `256` | Overload. Requests past it are refused at once with `503`, not queued |

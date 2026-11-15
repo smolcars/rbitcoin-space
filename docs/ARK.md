@@ -1,10 +1,10 @@
 # Ark
 
-Pages for Ark VTXOs: a visitor opens `/ark`, pastes a VTXO's id, and gets its amount, its expiry, the exit path drawn as a picture and the exit transactions, each with where it is on chain. An implementation is shown on a network only when the operator configured a server for it ([`CONFIG.md`](CONFIG.md#ark)); `/app/config` names them per network (`"ark": {"signet": ["bark"]}`), and the header's Ark item and the entry page follow that list ([`FRONTEND.md`](FRONTEND.md#the-apps-own-api)).
+Pages for Ark VTXOs: a visitor opens `/ark`, pastes a VTXO's id, and gets its amount, its expiry, the exit path drawn as a picture and the exit transactions, each with where it is on chain. An implementation is shown on a network only when the operator configured a server for it (a Bark VTXO given as its hex needs none, [below](#from-its-hex)) ([`CONFIG.md`](CONFIG.md#ark)); `/app/config` names them per network (`"ark": {"signet": ["bark"]}`), and the header's Ark item and the entry page follow that list ([`FRONTEND.md`](FRONTEND.md#the-apps-own-api)).
 
 | Implementation | Crate | Pages | Private API | Configured by |
 |---|---|---|---|---|
-| Bark, by Second | `crates/bark` | `web/src/pages/ark/bark/` | `/app/ark/bark/vtxo/<txid>:<vout>` | `{NET}_BARK_URL` |
+| Bark, by Second | `crates/bark` | `web/src/pages/ark/bark/` | `/app/ark/bark/vtxo/<txid>:<vout>`, and `POST /app/ark/bark/vtxo` for its hex | `{NET}_BARK_URL` (not for hex) |
 | Arkade, by Ark Labs | `crates/arkade` | `web/src/pages/ark/arkade/` | `/app/ark/arkade/vtxo/<txid>/<vout>` | `{NET}_ARKADE_URL` |
 
 The entry page's list of implementations is `web/src/pages/ark/implementations.ts`; an implementation adds one entry there, one route list in `web/src/pages/ark/routes.ts`, and its name in `ark()` in `crates/server/src/app_config.rs`.
@@ -35,7 +35,7 @@ u16 version (1 or 2) | u64 amount | u32 expiry height | 33 server key | u16 exit
 
 Nothing the Bark server sends is shown until it checks out (`crates/bark/src/check.rs`):
 
-1. The VTXO's point must be the id asked for.
+1. The VTXO's point must be the id asked for. A VTXO sent as hex was asked for by nothing, so its id is its own point and the checks below do the work.
 2. Each exit transaction is rebuilt: version 3, lock time 0, one input at sequence 0 spending the last one's output, the other outputs with ours put at its index, then a pay-to-anchor output holding the fee. Our output's script is not sent: it is the next transition's spending conditions (a MuSig2 aggregate of the cosigners, BIP 327 over the sorted keys, and for arkoor the tweak added; or a taproot over the expiry clause and the leaf's hash lock), or for the last one the policy's taproot. Amounts are checked as they go: no overflow, no output worth more than its input.
 3. The anchor output, the VTXO's amount plus everything paid out along the way, must be the one the node holds at the anchor outpoint. A node that does not know the anchor transaction leaves the VTXO unverified, and says so.
 4. The last rebuilt transaction's output must be the id.
@@ -81,7 +81,27 @@ Amounts in sats, keys and txids as hex. `kind` is `branch`, `leaf` or `transfer`
 
 ### The page
 
-`/ark/bark/vtxo/<txid>:<vout>` on any network. The design is in [`DESIGN.md`](DESIGN.md#ark-not-in-the-prototype). It asks the tip and, in broadcast order, each transaction's status from the public API, stopping at the first the node does not know (a later one spends it), again on every block and every 30 s.
+`/ark/bark/vtxo/<txid>:<vout>` on any network, and `/ark/bark/hex#<hex>` for a VTXO from its hex. The design is in [`DESIGN.md`](DESIGN.md#ark-not-in-the-prototype). It asks the tip and, in broadcast order, each transaction's status from the public API, stopping at the first the node does not know (a later one spends it), again on every block and every 30 s.
+
+### From its hex
+
+A VTXO can exist only as its serialized bytes: a wallet exports them as hex (barkd's `GET /api/v1/wallet/vtxos/{id}/encoded`), the Bark server may no longer hold it, or it may come from another Bark server. The page `/ark/bark/hex#<hex>` shows it with the same picture, figures and checks as by id. The hex travels in the URL's **fragment**, which a browser never sends, so it reaches no server in a URL, a log or a link preview; the page sends it in the body of `POST /app/ark/bark/vtxo`, which answers as the `GET` does. Nothing asks a Bark server, so the route and the page work on every network, with or without `{NET}_BARK_URL`.
+
+The body is the hex and nothing else: digits in either case, whole bytes, no spaces or line breaks (the page takes those out of a paste). The VTXO is decoded, its anchor asked of the node, and every check above run with the VTXO's own point as its id; "Signatures OK" means what it means by id. A VTXO that cannot be on our chain (its anchor's output index past the anchor's outputs) or whose chain does not hold together is refused.
+
+| Status | Body | When |
+|---|---|---|
+| 400 | `invalid vtxo hex` | Empty, odd, or anything but hex digits |
+| 400 | `vtxo does not decode` | Hex, but not a VTXO in the wire format above |
+| 413 | `vtxo too large` | Over 131,072 hex digits |
+| 422 | `vtxo did not verify` | A check above failed |
+| 502 | `upstream unavailable` | The node did not answer about the anchor |
+| 503 | `bark lookups busy` | Four checks already running on the network |
+| 429 | `too many requests` | This client started ten checks at once, then one every 3 s |
+
+**Bounds.** At most 64 KiB of VTXO (131,072 hex digits): room for the decoder's cap of 256 exit transactions at 256 bytes each, where real VTXOs have a handful and are 0.3 to 1.5 KB. Hex and decoding are checked first, linear in that body and free. Then one node request for the anchor, and the checks on a blocking thread: at the cap, about 40 ms of key aggregation at worst. Each network has its own four slots and per-client budget for these (`bark_sent`), apart from lookups by id; an answer is kept by the SHA-256 of the bytes, as answers by id are (10 minutes checked, 30 s refused, at most 256), and identical checks in flight share one, so a reload costs nothing.
+
+**Logs.** The request event names the route, `/app/ark/bark/vtxo`, never the body ([`LOGGING.md`](LOGGING.md#rules), rule 5); `endpoint` is `bark_vtxo_hex`, and `upstream_error` is `invalid` or `node_unavailable`.
 
 ## Arkade
 

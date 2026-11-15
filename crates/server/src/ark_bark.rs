@@ -1,23 +1,28 @@
 //! `GET /app/ark/bark/vtxo/{id}`: a Bark VTXO, fetched from the network's Bark server, decoded,
-//! and checked against the node before anything is shown (docs/ARK.md).
+//! and checked against the node before anything is shown; and `POST /app/ark/bark/vtxo`, the same
+//! for a VTXO a client sends as hex (docs/ARK.md).
 //!
-//! The Bark server is a third party: its answer is untrusted content, read under a size cap and
-//! a timeout, and refused unless its exit chain spends the anchor output the node holds and hashes
-//! to the id asked for, with valid signatures. Identical lookups in flight share one call, answers
-//! are kept a while, and a client starts at most a few new lookups a second.
+//! The Bark server is a third party and the client a stranger: what either sends is untrusted,
+//! read under a size cap, and refused unless its exit chain spends the anchor output the node holds
+//! and hashes to its id, with valid signatures. Identical lookups in flight share one, answers are
+//! kept a while, and a client starts at most a few new lookups a second.
 
 use std::collections::{HashMap, VecDeque};
+use std::future::Future;
+use std::hash::Hash;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
 use axum::Extension;
 use axum::body::Bytes;
+use axum::extract::rejection::BytesRejection;
 use axum::extract::{Path, State};
 use axum::http::header::{CACHE_CONTROL, CONTENT_TYPE};
 use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
-use bark::{Checked, FetchError, Policy, SigState, Transition, VtxoId};
+use bark::{Checked, FetchError, Policy, SigState, Transition, Vtxo, VtxoId};
 use bitcoin::TxOut;
+use bitcoin::hashes::{Hash as HashBytes, sha256};
 use serde_json::{Value, json};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, watch};
 
@@ -27,9 +32,9 @@ use crate::{ApiError, NetworkContext};
 
 /// How long one lookup may take at the Bark server, inside the request timeout.
 pub const FETCH_TIMEOUT: Duration = Duration::from_secs(6);
-/// Lookups at the Bark server at once, for the network.
+/// Lookups at once, for the network: at the Bark server, and of sent VTXOs, each.
 pub const MAX_LOOKUPS: usize = 4;
-/// Answers kept, by id.
+/// Answers kept, by id (or, for a sent VTXO, by its bytes' hash).
 pub const MAX_KEPT: usize = 256;
 /// A checked VTXO, kept this long: a leaf's preimage can still arrive and sign it.
 pub const KEEP_FOUND: Duration = Duration::from_secs(600);
@@ -38,8 +43,14 @@ pub const KEEP_REFUSED: Duration = Duration::from_secs(30);
 /// New lookups one client may start: a burst, then one every few seconds.
 pub const CLIENT_BURST: u32 = 10;
 pub const CLIENT_EVERY: Duration = Duration::from_secs(3);
+/// The largest VTXO a client may send: room for the decoder's cap of 256 exit transactions at 256
+/// bytes each. Real ones have a handful and are 0.3 to 1.5 KB.
+pub const MAX_SENT: usize = 256 * 256;
+/// The body that carries it, as hex.
+pub const MAX_SENT_BODY: usize = 2 * MAX_SENT;
 
 const ROUTE: &str = "bark_vtxo";
+const SENT_ROUTE: &str = "bark_vtxo_hex";
 const NOT_FOUND: ApiError = ApiError::new(StatusCode::NOT_FOUND, "vtxo not found");
 const OFF: ApiError = ApiError::new(StatusCode::NOT_FOUND, "bark is not set up on this network");
 const DOWN: ApiError = ApiError::new(StatusCode::BAD_GATEWAY, "bark server unavailable");
@@ -48,6 +59,11 @@ const UNREADABLE: ApiError =
 const INVALID: ApiError =
     ApiError::new(StatusCode::BAD_GATEWAY, "bark server answer did not verify");
 const BUSY: ApiError = ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "bark lookups busy");
+const NOT_HEX: ApiError = ApiError::bad_request("invalid vtxo hex");
+const TOO_BIG: ApiError = ApiError::new(StatusCode::PAYLOAD_TOO_LARGE, "vtxo too large");
+const SENT_UNREADABLE: ApiError = ApiError::bad_request("vtxo does not decode");
+const SENT_INVALID: ApiError =
+    ApiError::new(StatusCode::UNPROCESSABLE_ENTITY, "vtxo did not verify");
 
 /// What a lookup came to: a JSON body, or an error with the label the request log gives it.
 #[derive(Debug, Clone)]
@@ -67,21 +83,31 @@ impl Outcome {
     }
 }
 
-/// The network's Bark lookups: its server, kept answers and calls in flight.
+/// Kept answers and lookups in flight by key, with the slots and per-client budget that bound
+/// new ones.
 #[derive(Debug)]
-pub struct Bark {
-    endpoint: bark::Endpoint,
-    state: Mutex<Kept>,
-    lookups: Arc<Semaphore>,
+pub struct Lookups<K> {
+    kept: Arc<Mutex<Kept<K>>>,
+    slots: Arc<Semaphore>,
     clients: Arc<Clients>,
 }
 
-#[derive(Debug, Default)]
-struct Kept {
-    answers: HashMap<VtxoId, (Instant, Duration, Outcome)>,
+#[derive(Debug)]
+struct Kept<K> {
+    answers: HashMap<K, (Instant, Duration, Outcome)>,
     /// Oldest first, for eviction.
-    order: VecDeque<VtxoId>,
-    flights: HashMap<VtxoId, watch::Receiver<Option<Outcome>>>,
+    order: VecDeque<K>,
+    flights: HashMap<K, watch::Receiver<Option<Outcome>>>,
+}
+
+impl<K> Default for Kept<K> {
+    fn default() -> Self {
+        Self {
+            answers: HashMap::new(),
+            order: VecDeque::new(),
+            flights: HashMap::new(),
+        }
+    }
 }
 
 enum Start {
@@ -90,12 +116,15 @@ enum Start {
     Joined(watch::Receiver<Option<Outcome>>, bool),
 }
 
-impl Bark {
-    pub fn new(endpoint: bark::Endpoint, max_tracked_clients: usize) -> Self {
+fn lock<K>(kept: &Mutex<Kept<K>>) -> MutexGuard<'_, Kept<K>> {
+    kept.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+impl<K: Copy + Eq + Hash + Send + Sync + 'static> Lookups<K> {
+    fn new(max_tracked_clients: usize) -> Self {
         Self {
-            endpoint,
-            state: Mutex::default(),
-            lookups: Arc::new(Semaphore::new(MAX_LOOKUPS)),
+            kept: Arc::default(),
+            slots: Arc::new(Semaphore::new(MAX_LOOKUPS)),
             clients: Clients::with_rate(
                 1.0 / CLIENT_EVERY.as_secs_f64(),
                 CLIENT_BURST,
@@ -104,28 +133,24 @@ impl Bark {
         }
     }
 
-    fn lock(&self) -> MutexGuard<'_, Kept> {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-
-    fn start(
-        &self,
-        ctx: &Arc<NetworkContext>,
-        id: VtxoId,
-        client: &Client,
-    ) -> Result<Start, Refused> {
-        let mut kept = self.lock();
-        if let Some((at, ttl, outcome)) = kept.answers.get(&id) {
+    /// A kept answer, the lookup in flight, or `work` started in its own task: a client that
+    /// leaves does not cancel the lookup others wait on. Only a new lookup costs a slot and a token.
+    fn start<F>(&self, key: K, client: &Client, work: F) -> Result<Start, Refused>
+    where
+        F: Future<Output = Outcome> + Send + 'static,
+    {
+        let mut kept = lock(&self.kept);
+        if let Some((at, ttl, outcome)) = kept.answers.get(&key) {
             if at.elapsed() < *ttl {
                 return Ok(Start::Kept(outcome.clone()));
             }
-            kept.answers.remove(&id);
+            kept.answers.remove(&key);
         }
-        if let Some(flight) = kept.flights.get(&id) {
+        if let Some(flight) = kept.flights.get(&key) {
             return Ok(Start::Joined(flight.clone(), false));
         }
         let permit: OwnedSemaphorePermit =
-            Arc::clone(&self.lookups)
+            Arc::clone(&self.slots)
                 .try_acquire_owned()
                 .map_err(|_| Refused {
                     error: BUSY,
@@ -133,35 +158,86 @@ impl Bark {
                 })?;
         self.clients.take(client.addr)?;
         let (tx, rx) = watch::channel(None);
-        kept.flights.insert(id, rx.clone());
+        kept.flights.insert(key, rx.clone());
         drop(kept);
-        // Its own task: a client that leaves does not cancel the lookup others wait on.
-        let ctx = Arc::clone(ctx);
+        let state = Arc::clone(&self.kept);
         tokio::spawn(async move {
-            let outcome = lookup(&ctx, id).await;
+            let outcome = work.await;
             drop(permit);
-            if let Some(bark) = &ctx.bark {
-                bark.land(id, &outcome);
-            }
+            land(&state, key, &outcome);
             let _ = tx.send(Some(outcome));
         });
         Ok(Start::Joined(rx, true))
     }
+}
 
-    fn land(&self, id: VtxoId, outcome: &Outcome) {
-        let mut kept = self.lock();
-        kept.flights.remove(&id);
-        let Some(ttl) = outcome.keep() else { return };
-        kept.order.retain(|k| *k != id);
-        while kept.order.len() >= MAX_KEPT {
-            if let Some(old) = kept.order.pop_front() {
-                kept.answers.remove(&old);
-            }
+fn land<K: Copy + Eq + Hash>(state: &Mutex<Kept<K>>, key: K, outcome: &Outcome) {
+    let mut kept = lock(state);
+    kept.flights.remove(&key);
+    let Some(ttl) = outcome.keep() else { return };
+    kept.order.retain(|k| *k != key);
+    while kept.order.len() >= MAX_KEPT {
+        if let Some(old) = kept.order.pop_front() {
+            kept.answers.remove(&old);
         }
-        kept.order.push_back(id);
-        kept.answers
-            .insert(id, (Instant::now(), ttl, outcome.clone()));
     }
+    kept.order.push_back(key);
+    kept.answers
+        .insert(key, (Instant::now(), ttl, outcome.clone()));
+}
+
+/// The network's Bark lookups by id: its server, kept answers and calls in flight.
+#[derive(Debug)]
+pub struct Bark {
+    endpoint: bark::Endpoint,
+    lookups: Lookups<VtxoId>,
+}
+
+impl Bark {
+    pub fn new(endpoint: bark::Endpoint, max_tracked_clients: usize) -> Self {
+        Self {
+            endpoint,
+            lookups: Lookups::new(max_tracked_clients),
+        }
+    }
+}
+
+/// VTXOs clients send as hex, keyed by their bytes' hash. Every network has it: nothing here
+/// asks a Bark server.
+pub type Sent = Lookups<[u8; 32]>;
+
+pub fn sent(max_tracked_clients: usize) -> Sent {
+    Lookups::new(max_tracked_clients)
+}
+
+/// Why a VTXO was not shown, before each route words it.
+enum Fault {
+    Invalid,
+    Node,
+    Internal,
+}
+
+/// Checks a decoded VTXO against the anchor output the node holds, and writes the page's answer.
+/// `asked` is the id it was fetched by, if any; a sent VTXO is checked against its own point.
+async fn examine(ctx: &NetworkContext, vtxo: Vtxo, asked: Option<VtxoId>) -> Result<Bytes, Fault> {
+    // The anchor is a transaction on our own chain: the node, not the sender, says what it is.
+    let anchor: Option<TxOut> = match ctx.esplora.tx_raw(vtxo.anchor.txid).await {
+        Ok(tx) => match tx.value.output.get(vtxo.anchor.vout as usize) {
+            Some(out) => Some(out.clone()),
+            None => return Err(Fault::Invalid),
+        },
+        Err(node::esplora::Error::NotFound) => None,
+        Err(_) => return Err(Fault::Node),
+    };
+    let id = asked.unwrap_or(VtxoId(vtxo.point));
+    // Up to about 40 ms of key aggregation at the size caps: off the async workers.
+    let checked = tokio::task::spawn_blocking(move || bark::check(vtxo, id, anchor.as_ref()))
+        .await
+        .map_err(|_| Fault::Internal)?
+        .map_err(|_| Fault::Invalid)?;
+    serde_json::to_vec(&report(&checked, id))
+        .map(Bytes::from)
+        .map_err(|_| Fault::Internal)
 }
 
 async fn lookup(ctx: &NetworkContext, id: VtxoId) -> Outcome {
@@ -181,21 +257,11 @@ async fn lookup(ctx: &NetworkContext, id: VtxoId) -> Outcome {
     let Ok(vtxo) = bark::decode(&bytes) else {
         return Outcome::Failed(UNREADABLE, "decode");
     };
-    // The anchor is a transaction on our own chain: the node, not the Bark server, says what it is.
-    let anchor: Option<TxOut> = match ctx.esplora.tx_raw(vtxo.anchor.txid).await {
-        Ok(tx) => match tx.value.output.get(vtxo.anchor.vout as usize) {
-            Some(out) => Some(out.clone()),
-            None => return Outcome::Failed(INVALID, "invalid"),
-        },
-        Err(node::esplora::Error::NotFound) => None,
-        Err(_) => return Outcome::Failed(ApiError::UPSTREAM, "node_unavailable"),
-    };
-    match bark::check(vtxo, id, anchor.as_ref()) {
-        Ok(c) => match serde_json::to_vec(&report(&c, id)) {
-            Ok(body) => Outcome::Found(body.into()),
-            Err(_) => Outcome::Failed(ApiError::INTERNAL, "encode"),
-        },
-        Err(_) => Outcome::Failed(INVALID, "invalid"),
+    match examine(ctx, vtxo, Some(id)).await {
+        Ok(body) => Outcome::Found(body),
+        Err(Fault::Invalid) => Outcome::Failed(INVALID, "invalid"),
+        Err(Fault::Node) => Outcome::Failed(ApiError::UPSTREAM, "node_unavailable"),
+        Err(Fault::Internal) => Outcome::Failed(ApiError::INTERNAL, "encode"),
     }
 }
 
@@ -291,7 +357,7 @@ fn hex(b: &[u8; 32]) -> String {
     })
 }
 
-fn outcome_response(outcome: Outcome, source: Source) -> Response {
+fn outcome_response(outcome: Outcome, source: Source, route: &'static str) -> Response {
     let (mut res, error) = match outcome {
         Outcome::Found(body) => {
             let mut res = (StatusCode::OK, body).into_response();
@@ -306,28 +372,18 @@ fn outcome_response(outcome: Outcome, source: Source) -> Response {
         Outcome::Failed(e, label) => (e.into_response(), Some(label)),
     };
     res.extensions_mut().insert(ApiOutcome {
-        route: ROUTE,
+        route,
         source,
         upstream_error: error,
     });
     res
 }
 
-pub async fn route(
-    State(ctx): State<Arc<NetworkContext>>,
-    Extension(client): Extension<Client>,
-    Path(id): Path<String>,
-) -> Response {
-    // The request is checked before anything else, whatever the network has.
-    let Ok(id) = id.parse::<VtxoId>() else {
-        return ApiError::bad_request("invalid vtxo id").into_response();
-    };
-    let Some(bark) = &ctx.bark else {
-        return OFF.into_response();
-    };
+/// The answer to a started lookup, kept or awaited.
+async fn finish(start: Result<Start, Refused>, route: &'static str) -> Response {
     let started = Instant::now();
-    let (mut rx, started_it) = match bark.start(&ctx, id, &client) {
-        Ok(Start::Kept(o)) => return outcome_response(o, Source::Cached),
+    let (mut rx, started_it) = match start {
+        Ok(Start::Kept(o)) => return outcome_response(o, Source::Cached, route),
         Ok(Start::Joined(rx, started_it)) => (rx, started_it),
         Err(refused) => return refused.into_response(),
     };
@@ -342,7 +398,81 @@ pub async fn route(
     } else {
         Source::Coalesced
     };
-    outcome_response(outcome, source)
+    outcome_response(outcome, source, route)
+}
+
+pub async fn route(
+    State(ctx): State<Arc<NetworkContext>>,
+    Extension(client): Extension<Client>,
+    Path(id): Path<String>,
+) -> Response {
+    // The request is checked before anything else, whatever the network has.
+    let Ok(id) = id.parse::<VtxoId>() else {
+        return ApiError::bad_request("invalid vtxo id").into_response();
+    };
+    let Some(bark) = &ctx.bark else {
+        return OFF.into_response();
+    };
+    let work = {
+        let ctx = Arc::clone(&ctx);
+        async move { lookup(&ctx, id).await }
+    };
+    finish(bark.lookups.start(id, &client, work), ROUTE).await
+}
+
+/// Hex digits to bytes: exactly an even number of them, nothing else, not even a newline.
+fn unhex(text: &[u8]) -> Option<Vec<u8>> {
+    let digit = |c: u8| match c {
+        b'0'..=b'9' => Some(c - b'0'),
+        b'a'..=b'f' => Some(c - b'a' + 10),
+        b'A'..=b'F' => Some(c - b'A' + 10),
+        _ => None,
+    };
+    let (pairs, rest) = text.as_chunks::<2>();
+    if pairs.is_empty() || !rest.is_empty() {
+        return None;
+    }
+    pairs
+        .iter()
+        .map(|[hi, lo]| Some(digit(*hi)? << 4 | digit(*lo)?))
+        .collect()
+}
+
+/// `POST /app/ark/bark/vtxo`: a VTXO's bytes as hex in the body, checked as one fetched by id is,
+/// against its own point. The body is never logged and never kept: only the answer, by its hash.
+pub async fn sent_route(
+    State(ctx): State<Arc<NetworkContext>>,
+    Extension(client): Extension<Client>,
+    body: Result<Bytes, BytesRejection>,
+) -> Response {
+    let body = match body {
+        Ok(b) => b,
+        Err(r) if r.status() == StatusCode::PAYLOAD_TOO_LARGE => return TOO_BIG.into_response(),
+        Err(_) => return NOT_HEX.into_response(),
+    };
+    if body.len() > MAX_SENT_BODY {
+        return TOO_BIG.into_response();
+    }
+    let Some(bytes) = unhex(&body) else {
+        return NOT_HEX.into_response();
+    };
+    // Decoding is linear in a body already capped, so it costs no lookup slot or token.
+    let Ok(vtxo) = bark::decode(&bytes) else {
+        return SENT_UNREADABLE.into_response();
+    };
+    let key = <sha256::Hash as HashBytes>::hash(&bytes).to_byte_array();
+    let work = {
+        let ctx = Arc::clone(&ctx);
+        async move {
+            match examine(&ctx, vtxo, None).await {
+                Ok(body) => Outcome::Found(body),
+                Err(Fault::Invalid) => Outcome::Failed(SENT_INVALID, "invalid"),
+                Err(Fault::Node) => Outcome::Failed(ApiError::UPSTREAM, "node_unavailable"),
+                Err(Fault::Internal) => Outcome::Failed(ApiError::INTERNAL, "encode"),
+            }
+        }
+    };
+    finish(ctx.bark_sent.start(key, &client, work), SENT_ROUTE).await
 }
 
 #[cfg(test)]

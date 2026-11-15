@@ -140,6 +140,7 @@ async function request<T>(
   kind: ReplyKind,
   signal?: AbortSignal,
   fresh = false,
+  sent?: string,
 ): Promise<Stamped<T>> {
   const until = notBefore.get(url) ?? 0;
   if (until > Date.now()) await pause(until - Date.now(), signal);
@@ -148,6 +149,7 @@ async function request<T>(
   try {
     res = await fetch(url, {
       headers: { accept: ACCEPT[kind] },
+      ...(sent === undefined ? {} : { method: "POST", body: sent }),
       ...(signal ? { signal } : {}),
       // An answer the browser kept (up to `max-age=1`) can predate the change the page was told of.
       ...(fresh ? { cache: "no-cache" as const } : {}),
@@ -234,6 +236,22 @@ export function fetchApp<T>(
 ): Promise<T> {
   const url = `${onNetwork(network, "")}/app${path}`;
   return cachedOrFetch<T>(url, options.as ?? "json", options).then((r) => r.value);
+}
+
+/**
+ * A POST of `body` as text to the app's own API, for what must not travel in a URL (a VTXO's hex,
+ * docs/ARK.md). The route only reads, so a busy refusal is retried as for a GET.
+ */
+export function postApp<T>(
+  network: Network,
+  path: string,
+  body: string,
+  ask: Ask = {},
+): Promise<T> {
+  const url = `${onNetwork(network, "")}/app${path}`;
+  return withRetry(() => request<T>(url, "json", ask.signal, false, body), ask.signal).then(
+    (r) => r.value,
+  );
 }
 
 /**

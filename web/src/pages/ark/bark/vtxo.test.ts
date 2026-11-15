@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { SAMPLE } from "./testdata";
-import { badges, counts, isVtxoId, lifeElapsed, parseVtxo, readVtxoId, roughTime } from "./vtxo";
+import {
+  badges,
+  counts,
+  isVtxoId,
+  lifeElapsed,
+  MAX_HEX,
+  parseVtxo,
+  readVtxoHex,
+  readVtxoId,
+  roughTime,
+} from "./vtxo";
 
 const TXID = "5452a1e4a4b3c787f44bd3a2fc1ac2af0d378d8fe86eff08ab0317db671ba9ec";
 
@@ -21,6 +31,20 @@ describe("vtxo ids", () => {
       expect([bad, isVtxoId(bad)]).toStrictEqual([bad, false]);
     }
     expect(isVtxoId(`${TXID}:4294967295`)).toBe(true);
+  });
+});
+
+describe("vtxo hex", () => {
+  it("reads whole bytes of hex from the fragment, as a paste brings them", () => {
+    expect(readVtxoHex("")).toBe("");
+    expect(readVtxoHex("#")).toBe("");
+    expect(readVtxoHex("#%20")).toBe("");
+    expect(readVtxoHex("#02AbcD")).toBe("02abcd");
+    expect(readVtxoHex("#02ab%0Acd%20ef")).toBe("02abcdef");
+    expect(readVtxoHex(`#${"ab".repeat(MAX_HEX / 2)}`)).toHaveLength(MAX_HEX);
+    for (const bad of ["#abc", "#zz", "#0x02", "#%E0%A4%A", `#${"ab".repeat(MAX_HEX / 2 + 1)}`]) {
+      expect([bad, readVtxoHex(bad)]).toStrictEqual([bad, null]);
+    }
   });
 });
 

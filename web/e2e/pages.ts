@@ -1,7 +1,7 @@
 // Every page type, each with what it needs stubbed, for the rule tests that walk them all.
 import { readFileSync } from "node:fs";
 import type { Page } from "@playwright/test";
-import { ARKADE_ID, ID, withArkade, withBark, withBoth } from "./ark-answers";
+import { ARKADE_ID, HEX, ID, withArkade, withBark, withBarkHex, withBoth } from "./ark-answers";
 import { chain, stubRetargets } from "./fixtures";
 import { KEPT, LARGE, stubLarge } from "./large-address";
 
@@ -77,6 +77,7 @@ export const PAGES: { path: string; stub?: (page: Page) => Promise<void> }[] = [
   { path: "/regtest/lightning/search?q=acinq", stub: lightning },
   { path: "/regtest/ark", stub: withBoth },
   { path: `/regtest/ark/bark/vtxo/${ID}`, stub: (page) => withBark(page, true) },
+  { path: `/regtest/ark/bark/hex#${HEX}`, stub: withBarkHex },
   // Signet's real VTXO as it is (swept), then as if today: unspent, not settled, a 128-VTXO tree.
   // The fragment only names the second: the page never reads it.
   { path: `/regtest/ark/arkade/vtxo/${ARKADE_ID}`, stub: (page) => withArkade(page) },

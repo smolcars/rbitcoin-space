@@ -89,6 +89,8 @@ export const paths = {
   ark: () => "/ark",
   /** A Bark VTXO by its id, `<txid>:<vout>`. */
   barkVtxo: (id: string) => `/ark/bark/vtxo/${vtxoSegment(id)}`,
+  /** A Bark VTXO from its serialized bytes as hex, carried in the fragment so no server sees it. */
+  barkHex: (hex: string) => `/ark/bark/hex#${encodeURIComponent(hex)}`,
   /** An Arkade VTXO by its outpoint, `<txid>:<vout>`. */
   arkadeVtxo: (id: string) => `/ark/arkade/vtxo/${vtxoSegment(id)}`,
   /** Recent replacements, newest first; only those that replaced without signalling when asked. */

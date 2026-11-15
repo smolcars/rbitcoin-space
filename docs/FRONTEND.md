@@ -72,6 +72,7 @@ The network comes from the path. `useNetwork()` returns it; never keep it anywhe
 | Ark VTXO lookup | `/ark` | `pages/ark` | Ark |
 | Arkade VTXO | `/ark/arkade/vtxo/:outpoint` (`<txid>:<vout>`) | `pages/ark/arkade` | Ark |
 | Bark VTXO | `/ark/bark/vtxo/:id` (`<txid>:<vout>`) | `pages/ark/bark` | Ark |
+| Bark VTXO from its hex | `/ark/bark/hex#<hex>` (the hex in the fragment, sent in a `POST` body) | `pages/ark/bark` | Ark |
 | Not found | anything else | `pages/not-found` | shell |
 
 Every page is loaded lazily.

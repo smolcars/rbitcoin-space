@@ -14,6 +14,9 @@ const ANSWER = JSON.parse(fixture("bark/answer-arkoor3.json")) as {
   txs: { txid: string }[];
 };
 export const ID = "125985e9e2bfa047fe064967bb988623098f08e1808c6e27ad82d220594b7567:0";
+/** The same VTXO as its serialized bytes: ark-lib's `arkoor3_vtxo`, whose point is `ID`. */
+export const HEX = (JSON.parse(fixture("bark/vectors.json")) as { v2: { arkoor3_vtxo: string } }).v2
+  .arkoor3_vtxo;
 
 /** Signet's real Arkade VTXO: a transfer out of a 128-VTXO batch, preconfirmed, and swept. */
 export const ARKADE_ID = "d922b2c3811ec22ae6c7b0bea4eaef16c33250bf4e717950f1898095e79773fc:0";
@@ -52,7 +55,11 @@ async function bark(page: Page, onChain: boolean) {
       ? route.fulfill({ json: ANSWER })
       : route.fulfill({ status: 404, json: { error: "vtxo not found" } }),
   );
-  if (!onChain) return;
+  if (onChain) await onChainStatuses(page);
+}
+
+/** The anchor confirmed and every exit transaction in the mempool. */
+async function onChainStatuses(page: Page) {
   await page.route(/\/regtest\/api\/tx\/[0-9a-f]{64}\/status$/, (route) => {
     const txid = /tx\/([0-9a-f]{64})\//.exec(route.request().url())?.[1];
     if (txid === ANSWER.anchor.txid) {
@@ -81,6 +88,20 @@ async function arkade(page: Page, live: boolean) {
 export async function withBark(page: Page, onChain = false) {
   await arkOn(page, ["bark"]);
   await bark(page, onChain);
+}
+
+/**
+ * A VTXO sent as hex answered as the server answers `HEX` where the node holds its anchor
+ * (regtest's does not), with the anchor confirmed and the exit in the mempool. Needs no Bark
+ * server, so the config is left as it is.
+ */
+export async function withBarkHex(page: Page) {
+  await page.route(/\/regtest\/app\/ark\/bark\/vtxo$/, (route) =>
+    route.request().method() === "POST" && route.request().postData() === HEX
+      ? route.fulfill({ json: ANSWER })
+      : route.continue(),
+  );
+  await onChainStatuses(page);
 }
 
 /** Regtest with Arkade, answering the recorded VTXO (`live`: as if today) and nothing else. */

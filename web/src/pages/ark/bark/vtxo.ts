@@ -115,6 +115,25 @@ export function readVtxoId(input: string): string | null {
   return isVtxoId(s) ? s.toLowerCase() : null;
 }
 
+/** The most hex digits the server takes: 64 KiB of VTXO (docs/ARK.md). */
+export const MAX_HEX = 2 * 256 * 256;
+
+/**
+ * The VTXO hex a page's fragment carries: `""` when there is none, the digits lower-cased with the
+ * spaces and line breaks a paste brings taken out, or null when that is not whole bytes of hex.
+ */
+export function readVtxoHex(fragment: string): string | null {
+  let s = fragment.startsWith("#") ? fragment.slice(1) : fragment;
+  try {
+    s = decodeURIComponent(s);
+  } catch {
+    return null;
+  }
+  s = s.replaceAll(/\s+/g, "").toLowerCase();
+  if (s === "") return "";
+  return s.length <= MAX_HEX && /^(?:[0-9a-f]{2})+$/.test(s) ? s : null;
+}
+
 /** Bark refreshes a VTXO well before it expires; under this many blocks it is due. */
 export const EXPIRING_BLOCKS = 144 * 3;
 

@@ -3,7 +3,7 @@
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import type { Page } from "@playwright/test";
-import { ARKADE_ID, ID, withArkade, withBark, withBoth } from "./ark-answers";
+import { ARKADE_ID, HEX, ID, withArkade, withBark, withBarkHex, withBoth } from "./ark-answers";
 import { chain, expect, stubRetargets, test } from "./fixtures";
 import { KEPT, LARGE, stubLarge } from "./large-address";
 import { ACINQ, mainnet, serve } from "./lightning-answers";
@@ -407,6 +407,12 @@ const PAGES: PageType[] = [
     path: `/regtest/ark/bark/vtxo/${ID}`,
     ready: (p) => p.getByRole("button", { name: "Play exit" }),
     before: (p) => withBark(p, true),
+  },
+  {
+    name: "Bark VTXO from its hex",
+    path: `/regtest/ark/bark/hex#${HEX}`,
+    ready: (p) => p.getByRole("button", { name: "Play exit" }),
+    before: withBarkHex,
   },
   {
     name: "Arkade VTXO, swept",
