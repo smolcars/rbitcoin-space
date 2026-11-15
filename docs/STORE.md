@@ -437,8 +437,8 @@ Every public channel the Lightning peer verified, and how it ended: what a node'
 | Record | Applied as |
 |---|---|
 | `Opened` | Insert, or make the row match and clear any close: the chain says the output is unspent, so a stored close left it. A row that already matches is not written |
-| `Closed` | Insert or overwrite the open and close columns. A stored penalty stays when the close is the same transaction (the close found again after a restart) |
-| `Penalty` | Fill the penalty columns of a closed row |
+| `Closed` | Insert or overwrite the open and close columns. A stored penalty stays when the close is the same transaction (the close found again after a restart). A row that already matches is not written |
+| `Penalty` | Fill the penalty columns of a closed row, unless they already hold this sweep |
 | `OpenUndone` | Delete the row: as if the open had never been seen. An `Opened` with the new block follows if the output is still at its position |
 | `CloseUndone`, `PenaltyUndone` | Clear the close and penalty columns, or the penalty columns |
 
@@ -468,7 +468,8 @@ So a reorg leaves the table as if the undone record had never arrived, and apply
 | `by_txids(store, txids)` | The rows each txid funded or closed: two index lookups per txid |
 | `past(store)` | Every node's oldest funding time and closes by kind, every channel's funding time, and the oldest statistics row: two passes over the table for the graph's index, done again only after new rows were stored |
 | `unfunded(store, after, limit)`, `set_funding(store, found)` | The rows still without a funding txid, and storing them (`try_write`, and only while the row names the same block) |
-| `apply(store, changes)` | Stores records in order, in one write; fails with `Error::Full` rather than wait |
+| `apply(store, changes)` | Stores records in order, in one write; fails with `Error::Full` rather than wait. `apply_from` also says of each record whether it wrote a row, which is what the overview's feed takes as news ([`LIGHTNING.md`](LIGHTNING.md#the-overview)) |
+| `overview::rows(store)` | Every row's nodes, capacity, funding and closing times and kind (a breach as penalty): one pass over the table, every ten minutes, for the overview's movers and closes by day |
 
 ### ln_statistics
 
@@ -490,7 +491,7 @@ The Lightning network's totals over time: channels, nodes, capacity, fee policie
 
 **Retention, roll-up and bound** as `mempool_history`: ten-minute rows for 8 days, hours to 400 days, days after that, rolled in the same write as each snapshot, all or nothing (a failed write leaves the rows as they were, tested with a failing roll-up). At most 1,152 snapshot rows and 9,408 hour rows, plus one a day beyond 400 days: about 71 bytes a row (measured for 10,000 rows), 0.75 MB after a year and 26 KB a year after that. One write every ten minutes, measured at 0.4 to 2.1 ms on mainnet.
 
-**Reading.** `lightning::series(store, interval, now)`: the intervals of `history::Interval`, with no step finer than ten minutes, so `2h` has 12 points and `24h` 144; the coverage counts ten-minute slots. `lightning::latest(store)`: the newest row.
+**Reading.** `lightning::series(store, interval, now)`: the intervals of `history::Interval`, with no step finer than ten minutes, so `2h` has 12 points and `24h` 144; the coverage counts ten-minute slots. `lightning::latest(store)`: the newest row. `lightning::at(store, time, within)`: the first row from `time` and before `time + within`, a snapshot, else an hour, else a day, at most three key lookups, for the overview's values a period ago.
 
 **Rebuildable:** no. It was observed live.
 

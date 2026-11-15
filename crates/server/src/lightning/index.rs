@@ -137,6 +137,7 @@ pub(crate) async fn keep(
     peer: Arc<ln::Peer>,
     store: Arc<Store>,
     l: Arc<Lightning>,
+    hub: Arc<crate::ws::Hub>,
     network: &'static str,
 ) {
     let status = peer.status();
@@ -146,7 +147,14 @@ pub(crate) async fn keep(
         if status.borrow().synced {
             round(&*peer, &store, &l, network, &mut past, Index::build).await;
             // After the build, never inside it: the fee history's writes do not delay an index.
-            super::fees::round(&l, &store, &mut run).await;
+            let fees = super::fees::round(&l, &store, &mut run).await;
+            if let Some(index) = l.index() {
+                let started = Instant::now();
+                let caught_up = status.borrow().closes.caught_up;
+                super::feed::round(&l, &store, &hub, &index, fees, caught_up).await;
+                let us = started.elapsed().as_micros().try_into().unwrap_or(u64::MAX);
+                l.feed_us.store(us, Ordering::Relaxed);
+            }
         }
         let wait = if l.index().is_some() {
             EVERY

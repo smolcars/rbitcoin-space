@@ -128,6 +128,21 @@ For pages that list replacements (`/rbf` and the recent replacements on the home
 
 About 70 bytes a message. On mainnet in November 2026 a replacement arrived every six seconds or so. The reply to `/api/v1/replacements` is `max-age=1`, so a page asks for it from the server, skipping the browser's cache, which can hold the list from before the change ([`FRONTEND.md`](FRONTEND.md#following-live-data)).
 
+### `lightning-feed`
+
+For the Lightning overview: channels opened, channels closed and fee changes, as the server finds them ([`LIGHTNING.md`](LIGHTNING.md#the-overview)). Nothing is sent while Lightning is off or its graph is not synced, nor before the first index build after the close-watcher caught up: a restart's catch-up is kept, not pushed.
+
+| Message | Meaning |
+|---|---|
+| `{"topic":"lightning-feed","type":"recent","events":[…]}` | The snapshot on subscribe: the newest 50 events of each kind, newest first, exactly as `GET /app/lightning/feed` answers them ([`API.md`](API.md#applightning)). Not sent before the feed has filled |
+| `{"topic":"lightning-feed","type":"events","events":[…],"more":0}` | What one index build found, sent once per build that found something (one every 30 s at most): at most 50 of each kind, newest first, and `more`, how many were left out, for "and N more". Never part of the snapshot |
+
+An event is the route's: `event` (`opened`, `closed` or `fee`), `time`, `id`, `scid`, `capacity`, `node_one` and `node_two` (`{id, alias}`, the alias a plain string or `null`), then for an open or close `height` (the funding or closing block) and for a close `kind`, and for a fee change `by` (`node_one` or `node_two`, whose policy changed) and `before` and `after` (`{fee_rate, base_fee_msat, inbound_fee}`).
+
+**Keeping up.** Keep the snapshot, put each `events` message's events in front, and drop duplicates by `event`, `scid`, `time` and `by`. A missed message is not resent: after a reconnect the snapshot again holds the newest 50 of each kind. The events' order is by `time`, not by arrival: an open is dated by its funding block, an hour or more before it reaches the feed.
+
+**Cost.** MEASURED_COST
+
 ### When a block is found
 
 What a socket subscribed to `blocks` and the mempool topics receives for each new block B, in this order:

@@ -940,8 +940,10 @@ Answered from an index of the verified graph that the server rebuilds every 30 s
 | `state` (open channels) | `active`, `here`, `peer` or `inactive` | `400` |
 | `fee` (open channels) | `out:` or `in:`, then a bucket of the node's fee histogram (0 to 9, then 10, 20 … 90, 100, 200 … 900, 1000, 2000 …, up to 4,294,967,000), a run of them as two buckets joined by `-`, the first no higher (`10-40`), or `none` | `400` |
 | `kind` (closed channels) | `cooperative`, `force`, `penalty` or `other` | `400` |
+| `period` (movers) | `24h`, `1w` or `1m` | `400 period is 24h, 1w or 1m` |
+| `days` (closes) | 1 to 90, written plainly | `400 days is 1 to 90` |
 
-A parameter given twice is `400`, and so is `state` or `fee` with `status=closed`, `kind` with open channels, and a `sort` of the other status. `/app` routes that take parameters (search, rankings, a node's channels, a node's fee changes, the overview and a channel's fee history, which take none) refuse unknown ones, and the others ignore a query string; `/api/v1` routes ignore unknown parameters, like every `/api/v1` query, so cache-busting works. A node or channel we do not hold is `404` (`node not found`, `channel not found`); a page past the end is an empty list. A node is held while it has an open channel in the graph.
+A parameter given twice is `400`, and so is `state` or `fee` with `status=closed`, `kind` with open channels, and a `sort` of the other status. `/app` routes that take parameters (search, rankings, a node's channels, a node's fee changes, movers, closes, and the overview, the feed and a channel's fee history, which take none) refuse unknown ones, and the others ignore a query string; `/api/v1` routes ignore unknown parameters, like every `/api/v1` query, so cache-busting works. A node or channel we do not hold is `404` (`node not found`, `channel not found`); a page past the end is an empty list. A node is held while it has an open channel in the graph.
 
 **Search** matches public keys by prefix (hex, any case) in key order, then aliases by substring (Unicode lowercase on both sides), most capacity first: at most 10 nodes. A query that parses as a channel id also returns that channel, open or closed. Its cost is a binary search and one pass over at most 13,600 aliases of at most 32 bytes, whatever the query: 0.5 ms on mainnet.
 
@@ -953,7 +955,10 @@ What the Lightning pages read; one request for each page's main content. Real ma
 
 | Route | Answer |
 |---|---|
-| `GET /overview` | `{statistics, top_capacity, top_channels, opened, closed}`: the newest totals as `statistics/latest` gives them (`null` where it answers `404`), the top 10 nodes by capacity and by open channels (`{id, alias, capacity, channels}`), and the 10 newest opens and closes as in the channel lists above |
+| `GET /overview` | `{statistics, before, top_capacity, top_channels, opened, closed}`: the newest totals as `statistics/latest` gives them (`null` where it answers `404`), the totals a period ago (below), the top 10 nodes by capacity and by open channels (`{id, alias, capacity, channels}`), and the 10 newest opens and closes as in the channel lists above |
+| `GET /feed` | `{events}`: the newest 50 opens, 50 closes and 50 fee changes, newest first, from memory ([`LIGHTNING.md`](LIGHTNING.md#the-overview)); `[]` until the feed has filled, once the close-watcher has caught up after a start. The same events go out live on the [`lightning-feed`](WS.md#lightning-feed) topic |
+| `GET /movers?period=` | `{period, from, time, capacity_up, capacity_down, channels_up, channels_down, new, left}` for `24h` (the default), `1w` or `1m` (30 days): up to 10 nodes each, from memory, worked out every ten minutes (`time`) for the span since `from` |
+| `GET /closes?days=` | `{time, days, total}`: each UTC day's closes, oldest first and ending today, `{time, cooperative, force, penalty, other, capacity}`, every day present, and the same counts summed over the span; `days` 1 to 90, default 30. From memory, worked out every ten minutes (`time`) |
 | `GET /search?q=` | `{nodes: [{id, alias, capacity, channels}], channels: [{id, scid, capacity, state}]}` |
 | `GET /rankings/:by` | `by` is `capacity`, `channels` or `age` (oldest first funding first); `{by, nodes: [{id, alias, capacity, channels, first_seen, last_update}]}`, `?limit=` up to 100 |
 | `GET /nodes/:key` | The node page: below |
@@ -1076,6 +1081,20 @@ GET /app/lightning/nodes/03864ef0…3f8f/fees?limit=1
 | The channel answer, the ACINQ and Binance node answers and ACINQ's channel list, which now carry `inbound_fee` | 0.06 to 0.15; 0.34 to 0.52; 0.20 to 0.28; 0.20 to 0.32 |
 
 A channel's history is one range of at most 100 rows. A node's changes take its directions whose newest record is a change from memory (one hash lookup per direction: 3,600 for ACINQ), then read the newest `limit` + 1 rows of at most `limit` directions, one range each: at most 50 reads of 51 rows, whatever the node. The newest `limit` changes are all in those directions, since each other direction's newest change is older than theirs.
+
+###### The overview
+
+`before` holds `24h`, `1w` and `1m` (30 days), each `{time, channels, nodes, capacity, med_fee_rate, med_base_fee_msat}` from the first statistics row stored at or after that long ago, and `null` when none lies within a tenth of the period after it (2.4 hours, 16.8 hours, 3 days): the change over a period is `statistics` less it. Three key lookups per request. One series could give the same value, but the week's is 1,008 points.
+
+A **feed event** is `{event, time, id, scid, capacity, node_one, node_two}` with, for `opened` and `closed`, `height`, the funding or closing block; for `closed`, `kind` (`cooperative`, `force`, `penalty` or `other`); for `fee`, `by` (`node_one` or `node_two`: whose policy changed) and `before` and `after` as in the fee history. `time` is the block's or the channel update's own, never later than when the server found it. `node_one` and `node_two` are `{id, alias}`, the alias `null` when the graph holds none.
+
+A **mover** is `{id, alias, capacity_change, channels_change, capacity, channels}`: the change over the period (signed) and what the node holds now by the index (0 for a node gone from the graph, its alias `null`). `new` and `left` rows add `time`, the node's first funding time or its last close's time. The lists are `capacity_up` and `capacity_down` (largest change first), `channels_up` and `channels_down`, `new` (newest first) and `left` (newest close first), each at most 10.
+
+```json
+EXAMPLES
+```
+
+**Cost.** COST_TABLE
 
 ##### `/api/v1/lightning/…`
 

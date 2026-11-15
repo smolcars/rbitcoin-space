@@ -61,8 +61,9 @@ pub struct Epoch(u64);
 /// What [`record`] did with one record.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Outcome {
-    /// Stored: the direction's newest now. `changed` when an older one was kept.
-    Stored { changed: bool },
+    /// Stored: the direction's newest now. `before` is the newest kept until then, so `Some` is
+    /// a change and `None` a starting point.
+    Stored { before: Option<FeeRecord> },
     /// Not stored: the newest kept, which is as new or has the same fees, and whether an older
     /// one is kept too.
     Kept { record: FeeRecord, changed: bool },
@@ -113,7 +114,8 @@ impl Heads {
         }
         for (&(scid, side, record), o) in records.iter().zip(outcomes) {
             match *o {
-                Outcome::Stored { changed } => {
+                Outcome::Stored { before } => {
+                    let changed = before.is_some();
                     self.0.insert((scid, side), Head { record, changed });
                 }
                 Outcome::Kept { record, changed } => {
@@ -146,6 +148,22 @@ impl Heads {
             .get(&(scid, side))
             .filter(|h| h.changed)
             .map(|h| h.record.time)
+    }
+
+    /// The `n` directions whose newest change is newest, newest first: the newest `n` changes
+    /// of the whole graph are all among them.
+    pub fn newest_changed(&self, n: usize) -> Vec<(u64, u8)> {
+        let mut v: Vec<(u32, u64, u8)> = self
+            .0
+            .iter()
+            .filter(|(_, h)| h.changed)
+            .map(|(&(scid, side), h)| (h.record.time, scid, side))
+            .collect();
+        v.sort_unstable_by(|a, b| b.cmp(a));
+        v.into_iter()
+            .take(n)
+            .map(|(_, scid, side)| (scid, side))
+            .collect()
     }
 
     pub fn len(&self) -> usize {
@@ -278,9 +296,7 @@ pub async fn record(
                     inbound.map(|i| i.fee_rate),
                 ])?;
                 trim.execute(params![scid, side, KEPT as i64 - 1])?;
-                out.push(Outcome::Stored {
-                    changed: kept.is_some(),
-                });
+                out.push(Outcome::Stored { before: kept });
             }
             let (run, now) = (scid_value(run), scid_value(now));
             sql.prepare(

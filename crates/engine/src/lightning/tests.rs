@@ -134,6 +134,50 @@ async fn the_table_follows_opens_closes_penalties_and_their_undoing() {
     assert_eq!(table(s).await[0].open, open(C, 2));
 }
 
+/// What the overview's feed takes as news: a change that wrote a row. A restart's replay of an
+/// open, or a close or penalty found again, writes nothing.
+#[tokio::test]
+async fn only_changes_the_table_did_not_hold_are_written() {
+    let t = temp();
+    let s = &t.store;
+    let penalty = Penalty {
+        block: block(800_020, 0xd0),
+        txid: Txid::from_byte_array([9; 32]),
+    };
+    let ab = vec![Change::Opened(open(A, 1)), Change::Opened(open(B, 1))];
+    let wrote = |c: Vec<Change>| apply_from(s, s.generation(), c);
+    assert_eq!(wrote(ab.clone()).await.unwrap(), [true, true]);
+    assert_eq!(wrote(ab).await.unwrap(), [false, false]);
+    // The same channel funded in another block is news again.
+    assert_eq!(
+        wrote(vec![Change::Opened(open(A, 2))]).await.unwrap(),
+        [true]
+    );
+    let closed = Change::Closed(open(A, 2), close(800_010, Kind::Force, 7));
+    assert_eq!(wrote(vec![closed]).await.unwrap(), [true]);
+    assert_eq!(
+        wrote(vec![
+            Change::Penalty(A, penalty),
+            Change::Penalty(B, penalty)
+        ])
+        .await
+        .unwrap(),
+        [true, false],
+        "a penalty for an open channel writes nothing"
+    );
+    // Found again after a restart: nothing written, and the penalty stays.
+    assert_eq!(
+        wrote(vec![closed, Change::Penalty(A, penalty)])
+            .await
+            .unwrap(),
+        [false, false]
+    );
+    assert_eq!(channel(s, A).await.unwrap().unwrap().penalty, Some(penalty));
+    // Another closing transaction is news.
+    let other = Change::Closed(open(A, 2), close(800_010, Kind::Cooperative, 8));
+    assert_eq!(wrote(vec![other]).await.unwrap(), [true]);
+}
+
 #[tokio::test]
 async fn records_applied_again_or_replayed_by_a_restart_change_nothing() {
     let run = vec![
@@ -1068,7 +1112,7 @@ async fn fee_history_keeps_each_change_at_its_own_time_fifty_a_direction() {
     // The first policy seen is the starting point; a direction without one has nothing.
     let mut g = vec![graph_channel(A, Some(priced(100, T, None)), None)];
     let first = fee_round(&t.store, &mut heads, &g, 1).await;
-    assert_eq!(first, [fees::Outcome::Stored { changed: false }]);
+    assert_eq!(first, [fees::Outcome::Stored { before: None }]);
     assert_eq!(
         heads.changed(A, 0),
         None,
@@ -1092,7 +1136,16 @@ async fn fee_history_keeps_each_change_at_its_own_time_fifty_a_direction() {
     fee_round(&t.store, &mut heads, &g, 1).await;
     g[0].policies[0] = Some(priced(200, T + 20, Some(inbound)));
     let o = fee_round(&t.store, &mut heads, &g, 1).await;
-    assert_eq!(o, [fees::Outcome::Stored { changed: true }]);
+    let before = fees::FeeRecord {
+        time: T + 10,
+        fees: priced(200, 0, None).fees(),
+    };
+    assert_eq!(
+        o,
+        [fees::Outcome::Stored {
+            before: Some(before)
+        }]
+    );
     assert_eq!(heads.changed(A, 0), Some(T + 20));
     let ([one, two], runs) = fees::history(&t.store, A).await.unwrap();
     assert_eq!(
@@ -1176,12 +1229,12 @@ async fn fee_history_keeps_each_change_at_its_own_time_fifty_a_direction() {
     heads.apply(
         raced,
         &[(B, 1, late)],
-        &[fees::Outcome::Stored { changed: false }],
+        &[fees::Outcome::Stored { before: None }],
     );
     assert!(!heads.diff(&g[1..]).is_empty());
     assert_eq!(
         fee_round(&t.store, &mut heads, &g[1..], 1).await,
-        [fees::Outcome::Stored { changed: false }]
+        [fees::Outcome::Stored { before: None }]
     );
 }
 

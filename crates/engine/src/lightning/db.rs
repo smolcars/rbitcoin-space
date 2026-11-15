@@ -30,7 +30,8 @@ const OPEN: &str = "INSERT INTO ln_channels (scid, node_one, node_two, capacity,
      excluded.open_time, NULL, NULL)";
 
 /// Closes a channel, inserting it if it was never stored open. A penalty already stored stays
-/// when the close is the same transaction (the close found again after a restart).
+/// when the close is the same transaction (the close found again after a restart), and a row that
+/// already matches is not written again.
 const CLOSE: &str = "INSERT INTO ln_channels (scid, node_one, node_two, capacity, open_hash, open_time, \
      close_height, close_hash, close_time, close_txid, close_kind, close_fee) \
      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12) ON CONFLICT (scid) DO UPDATE SET \
@@ -43,7 +44,12 @@ const CLOSE: &str = "INSERT INTO ln_channels (scid, node_one, node_two, capacity
      penalty_txid = CASE WHEN close_txid IS excluded.close_txid THEN penalty_txid END, \
      penalty_height = CASE WHEN close_txid IS excluded.close_txid THEN penalty_height END, \
      penalty_hash = CASE WHEN close_txid IS excluded.close_txid THEN penalty_hash END, \
-     penalty_time = CASE WHEN close_txid IS excluded.close_txid THEN penalty_time END";
+     penalty_time = CASE WHEN close_txid IS excluded.close_txid THEN penalty_time END \
+     WHERE (node_one, node_two, capacity, open_hash, open_time, close_height, close_hash, \
+     close_time, close_txid, close_kind, close_fee) IS NOT (excluded.node_one, excluded.node_two, \
+     excluded.capacity, excluded.open_hash, excluded.open_time, excluded.close_height, \
+     excluded.close_hash, excluded.close_time, excluded.close_txid, excluded.close_kind, \
+     excluded.close_fee)";
 
 /// SQLite integers are signed; nothing stored here comes near 2^63.
 fn int(v: u64) -> i64 {
@@ -68,11 +74,10 @@ fn forget_fees(sql: &Sql, scid: u64) -> Result<(), Error> {
     Ok(())
 }
 
-fn change(sql: &Sql, c: &Change) -> Result<(), Error> {
-    match c {
-        Change::Opened(o) => {
-            sql.prepare(OPEN)?.execute(open_params(o))?;
-        }
+/// Applies one change; `true` when it wrote a row: a new open, a new close or a new penalty.
+fn change(sql: &Sql, c: &Change) -> Result<bool, Error> {
+    let written = match c {
+        Change::Opened(o) => sql.prepare(OPEN)?.execute(open_params(o))?,
         Change::Closed(o, c) => {
             let close: [rusqlite::types::Value; 6] = [
                 i64::from(c.block.height).into(),
@@ -82,15 +87,17 @@ fn change(sql: &Sql, c: &Change) -> Result<(), Error> {
                 (c.kind as i64).into(),
                 c.fee.map(int).into(),
             ];
-            sql.prepare(CLOSE)?.execute(rusqlite::params_from_iter(
+            let n = sql.prepare(CLOSE)?.execute(rusqlite::params_from_iter(
                 open_params(o).into_iter().chain(close),
             ))?;
             forget_fees(sql, o.scid)?;
+            n
         }
-        Change::Penalty(scid, p) => {
-            sql.prepare(
+        Change::Penalty(scid, p) => sql
+            .prepare(
                 "UPDATE ln_channels SET penalty_txid = ?2, penalty_height = ?3, penalty_hash = ?4, \
-                 penalty_time = ?5 WHERE scid = ?1 AND close_height IS NOT NULL",
+                 penalty_time = ?5 WHERE scid = ?1 AND close_height IS NOT NULL \
+                 AND (penalty_txid, penalty_hash) IS NOT (?2, ?4)",
             )?
             .execute(params![
                 int(*scid),
@@ -98,43 +105,48 @@ fn change(sql: &Sql, c: &Change) -> Result<(), Error> {
                 p.block.height,
                 p.block.hash.to_byte_array().to_vec(),
                 int(p.block.time)
-            ])?;
-        }
+            ])?,
         Change::OpenUndone(scid) => {
             sql.prepare("DELETE FROM ln_channels WHERE scid = ?1")?
                 .execute(params![int(*scid)])?;
             forget_fees(sql, *scid)?;
+            0
         }
-        Change::CloseUndone(scid) => {
-            sql.prepare(
+        Change::CloseUndone(scid) => sql
+            .prepare(
                 "UPDATE ln_channels SET close_height = NULL, close_hash = NULL, close_time = NULL, \
                  close_txid = NULL, close_kind = NULL, close_fee = NULL, penalty_txid = NULL, \
                  penalty_height = NULL, penalty_hash = NULL, penalty_time = NULL WHERE scid = ?1",
             )?
-            .execute(params![int(*scid)])?;
-        }
-        Change::PenaltyUndone(scid) => {
-            sql.prepare(
+            .execute(params![int(*scid)])?,
+        Change::PenaltyUndone(scid) => sql
+            .prepare(
                 "UPDATE ln_channels SET penalty_txid = NULL, penalty_height = NULL, \
                  penalty_hash = NULL, penalty_time = NULL WHERE scid = ?1",
             )?
-            .execute(params![int(*scid)])?;
-        }
-    }
-    Ok(())
+            .execute(params![int(*scid)])?,
+    };
+    Ok(written > 0)
 }
 
 /// Applies changes in order, in one write. Fails with [`Error::Full`] rather than wait behind a
 /// full write queue, so the block table's and the mempool history's writes never wait for it.
 pub async fn apply(store: &Store, changes: Vec<Change>) -> Result<(), Error> {
-    apply_from(store, store.generation(), changes).await
+    apply_from(store, store.generation(), changes)
+        .await
+        .map(drop)
 }
 
-/// [`apply`] for changes taken at `generation` ([`Store::write_from`]).
-pub async fn apply_from(store: &Store, generation: u64, changes: Vec<Change>) -> Result<(), Error> {
+/// [`apply`] for changes taken at `generation` ([`Store::write_from`]). Says of each change
+/// whether it wrote a row: an open, close or penalty already stored as it is writes nothing.
+pub async fn apply_from(
+    store: &Store,
+    generation: u64,
+    changes: Vec<Change>,
+) -> Result<Vec<bool>, Error> {
     store
         .try_write_from(generation, move |sql| {
-            changes.iter().try_for_each(|c| change(sql, c))
+            changes.iter().map(|c| change(sql, c)).collect()
         })
         .await
 }
@@ -655,6 +667,29 @@ pub async fn latest(store: &Store) -> Result<Option<Point>, Error> {
             ))?;
             for level in [Level::Minute, Level::Hour, Level::Day] {
                 let mut rows = newest.query_map(params![level as i64], point)?;
+                if let Some(p) = rows.next() {
+                    return Ok(Some(p?));
+                }
+            }
+            Ok(None)
+        })
+        .await
+}
+
+/// The first stored row at or after `time` and before `time + within`: a snapshot, else an hour,
+/// else a day, so one older than the snapshots kept is still found. At most three key lookups.
+pub async fn at(store: &Store, time: u64, within: u64) -> Result<Option<Point>, Error> {
+    store
+        .read(Read::Lightning, move |sql| {
+            let mut first = sql.prepare(concat!(
+                "SELECT time, ",
+                stat_columns!(),
+                " FROM ln_statistics WHERE level = ?1 AND time >= ?2 AND time < ?3 ",
+                "ORDER BY time LIMIT 1"
+            ))?;
+            let to = time.saturating_add(within);
+            for level in [Level::Minute, Level::Hour, Level::Day] {
+                let mut rows = first.query_map(params![level as i64, int(time), int(to)], point)?;
                 if let Some(p) = rows.next() {
                     return Ok(Some(p?));
                 }

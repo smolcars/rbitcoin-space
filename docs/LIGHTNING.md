@@ -421,6 +421,30 @@ The bytes are a peer's: every read is bounded and nothing panics. A stream lnd w
 
 The peer never learns a channel's funding txid ([Why the script and not the outpoint](#how-closes-are-found)), but the transaction page needs to find the channels a transaction opened. So a background task asks the node once per stored channel, `/block/:hash/txid/:index` with the funding block's hash the table already holds, and stores the answer in `ln_channels.open_txid`, indexed. The requests go through the gate every Lightning request shares, and only while validation has no lookup queued, which goes first ([Load on the node](#load-on-the-node)): at most 4 a second, so a first fill of mainnet's 36,000 channels takes about 2.5 hours, and after that it asks for a few hundred new channels a day. Before the gate, at 18 a second beside validation, the first start filled all 36,227 channels in 33 minutes; two requests failed on a dropped connection and were retried; the three channels spot-checked against the reference carry the same funding txids. A failure is retried after 1 s, doubling to 64 s (`lightning_funding_failed`); a block that left the chain is skipped until the history moves the row. A txid is stored only while the row names the block it was read from, and an open that moves the channel to another block clears it. Requests never wait for this: until a channel's txid is known, its routes say `null` and a lookup by that txid does not find it. Closing txids come with the close and are indexed the same way.
 
+### The overview
+
+The overview page's live feed, movers and closes by day ([`API.md`](API.md#applightning), topic [`lightning-feed`](WS.md#lightning-feed)). Code: `crates/server/src/lightning/feed.rs`, `lightning/movers.rs` and `crates/engine/src/lightning/overview.rs`.
+
+**The feed** is three kinds of event: a channel opened, a channel closed (with its kind), and a fee change on one direction (before and after, inbound fee included). Opens and closes come from the history as it is stored, and count only when the write changed a row: an open the table already held (a restart's replay of every channel, the open set stored after a [gap](STORE.md#ln_channels)) or a close found again writes nothing and is not news. A penalty becomes a close of kind `penalty` at the sweep's block. Fee changes come from the [fee round](#fee-history) after each build, except a run's first round, which only catches up with what changed while the server was down.
+
+- **Live only after the catch-up.** Nothing is taken before the first index build at which the close-watcher has caught up (`caught_up`: at the tip, no output waiting to be checked again). At that build the feed fills from the store: the newest 50 opens by funding position, the newest 50 closes, and the newest 50 fee changes (the 50 directions whose newest change is newest, from memory, then their newest 51 records each). So a restart keeps what happened while it was down, with its own times, and pushes none of it.
+- **One frame per build.** After each later build, what was found since goes out in one frame: at most 50 of each kind, newest first, and `more`, how many were left out. A node that moves the fee on thousands of channels in one build costs one frame of at most 50 fee changes. Opens and closes waiting for the next build are capped at 1,000, the oldest dropped first (counted in `more`).
+- **Kept:** the newest 50 of each kind, by event time, for `GET /app/lightning/feed` and as the topic's state for a new subscriber, encoded once per change. A few tens of kilobytes.
+- **Times.** An open is dated by its funding block, a close by its closing block, a fee change by the channel update's own time, each never later than when the server found it (a node can date an update in the future). Since a channel is announced six blocks after funding, an open reaches the feed an hour or more after its time.
+
+**Movers** are worked out from `ln_channels` alone: for each node, the capacity and channels of its channels funded in the period, less those closed in it, so a channel opened and closed inside the period counts nothing. Four lists of ten (capacity up and down, channels up and down), the ten newest nodes (first channel funded in the period) and the ten that left (no channel stored open, the last closed in the period), for 24 hours, a week and 30 days. The present capacity and open channels on each row are the index's, as on the node page; a node that left has none, and no alias, since the graph no longer holds it.
+
+**Closes by day** count each UTC day's closes by kind (a breach as `penalty`, not `force`) and the capacity they closed, for the 90 days up to today.
+
+**When and what it costs.** Every ten minutes once the graph is indexed, on its own task: one read of every channel's nodes, capacity and times (36,765 rows on mainnet: MEASURED_READ), then the three periods' movers and the 90 days on a blocking thread (MEASURED_WORK), and the answers kept in memory: three encoded movers answers and 90 day counts. Requests read memory only. So the figures lag the table by up to ten minutes.
+
+**What they cannot know.**
+
+- A funding time is the block's, not when gossip announced the channel; a close's is the closing block's.
+- A channel LDK pruned keeps its row as open ([Still missing](#still-missing)), so it never counts as closed, and its nodes never as having left.
+- Channels closed before our history starts were never stored: a node's "first channel" is the oldest we hold, and the first weeks after a first start count as many new nodes. The table holds only announced channels.
+- A close lost to a [history gap](STORE.md#ln_channels) reads open.
+
 ### Still missing
 
 - `/api/v1/lightning/penalties`: its rows are the reference's database records of a closed channel (each end's last policy, balances, outputs, resolution state), which we do not keep ([`compat/api-v1.md`](compat/api-v1.md#lightning)). Breaches show in our closed-channel lists.

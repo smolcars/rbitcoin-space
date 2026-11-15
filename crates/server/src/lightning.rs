@@ -104,6 +104,17 @@ pub struct Lightning {
     fee_records: AtomicU64,
     fee_write_us: AtomicU64,
     fee_failures: AtomicU64,
+    /// The overview's live feed ([`feed`]): events sent since start, and left out by the cap.
+    feed: Mutex<feed::Feed>,
+    feed_events: AtomicU64,
+    feed_left_out: AtomicU64,
+    feed_us: AtomicU64,
+    /// The overview's movers and closes ([`movers`]), the last computation's read and work
+    /// (microseconds), and computations that failed.
+    overview: RwLock<Option<Arc<movers::Overview>>>,
+    overview_read_us: AtomicU64,
+    overview_us: AtomicU64,
+    overview_failures: AtomicU64,
 }
 
 impl std::fmt::Debug for Lightning {
@@ -138,6 +149,14 @@ impl Lightning {
             fee_records: AtomicU64::new(0),
             fee_write_us: AtomicU64::new(0),
             fee_failures: AtomicU64::new(0),
+            feed: Mutex::default(),
+            feed_events: AtomicU64::new(0),
+            feed_left_out: AtomicU64::new(0),
+            feed_us: AtomicU64::new(0),
+            overview: RwLock::new(None),
+            overview_read_us: AtomicU64::new(0),
+            overview_us: AtomicU64::new(0),
+            overview_failures: AtomicU64::new(0),
         }
     }
 
@@ -237,6 +256,7 @@ pub fn spawn(ctx: &Arc<NetworkContext>) {
         Arc::clone(l),
         ctx.esplora.clone(),
         Arc::clone(&table.store),
+        Arc::clone(&ctx.hub),
         network,
     ));
     // A panic ends only this task; say so and show it as failed.
@@ -263,6 +283,7 @@ async fn run(
     l: Arc<Lightning>,
     chain: node::esplora::Esplora,
     store: Arc<Store>,
+    hub: Arc<crate::ws::Hub>,
     network: Network,
 ) {
     let name = network.name();
@@ -308,7 +329,8 @@ async fn run(
         () = consume(&*peer, &mut history, &mut pending, &store, &l, name) => false,
         stalled = report(&peer, events, &l, name) => stalled,
         () = store_ln::run(Arc::clone(&store), || statistics(&peer), sampler) => false,
-        () = index::keep(Arc::clone(&peer), Arc::clone(&store), Arc::clone(&l), name) => false,
+        () = index::keep(Arc::clone(&peer), Arc::clone(&store), Arc::clone(&l), hub, name) => false,
+        () = movers::keep(Arc::clone(&store), Arc::clone(&l)) => false,
         () = index::fill_funding(chain, Arc::clone(&peer), Arc::clone(&store), Arc::clone(&l), name) => false,
         () = l.stop.notified() => false,
     };
@@ -572,17 +594,38 @@ impl Pending {
     async fn store_front(&mut self, store: &Store, l: &Lightning) -> Result<(), store::Error> {
         let n = self.changes.len().min(BATCH);
         let batch: Vec<Change> = self.changes.iter().take(n).map(|(_, c)| *c).collect();
-        store_ln::apply_from(store, self.generation, batch.clone()).await?;
+        let written = store_ln::apply_from(store, self.generation, batch.clone()).await?;
         // Those deleted the channel's fee history: its next round starts it again.
-        let mut heads = l.fees.write().unwrap_or_else(PoisonError::into_inner);
-        for c in &batch {
-            match c {
-                Change::Closed(o, _) => heads.forget(o.scid),
-                Change::OpenUndone(scid) => heads.forget(*scid),
-                _ => {}
+        {
+            let mut heads = l.fees.write().unwrap_or_else(PoisonError::into_inner);
+            for c in &batch {
+                match c {
+                    Change::Closed(o, _) => heads.forget(o.scid),
+                    Change::OpenUndone(scid) => heads.forget(*scid),
+                    _ => {}
+                }
             }
         }
-        drop(heads);
+        // What the table did not hold is news for the overview's feed, once it is live.
+        let mut penalties = Vec::new();
+        {
+            let mut f = l.feed.lock().unwrap_or_else(PoisonError::into_inner);
+            for (c, _) in batch.iter().zip(&written).filter(|(_, w)| **w) {
+                match c {
+                    Change::Penalty(scid, p) => penalties.push((*scid, *p)),
+                    c => f.wait_for(c),
+                }
+            }
+        }
+        for (scid, p) in penalties {
+            // A breach is rare: one indexed read for its channel. A failed read loses the event.
+            if let Ok(Some(c)) = store_ln::channel(store, scid).await {
+                l.feed
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .wait(feed::Event::penalty(&c, &p));
+            }
+        }
         if let Some((seq, _)) = self.changes.drain(..n).next_back() {
             l.seq.store(seq, Ordering::Relaxed);
         }
@@ -922,6 +965,21 @@ fn summary(network: &'static str, s: &ln::Stats, status: &ln::Status, l: &Lightn
             us => Some(us as f64 / 1000.0),
         },
         fee_failures: l.fee_failures.load(Ordering::Relaxed),
+        feed_events: l.feed_events.load(Ordering::Relaxed),
+        feed_left_out: l.feed_left_out.load(Ordering::Relaxed),
+        feed_ms: match l.feed_us.load(Ordering::Relaxed) {
+            0 => None,
+            us => Some(us as f64 / 1000.0),
+        },
+        overview_read_ms: match l.overview_read_us.load(Ordering::Relaxed) {
+            0 => None,
+            us => Some(us as f64 / 1000.0),
+        },
+        overview_ms: match l.overview_us.load(Ordering::Relaxed) {
+            0 => None,
+            us => Some(us as f64 / 1000.0),
+        },
+        overview_failures: l.overview_failures.load(Ordering::Relaxed),
     });
 }
 
@@ -1041,6 +1099,8 @@ pub fn routes() -> Router<Arc<NetworkContext>> {
         .route("/api/v1/lightning/statistics/{interval}", get(v1_series))
         .merge(nodes::routes())
         .merge(fees::routes())
+        .merge(feed::routes())
+        .merge(movers::routes())
 }
 
 fn json_response(body: Bytes, route: &'static str, cache: &'static str) -> Response {
@@ -1490,8 +1550,10 @@ async fn v1_series(
     series(&ctx, Shape::Reference, &i).await
 }
 
+mod feed;
 mod fees;
 mod index;
+mod movers;
 pub(crate) mod nodes;
 #[cfg(test)]
 mod tests;

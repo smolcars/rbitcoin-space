@@ -8,11 +8,12 @@
 mod db;
 pub mod fees;
 mod graph;
+pub mod overview;
 mod sampler;
 
 pub use db::{
-    apply, apply_from, by_txids, channel, closed, continued, insert, latest, lineage, node_closed,
-    node_closes, node_spans, opened, past, record, series, set_funding, unfunded,
+    apply, apply_from, at, by_txids, channel, closed, continued, insert, latest, lineage,
+    node_closed, node_closes, node_spans, opened, past, record, series, set_funding, unfunded,
 };
 pub use graph::{
     Announcement, Bucket, GraphChannel, GraphNode, Inbound, Index, Link, Node, NodePast, NodePoint,

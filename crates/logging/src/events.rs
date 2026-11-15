@@ -1516,6 +1516,19 @@ pub struct LightningSummary {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fee_write_ms: Option<f64>,
     pub fee_failures: u64,
+    /// The overview's feed: events sent since start, events the per-frame cap left out, and the
+    /// last build's turn (after the build: events found, the frame and the kept state).
+    pub feed_events: u64,
+    pub feed_left_out: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub feed_ms: Option<f64>,
+    /// The overview's movers and closes: the last computation's read of the table and its work,
+    /// and computations that failed since start.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub overview_read_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub overview_ms: Option<f64>,
+    pub overview_failures: u64,
 }
 event!(LightningSummary, "lightning_summary", Info, keep);
 
@@ -2514,6 +2527,12 @@ mod tests {
                 fee_records: 72_400,
                 fee_write_ms: Some(3.5),
                 fee_failures: 0,
+                feed_events: 40,
+                feed_left_out: 0,
+                feed_ms: Some(0.2),
+                overview_read_ms: Some(30.0),
+                overview_ms: Some(10.0),
+                overview_failures: 0,
             }),
             both(&LightningIndexBuilt {
                 network: n,

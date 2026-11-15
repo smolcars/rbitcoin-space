@@ -139,6 +139,8 @@ pub enum Topic {
     V1Rbf(bool),
     /// `/api/v1/ws`: `track-rbf-summary`, the newest replacements in short.
     V1RbfSummary,
+    /// The Lightning overview's opens, closes and fee changes, once per index build.
+    LightningFeed,
 }
 
 /// Names of the [`Topic::ProjectedTxs`] topics, by block.
@@ -161,6 +163,7 @@ impl Topic {
             "transactions" => Some(Self::Transactions),
             "fees" => Some(Self::Fees),
             "replacements" => Some(Self::Replacements),
+            "lightning-feed" => Some(Self::LightningFeed),
             _ => PROJECTED_TXS
                 .iter()
                 .position(|n| *n == s)
@@ -181,6 +184,7 @@ impl Topic {
             Self::Transactions => "transactions",
             Self::Fees => "fees",
             Self::Replacements => "replacements",
+            Self::LightningFeed => "lightning-feed",
             Self::V1Blocks => "v1:blocks",
             Self::V1Stats => "v1:stats",
             Self::V1MempoolBlocks => "v1:mempool-blocks",

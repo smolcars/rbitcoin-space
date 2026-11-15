@@ -106,7 +106,7 @@ impl Hub {
 
     /// Adds `conn` and queues the topic's snapshot to it. Under the same lock as [`Hub::publish`],
     /// so the snapshot always comes before the changes that follow it.
-    pub(super) fn subscribe(&self, topic: Topic, conn: &Arc<Conn>) {
+    pub(crate) fn subscribe(&self, topic: Topic, conn: &Arc<Conn>) {
         let mut topics = self.topics();
         let state = topics.entry(topic).or_default();
         state.subscribers.insert(conn.id, Arc::clone(conn));

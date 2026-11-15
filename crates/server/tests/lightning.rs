@@ -357,6 +357,9 @@ async fn with_lightning_off_the_routes_say_so() {
         "/regtest/app/lightning/channels/closed",
         "/regtest/api/v1/lightning/statistics/latest",
         "/regtest/app/lightning/overview",
+        "/regtest/app/lightning/feed",
+        "/regtest/app/lightning/movers?period=1m",
+        "/regtest/app/lightning/closes?days=90",
         "/regtest/app/lightning/search?q=acinq",
         "/regtest/app/lightning/channels/1x1x1",
         "/regtest/api/v1/lightning/nodes/rankings",
@@ -805,6 +808,32 @@ async fn nodes_channels_search_and_rankings_answer_exactly_in_both_shapes() {
         }
     }
 
+    // The totals a period ago, for the overview's changes: the first row from then, if near.
+    {
+        let store = Store::open(&d.0, "regtest", Options::default()).unwrap();
+        let day_ago = (lightning::unix_now() - lightning::DAY) / EVERY * EVERY + EVERY;
+        let point = |time| Point {
+            time,
+            samples: 1,
+            sums: stats(7),
+        };
+        lightning::insert(&store, Level::Minute, vec![point(day_ago)])
+            .await
+            .unwrap();
+        // A week ago there is only a row too far after it.
+        let week_ago = lightning::unix_now() - 7 * lightning::DAY;
+        lightning::insert(&store, Level::Hour, vec![point(week_ago + lightning::DAY)])
+            .await
+            .unwrap();
+        store.close().await;
+        let v = get(&addr, "/regtest/app/lightning/overview").await.json();
+        let before = &v["before"];
+        assert_eq!(before["24h"]["time"], day_ago, "{before}");
+        assert_eq!(before["24h"]["channels"], stats(7).channels);
+        assert_eq!(before["24h"]["med_fee_rate"], stats(7).med_fee_rate);
+        assert_eq!((&before["1w"], &before["1m"]), (&Value::Null, &Value::Null));
+    }
+
     // The reference's fields, order and types, against its recorded answers.
     let fixture = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -1104,6 +1133,15 @@ async fn nodes_channels_search_and_rankings_answer_exactly_in_both_shapes() {
         ("/app/lightning/rankings/capacity?limit=101".to_owned(), 400),
         ("/api/v1/lightning/nodes/rankings/capacity".to_owned(), 404),
         ("/app/lightning/overview?x=1".to_owned(), 400),
+        ("/app/lightning/feed?x=1".to_owned(), 400),
+        ("/app/lightning/feed".to_owned(), 200),
+        ("/app/lightning/movers?period=2d".to_owned(), 400),
+        ("/app/lightning/movers?period=24h&x=1".to_owned(), 400),
+        ("/app/lightning/movers?period=1w&period=1w".to_owned(), 400),
+        ("/app/lightning/closes?days=0".to_owned(), 400),
+        ("/app/lightning/closes?days=91".to_owned(), 400),
+        ("/app/lightning/closes?days=01".to_owned(), 400),
+        ("/app/lightning/closes?days=-1".to_owned(), 400),
         // The reference's location routes are not served: 404 like any route we do not serve,
         // not a malformed key, while anything else in a key's place is still checked strictly.
         ("/api/v1/lightning/nodes/countries".to_owned(), 404),

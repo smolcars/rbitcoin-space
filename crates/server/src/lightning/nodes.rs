@@ -26,7 +26,7 @@ use super::{
 use crate::NetworkContext;
 use crate::error::ApiError;
 
-const SYNCING: ApiError = ApiError::new(
+pub(crate) const SYNCING: ApiError = ApiError::new(
     StatusCode::SERVICE_UNAVAILABLE,
     "lightning graph is still syncing; retry",
 );
@@ -1251,8 +1251,33 @@ async fn app_overview(State(ctx): State<Arc<NetworkContext>>, uri: axum::http::U
         .map_err(|e| store_error(&e))?;
     let names = super::aliases(l, &[opened.as_slice(), closed.as_slice()].concat());
     let top = |r| index.ranking(r).take(10).map(summary).collect::<Vec<_>>();
+    // The totals as they were a period ago, for the change over it: the first stored row from
+    // then, if one lies within a tenth of the period after it.
+    let now = store_ln::unix_now();
+    let mut before = serde_json::Map::new();
+    for (name, span) in [
+        ("24h", store_ln::DAY),
+        ("1w", 7 * store_ln::DAY),
+        ("1m", 30 * store_ln::DAY),
+    ] {
+        let p = store_ln::at(store, now.saturating_sub(span), span / 10)
+            .await
+            .map_err(|e| store_error(&e))?;
+        let v = p.as_ref().map(super::means).map(|m| {
+            json!({
+                "time": m.time,
+                "channels": m.channels,
+                "nodes": m.nodes,
+                "capacity": m.capacity,
+                "med_fee_rate": m.med_fee_rate,
+                "med_base_fee_msat": m.med_base_fee_msat,
+            })
+        });
+        before.insert(name.into(), v.into());
+    }
     let v = json!({
         "statistics": latest.as_ref().map(super::means),
+        "before": before,
         "top_capacity": top(Rank::Capacity),
         "top_channels": top(Rank::Channels),
         "opened": opened.iter().map(|c| channel_json(c, &names)).collect::<Vec<_>>(),
