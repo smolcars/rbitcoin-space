@@ -836,7 +836,7 @@ A parameter given twice is `400`, and so is `state` or `fee` with `status=closed
 
 ##### `/app/lightning/…`
 
-What the Lightning pages read; one request for each page's main content. Real mainnet answers, 2026-11-12 (the node page 2026-11-15), trimmed where `…`.
+What the Lightning pages read; one request for each page's main content. Real mainnet answers, 2026-11-12 (the node page and fee history 2026-11-15), trimmed where `…`.
 
 | Route | Answer |
 |---|---|
@@ -941,12 +941,28 @@ What each end of an open channel charged over time, kept by the server ([`LIGHTN
 
 ```json
 GET /app/lightning/channels/913755x2933x0/fees
-@@CHANNEL_EXAMPLE@@
+{"id": "868675x206x2", "scid": "955118263271817218",
+ "node_one": {"from": 1794757351, "records": [
+   {"time": 1794757351, "fee_rate": 638, "base_fee_msat": 0, "inbound_fee": {"base_fee_msat": 0, "fee_rate": -465}}, …,
+   {"time": 1794760052, "fee_rate": 638, "base_fee_msat": 0, "inbound_fee": {"base_fee_msat": 0, "fee_rate": -468}}]},
+ "node_two": {"from": 1794754923, "records": [{"time": 1794754923, "fee_rate": 0, "base_fee_msat": 0, "inbound_fee": {"base_fee_msat": 0, "fee_rate": 0}}]},
+ "watched": [{"from": 1794758338, "to": 1794760262}]}
 GET /app/lightning/nodes/03864ef0…3f8f/fees?limit=1
-@@NODE_EXAMPLE@@
+{"changes": [{"id": "913755x2933x0", "scid": "1004684247630675968", "peer": {"id": "02ad6fb8…a02b", "alias": "hashposition.com 🔵"},
+              "whose": "peer", "time": 1794758519, "before": {"fee_rate": 1000, "base_fee_msat": 0, "inbound_fee": null},
+              "after": {"fee_rate": 50, "base_fee_msat": 0, "inbound_fee": null}}]}
 ```
 
-**Cost.** @@FEE_COST@@
+**Cost.** Measured 2026-11-15 on a copy of a 32-minute mainnet run's store (36,210 channels, 13,616 nodes) with synthetic records added for the worst cases, release build, the server's own `duration_ms` over 15 requests each, machine load about 3.4: least, median and most.
+
+| Request | ms |
+|---|---|
+| A channel's history, 51 records each way (11 KB) | 0.13, 0.15, 0.20 |
+| ACINQ (1,804 channels), 10 changes; 50 changes, each of 50 directions holding 51 records (17 KB) | 0.19, 0.22, 0.37; 0.46, 0.54, 0.67 |
+| Binance, the largest by capacity (129 channels), the same two | 0.09, 0.11, 0.17; 0.41, 0.44, 0.51 |
+| The channel answer, the ACINQ and Binance node answers and ACINQ's channel list, which now carry `inbound_fee` | 0.06 to 0.15; 0.34 to 0.52; 0.20 to 0.28; 0.20 to 0.32 |
+
+A channel's history is one range of at most 100 rows. A node's changes take its directions whose newest record is a change from memory (one hash lookup per direction: 3,600 for ACINQ), then read the newest `limit` + 1 rows of at most `limit` directions, one range each: at most 50 reads of 51 rows, whatever the node. The newest `limit` changes are all in those directions, since each other direction's newest change is older than theirs.
 
 ##### `/api/v1/lightning/…`
 
