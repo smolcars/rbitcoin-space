@@ -264,6 +264,19 @@ describe("the overview", () => {
     expect(text(el)).toContain("Live");
   });
 
+  it("holds no more while paused than the list can show, the rest a line of its own", async () => {
+    const el = mount(() => <LightningPage />, "/regtest/lightning");
+    (await socket()).hello();
+    recent([feeEvent(1)]);
+    const feed = await feedOf(el);
+    click(el, "Pause");
+    for (let i = 0; i < 4; i++) events(Array.from({ length: 20 }, (_, k) => openEvent(i * 20 + k)));
+    expect(text(el)).toContain("Paused, 80 waiting");
+    click(el, "Resume");
+    expect(feed.querySelectorAll("li")).toHaveLength(30);
+    expect(text(feed)).toContain("and 51 more in this batch, not listed");
+  });
+
   it("starts paused under reduced motion", async () => {
     vi.spyOn(globalThis, "matchMedia").mockReturnValue({ matches: true } as MediaQueryList);
     const el = mount(() => <LightningPage />, "/regtest/lightning");

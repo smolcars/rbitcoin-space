@@ -16,6 +16,7 @@ import {
   type FeedFilter,
   feedTopic,
   isFeed,
+  KEEP,
   place,
   readFeed,
   type Row,
@@ -44,6 +45,12 @@ const CLOSE_WORD = {
   other: "Other close",
 } as const;
 
+/** The newest `KEEP` of each kind, newest first. */
+const newestOfEach = (events: FeedEvent[]): FeedEvent[] => {
+  const n = { opened: 0, closed: 0, fee: 0 };
+  return sorted(events, (a, b) => b.time - a.time).filter((e) => ++n[e.event] <= KEEP);
+};
+
 export function LiveFeed(props: { network: Network }) {
   const seen = new Seen();
   // Kept in plain variables the signals mirror: a write is seen only after the flush.
@@ -51,6 +58,7 @@ export function LiveFeed(props: { network: Network }) {
   let batch = 0;
   let pending: FeedEvent[] = [];
   let pendingMore = 0;
+  let isLoaded = false;
   const [rows, setRows] = createSignal<Row[]>([]);
   const [newest, setNewest] = createSignal(-1);
   const [loaded, setLoaded] = createSignal(false);
@@ -89,7 +97,8 @@ export function LiveFeed(props: { network: Network }) {
         more: n.more + more,
       }));
     }
-    if (!loaded()) {
+    if (!isLoaded) {
+      isLoaded = true;
       list = place([], fresh, 0, 0);
       setRows(list);
       setLoaded(true);
@@ -97,8 +106,10 @@ export function LiveFeed(props: { network: Network }) {
     }
     if (fresh.length === 0 && more === 0) return;
     if (isPaused) {
-      pending = [...fresh, ...pending];
-      pendingMore += more;
+      // Held to what the list could show, however long the pause: the rest is "more".
+      const all = [...fresh, ...pending];
+      pending = newestOfEach(all);
+      pendingMore += more + all.length - pending.length;
       setWaiting((w) => w + fresh.length + more);
       return;
     }
@@ -108,10 +119,7 @@ export function LiveFeed(props: { network: Network }) {
   createEffect(paused, (p) => {
     isPaused = p;
     if (p || (pending.length === 0 && pendingMore === 0)) return;
-    show(
-      sorted(pending, (a, b) => b.time - a.time),
-      pendingMore,
-    );
+    show(pending, pendingMore);
     pending = [];
     pendingMore = 0;
     setWaiting(0);
@@ -141,7 +149,7 @@ export function LiveFeed(props: { network: Network }) {
   };
   onSettled(() => {
     const first = setTimeout(() => {
-      if (!loaded()) void load();
+      if (!isLoaded) void load();
     }, TOPIC_WAIT_MS);
     const poll = setInterval(() => {
       if (status() !== "live") void load();
@@ -162,15 +170,17 @@ export function LiveFeed(props: { network: Network }) {
             class={["ln-live__dot", { "ln-live__dot--off": paused() || status() !== "live" }]}
             aria-hidden="true"
           />
-          {status() === "live" || status() === "connecting"
-            ? paused()
-              ? waiting() > 0
-                ? `Paused, ${groupDigits(waiting())} waiting`
-                : "Paused"
-              : "Live"
-            : status() === "reconnecting"
-              ? "Reconnecting"
-              : "Offline"}
+          {status() === "connecting"
+            ? "Connecting"
+            : status() === "live"
+              ? paused()
+                ? waiting() > 0
+                  ? `Paused, ${groupDigits(waiting())} waiting`
+                  : "Paused"
+                : "Live"
+              : status() === "reconnecting"
+                ? "Reconnecting"
+                : "Offline"}
         </span>
         <button
           class="btn ln-feed__pause"
