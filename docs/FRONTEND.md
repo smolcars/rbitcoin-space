@@ -73,6 +73,7 @@ The network comes from the path. `useNetwork()` returns it; never keep it anywhe
 | Arkade VTXO | `/ark/arkade/vtxo/:outpoint` (`<txid>:<vout>`) | `pages/ark/arkade` | Ark |
 | Bark VTXO | `/ark/bark/vtxo/:id` (`<txid>:<vout>`) | `pages/ark/bark` | Ark |
 | Bark VTXO from its hex | `/ark/bark/hex#<hex>` (the hex in the fragment, sent in a `POST` body) | `pages/ark/bark` | Ark |
+| Arkade address | `/ark/arkade/address/:address`, `?page=n` | `pages/ark/arkade` | Ark |
 | Not found | anything else | `pages/not-found` | shell |
 
 Every page is loaded lazily.
@@ -349,6 +350,10 @@ A mainnet server 18 minutes after its first sample (keys are sent in another ord
 - **The picture** (`layout.ts`, drawn by `Tree.tsx` in SVG): the batch trees in quiet ink grown up from their commitments on the Bitcoin line, which runs from the commitment through now to the expiry, this VTXO's branches in the accent, its checkpoints and transfers above the leaves. Without a tree, only the chain's own branch, and the batch's VTXOs as a count. Laid out again on a resize and each minute, never each second. "Play exit" lights the steps at `--dur-slow` each and ends on the wait after an exit; under reduced motion it shows the end at once. The transaction table is its text alternative.
 - **Kept current**: asked again on each new block or reorg, and every 30 s while in view (`POLL_MS`); the server keeps the Arkade answer 30 s, so a block mostly costs a node lookup.
 - **Reached from the Ark entry page** through its entry in `pages/ark/implementations.ts` and `paths.arkadeVtxo` ([`ARK.md`](ARK.md)).
+
+#### Arkade address
+
+`pages/ark/arkade/AddressPage.tsx` reads `GET /app/ark/arkade/address/:address?page=n` ([`ARK.md`](ARK.md#an-addresss-vtxos)): `page`, `pages` and up to 25 `vtxos`, read strictly (`readListing` in `address.ts`). The page in the address is `?page=n` (`paths.arkadeAddress(address, n)`); a page's answer is held while the next loads. The shape decides, before any request, what the page can say alone: not an Arkade address, a Bark address, an unknown version, another network's (`addressKind`, by BOAT-1); the server's checksum and key checks follow. The figures count only the page shown ("on this page" when there are more): no total over pages is ever computed. Spendable is arkd's word for neither spent nor swept. Asked once, not polled.
 
 ### Live data
 

@@ -1,0 +1,43 @@
+@layer pages {
+  /* An address is long: its groups wrap, each kept whole. */
+  .arkade-address .hash__group {
+    white-space: nowrap;
+  }
+
+  /* Side by side while they fit, one above the other once they do not, in any font. */
+  .arkade-figures--two {
+    display: flex;
+    flex-wrap: wrap;
+  }
+  .arkade-figures--two > * {
+    flex: 1 1 auto;
+  }
+
+  .arkade-list {
+    display: grid;
+    gap: var(--space-4);
+    min-width: 0;
+  }
+
+  .arkade-outpoint-cell {
+    display: inline-flex;
+    align-items: baseline;
+    min-width: 0;
+    max-width: 100%;
+  }
+  .arkade-outpoint-cell__vout {
+    color: var(--color-text-muted);
+  }
+
+  .arkade-status {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 0 var(--space-3);
+  }
+  .arkade-state--caution {
+    color: var(--color-caution);
+  }
+  .arkade-state--negative {
+    color: var(--color-negative);
+  }
+}

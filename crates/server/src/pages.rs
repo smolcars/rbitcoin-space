@@ -107,6 +107,18 @@ impl Pages {
             };
             return Some((network, head));
         }
+        if let Some(a) = rest.strip_prefix("/ark/arkade/address/") {
+            arkade::Address::parse(a, network == Network::Mainnet).ok()?;
+            // It parsed, so it is bech32 characters only; written in its canonical lower case.
+            let address = a.to_ascii_lowercase();
+            let head = Head {
+                title: "Arkade address".into(),
+                description: format!(
+                    "Arkade address {address} on {on}: its VTXOs, as Arkade reports them."
+                ),
+            };
+            return Some((network, head));
+        }
         if let Some(id) = rest.strip_prefix("/ark/bark/vtxo/") {
             let id: bark::VtxoId = id.parse().ok()?;
             let head = Head {

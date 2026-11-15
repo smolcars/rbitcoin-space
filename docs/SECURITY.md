@@ -10,7 +10,7 @@ The server sits between the public internet and a Bitcoin node. A client must ne
 | Chain data (scripts, `OP_RETURN` text, coinbase tags) | **Untrusted content.** Valid on chain does not mean safe to render |
 | Lightning gossip (aliases, addresses, colors) | **Untrusted content** |
 | Price feeds and other third-party APIs | **Untrusted content** |
-| Arkade servers (`{NET}_ARKADE_URL`) | **Untrusted content.** Asked only by the server, through named routes with typed parameters; every answer is size-capped, timed out, strictly decoded and capped in count, and shown as text. Its claims (amounts, states, signatures) are reported as it made them, never checked ([`ARK.md`](ARK.md#arkade)) |
+| Arkade servers (`{NET}_ARKADE_URL`) | **Untrusted content.** Asked only by the server, through named routes with typed parameters (an address is parsed for the network, and only the script derived from it is sent); every answer is size-capped, timed out, strictly decoded and capped in count, and shown as text. Its claims (amounts, states, signatures) are reported as it made them, never checked ([`ARK.md`](ARK.md#arkade)) |
 | Bark servers (`{NET}_BARK_URL`) | **Untrusted content.** Asked only by the server, at an operator-configured address; an answer is shown only once its exit chain is rebuilt, anchored on the node and its signatures verified ([`ARK.md`](ARK.md#what-the-server-checks)) |
 | The rbitcoin node | Trusted for chain facts; its responses are still parsed defensively |
 | Operator configuration | Trusted |

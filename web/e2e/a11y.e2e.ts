@@ -3,7 +3,17 @@
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import type { Page } from "@playwright/test";
-import { ARKADE_ID, HEX, ID, withArkade, withBark, withBarkHex, withBoth } from "./ark-answers";
+import {
+  ARKADE_ADDRESS,
+  ARKADE_ID,
+  HEX,
+  ID,
+  withArkade,
+  withArkadeAddress,
+  withBark,
+  withBarkHex,
+  withBoth,
+} from "./ark-answers";
 import { chain, expect, stubRetargets, test } from "./fixtures";
 import { KEPT, LARGE, stubLarge } from "./large-address";
 import { ACINQ, mainnet, serve } from "./lightning-answers";
@@ -425,6 +435,12 @@ const PAGES: PageType[] = [
     path: `/regtest/ark/arkade/vtxo/${ARKADE_ID}`,
     ready: (p) => p.getByRole("button", { name: "Play exit" }),
     before: (p) => withArkade(p, true),
+  },
+  {
+    name: "Arkade address",
+    path: `/regtest/ark/arkade/address/${ARKADE_ADDRESS}`,
+    ready: (p) => p.getByRole("table", { name: /VTXOs, newest first/ }),
+    before: (p) => withArkadeAddress(p, true),
   },
 ];
 

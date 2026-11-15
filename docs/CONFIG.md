@@ -59,7 +59,7 @@ VTXO pages for Ark implementations, per network ([`ARK.md`](ARK.md)). Off unless
 
 **It connects out to the Bark server,** one HTTP/2 connection per lookup the server does not already hold (TCP 443 for the public servers), at most four at once per network and each within 6 s. Browsers never reach it: the Content-Security-Policy is unchanged. Behind a firewall that blocks outbound traffic, allow that host, or leave it unset.
 
-**It connects out to the Arkade server** over HTTPS (TLS 1.3, Mozilla's roots compiled in), TCP 443 for the public servers: at most 9 calls a page view, 16 lookups at once per network ([`ARK.md`](ARK.md#arkade)). Allow that host too, or leave it unset.
+**It connects out to the Arkade server** over HTTPS (TLS 1.3, Mozilla's roots compiled in), TCP 443 for the public servers: at most 9 calls a VTXO page view and 2 an address page, 16 lookups at once per network ([`ARK.md`](ARK.md#arkade)). Allow that host too, or leave it unset.
 
 ## Broadcast
 

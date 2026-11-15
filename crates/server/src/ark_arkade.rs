@@ -6,6 +6,10 @@
 //! page can say which are already on chain: at most [`arkade::MAX_CHAIN`] status reads,
 //! [`STATUS_PARALLEL`] at a time, kept for [`STATES_KEEP`] or until the next block.
 //!
+//! `GET /app/ark/arkade/address/{address}?page=n` lists one page of an Arkade address's VTXOs:
+//! the address is parsed for the network first, and only its script reaches arkd, in at most
+//! [`arkade::MAX_LIST_CALLS`] calls. It shares this route's limits.
+//!
 //! What arkd says is reported as it said it; nothing here checks its signatures or amounts.
 
 use std::collections::HashMap;
@@ -49,12 +53,23 @@ const UNKNOWN: ApiError = ApiError::new(StatusCode::NOT_FOUND, "vtxo not found")
 const UPSTREAM_TIMEOUT: ApiError =
     ApiError::new(StatusCode::GATEWAY_TIMEOUT, "arkade did not answer in time");
 const UPSTREAM: ApiError = ApiError::new(StatusCode::BAD_GATEWAY, "arkade is not answering");
+const BAD_ADDRESS: ApiError = ApiError::bad_request("invalid address");
+const OTHER_NETWORK: ApiError = ApiError::bad_request("address is for another network");
+const BARK_ADDRESS: ApiError = ApiError::bad_request("bark address");
+const UNKNOWN_VERSION: ApiError = ApiError::bad_request("unknown ark address version");
+const BAD_PAGE: ApiError = ApiError::bad_request("invalid page");
+const FOREIGN: ApiError = ApiError::new(
+    StatusCode::UNPROCESSABLE_ENTITY,
+    "address belongs to another arkade server",
+);
 
 /// Sent to the Arkade server: some refuse a generic or missing one.
 const USER_AGENT: &str = concat!("rbitcoin-space/", env!("CARGO_PKG_VERSION"));
 
 pub fn routes() -> Router<Arc<NetworkContext>> {
-    Router::new().route("/app/ark/arkade/vtxo/{txid}/{vout}", get(route))
+    Router::new()
+        .route("/app/ark/arkade/vtxo/{txid}/{vout}", get(route))
+        .route("/app/ark/arkade/address/{address}", get(address_route))
 }
 
 /// A network's Arkade side.
@@ -203,12 +218,32 @@ async fn answer(
         txid: esplora::txid(txid)?,
         vout: arkade::parse_vout(vout).ok_or(ApiError::bad_request("invalid output index"))?,
     };
+    let found = ask(ark, client, ark.client.lookup(outpoint)).await?;
+    let lookup = found.ok_or(UNKNOWN)?;
+    let onchain = states(ctx, ark, outpoint, &lookup.chain).await;
+    let mut res = Json(Answer {
+        lookup: &lookup,
+        onchain: &onchain,
+    })
+    .into_response();
+    res.headers_mut()
+        .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    Ok(res)
+}
+
+/// Takes a client's token and one of the network's slots, then waits for `call` within
+/// [`LOOKUP_TIMEOUT`], counting arkd's failures.
+async fn ask<T>(
+    ark: &Arkade,
+    client: &Client,
+    call: impl Future<Output = Result<T, arkade::Error>>,
+) -> Result<T, Fail> {
     ark.clients.take(client.addr).map_err(Fail::Refused)?;
     let _slot = ark
         .in_flight
         .try_acquire()
         .map_err(|_| ApiError::OVERLOADED)?;
-    let found = match tokio::time::timeout(LOOKUP_TIMEOUT, ark.client.lookup(outpoint)).await {
+    let found = match tokio::time::timeout(LOOKUP_TIMEOUT, call).await {
         Ok(Ok(found)) => found,
         Ok(Err(arkade::Error::Busy)) => {
             ark.failed(arkade::Error::Busy);
@@ -224,16 +259,53 @@ async fn answer(
         }
     };
     ark.worked();
-    let lookup = found.ok_or(UNKNOWN)?;
-    let onchain = states(ctx, ark, outpoint, &lookup.chain).await;
-    let mut res = Json(Answer {
-        lookup: &lookup,
-        onchain: &onchain,
-    })
-    .into_response();
+    Ok(found)
+}
+
+async fn address_route(
+    State(ctx): State<Arc<NetworkContext>>,
+    Extension(client): Extension<Client>,
+    Path(address): Path<String>,
+    uri: Uri,
+) -> Response {
+    list(&ctx, &client, &address, &uri)
+        .await
+        .unwrap_or_else(IntoResponse::into_response)
+}
+
+async fn list(
+    ctx: &NetworkContext,
+    client: &Client,
+    address: &str,
+    uri: &Uri,
+) -> Result<Response, Fail> {
+    let ark = ctx.arkade.as_ref().ok_or(OFF)?;
+    let page = page(uri.query())?;
+    let address = arkade::Address::parse(address, ark.client.mainnet()).map_err(|e| match e {
+        arkade::AddressError::OtherNetwork => OTHER_NETWORK,
+        arkade::AddressError::Bark => BARK_ADDRESS,
+        arkade::AddressError::Version => UNKNOWN_VERSION,
+        _ => BAD_ADDRESS,
+    })?;
+    let listing = ask(ark, client, ark.client.list(&address, page))
+        .await?
+        .ok_or(FOREIGN)?;
+    let mut res = Json(&*listing).into_response();
     res.headers_mut()
         .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
     Ok(res)
+}
+
+/// `page=n`, the only query taken: a decimal from 1 to [`arkade::MAX_PAGE`], without sign or
+/// padding. None is page 1.
+fn page(query: Option<&str>) -> Result<u32, ApiError> {
+    let Some(query) = query else { return Ok(1) };
+    let n = query
+        .strip_prefix("page=")
+        .ok_or(ApiError::bad_request("unexpected query parameter"))?;
+    arkade::parse_vout(n)
+        .filter(|n| (1..=arkade::MAX_PAGE).contains(n))
+        .ok_or(BAD_PAGE)
 }
 
 /// Each chain transaction's place on our chain, kept for [`STATES_KEEP`] within one tip.
@@ -324,6 +396,29 @@ async fn state(esplora: &node::esplora::Esplora, txid: Txid) -> Option<OnChain> 
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_page_is_one_canonical_number_in_bounds() {
+        assert_eq!(page(None).ok(), Some(1));
+        assert_eq!(page(Some("page=1")).ok(), Some(1));
+        assert_eq!(page(Some("page=1000")).ok(), Some(arkade::MAX_PAGE));
+        for bad in [
+            "",
+            "page=",
+            "page=0",
+            "page=01",
+            "page=+2",
+            "page=1001",
+            "page=2&page=3",
+            "page=2&x=1",
+            "x=1",
+            "PAGE=2",
+            "page=%32",
+            "page=4294967296",
+        ] {
+            assert!(page(Some(bad)).is_err(), "{bad}");
+        }
+    }
 
     /// Kept states serve only the same chain, in the same order, on the same tip, for a while.
     #[test]

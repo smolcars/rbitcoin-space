@@ -5,7 +5,7 @@ Pages for Ark VTXOs: a visitor opens `/ark`, pastes a VTXO's id, and gets its am
 | Implementation | Crate | Pages | Private API | Configured by |
 |---|---|---|---|---|
 | Bark, by Second | `crates/bark` | `web/src/pages/ark/bark/` | `/app/ark/bark/vtxo/<txid>:<vout>`, and `POST /app/ark/bark/vtxo` for its hex | `{NET}_BARK_URL` (not for hex) |
-| Arkade, by Ark Labs | `crates/arkade` | `web/src/pages/ark/arkade/` | `/app/ark/arkade/vtxo/<txid>/<vout>` | `{NET}_ARKADE_URL` |
+| Arkade, by Ark Labs | `crates/arkade` | `web/src/pages/ark/arkade/` | `/app/ark/arkade/vtxo/<txid>/<vout>`, `/app/ark/arkade/address/<address>` | `{NET}_ARKADE_URL` |
 
 The entry page's list of implementations is `web/src/pages/ark/implementations.ts`; an implementation adds one entry there, one route list in `web/src/pages/ark/routes.ts`, and its name in `ark()` in `crates/server/src/app_config.rs`.
 
@@ -107,7 +107,7 @@ The body is the hex and nothing else: digits in either case, whole bytes, no spa
 
 ### Where the VTXO comes from
 
-The server, never the browser, asks the network's Arkade server (`arkd`) through its public REST indexer. `crates/arkade` is a typed client with five named routes and no pass-through: `/v1/info`, `/v1/indexer/vtxos?outpoints=`, `/v1/indexer/vtxo/{txid}/{vout}/chain`, `/v1/indexer/commitmentTx/{txid}` and `/v1/indexer/batch/{txid}/{vout}/tree`. Every call is a GET and needs no proof of ownership.
+The server, never the browser, asks the network's Arkade server (`arkd`) through its public REST indexer. `crates/arkade` is a typed client with six named routes and no pass-through: `/v1/info`, `/v1/indexer/vtxos?outpoints=`, `/v1/indexer/vtxos?scripts=` (an address's list), `/v1/indexer/vtxo/{txid}/{vout}/chain`, `/v1/indexer/commitmentTx/{txid}` and `/v1/indexer/batch/{txid}/{vout}/tree`. Every call is a GET and needs no proof of ownership.
 
 **Nothing arkd says is checked.** Its amounts, its states (unspent, spent, swept, preconfirmed) and its signatures are shown as it reported them, and no wording on the page suggests otherwise. Only "on chain" is ours: each exit transaction's status comes from our node. The server checks one thing: arkd's own network (`/v1/info`) must be the one it is configured for, or the lookup fails (`wrong_network`).
 
@@ -132,3 +132,31 @@ The server, never the browser, asks the network's Arkade server (`arkd`) through
 ### The page
 
 `/ark/arkade/vtxo/<txid>:<vout>` on any network. The design is in [`DESIGN.md`](DESIGN.md#ark-not-in-the-prototype). It asks the route again on every block and every 30 s while in view.
+
+### An address's VTXOs
+
+The format is [BOAT-1, "Ark address format"](https://github.com/ark-protocol/boats/blob/master/boat-0001.md) (Steven Roose): bech32m with the prefix `ark` on mainnet and `tark` on any test network, the first 5-bit field element the version. Version 0 is Arkade's: its whole data part, version bits included, decodes to 65 bytes, `arkade_version` (1 byte, only `0` defined), `server_key` (32 bytes, the server's x-only key) and `p2tr_key` (32 bytes, the taproot output key); the script it pays to is `5120<p2tr_key>`. Version 1 is Bark's (`tark1p…`), recognised and not listed; any other version, or an `arkade_version` other than 0, is unknown. `crates/arkade/src/address.rs` parses it, checked against arkd's own test vector (`pkg/ark-lib/encoding_test.go`), a test that pins the 65-byte layout, and a round trip: signet's signer key and a recorded VTXO's script, encoded, list that VTXO.
+
+`GET /app/ark/arkade/address/<address>?page=n` answers one page of 25, as arkd lists them, newest first:
+
+```json
+{ "page": 1, "pages": 11, "vtxos": [{ "txid": "5362156e…f50c", "vout": 0, "amount": 1000, "swept": true, … }] }
+```
+
+Each VTXO is shaped as `vtxo` in the VTXO route's answer. `pages` is arkd's count, `0` for an address with none; a page past the end lists none. Recorded answers: [`fixtures/arkade/answer-address.json`](../fixtures/arkade/answer-address.json) and `answer-address-last.json`, which a test holds equal to what the server writes.
+
+| Status | Body | When |
+|---|---|---|
+| 400 | `invalid address` | Over 128 characters, not bech32m, a bad checksum, mixed case, version 0 not 104 data characters, or a key not on the curve |
+| 400 | `address is for another network` | `ark` on a test network, `tark` on mainnet |
+| 400 | `bark address` | BOAT-1 version 1, Bark's |
+| 400 | `unknown ark address version` | Any other version, or an `arkade_version` other than 0 |
+| 400 | `invalid page`, `unexpected query parameter` | `page` not 1 to 1,000 without sign or padding; any other query |
+| 422 | `address belongs to another arkade server` | Its signer key is neither the server's `signerPubkey` nor one of its `deprecatedSigners` |
+| 404, 502, 503, 504, 429 | as the VTXO route | |
+
+**Bounds.** The address is parsed before anything is asked; only the script derived from it reaches arkd, with a fixed page size. One page view is at most 2 calls: the server's info (kept 10 minutes, shared with the VTXO route) and the page. Another server's address costs the info only. Identical pages in flight share one call; pages are kept 30 s by VTXO key and page, at most 1,024; failures are not kept. The body is capped at 256 KiB, the page at 25 VTXOs, each paying to the address's script, or the answer is refused. The route shares the VTXO route's per-client table, its 16 slots per network and its 8 s timeout. Answers carry `Cache-Control: no-store`.
+
+**Logs.** The request event names the route template, never the address.
+
+**The page.** `/ark/arkade/address/<address>`, with `?page=n` past the first. The design is in [`DESIGN.md`](DESIGN.md#ark-not-in-the-prototype). It is reached by its URL.

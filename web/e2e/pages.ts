@@ -1,7 +1,17 @@
 // Every page type, each with what it needs stubbed, for the rule tests that walk them all.
 import { readFileSync } from "node:fs";
 import type { Page } from "@playwright/test";
-import { ARKADE_ID, HEX, ID, withArkade, withBark, withBarkHex, withBoth } from "./ark-answers";
+import {
+  ARKADE_ADDRESS,
+  ARKADE_ID,
+  HEX,
+  ID,
+  withArkade,
+  withArkadeAddress,
+  withBark,
+  withBarkHex,
+  withBoth,
+} from "./ark-answers";
 import { chain, stubRetargets } from "./fixtures";
 import { KEPT, LARGE, stubLarge } from "./large-address";
 
@@ -82,5 +92,14 @@ export const PAGES: { path: string; stub?: (page: Page) => Promise<void> }[] = [
   // The fragment only names the second: the page never reads it.
   { path: `/regtest/ark/arkade/vtxo/${ARKADE_ID}`, stub: (page) => withArkade(page) },
   { path: `/regtest/ark/arkade/vtxo/${ARKADE_ID}#live`, stub: (page) => withArkade(page, true) },
+  // Signet's address as recorded (all swept), then with three VTXOs as if today.
+  {
+    path: `/regtest/ark/arkade/address/${ARKADE_ADDRESS}`,
+    stub: (page) => withArkadeAddress(page),
+  },
+  {
+    path: `/regtest/ark/arkade/address/${ARKADE_ADDRESS}?page=11#live`,
+    stub: (page) => withArkadeAddress(page, true),
+  },
   { path: "/regtest/no/such/page" },
 ];

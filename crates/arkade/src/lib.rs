@@ -7,16 +7,23 @@
 //! bounded number of calls, [`MAX_CALLS`], and identical lookups in flight share one; answers are
 //! kept for [`KEEP`]. Every route is named here with typed parameters: there is no pass-through.
 //! Nothing here verifies the server's claims (signatures, amounts): it reports what arkd says.
+//!
+//! It also lists an Arkade address's VTXOs ([`Client::list`]), one page at a time: at most
+//! [`MAX_LIST_CALLS`] calls a page, shared and kept the same way.
 
+mod address;
 mod http;
 mod wire;
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::future::Future;
+use std::hash::Hash;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
+pub use address::{Address, AddressError, MAX_ADDRESS_LEN};
 pub use bitcoin::Txid;
 use bytes::Bytes;
 pub use http::Endpoint;
@@ -51,6 +58,15 @@ pub const INFO_KEEP: Duration = Duration::from_secs(600);
 pub const STALLED: Duration = Duration::from_secs(120);
 /// Lookups kept or in flight at once. Past it, a new outpoint is refused as [`Error::Busy`].
 pub const MAX_KEPT: usize = 1024;
+/// VTXOs in one page of an address's list, fixed so a client cannot ask for more.
+pub const PAGE_SIZE: u32 = 25;
+/// The last page an address's list may be asked for: 25,000 VTXOs.
+pub const MAX_PAGE: u32 = 1000;
+/// The most calls one page of an address's list makes: the server's info (kept for
+/// [`INFO_KEEP`]), then the page.
+pub const MAX_LIST_CALLS: usize = 2;
+/// Signers arkd may list as deprecated; more refuses its info.
+pub const MAX_SIGNERS: usize = 16;
 
 /// Body caps per route, in bytes: a little over the largest real answer at the caps above.
 const INFO_BYTES: usize = 16 * 1024;
@@ -58,6 +74,7 @@ const VTXOS_BYTES: usize = 64 * 1024;
 const CHAIN_BYTES: usize = 256 * 1024;
 const COMMITMENT_BYTES: usize = 64 * 1024;
 const TREE_BYTES: usize = 256 * 1024;
+const LIST_BYTES: usize = 256 * 1024;
 
 /// What can go wrong. Carries no upstream text: a client of ours learns only that arkd failed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -179,6 +196,20 @@ pub struct Server {
     pub signer_pubkey: String,
     /// The wait after a unilateral exit, in seconds.
     pub exit_delay_secs: u64,
+    /// The x-only keys an address of this server may name: its signer's, then those it lists as
+    /// deprecated.
+    #[serde(skip)]
+    pub signers: Vec<[u8; 32]>,
+}
+
+/// One page of an address's VTXOs, as arkd lists them (newest first).
+#[derive(Debug, Clone, Serialize)]
+pub struct Listing {
+    /// The page, from 1.
+    pub page: u32,
+    /// How many pages arkd says the list has: 0 when it is empty.
+    pub pages: u32,
+    pub vtxos: Vec<Vtxo>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -237,11 +268,74 @@ pub struct TreeNode {
     pub children: Vec<Txid>,
 }
 
-type Shared = Arc<OnceCell<Result<Option<Arc<Lookup>>, Error>>>;
+type Shared<V> = Arc<OnceCell<Result<V, Error>>>;
 
-struct Slot {
-    cell: Shared,
+struct Slot<V> {
+    cell: Shared<V>,
     born: Instant,
+}
+
+/// Answers by key: identical asks in flight share one, an answer is kept for [`KEEP`], a failure
+/// is not kept, and at most [`MAX_KEPT`] are held.
+struct Kept<K, V> {
+    map: Mutex<HashMap<K, Slot<V>>>,
+}
+
+impl<K: Copy + Eq + Hash, V: Clone> Kept<K, V> {
+    fn new() -> Self {
+        Self {
+            map: Mutex::new(HashMap::new()),
+        }
+    }
+
+    async fn get<F: Future<Output = Result<V, Error>>>(
+        &self,
+        key: K,
+        fetch: impl FnOnce() -> F,
+    ) -> Result<V, Error> {
+        let cell = self.slot(key)?;
+        let answer = cell.get_or_init(fetch).await.clone();
+        if answer.is_err() {
+            self.forget(key, &cell);
+        }
+        answer
+    }
+
+    /// Drops `key`'s slot if it is still `cell`.
+    fn forget(&self, key: K, cell: &Shared<V>) {
+        let mut kept = self.map.lock().unwrap_or_else(PoisonError::into_inner);
+        if kept.get(&key).is_some_and(|s| Arc::ptr_eq(&s.cell, cell)) {
+            kept.remove(&key);
+        }
+    }
+
+    fn slot(&self, key: K) -> Result<Shared<V>, Error> {
+        let now = Instant::now();
+        let mut kept = self.map.lock().unwrap_or_else(PoisonError::into_inner);
+        // A lookup still unanswered after `STALLED` was abandoned by every caller (each call times
+        // out long before), so its slot goes like an old answer's.
+        let fresh = |s: &Slot<V>| {
+            now.duration_since(s.born) < if s.cell.initialized() { KEEP } else { STALLED }
+        };
+        if let Some(s) = kept.get(&key).filter(|s| fresh(s)) {
+            return Ok(Arc::clone(&s.cell));
+        }
+        if !kept.contains_key(&key) && kept.len() >= MAX_KEPT {
+            kept.retain(|_, s| fresh(s));
+            if kept.len() >= MAX_KEPT {
+                return Err(Error::Busy);
+            }
+        }
+        let cell = Shared::default();
+        kept.insert(
+            key,
+            Slot {
+                cell: Arc::clone(&cell),
+                born: now,
+            },
+        );
+        Ok(cell)
+    }
 }
 
 /// One Arkade server.
@@ -250,7 +344,9 @@ pub struct Client {
     /// Whether this network is Bitcoin's main chain, which arkd calls `bitcoin`.
     mainnet: bool,
     info: tokio::sync::Mutex<Option<(Instant, Server)>>,
-    kept: Mutex<HashMap<Outpoint, Slot>>,
+    kept: Kept<Outpoint, Option<Arc<Lookup>>>,
+    /// Pages of address lists, by the VTXO key and the page.
+    lists: Kept<([u8; 32], u32), Arc<Listing>>,
 }
 
 impl fmt::Debug for Client {
@@ -274,58 +370,58 @@ impl Client {
             transport,
             mainnet,
             info: tokio::sync::Mutex::new(None),
-            kept: Mutex::new(HashMap::new()),
+            kept: Kept::new(),
+            lists: Kept::new(),
         })
+    }
+
+    /// Whether this client's server is on Bitcoin's main chain, so its addresses start `ark`.
+    pub fn mainnet(&self) -> bool {
+        self.mainnet
     }
 
     /// The page's lookup: `None` when arkd knows no such VTXO. Shared with identical lookups in
     /// flight and kept for [`KEEP`]; a failure is not kept.
     pub async fn lookup(&self, outpoint: Outpoint) -> Result<Option<Arc<Lookup>>, Error> {
-        let cell = self.slot(outpoint)?;
-        let answer = cell.get_or_init(|| self.fetch(outpoint)).await.clone();
-        if answer.is_err() {
-            self.forget(outpoint, &cell);
-        }
-        answer
+        self.kept.get(outpoint, || self.fetch(outpoint)).await
     }
 
-    /// Drops `outpoint`'s slot if it is still `cell`.
-    fn forget(&self, outpoint: Outpoint, cell: &Shared) {
-        let mut kept = self.kept.lock().unwrap_or_else(PoisonError::into_inner);
-        if kept
-            .get(&outpoint)
-            .is_some_and(|s| Arc::ptr_eq(&s.cell, cell))
-        {
-            kept.remove(&outpoint);
+    /// One page of `address`'s VTXOs, from 1 to [`MAX_PAGE`] (clamped): `None` when the address
+    /// names another server's signer, which is then not asked. At most [`MAX_LIST_CALLS`] calls;
+    /// shared and kept as [`Client::lookup`] is.
+    pub async fn list(&self, address: &Address, page: u32) -> Result<Option<Arc<Listing>>, Error> {
+        let server = self.info().await?;
+        if !server.signers.contains(&address.server_key) {
+            return Ok(None);
         }
+        let page = page.clamp(1, MAX_PAGE);
+        let key = (address.p2tr_key, page);
+        self.lists
+            .get(key, || self.list_page(address, page))
+            .await
+            .map(Some)
     }
 
-    fn slot(&self, outpoint: Outpoint) -> Result<Shared, Error> {
-        let now = Instant::now();
-        let mut kept = self.kept.lock().unwrap_or_else(PoisonError::into_inner);
-        // A lookup still unanswered after `STALLED` was abandoned by every caller (each call times
-        // out long before), so its slot goes like an old answer's.
-        let fresh = |s: &Slot| {
-            now.duration_since(s.born) < if s.cell.initialized() { KEEP } else { STALLED }
-        };
-        if let Some(s) = kept.get(&outpoint).filter(|s| fresh(s)) {
-            return Ok(Arc::clone(&s.cell));
+    /// `GET /v1/indexer/vtxos?scripts=`, one page of [`PAGE_SIZE`]. Every VTXO must pay to the
+    /// address's script.
+    async fn list_page(&self, address: &Address, page: u32) -> Result<Arc<Listing>, Error> {
+        let script = address.script_hex();
+        let path =
+            format!("/v1/indexer/vtxos?scripts={script}&page.size={PAGE_SIZE}&page.index={page}");
+        let raw: wire::Vtxos = self.json(&path, LIST_BYTES).await?;
+        if raw.vtxos.len() > PAGE_SIZE as usize {
+            return Err(Error::Decode);
         }
-        if !kept.contains_key(&outpoint) && kept.len() >= MAX_KEPT {
-            kept.retain(|_, s| fresh(s));
-            if kept.len() >= MAX_KEPT {
-                return Err(Error::Busy);
+        let mut vtxos = Vec::with_capacity(raw.vtxos.len());
+        for v in raw.vtxos {
+            let v = convert(v)?;
+            if v.script != script {
+                return Err(Error::Decode);
             }
+            vtxos.push(v);
         }
-        let cell = Shared::default();
-        kept.insert(
-            outpoint,
-            Slot {
-                cell: Arc::clone(&cell),
-                born: now,
-            },
-        );
-        Ok(cell)
+        let pages = raw.page.map_or(0, |p| u32::try_from(p.total).unwrap_or(0));
+        Ok(Arc::new(Listing { page, pages, vtxos }))
     }
 
     async fn fetch(&self, outpoint: Outpoint) -> Result<Option<Arc<Lookup>>, Error> {
@@ -413,12 +509,22 @@ impl Client {
             return Err(Error::WrongNetwork);
         }
         let key = raw.signer_pubkey;
-        if key.len() > 130 || !key.bytes().all(|b| b.is_ascii_hexdigit()) {
+        let hexish = |k: &str| k.len() <= 130 && k.bytes().all(|b| b.is_ascii_hexdigit());
+        if !hexish(&key)
+            || raw.deprecated_signers.len() > MAX_SIGNERS
+            || !raw.deprecated_signers.iter().all(|d| hexish(&d.pubkey))
+        {
             return Err(Error::Decode);
         }
+        // A key that is not one an address can name is left out: no address matches it.
+        let signers = std::iter::once(key.as_str())
+            .chain(raw.deprecated_signers.iter().map(|d| d.pubkey.as_str()))
+            .filter_map(address::x_only)
+            .collect();
         let server = Server {
             signer_pubkey: key,
             exit_delay_secs: raw.unilateral_exit_delay,
+            signers,
         };
         *info = Some((Instant::now(), server.clone()));
         Ok(server)
@@ -431,36 +537,11 @@ impl Client {
             outpoint.txid, outpoint.vout
         );
         let raw: wire::Vtxos = self.json(&path, VTXOS_BYTES).await?;
-        let Some(v) = raw
-            .vtxos
+        raw.vtxos
             .into_iter()
             .find(|v| v.outpoint.txid == outpoint.txid && v.outpoint.vout == outpoint.vout)
-        else {
-            return Ok(None);
-        };
-        let script_ok = v.script.len() <= MAX_SCRIPT_HEX
-            && v.script.len() % 2 == 0
-            && v.script.bytes().all(|b| b.is_ascii_hexdigit());
-        if !script_ok || v.commitment_txids.len() > MAX_COMMITMENTS {
-            return Err(Error::Decode);
-        }
-        Ok(Some(Vtxo {
-            txid: outpoint.txid,
-            vout: outpoint.vout,
-            amount: v.amount,
-            script: v.script.to_ascii_lowercase(),
-            created_at: v.created_at,
-            expires_at: v.expires_at,
-            preconfirmed: v.is_preconfirmed,
-            swept: v.is_swept,
-            unrolled: v.is_unrolled,
-            spent: v.is_spent,
-            spent_by: v.spent_by,
-            settled_by: v.settled_by,
-            ark_txid: v.ark_txid,
-            commitment_txids: v.commitment_txids,
-            depth: v.depth,
-        }))
+            .map(convert)
+            .transpose()
     }
 
     /// `GET /v1/indexer/vtxo/{txid}/{vout}/chain`, its first page of [`MAX_CHAIN`]. True when that
@@ -546,6 +627,33 @@ impl Client {
         }
         serde_json::from_slice(&body).map_err(|_| Error::Decode)
     }
+}
+
+/// A VTXO as arkd sent it, checked against the caps.
+fn convert(v: wire::Vtxo) -> Result<Vtxo, Error> {
+    let script_ok = v.script.len() <= MAX_SCRIPT_HEX
+        && v.script.len().is_multiple_of(2)
+        && v.script.bytes().all(|b| b.is_ascii_hexdigit());
+    if !script_ok || v.commitment_txids.len() > MAX_COMMITMENTS {
+        return Err(Error::Decode);
+    }
+    Ok(Vtxo {
+        txid: v.outpoint.txid,
+        vout: v.outpoint.vout,
+        amount: v.amount,
+        script: v.script.to_ascii_lowercase(),
+        created_at: v.created_at,
+        expires_at: v.expires_at,
+        preconfirmed: v.is_preconfirmed,
+        swept: v.is_swept,
+        unrolled: v.is_unrolled,
+        spent: v.is_spent,
+        spent_by: v.spent_by,
+        settled_by: v.settled_by,
+        ark_txid: v.ark_txid,
+        commitment_txids: v.commitment_txids,
+        depth: v.depth,
+    })
 }
 
 struct Commitment {

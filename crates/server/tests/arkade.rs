@@ -27,6 +27,11 @@ use tokio::net::{TcpListener, TcpStream};
 const PRE: &str = "d922b2c3811ec22ae6c7b0bea4eaef16c33250bf4e717950f1898095e79773fc";
 const C128: &str = "5cac5e493337e37ef5a66c66a4c36f7d8e87f3c9b85c635ca49fe6721268bd80";
 const UNKNOWN: &str = "abababababababababababababababababababababababababababababababab";
+/// Signet's server key and the script of `d922b2c3…:0`, as an address: 256 VTXOs, 11 pages.
+const ADDRESS: &str = "tark1qz9l2ctqalrkjyftxcw7gytm83cm3r9pdudmna4v0gncry56h30x5eu7kqsr8ul6td7gu8qqv70s60ufv6nz7rytef7hs33wdhc76xqnrjdp6x";
+const SCRIPT: &str = "5120679eb02033f3fa5b7c8e1c00679f0d3f8966a62f0c8bca7d78462e6df1ed1813";
+/// arkd's own test vector: an address of another server.
+const FOREIGN: &str = "tark1qqellv77udfmr20tun8dvju5vgudpf9vxe8jwhthrkn26fz96pawqfdy8nk05rsmrf8h94j26905e7n6sng8y059z8ykn2j5xcuw4xt846qj6x";
 
 fn fixture(name: &str) -> String {
     let path = format!(
@@ -146,6 +151,14 @@ async fn fake_ark() -> (String, Arc<Ark>) {
             format!("/v1/indexer/vtxos?outpoints={UNKNOWN}:0"),
             fixture("vtxo-unknown"),
         ),
+        (
+            format!("/v1/indexer/vtxos?scripts={SCRIPT}&page.size=25&page.index=1"),
+            fixture("list-page1"),
+        ),
+        (
+            format!("/v1/indexer/vtxos?scripts={SCRIPT}&page.size=25&page.index=11"),
+            fixture("list-last"),
+        ),
     ]);
     let ark = Arc::new(Ark {
         routes,
@@ -198,8 +211,12 @@ async fn get(addr: &str, target: &str, ip: &str) -> Reply {
 /// The answer for signet's `d922b2c3…:0`, from its recorded Arkade answers, is what the browser
 /// tests stub the route with (`web/e2e/ark-answers.ts`). `ARKADE_RECORD=1` writes it again.
 fn held_equal_to_the_recorded_answer(body: &[u8]) {
+    held_equal_to(body, "answer-preconfirmed");
+}
+
+fn held_equal_to(body: &[u8], name: &str) {
     let path = format!(
-        "{}/../../fixtures/arkade/answer-preconfirmed.json",
+        "{}/../../fixtures/arkade/{name}.json",
         env!("CARGO_MANIFEST_DIR")
     );
     let answer = String::from_utf8(body.to_vec()).unwrap() + "\n";
@@ -255,6 +272,125 @@ async fn a_vtxo_comes_with_its_tree_and_where_each_transaction_is() {
     let log = String::from_utf8(capture().0.lock().unwrap().clone()).unwrap();
     assert!(log.contains("/app/ark/arkade/vtxo/{txid}/{vout}"));
     assert!(!log.contains(PRE), "an outpoint was logged");
+}
+
+fn address(a: &str) -> String {
+    format!("/regtest/app/ark/arkade/address/{a}")
+}
+
+#[tokio::test]
+async fn an_address_lists_a_page_of_its_vtxos() {
+    let (url, ark) = fake_ark().await;
+    let addr = start(Some(&url)).await;
+    let r = get(&addr, &address(ADDRESS), "192.0.2.30").await;
+    assert_eq!(r.status, 200, "{r:?}");
+    assert_eq!(r.header("cache-control"), Some("no-store"));
+    let v = r.json();
+    assert_eq!(
+        (v["page"].as_u64(), v["pages"].as_u64()),
+        (Some(1), Some(11))
+    );
+    let vtxos = v["vtxos"].as_array().unwrap();
+    assert_eq!(vtxos.len(), 25);
+    assert!(vtxos.iter().all(|t| t["script"] == SCRIPT));
+    // The server's info, then the page.
+    assert_eq!(ark.hits.load(Ordering::SeqCst), 2);
+    held_equal_to(&r.body, "answer-address");
+
+    // The last page, in upper case: one more call.
+    let r = get(
+        &addr,
+        &format!("{}?page=11", address(&ADDRESS.to_uppercase())),
+        "192.0.2.30",
+    )
+    .await;
+    assert_eq!(r.status, 200);
+    assert_eq!(r.json()["vtxos"].as_array().unwrap().len(), 6);
+    held_equal_to(&r.body, "answer-address-last");
+    assert_eq!(ark.hits.load(Ordering::SeqCst), 3);
+
+    logging::flush(Duration::from_secs(1));
+    let log = String::from_utf8(capture().0.lock().unwrap().clone()).unwrap();
+    assert!(log.contains("/app/ark/arkade/address/{address}"));
+    assert!(!log.contains(&ADDRESS[10..40]), "an address was logged");
+    assert!(!log.contains(&SCRIPT[4..]), "a script was logged");
+}
+
+#[tokio::test]
+async fn addresses_that_cannot_be_listed_say_why_and_ask_nothing() {
+    let (url, ark) = fake_ark().await;
+    let addr = start(Some(&url)).await;
+    // The same keys under mainnet's prefix, and behind Bark's version (its first five bits 00001).
+    let encode = |hrp: &str, first: u8| {
+        let checked = bitcoin::bech32::primitives::decode::CheckedHrpstring::new::<
+            bitcoin::bech32::Bech32m,
+        >(ADDRESS)
+        .unwrap();
+        let mut bytes: Vec<u8> = checked.byte_iter().collect();
+        bytes[0] = first;
+        let hrp = bitcoin::bech32::Hrp::parse(hrp).unwrap();
+        bitcoin::bech32::encode::<bitcoin::bech32::Bech32m>(hrp, &bytes).unwrap()
+    };
+    let mainnet = encode("ark", 0);
+    let bark = encode("tark", 0x08);
+    let version_2 = encode("tark", 0x10);
+    assert!(bark.starts_with("tark1p"));
+    for (target, status, error) in [
+        (address("not-an-address"), 400, "invalid address"),
+        (address("%3Cscript%3E"), 400, "invalid address"),
+        (
+            address(&ADDRESS[..ADDRESS.len() - 1]),
+            400,
+            "invalid address",
+        ),
+        (
+            address(&format!("ark1{}", &ADDRESS[5..])),
+            400,
+            "invalid address",
+        ),
+        (
+            address(&ADDRESS.replace("tark1", "TARK1")),
+            400,
+            "invalid address",
+        ),
+        (address(&mainnet), 400, "address is for another network"),
+        (address(&bark), 400, "bark address"),
+        (address(&version_2), 400, "unknown ark address version"),
+        (format!("{}?page=0", address(ADDRESS)), 400, "invalid page"),
+        (
+            format!("{}?page=1001", address(ADDRESS)),
+            400,
+            "invalid page",
+        ),
+        (format!("{}?page=02", address(ADDRESS)), 400, "invalid page"),
+        (
+            format!("{}?size=500", address(ADDRESS)),
+            400,
+            "unexpected query parameter",
+        ),
+    ] {
+        let r = get(&addr, &target, "192.0.2.31").await;
+        assert_eq!(
+            (r.status, r.json()["error"].as_str()),
+            (status, Some(error)),
+            "{target}"
+        );
+    }
+    assert_eq!(ark.hits.load(Ordering::SeqCst), 0);
+
+    // Another server's address: its info is asked, its VTXOs are not.
+    let r = get(&addr, &address(FOREIGN), "192.0.2.31").await;
+    assert_eq!(r.status, 422);
+    assert_eq!(
+        r.json()["error"],
+        "address belongs to another arkade server"
+    );
+    assert_eq!(ark.hits.load(Ordering::SeqCst), 1);
+
+    let off = start(None).await;
+    let r = get(&off, &address(ADDRESS), "192.0.2.31").await;
+    assert_eq!(r.status, 404);
+    assert_eq!(r.json()["error"], "arkade is not available here");
 }
 
 #[tokio::test]

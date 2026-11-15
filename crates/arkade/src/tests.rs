@@ -29,6 +29,15 @@ const TREE_1: &str = include_str!("../../../fixtures/arkade/tree-1.json");
 const VTXO_UNKNOWN: &str = include_str!("../../../fixtures/arkade/vtxo-unknown.json");
 const CHAIN_UNKNOWN: &str = include_str!("../../../fixtures/arkade/chain-unknown.json");
 const CHAIN_PAGED: &str = include_str!("../../../fixtures/arkade/chain-paged.json");
+const LIST_PAGE1: &str = include_str!("../../../fixtures/arkade/list-page1.json");
+const LIST_LAST: &str = include_str!("../../../fixtures/arkade/list-last.json");
+const LIST_EMPTY: &str = include_str!("../../../fixtures/arkade/list-empty.json");
+
+/// arkd's own test vector (`pkg/ark-lib/encoding_test.go`): its signer and VTXO keys.
+const VECTOR: &str = "tark1qqellv77udfmr20tun8dvju5vgudpf9vxe8jwhthrkn26fz96pawqfdy8nk05rsmrf8h94j26905e7n6sng8y059z8ykn2j5xcuw4xt846qj6x";
+/// Signet's server key and the script of the VTXO in the fixtures, as an address.
+const SIGNET_ADDR: &str = "tark1qz9l2ctqalrkjyftxcw7gytm83cm3r9pdudmna4v0gncry56h30x5eu7kqsr8ul6td7gu8qqv70s60ufv6nz7rytef7hs33wdhc76xqnrjdp6x";
+const SIGNET_SCRIPT: &str = "5120679eb02033f3fa5b7c8e1c00679f0d3f8966a62f0c8bca7d78462e6df1ed1813";
 
 const PRE: &str = "d922b2c3811ec22ae6c7b0bea4eaef16c33250bf4e717950f1898095e79773fc";
 const C128: &str = "5cac5e493337e37ef5a66c66a4c36f7d8e87f3c9b85c635ca49fe6721268bd80";
@@ -174,6 +183,164 @@ fn only_one_tree_is_a_tree() {
     assert!(order_tree(Vec::new()).is_none());
 }
 
+fn hex32(s: &str) -> [u8; 32] {
+    let mut out = [0u8; 32];
+    for (o, i) in out.iter_mut().zip((0..64).step_by(2)) {
+        *o = u8::from_str_radix(&s[i..i + 2], 16).unwrap();
+    }
+    out
+}
+
+/// An address of `hrp` over these 65 bytes, valid bech32m whatever they hold.
+fn encode(hrp: &str, bytes: &[u8]) -> String {
+    use bitcoin::bech32::{Bech32m, Hrp};
+    bitcoin::bech32::encode::<Bech32m>(Hrp::parse(hrp).unwrap(), bytes).unwrap()
+}
+
+#[test]
+fn arkades_own_vector_parses() {
+    let a = Address::parse(VECTOR, false).unwrap();
+    assert_eq!(
+        a.server_key,
+        hex32("33ffb3dee353b1a9ebe4ced64b946238d0a4ac364f275d771da6ad2445d07ae0")
+    );
+    assert_eq!(
+        a.p2tr_key,
+        hex32("25a43cecfa0e1b1a4f72d64ad15f4cfa7a84d0723e8511c969aa543638ea9967")
+    );
+    assert_eq!(
+        a.script_hex(),
+        "512025a43cecfa0e1b1a4f72d64ad15f4cfa7a84d0723e8511c969aa543638ea9967"
+    );
+    // Upper case is the same address; our own encoding of its bytes is the vector.
+    assert_eq!(Address::parse(&VECTOR.to_uppercase(), false).unwrap(), a);
+    let mut bytes = vec![0u8];
+    bytes.extend_from_slice(&a.server_key);
+    bytes.extend_from_slice(&a.p2tr_key);
+    assert_eq!(encode("tark", &bytes), VECTOR);
+    let s = Address::parse(SIGNET_ADDR, false).unwrap();
+    assert_eq!(s.script_hex(), SIGNET_SCRIPT);
+}
+
+/// BOAT-1 version 0: the whole data part, version bits included, is 65 bytes: `arkade_version`
+/// (0), `server_key`, `p2tr_key`. Its first character is `q` because the version is the first
+/// byte's top five bits.
+#[test]
+fn boat1_version_0_is_65_bytes_version_server_key_p2tr_key() {
+    let server_key = hex32("8bf56160efc769112b361de4117b3c71b88ca16f1bb9f6ac7a2781929abc5e6a");
+    let p2tr_key = hex32(&SIGNET_SCRIPT[4..]);
+    let layout = [&[0u8][..], &server_key, &p2tr_key].concat();
+    assert_eq!(layout.len(), 65);
+    let encoded = encode("tark", &layout);
+    assert_eq!(encoded, SIGNET_ADDR);
+    assert_eq!(encoded.len(), "tark1".len() + 104 + 6);
+    assert_eq!(
+        Address::parse(&encoded, false),
+        Ok(Address {
+            server_key,
+            p2tr_key
+        })
+    );
+    // A byte short or over is not version 0, nor is the keys' order swapped the same address.
+    for bad in [&layout[..64], &[layout.as_slice(), &[0]].concat()[..]] {
+        assert_eq!(
+            Address::parse(&encode("tark", bad), false),
+            Err(AddressError::Invalid)
+        );
+    }
+    let swapped = [&[0u8][..], &p2tr_key, &server_key].concat();
+    assert_eq!(
+        Address::parse(&encode("tark", &swapped), false).unwrap(),
+        Address {
+            server_key: p2tr_key,
+            p2tr_key: server_key
+        }
+    );
+}
+
+#[test]
+fn addresses_parse_strictly() {
+    let a = Address::parse(VECTOR, false).unwrap();
+    let body = |first: u8| {
+        let mut b = vec![first];
+        b.extend_from_slice(&a.server_key);
+        b.extend_from_slice(&a.p2tr_key);
+        b
+    };
+    // `ark` is mainnet's; `tark` every test network's.
+    assert_eq!(
+        Address::parse(VECTOR, true),
+        Err(AddressError::OtherNetwork)
+    );
+    let main = encode("ark", &body(0));
+    assert!(main.starts_with("ark1q"));
+    assert_eq!(Address::parse(&main, true), Ok(a));
+    assert_eq!(
+        Address::parse(&main, false),
+        Err(AddressError::OtherNetwork)
+    );
+    // 0x08 begins with the five bits 00001: Bark's `p`.
+    let bark = encode("tark", &body(0x08));
+    assert!(bark.starts_with("tark1p"));
+    assert_eq!(Address::parse(&bark, false), Err(AddressError::Bark));
+    // Version 2, 0x10's top five bits: not defined.
+    assert_eq!(
+        Address::parse(&encode("tark", &body(0x10)), false),
+        Err(AddressError::Version)
+    );
+    // Version 0 with an `arkade_version` of 1: its first five bits are `q`, the rest is not 0.
+    assert_eq!(
+        Address::parse(&encode("tark", &body(0x01)), false),
+        Err(AddressError::Version)
+    );
+    let mut bad_key = body(0);
+    bad_key[33..].fill(0xff);
+    assert_eq!(
+        Address::parse(&encode("tark", &bad_key), false),
+        Err(AddressError::Key)
+    );
+    let mut flipped = VECTOR.to_owned();
+    flipped.replace_range(20..21, if &VECTOR[20..21] == "q" { "p" } else { "q" });
+    let mut mixed = VECTOR.to_owned();
+    mixed.replace_range(..4, "TARK");
+    for bad in [
+        String::new(),
+        "tark1".into(),
+        flipped,
+        mixed,
+        encode("tark", &body(0)[..64]),
+        encode("tark", &[body(0), vec![0]].concat()),
+        encode("tb", &body(0)),
+        VECTOR.replace("tark1", "tark"),
+        bitcoin::bech32::encode::<bitcoin::bech32::Bech32>(
+            bitcoin::bech32::Hrp::parse("tark").unwrap(),
+            &body(0),
+        )
+        .unwrap(),
+        format!("{VECTOR}{}", "q".repeat(MAX_ADDRESS_LEN)),
+        "tark1<script>".into(),
+    ] {
+        assert_eq!(
+            Address::parse(&bad, false),
+            Err(AddressError::Invalid),
+            "{bad}"
+        );
+    }
+}
+
+#[test]
+fn deprecated_signers_are_read() {
+    let info: wire::Info = serde_json::from_str(INFO_MAINNET).unwrap();
+    assert_eq!(info.deprecated_signers.len(), 1);
+    assert_eq!(
+        address::x_only(&info.deprecated_signers[0].pubkey).unwrap(),
+        hex32("2b74c2011af089c849383ee527c72325de52df6a788428b68d49e9174053aaba")
+    );
+    assert!(address::x_only("04aa").is_none());
+    assert!(address::x_only(&format!("05{}", "aa".repeat(32))).is_none());
+    assert!(address::x_only(&format!("02+a{}", "aa".repeat(31))).is_none());
+}
+
 /// A fake arkd: answers paths it knows, `404` otherwise, counting every request.
 struct Fake {
     url: String,
@@ -271,7 +438,13 @@ fn signet_routes() -> Routes {
             format!("/v1/indexer/vtxo/{UNKNOWN}/0/chain?page.size=128&page.index=1"),
             (500, CHAIN_UNKNOWN.to_owned()),
         ),
+        (list_path(SIGNET_SCRIPT, 1), ok(LIST_PAGE1)),
+        (list_path(SIGNET_SCRIPT, 11), ok(LIST_LAST)),
     ])
+}
+
+fn list_path(script: &str, page: u32) -> String {
+    format!("/v1/indexer/vtxos?scripts={script}&page.size=25&page.index={page}")
 }
 
 fn client(url: &str, mainnet: bool) -> Client {
@@ -439,19 +612,19 @@ async fn a_silent_server_times_out() {
 async fn abandoned_lookups_cannot_fill_the_table() {
     // No server: slots are taken and left unanswered, as by callers that all gave up.
     let c = client("http://127.0.0.1:9", false);
-    let first = c.slot(op(PRE, 0)).unwrap();
+    let first = c.kept.slot(op(PRE, 0)).unwrap();
     assert!(
-        Arc::ptr_eq(&first, &c.slot(op(PRE, 0)).unwrap()),
+        Arc::ptr_eq(&first, &c.kept.slot(op(PRE, 0)).unwrap()),
         "shared while running"
     );
     for vout in 1..MAX_KEPT as u32 {
-        c.slot(op(PRE, vout)).unwrap();
+        c.kept.slot(op(PRE, vout)).unwrap();
     }
-    assert_eq!(c.slot(op(SETTLED, 0)).unwrap_err(), Error::Busy);
+    assert_eq!(c.kept.slot(op(SETTLED, 0)).unwrap_err(), Error::Busy);
     tokio::time::advance(STALLED).await;
     // Stalled slots give way: to a new outpoint, and to the same one asked again.
-    assert!(c.slot(op(SETTLED, 0)).is_ok());
-    assert!(!Arc::ptr_eq(&first, &c.slot(op(PRE, 0)).unwrap()));
+    assert!(c.kept.slot(op(SETTLED, 0)).is_ok());
+    assert!(!Arc::ptr_eq(&first, &c.kept.slot(op(PRE, 0)).unwrap()));
 }
 
 #[tokio::test]
@@ -463,4 +636,88 @@ async fn nothing_listening_is_unavailable() {
         client(&url, false).lookup(op(PRE, 0)).await.unwrap_err(),
         Error::Unavailable
     );
+}
+
+#[tokio::test]
+async fn an_address_lists_one_page_in_two_calls_then_one() {
+    let f = fake(signet_routes(), false).await;
+    let c = client(&f.url, false);
+    let a = Address::parse(SIGNET_ADDR, false).unwrap();
+    let l = c.list(&a, 1).await.unwrap().unwrap();
+    assert_eq!((l.page, l.pages, l.vtxos.len()), (1, 11, 25));
+    // arkd lists the newest first.
+    assert!(
+        l.vtxos
+            .windows(2)
+            .all(|w| w[0].created_at >= w[1].created_at)
+    );
+    assert_eq!(f.hits.load(Ordering::SeqCst), MAX_LIST_CALLS);
+    // Kept, and the info with it: the same page costs nothing, another page one call.
+    assert!(Arc::ptr_eq(&l, &c.list(&a, 1).await.unwrap().unwrap()));
+    assert_eq!(f.hits.load(Ordering::SeqCst), 2);
+    let last = c.list(&a, 11).await.unwrap().unwrap();
+    assert_eq!((last.page, last.vtxos.len()), (11, 6));
+    assert!(last.vtxos.iter().all(|v| v.spent && v.swept));
+    assert_eq!(f.hits.load(Ordering::SeqCst), 3);
+    // The page asked is clamped to the bounds.
+    c.list(&a, u32::MAX).await.unwrap_err();
+    assert_eq!(
+        f.paths.lock().unwrap().last().unwrap(),
+        &list_path(SIGNET_SCRIPT, MAX_PAGE)
+    );
+}
+
+#[tokio::test]
+async fn an_address_of_another_server_is_not_listed() {
+    let f = fake(signet_routes(), false).await;
+    let c = client(&f.url, false);
+    // arkd's vector names another signer: only the info is asked.
+    assert!(
+        c.list(&Address::parse(VECTOR, false).unwrap(), 1)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(*f.paths.lock().unwrap(), vec!["/v1/info".to_owned()]);
+}
+
+#[tokio::test]
+async fn a_deprecated_signers_address_is_listed() {
+    let mut routes = signet_routes();
+    let deprecated = INFO_SIGNET.replace(
+        r#""deprecatedSigners":[]"#,
+        r#""deprecatedSigners":[{"pubkey":"0233ffb3dee353b1a9ebe4ced64b946238d0a4ac364f275d771da6ad2445d07ae0","cutoffDate":"1"}]"#,
+    );
+    assert_ne!(deprecated, INFO_SIGNET);
+    routes.insert("/v1/info".into(), (200, deprecated));
+    let vector = Address::parse(VECTOR, false).unwrap();
+    routes.insert(
+        list_path(&vector.script_hex(), 1),
+        (200, LIST_EMPTY.to_owned()),
+    );
+    let f = fake(routes, false).await;
+    let l = client(&f.url, false)
+        .list(&vector, 1)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!((l.pages, l.vtxos.len()), (0, 0));
+}
+
+#[tokio::test]
+async fn a_list_of_other_scripts_or_too_long_is_refused() {
+    let a = Address::parse(SIGNET_ADDR, false).unwrap();
+    let other = LIST_PAGE1.replace(SIGNET_SCRIPT, &format!("5120{}", "ab".repeat(32)));
+    let mut long: serde_json::Value = serde_json::from_str(LIST_PAGE1).unwrap();
+    let first = long["vtxos"][0].clone();
+    long["vtxos"].as_array_mut().unwrap().push(first);
+    for body in [other, long.to_string()] {
+        let mut routes = signet_routes();
+        routes.insert(list_path(SIGNET_SCRIPT, 1), (200, body));
+        let f = fake(routes, false).await;
+        assert_eq!(
+            client(&f.url, false).list(&a, 1).await.unwrap_err(),
+            Error::Decode
+        );
+    }
 }

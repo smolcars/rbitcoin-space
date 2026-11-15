@@ -31,6 +31,9 @@ const SHELL: &str = include_str!("../../../web/index.html");
 const SITE: &str = " | rbitcoin.space";
 
 const TXID: &str = "4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b";
+/// One Arkade address's keys under mainnet's prefix and the test networks'.
+const ARK_MAIN: &str = "ark1qz9l2ctqalrkjyftxcw7gytm83cm3r9pdudmna4v0gncry56h30x5eu7kqsr8ul6td7gu8qqv70s60ufv6nz7rytef7hs33wdhc76xqn9qxkrw";
+const ARK_TEST: &str = "tark1qz9l2ctqalrkjyftxcw7gytm83cm3r9pdudmna4v0gncry56h30x5eu7kqsr8ul6td7gu8qqv70s60ufv6nz7rytef7hs33wdhc76xqnrjdp6x";
 const GENESIS: &str = "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f";
 /// A block only the regtest table holds, at [`KNOWN_HEIGHT`].
 const KNOWN: &str = "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206";
@@ -340,6 +343,11 @@ async fn every_kind_of_page_on_every_network_says_what_it_is() {
         ),
     ] {
         let unknown_node = key_hex(0x77);
+        let ark = if prefix.is_empty() {
+            ARK_MAIN
+        } else {
+            ARK_TEST
+        };
         let pages: Vec<(String, String, String)> = vec![
             (
                 "/".into(),
@@ -507,6 +515,11 @@ async fn every_kind_of_page_on_every_network_says_what_it_is() {
                 format!(
                     "A Bark VTXO on {chain}, read from its hex: its amount, its expiry and its exit path, checked."
                 ),
+            ),
+            (
+                format!("/ark/arkade/address/{}", ark.to_uppercase()),
+                "Arkade address".into(),
+                format!("Arkade address {ark} on {chain}: its VTXOs, as Arkade reports them."),
             ),
             (
                 format!("/ark/arkade/vtxo/{}:7", "ab".repeat(32)),
@@ -704,6 +717,14 @@ async fn paths_that_do_not_parse_get_the_shell_as_built() {
         format!("/ark/arkade/vtxo/{TXID}:0/x"),
         "/ark/arkade/vtxo/not-an-outpoint".to_owned(),
         "/ark/bark/hex/00".to_owned(),
+        // Another network's, a checksum broken, Bark's version, markup.
+        format!("/ark/arkade/address/{ARK_TEST}"),
+        format!("/ark/arkade/address/{}", &ARK_MAIN[..ARK_MAIN.len() - 1]),
+        format!(
+            "/ark/arkade/address/{}",
+            ARK_MAIN.replacen("ark1q", "ark1p", 1)
+        ),
+        "/ark/arkade/address/%3Cscript%3E".to_owned(),
     ];
     for path in &hostile {
         let r = get(&addr, path).await;

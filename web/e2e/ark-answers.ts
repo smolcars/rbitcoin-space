@@ -110,6 +110,67 @@ export async function withArkade(page: Page, live = false) {
   await arkade(page, live);
 }
 
+/** Signet's server key and the script of the VTXO above: 256 VTXOs over 11 pages, all swept. */
+export const ARKADE_ADDRESS =
+  "tark1qz9l2ctqalrkjyftxcw7gytm83cm3r9pdudmna4v0gncry56h30x5eu7kqsr8ul6td7gu8qqv70s60ufv6nz7rytef7hs33wdhc76xqnrjdp6x";
+/** arkd's own test vector: an address of another Arkade server. */
+export const FOREIGN_ADDRESS =
+  "tark1qqellv77udfmr20tun8dvju5vgudpf9vxe8jwhthrkn26fz96pawqfdy8nk05rsmrf8h94j26905e7n6sng8y059z8ykn2j5xcuw4xt846qj6x";
+/** Shaped as an Arkade address; the stub lists nothing for it. */
+export const EMPTY_ADDRESS = `${ARKADE_ADDRESS.slice(0, -6)}qqqqqq`;
+/** Shaped as version 0, which the stub refuses as its `arkade_version` would be. */
+export const UNKNOWN_VERSION_ADDRESS = `${ARKADE_ADDRESS.slice(0, -6)}pppppp`;
+
+interface Listed {
+  page: number;
+  vtxos: { spent: boolean; swept: boolean; preconfirmed: boolean; expires_at: number }[];
+}
+const LISTED = fixture("arkade/answer-address.json");
+const LISTED_LAST = fixture("arkade/answer-address-last.json");
+
+/**
+ * A page of the address's list as the server answers it: the last page for 11, else the first's
+ * VTXOs under the page asked. With `live`, its first three are as if today: unspent, 22 days left.
+ */
+export function addressAnswer(page: number, live = false): unknown {
+  const a = JSON.parse(page === 11 ? LISTED_LAST : LISTED) as Listed;
+  a.page = page;
+  if (live) {
+    for (const v of a.vtxos.slice(0, 3)) {
+      v.spent = false;
+      v.swept = false;
+      v.expires_at = Math.floor(Date.now() / 1000) + 22 * 86_400;
+    }
+  }
+  return a;
+}
+
+async function arkadeAddresses(page: Page, live: boolean) {
+  await page.route(/\/regtest\/app\/ark\/arkade\/address\//, (route) => {
+    const url = new URL(route.request().url());
+    const address = decodeURIComponent(url.pathname.split("/").pop() ?? "").toLowerCase();
+    const n = Number(url.searchParams.get("page") ?? "1");
+    if (address === ARKADE_ADDRESS) return route.fulfill({ json: addressAnswer(n, live) });
+    if (address === FOREIGN_ADDRESS) {
+      return route.fulfill({
+        status: 422,
+        json: { error: "address belongs to another arkade server" },
+      });
+    }
+    if (address === EMPTY_ADDRESS) return route.fulfill({ json: { page: 1, pages: 0, vtxos: [] } });
+    if (address === UNKNOWN_VERSION_ADDRESS) {
+      return route.fulfill({ status: 400, json: { error: "unknown ark address version" } });
+    }
+    return route.fulfill({ status: 400, json: { error: "invalid address" } });
+  });
+}
+
+/** Regtest with Arkade, listing the recorded address (`live`: three of it as if today). */
+export async function withArkadeAddress(page: Page, live = false) {
+  await arkOn(page, ["arkade"]);
+  await arkadeAddresses(page, live);
+}
+
 /** Regtest with both. */
 export async function withBoth(page: Page) {
   await arkOn(page, ["bark", "arkade"]);

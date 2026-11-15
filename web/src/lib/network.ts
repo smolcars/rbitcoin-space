@@ -93,6 +93,9 @@ export const paths = {
   barkHex: (hex: string) => `/ark/bark/hex#${encodeURIComponent(hex)}`,
   /** An Arkade VTXO by its outpoint, `<txid>:<vout>`. */
   arkadeVtxo: (id: string) => `/ark/arkade/vtxo/${vtxoSegment(id)}`,
+  /** An Arkade address's VTXOs, from page 1 (`?page=n` after it). */
+  arkadeAddress: (address: string, page = 1) =>
+    `/ark/arkade/address/${segment(address)}${page > 1 ? `?page=${segment(page)}` : ""}`,
   /** Recent replacements, newest first; only those that replaced without signalling when asked. */
   rbf: (fullRbf = false) => (fullRbf ? "/rbf?view=full-rbf" : "/rbf"),
 };

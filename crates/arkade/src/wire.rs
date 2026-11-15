@@ -19,6 +19,13 @@ pub(crate) struct Info {
     pub unilateral_exit_delay: u64,
     #[serde(default)]
     pub network: String,
+    #[serde(default)]
+    pub deprecated_signers: Vec<DeprecatedSigner>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct DeprecatedSigner {
+    pub pubkey: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -28,10 +35,12 @@ pub(crate) struct Outpoint {
     pub vout: u32,
 }
 
-/// `/v1/indexer/vtxos`.
+/// `/v1/indexer/vtxos`. Paged when listed by script.
 #[derive(Debug, Deserialize)]
 pub(crate) struct Vtxos {
     pub vtxos: Vec<Vtxo>,
+    #[serde(default)]
+    pub page: Option<Page>,
 }
 
 #[derive(Debug, Deserialize)]

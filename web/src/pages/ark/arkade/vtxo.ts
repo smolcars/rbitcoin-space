@@ -81,7 +81,7 @@ const txids = (v: unknown, max: number): v is string[] =>
 const optTxid = (v: unknown): v is string | null => v === null || isTxid(v);
 const KINDS: ReadonlySet<string> = new Set(["commitment", "tree", "checkpoint", "ark", "other"]);
 
-function isVtxo(v: unknown): v is Vtxo {
+export function isVtxo(v: unknown): v is Vtxo {
   if (!isObject(v)) return false;
   return (
     isTxid(v["txid"]) &&

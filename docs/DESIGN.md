@@ -619,6 +619,22 @@ Details (folded) · Transactions, in broadcast order
 - **Arkade's badges are arkd's own words:** Unspent, Spent or Swept, and Not settled yet (dashed) while it is preconfirmed; Exiting when its exit is on our chain; Expires soon inside a week. Nothing on the page says arkd's claims were checked: they were not ([`ARK.md`](ARK.md#arkade)).
 - **The tree in quiet ink, this VTXO's branch in the accent,** its checkpoints and transfer above the leaves; the line under it is the Bitcoin chain and the VTXO's lifetime, commitment to expiry. A swept VTXO's path is dashed in the muted ink, not the accent. A transaction already on chain turns the positive green, in the picture and the table alike. The halo is the breathing exception above.
 
+The Arkade address page, `/ark/arkade/address/<address>`, lists what arkd says the address holds:
+
+```text
+← Ark
+Address  Arkade
+tark1qz9 l2ctqalr kjyftxcw …   [copy]
+┌ VTXOs ──────────────┬ Spendable on this page ─┐
+│ 25 on this page     │ 0.00003000 BTC          │
+└─────────────────────┴─────────────────────────┘
+VTXO (to its page)   Amount, BTC   Status                      Expires
+5362156e… :0         0.00001000    ✓ Unspent ◌ Not settled yet 7 Dec 2026
+[Previous]                 Page 1 of 11                 [Next]
+```
+
+- **The figures count this page only,** and say so when there are more; one page's figures are exact. Status is the VTXO page's words and icons. Its states are a few words each: not an Arkade address, a Bark address (its VTXOs cannot be listed), an unknown Ark address version, an address for another network, another Arkade server's, no VTXOs.
+
 ## Plain CSS or a utility framework
 
 **Decision: plain CSS with custom properties.** The lean holds.
