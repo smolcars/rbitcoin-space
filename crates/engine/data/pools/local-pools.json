@@ -7,5 +7,14 @@
       "P2Poolv2"
     ],
     "link": "https://p2poolv2.org"
+  },
+  {
+    "id": 10001,
+    "name": "jaonoctus",
+    "addresses": [],
+    "tags": [
+      "@jaonoctus"
+    ],
+    "link": "https://jaonoctus.dev"
   }
 ]

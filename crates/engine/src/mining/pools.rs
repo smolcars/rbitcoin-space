@@ -277,6 +277,8 @@ mod tests {
         assert_eq!(p.by_slug("foundryusa").unwrap().name, "Foundry USA");
         let v2 = p.by_slug("p2poolv2").unwrap();
         assert_eq!((v2.id, v2.addresses.len()), (10000, 0));
+        let jao = p.by_slug("jaonoctus").unwrap();
+        assert_eq!((jao.id, jao.addresses.len()), (10001, 0));
         // Every address in the shipped list is a valid mainnet address.
         let listed: usize = p.all().iter().map(|p| p.addresses.len()).sum();
         assert_eq!(p.scripts.len(), listed);
@@ -284,15 +286,17 @@ mod tests {
         assert!(p.version().starts_with("1-"));
     }
 
+    fn hex(h: &str) -> Vec<u8> {
+        (0..h.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&h[i..i + 2], 16).unwrap())
+            .collect()
+    }
+
     /// Testnet 5 block 4329 (`0000000000000038d4…7a8b`): its coinbase script and first 8 payouts.
+    /// The second pays jaonoctus's address, which stays off the list so this stays P2Poolv2.
     #[test]
     fn p2poolv2_block_by_tag() {
-        let hex = |h: &str| {
-            (0..h.len())
-                .step_by(2)
-                .map(|i| u8::from_str_radix(&h[i..i + 2], 16).unwrap())
-                .collect::<Vec<u8>>()
-        };
         let tag = hex("02e91001000c9f579b58040000000000000008538548613d4be818085032506f6f6c7632");
         let payouts: Vec<ScriptBuf> = [
             "512052ef4dd1295ff526d7b761366fcbd83081ba588e300e26185445818f5b0f05b5",
@@ -310,6 +314,43 @@ mod tests {
         // No upstream tag outranks it: upstream alone finds nothing in this coinbase.
         let upstream = Pools::parse(LIST).unwrap();
         assert_eq!(upstream.attribute(&tag, &payouts), (UNKNOWN, Method::None));
+    }
+
+    /// Testnet 5 blocks 2408 (`…3e496bcffa`, `v2/@jaonoctus/`) and 2540 (`…8600ccb845`,
+    /// `ckpool%/@jaonoctus/`, whose longer tag beats CKPool's): coinbase script, first payouts.
+    #[test]
+    fn jaonoctus_blocks_by_tag() {
+        let ckpool = list().by_slug("ckpool").unwrap().id;
+        // (coinbase script, payouts, whom upstream's list alone names)
+        let blocks = [
+            (
+                "026809285376322f406a616f6e6f637475732f6361736132312e76696e7465756d2e6f72672f30783533392f140100000000000000d4d7f86a000000000000d898",
+                &[
+                    "5120c6cdf3f715a8c3c38ed34a6dc80b02fd3e99ae94973d590324448827c9cf2d7b",
+                    "5120548afdde8ed083cd3b24de5359ef667f599ed3afccf144007b03d311ddfa8fdb",
+                    "51202efd5f7375a692876af4652fe8e6d81ab01979f6f7f397075c2cc17043d62c9b",
+                    "51205864acfa8e790ee4ca6d39bf1b3518769281249b4876da5c5c0803c77d0e6ae6",
+                ][..],
+                UNKNOWN,
+            ),
+            (
+                "02ec090004def3f86a04bb0d2f060c20ecf86a03004300000000000a636b706f6f6c252f406a616f6e6f637475732f6361736132312e76696e7465756d2e6f72672f30783533392f",
+                &[
+                    "5120c6cdf3f715a8c3c38ed34a6dc80b02fd3e99ae94973d590324448827c9cf2d7b",
+                    "51024e73",
+                ][..],
+                ckpool,
+            ),
+        ];
+        let upstream = Pools::parse(LIST).unwrap();
+        for (tag, payouts, alone) in blocks {
+            let payouts: Vec<ScriptBuf> = payouts
+                .iter()
+                .map(|s| ScriptBuf::from_bytes(hex(s)))
+                .collect();
+            assert_eq!(list().attribute(&hex(tag), &payouts), (10001, Method::Tag));
+            assert_eq!(upstream.attribute(&hex(tag), &payouts).0, alone);
+        }
     }
 
     #[test]
