@@ -160,6 +160,13 @@ test("a channel page draws every state at a desktop's and a phone's width, light
       await expect(page.getByRole("heading", { name: "Life of the channel" })).toBeVisible();
       const label = `${name} at ${view.width} px, ${view.colorScheme}`;
       expect(await channelFaults(page), label).toStrictEqual([]);
+      if (name === "longest exact base") {
+        // A long fee is exact in a wide well, in magnitude only where its well is narrow.
+        await expect(page.locator(".ln-hop__fee").first()).toHaveText(
+          view.width === 1280 ? "1\u202F000\u202F000.099 sats" : "0.0100 BTC",
+          { useInnerText: true },
+        );
+      }
     }
     // What each state says, once.
     const closed = ["cooperative", "force", "penalty", "other, continued"].includes(name);
@@ -175,24 +182,30 @@ test("a channel page draws every state at a desktop's and a phone's width, light
 });
 
 // The council's last defects: at 200% text on a 320 px phone a figure broke inside its digits,
-// and a long name widened the drawing past its panel.
-test("a channel page holds at 320 and 390 px with 200% text, in every state, with hostile names", async ({
-  page,
-  browserName,
-}) => {
-  test.skip(browserName !== "chromium", "only Chromium lets a test set the browser's text size");
-  const cdp = await page.context().newCDPSession(page);
-  await cdp.send("Page.setFontSizes", { fontSizes: { standard: 32, fixed: 26 } });
-  const answer = await serveChannel(page);
-  const faults: string[] = [];
-  for (const width of [320, 390]) {
-    await page.setViewportSize({ width, height: 800 });
-    for (const [name, channel] of Object.entries(channelStates())) {
-      answer(channel);
-      await page.goto("/regtest/lightning/channel/811984x2037x0");
-      await expect(page.getByRole("heading", { name: "Life of the channel" })).toBeVisible();
-      faults.push(...(await channelFaults(page)).map((f) => `${width} px, ${name}: ${f}`));
+// and a long name widened the drawing past its panel. 20 and 24 px text sit between the normal
+// size and 200%, where a fee once outgrew its well. A test a size: each is a visitor of its own,
+// under the server's per-client limits.
+for (const text of [20, 24, 32]) {
+  test(`a channel page holds at 320 and 390 px with ${text} px text, in every state, with hostile names`, async ({
+    page,
+    browserName,
+  }) => {
+    test.skip(browserName !== "chromium", "only Chromium lets a test set the browser's text size");
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("Page.setFontSizes", {
+      fontSizes: { standard: text, fixed: Math.round((text * 13) / 16) },
+    });
+    const answer = await serveChannel(page);
+    const faults: string[] = [];
+    for (const width of [320, 390]) {
+      await page.setViewportSize({ width, height: 800 });
+      for (const [name, channel] of Object.entries(channelStates())) {
+        answer(channel);
+        await page.goto("/regtest/lightning/channel/811984x2037x0");
+        await expect(page.getByRole("heading", { name: "Life of the channel" })).toBeVisible();
+        faults.push(...(await channelFaults(page)).map((f) => `${width} px, ${name}: ${f}`));
+      }
     }
-  }
-  expect(faults).toStrictEqual([]);
-});
+    expect(faults).toStrictEqual([]);
+  });
+}

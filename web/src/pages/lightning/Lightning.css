@@ -668,6 +668,16 @@
   .ln-fig__short {
     display: none;
   }
+  /* A fee's well narrower than its longest exact figure needs at its size (19 characters at
+     --text-xl, about 18em with padding), with a fifth to spare: its long figures in magnitude. */
+  @container (max-width: 22em) {
+    .ln-fig--long > .ln-fig__exact {
+      display: none;
+    }
+    .ln-fig--long > .ln-fig__short {
+      display: inline;
+    }
+  }
   /* Names are the one thing here that may break anywhere: a figure never does. */
   .ln bdi {
     overflow-wrap: anywhere;
@@ -973,6 +983,8 @@
     list-style: none;
   }
   .ln-hop__way {
+    /* Its long figures follow its own width (below), whatever the text size or fonts. */
+    container-type: inline-size;
     display: grid;
     justify-items: start;
     gap: var(--space-1);
