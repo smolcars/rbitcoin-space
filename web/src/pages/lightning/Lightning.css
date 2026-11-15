@@ -1961,6 +1961,11 @@
       text-align: left;
       white-space: normal;
     }
+    /* A change's row as a labelled list shows Whose, From, To and When itself: not twice. */
+    .ln-recent .ln-recent__phone,
+    .ln-recent .ln-recent__fromto {
+      display: none;
+    }
     /* Each figure after its column's name; the space lets a long one go under it. */
     .ln-node-views .table td[data-label]:not(:first-child)::before {
       content: attr(data-label) " ";
