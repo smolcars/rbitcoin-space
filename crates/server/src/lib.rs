@@ -38,11 +38,11 @@ pub mod ws;
 use std::future::Future;
 use std::sync::Arc;
 
-use axum::extract::{DefaultBodyLimit, Request};
+use axum::extract::{DefaultBodyLimit, Request, State};
 use axum::http::header::{
     ACCESS_CONTROL_ALLOW_HEADERS, ACCESS_CONTROL_ALLOW_METHODS, ACCESS_CONTROL_ALLOW_ORIGIN,
     ACCESS_CONTROL_EXPOSE_HEADERS, ACCESS_CONTROL_MAX_AGE, CACHE_CONTROL, CONTENT_SECURITY_POLICY,
-    HeaderName, REFERRER_POLICY, X_CONTENT_TYPE_OPTIONS, X_FRAME_OPTIONS,
+    CONTENT_TYPE, HeaderName, REFERRER_POLICY, X_CONTENT_TYPE_OPTIONS, X_FRAME_OPTIONS,
 };
 use axum::http::{HeaderMap, HeaderValue, Method};
 use axum::middleware::Next;
@@ -486,6 +486,10 @@ impl App {
                 limits::limit,
             ))
             .layer(middleware::map_response(move |res| finish(res, csp)))
+            .layer(middleware::from_fn_with_state(
+                config.onion_location.clone().map(Arc::<str>::from),
+                onion_location,
+            ))
             .layer(middleware::from_fn(cors))
             .layer(middleware::from_fn_with_state(
                 request_log::RequestLogger::new(config, Arc::clone(&refusals)),
@@ -641,6 +645,32 @@ fn refused_early(path: &str, refused: limits::Refused) -> Response {
 
 /// Last step for every response: errors through the error model, then the security headers.
 /// An error is `no-store` unless its route said otherwise: the same URL can succeed a moment later.
+/// `Onion-Location` on HTML answers when `ONION_LOCATION` is set: the same path and query on the
+/// onion service, which Tor Browser offers to open (docs/CONFIG.md).
+async fn onion_location(
+    State(origin): State<Option<Arc<str>>>,
+    req: Request,
+    next: Next,
+) -> Response {
+    let Some(origin) = origin else {
+        return next.run(req).await;
+    };
+    let target = req.uri().path_and_query().map_or("/", |p| p.as_str());
+    // A request URI holds no byte a header value refuses, so this always succeeds.
+    let value = HeaderValue::from_str(&format!("{origin}{target}"));
+    let mut res = next.run(req).await;
+    let html = res
+        .headers()
+        .get(CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.starts_with("text/html"));
+    if let (true, Ok(value)) = (html, value) {
+        res.headers_mut()
+            .insert(HeaderName::from_static("onion-location"), value);
+    }
+    res
+}
+
 async fn finish(res: Response, csp: &'static str) -> Response {
     finished(res, csp)
 }

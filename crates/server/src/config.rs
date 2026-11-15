@@ -404,6 +404,8 @@ pub struct Config {
     pub log_client_addr: bool,
     /// Whether the CSP allows Cloudflare's Web Analytics beacon (`CLOUDFLARE_WEB_ANALYTICS`).
     pub cloudflare_web_analytics: bool,
+    /// `ONION_LOCATION`: the onion service's origin, sent as `Onion-Location` on pages.
+    pub onion_location: Option<String>,
 }
 
 impl Config {
@@ -625,6 +627,15 @@ impl Config {
             Some("true") => true,
             Some(_) => return Err("CLOUDFLARE_WEB_ANALYTICS must be true or false".into()),
         };
+        let onion_location = var("ONION_LOCATION")
+            .map(|v| {
+                onion_origin(&v).then_some(v).ok_or_else(|| {
+                    "ONION_LOCATION must be http:// and a v3 onion address \
+                     (56 characters a-z and 2-7, then .onion), with no path"
+                        .to_owned()
+                })
+            })
+            .transpose()?;
 
         Ok(Self {
             listen,
@@ -639,8 +650,16 @@ impl Config {
             log_requests,
             log_client_addr,
             cloudflare_web_analytics,
+            onion_location,
         })
     }
+}
+
+/// `http://` and a v3 onion name: 56 base32 characters, lowercase as Tor writes them.
+fn onion_origin(v: &str) -> bool {
+    v.strip_prefix("http://")
+        .and_then(|h| h.strip_suffix(".onion"))
+        .is_some_and(|n| n.len() == 56 && n.bytes().all(|b| matches!(b, b'a'..=b'z' | b'2'..=b'7')))
 }
 
 /// Most entries `TRUSTED_PROXIES` takes; a deployment has a handful of proxies.
@@ -1158,6 +1177,24 @@ mod tests {
                 .cloudflare_web_analytics
         );
         assert!(parse(&[("CLOUDFLARE_WEB_ANALYTICS", "yes")]).is_err());
+        let onion = format!("http://{}.onion", "a2".repeat(28));
+        assert_eq!(
+            parse(&[("ONION_LOCATION", &onion)]).unwrap().onion_location,
+            Some(onion.clone())
+        );
+        assert_eq!(parse(&[]).unwrap().onion_location, None);
+        for bad in [
+            format!("https://{}.onion", "a2".repeat(28)),
+            format!("{onion}/"),
+            format!("{onion}:80"),
+            format!("http://{}.onion", "a2".repeat(8)),
+            format!("http://{}.onion", "A2".repeat(28)),
+            format!("http://{}.onion", "a1".repeat(28)),
+            "http://example.com".to_owned(),
+        ] {
+            let e = parse(&[("ONION_LOCATION", &bad)]).unwrap_err();
+            assert!(e.contains("ONION_LOCATION") && !e.contains(&bad), "{e}");
+        }
         assert!(parse(&[("MAX_CONNECTIONS", "99999999")]).is_err());
         assert_eq!(parse(&[]).unwrap().ws, WsLimits::default());
         let c = parse(&[("WS_SEND_QUEUE", "3"), ("WS_IDLE_TIMEOUT_SECS", "2")]).unwrap();

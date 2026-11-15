@@ -872,6 +872,27 @@ async fn security_headers_on_every_response() {
 }
 
 #[tokio::test]
+async fn onion_location_is_sent_on_pages_only_when_set() {
+    let onion = format!("http://{}.onion", "a2".repeat(28));
+    let mut on = config(limits());
+    on.onion_location = Some(onion.clone());
+    let (on, off) = (start_with(on).await, start(limits()).await);
+    for path in ["/", "/tx/ab?x=1", "/signet/block/1"] {
+        let r = get_path(&on, path).await;
+        let want = format!("{onion}{path}");
+        assert_eq!(r.header("onion-location"), Some(want.as_str()), "{path}");
+        assert_eq!(get_path(&off, path).await.header("onion-location"), None);
+    }
+    for path in ["/api/net", "/assets/app.js", "/healthz"] {
+        assert_eq!(
+            get_path(&on, path).await.header("onion-location"),
+            None,
+            "{path}"
+        );
+    }
+}
+
+#[tokio::test]
 async fn path_traversal_is_refused() {
     let addr = start(limits()).await;
     for path in [

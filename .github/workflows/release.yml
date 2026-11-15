@@ -8,6 +8,8 @@ name: Release
 #   the GitHub release.
 # - A merge to master that touches what goes into the image publishes it as sha-<commit> and
 #   master, with the same attestation. Never as latest or a version.
+# - The onion service's Tor image (deploy/tor/Dockerfile) is published once per Tor version as
+#   ghcr.io/<owner>/<repo>-tor:<version>, by the tor jobs below, apart from the server's.
 # - A manual dispatch is a dry run that publishes nothing: it builds, checks and joins both
 #   architectures.
 # Never on pull requests, so it is outside the PR budget.
@@ -116,6 +118,7 @@ jobs:
           touch rpc.cookie
           docker compose config --quiet
           docker compose -f compose.yml -f compose.tunnel.yml config --quiet
+          docker compose -f compose.yml -f compose.tunnel.yml -f compose.onion.yml config --quiet
       - run: docker save rbitcoin-space -o "image-$ARCH.tar"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -299,6 +302,106 @@ jobs:
         with:
           subject-name: ${{ steps.push.outputs.image }}
           subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+  # Tor for compose.onion.yml, each architecture built natively and pushed as <version>-<arch>, then
+  # joined as <version>. A version already published is left as it is, so its digest never changes.
+  tor-build:
+    name: tor-build (${{ matrix.arch }})
+    strategy:
+      matrix:
+        include:
+          - { arch: amd64, runner: ubuntu-24.04 }
+          - { arch: arm64, runner: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write # push this architecture's image
+    outputs:
+      version: ${{ steps.build.outputs.version }}
+      published: ${{ steps.build.outputs.published }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build, check and push
+        id: build
+        env:
+          ARCH: ${{ matrix.arch }}
+          TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^ARG TOR_VERSION=//p' deploy/tor/Dockerfile)
+          image=ghcr.io/${GITHUB_REPOSITORY,,}-tor
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin <<< "$TOKEN"
+          # As in publish: only "manifest unknown" or "name unknown" means the tag is not there.
+          if skopeo inspect --raw "docker://$image:$version" > /dev/null 2> err.txt; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            echo "$image:$version is already published" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          elif ! grep -qE 'manifest unknown|name unknown' err.txt; then
+            echo "::error::Could not read $image:$version: $(cat err.txt)"
+            exit 1
+          fi
+          echo "published=false" >> "$GITHUB_OUTPUT"
+          docker build --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --label "org.opencontainers.image.version=$version" -t "$image:$version-$ARCH" deploy/tor
+          # Tor with the proof-of-work defence, as the tor user, under the overlay's hardening.
+          test "$(docker image inspect -f '{{.Config.User}}' "$image:$version-$ARCH")" = tor
+          run() { docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges "$image:$version-$ARCH" "$@"; }
+          run --version | grep -q "^Tor version ${version%-r*}\.$"
+          run --list-modules | grep -qx 'pow: yes'
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            docker push --quiet "$image:$version-$ARCH"
+          fi
+
+  tor:
+    needs: tor-build
+    if: github.event_name == 'push' && needs.tor-build.outputs.published == 'false'
+    # One at a time, so two runs cannot both find the version missing and both publish it.
+    concurrency:
+      group: release-tor
+      cancel-in-progress: false
+      queue: max
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      packages: write # push the index
+      id-token: write # sign the provenance attestation
+      attestations: write # record it
+    outputs:
+      image: ${{ steps.join.outputs.image }}
+      digest: ${{ steps.join.outputs.digest }}
+    steps:
+      - name: Join
+        id: join
+        env:
+          VERSION: ${{ needs.tor-build.outputs.version }}
+          TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          image=ghcr.io/${GITHUB_REPOSITORY,,}-tor
+          docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin <<< "$TOKEN"
+          if skopeo inspect --raw "docker://$image:$VERSION" > /dev/null 2> err.txt; then
+            echo "$image:$VERSION is already published" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          elif ! grep -qE 'manifest unknown|name unknown' err.txt; then
+            echo "::error::Could not read $image:$VERSION: $(cat err.txt)"
+            exit 1
+          fi
+          docker buildx imagetools create -t "$image:$VERSION" "$image:$VERSION-amd64" "$image:$VERSION-arm64"
+          digest=$(docker buildx imagetools inspect "$image:$VERSION" --format '{{json .Manifest}}' | jq -r .digest)
+          echo "Published $image:$VERSION as \`$digest\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+      - if: steps.join.outputs.digest != ''
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ steps.join.outputs.image }}
+          subject-digest: ${{ steps.join.outputs.digest }}
           push-to-registry: true
 
   release:

@@ -24,6 +24,7 @@ A deployment is one choice from each table. Each scenario is a section you can f
 | [A proxy in a container](#a-proxy-in-a-container) | You want Caddy managed by the same compose file |
 | [Behind a Cloudflare Tunnel](#behind-a-cloudflare-tunnel) | You cannot or do not want to open any port. Cloudflare sees every request |
 | [Under mempool.space's frontend](#under-mempoolspaces-frontend) | You want mempool.space's own pages, with this server as their backend |
+| [As a Tor onion service](#as-a-tor-onion-service) | Also, beside any of the above: visitors reach the site over Tor, without Cloudflare and without revealing their address |
 
 After that, [the reference](#reference): health, the data directory, the first start, watching it, upgrading, switching features, the security checklist and what to do when it goes wrong.
 
@@ -458,6 +459,55 @@ If you switch on Cloudflare's Web Analytics, set `CLOUDFLARE_WEB_ANALYTICS=true`
 
 Observed in the deployment, with nothing configured at Cloudflare but the tunnel, its DNS records and Always Use HTTPS: each visitor keyed by their own address; `/api` JSON arrived `br`, so compression needs no setting; API answers were not cached (`cf-cache-status: DYNAMIC`), the frontend's immutable files were; `/app/ws` and `/api/v1/ws` upgraded. Not observed: whether bot protection challenges script clients of `/api`; Cloudflare's idle limit for a WebSocket (the server pings a socket quiet for 30 to 45 s by default, so a limit of `WS_IDLE_TIMEOUT_SECS` or more is enough); a request body near 1 MB. This compose file was checked with `config` and `ingress validate`, without an account; the deployment ran an equivalent service, not this file.
 
+## As a Tor onion service
+
+A Tor container beside the server publishes the site as a v3 onion service. Tor carries each visitor to it end to end, encrypted and authenticated by the address itself: no TLS, no certificate, no port opened, and no proxy or CDN that sees the visitor's address.
+
+**You need:** the [same-host](#same-host-with-the-compose-file) stack, from `deploy/`. The tunnel or the proxy overlay is optional.
+
+1. Start it with [`deploy/compose.onion.yml`](../deploy/compose.onion.yml):
+
+   ```sh
+   docker compose -f compose.yml -f compose.onion.yml up -d
+   ```
+
+   With the tunnel or the proxy, put its `-f` before the onion's, here and in every later command. Tor runs from our own image ([`deploy/tor/Dockerfile`](../deploy/tor/Dockerfile): Alpine and its `tor` package, nothing else), pinned on `edge` at `172.30.111.3`, hardened like the server, with the proof-of-work defence on.
+
+2. Read the address. Tor writes it on the first start, and the service is reachable a minute or so later:
+
+   ```sh
+   docker compose -f compose.yml -f compose.onion.yml exec onion cat /var/lib/tor/site/hostname
+   ```
+
+3. Back up the key, and keep the file offline, owner-only. Whoever holds it can serve that address; losing it loses the address for good.
+
+   ```sh
+   (umask 077; docker compose -f compose.yml -f compose.onion.yml exec -T onion tar -C /var/lib/tor -cf - site > onion-site.tar)
+   ```
+
+   To restore it into an empty volume, with the `onion` container stopped:
+
+   ```sh
+   docker compose -f compose.yml -f compose.onion.yml run --rm --no-deps -T --entrypoint tar onion -C /var/lib/tor -xf - < onion-site.tar
+   ```
+
+4. If the site is also served over HTTPS, point Tor Browser's visitors at the onion: set `ONION_LOCATION=http://<address>` in `.env` and run step 1's command again ([`CONFIG.md`](CONFIG.md#onion-location)). Tor Browser ignores the header on plain HTTP.
+
+5. Check from another machine running Tor (Tor Browser's SOCKS port is `9150`):
+
+   ```sh
+   curl -s --socks5-hostname 127.0.0.1:9050 http://<address>/healthz                  # {"status":"ok",…}
+   curl -sI https://explorer.example.com/ | grep -i onion-location                    # with step 4: http://<address>/
+   ```
+
+   Then open `http://<address>/` in Tor Browser: the block list says **Live**.
+
+**Every onion visitor shares one allowance.** They all arrive from `172.30.111.3`, so the per-client limits count them as one client ([`CONFIG.md`](CONFIG.md#per-client-defaults)). Measured on regtest through a real Tor circuit: 10 browsers clicking through four pages at once, none refused; 12 cold loads at the same instant, a few connections reset (`connections_refused`, past `CLIENT_MAX_CONNECTIONS`); at most 16 open tabs get live updates (`WS_CLIENT_MAX_SOCKETS`). A flood over Tor costs the other onion visitors, never the clearnet ones. **Never list `172.30.111.3` in `TRUSTED_PROXIES`:** Tor passes a visitor's own `X-Forwarded-For` through, so every onion visitor could choose their address.
+
+`/api` and `/app` answers go out uncompressed, since no proxy sits in front; pages and `/assets` are precompressed.
+
+**To bump Tor:** set `TOR_VERSION` in `deploy/tor/Dockerfile` to the version Alpine's pinned release ships (move the Alpine digest too if it needs a newer release) and merge. The release workflow publishes `ghcr.io/smolcars/rbitcoin-space-tor:<version>` once ([`CI.md`](CI.md#releases)); then set that tag and its digest in `compose.onion.yml` and run step 1's command. The address and the key stay the same.
+
 ## Under mempool.space's frontend
 
 mempool.space's own frontend serves the pages, and this server is its backend: a reverse proxy sends every API path to this server and everything else to the frontend. The frontend runs unmodified and needs no patch.
@@ -860,12 +910,13 @@ From [`SECURITY.md`](SECURITY.md), for the operator:
 
 - [ ] The node's RPC, Esplora and Electrum are reachable by the server only: the compose network and the socket, or a private network. Only P2P is published.
 - [ ] The server's port is on loopback (`HTTP_PUBLISH` unchanged) and reached only through the proxy or, with a proxy in a container or a tunnel, not published at all.
-- [ ] The site is HTTPS only: `curl -sI http://explorer.example.com/` must not answer `200`. Behind Cloudflare, Always Use HTTPS is on.
+- [ ] The site is HTTPS only on its domain: `curl -sI http://explorer.example.com/` must not answer `200`. The onion address is plain HTTP by design. Behind Cloudflare, Always Use HTTPS is on.
 - [ ] `TRUSTED_PROXY_HEADER` and `TRUSTED_PROXIES` are set only once the proxy overwrites the header, name the proxy's address and nothing clients can reach, and the [check](#client-addresses) showed your own address.
 - [ ] The network's gateway is not in `TRUSTED_PROXIES` if the server's port is published beyond loopback.
 - [ ] `LOG_CLIENT_ADDR` is off, unless you mean to keep a record of who looked at what.
 - [ ] `.env`, `server.env` and `rpc.cookie` are readable by their owners only, and the password is long and random.
 - [ ] Behind a tunnel: `cloudflared/credentials.json` is mode `400`, owned by 65532, and nowhere else but your backups; `cert.pem` is not on the server.
+- [ ] As an onion service: `172.30.111.3` is not in `TRUSTED_PROXIES`, and the key backup is owner-only and offline.
 - [ ] The limits are at their defaults or raised for a stated reason; none is switched off (none can be).
 - [ ] `BROADCAST_ENABLED=false` if you do not want the site to relay transactions.
 - [ ] The image is pinned to a version, and you watch the releases for security fixes.

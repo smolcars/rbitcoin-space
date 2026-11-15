@@ -73,6 +73,12 @@ VTXO pages for Ark implementations, per network ([`ARK.md`](ARK.md)). Off unless
 |---|---|---|
 | `CLOUDFLARE_WEB_ANALYTICS` | `false` | `true` lets the Content-Security-Policy load the beacon Cloudflare injects when Web Analytics is on for the site, and send its reports: `script-src` and `connect-src` gain Cloudflare's two origins. The only exception to [`SECURITY.md`](SECURITY.md) rule 15; leave it off unless the site is served through Cloudflare with Web Analytics on |
 
+## Onion-Location
+
+| Variable | Default | What it does |
+|---|---|---|
+| `ONION_LOCATION` | unset | The site's onion service, `http://` and a v3 address (56 characters, `a`–`z` and `2`–`7`, then `.onion`), no path. When set, every HTML page carries `Onion-Location: <it><path and query>`, which Tor Browser offers to open; other answers do not. Any other form stops the server at startup. Tor Browser honours it only on an HTTPS page ([`DEPLOY.md`](DEPLOY.md#as-a-tor-onion-service)) |
+
 ## Logging
 
 What each setting changes, and the event catalogue, are in [`LOGGING.md`](LOGGING.md).

@@ -1,0 +1,56 @@
+# A Tor onion service in front of the server (docs/DEPLOY.md, "As a Tor onion service"). Use it
+# alone or beside compose.tunnel.yml or compose.proxy.yml:
+#   docker compose -f compose.yml -f compose.tunnel.yml -f compose.onion.yml up -d
+services:
+  onion:
+    # deploy/tor/Dockerfile: Alpine's tor package, built with the proof-of-work defence, and nothing
+    # else. Published for amd64 and arm64 by release.yml; runs as uid 100. To build it yourself
+    # instead, uncomment build and set ONION_IMAGE to a name of your own.
+    image: ${ONION_IMAGE:-ghcr.io/smolcars/rbitcoin-space-tor:0.4.9.17-r0}
+    # build: tor
+    # Each option is a name and a value, as torrc lines.
+    command:
+      - --DataDirectory
+      - /var/lib/tor
+      # A service only: no SOCKS port for clients.
+      - --SocksPort
+      - "0"
+      - --HiddenServiceDir
+      - /var/lib/tor/site
+      - --HiddenServicePort
+      - 80 server:8080
+      # Visitors solve a puzzle only while the service is flooded (Tor 0.4.8 or later).
+      - --HiddenServicePoWDefensesEnabled
+      - "1"
+    # The same hardening as the server: Tor writes only its volume.
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+    logging:
+      driver: local
+    volumes:
+      # The onion service's keys: whoever holds them can serve the address (docs/DEPLOY.md).
+      - onion-data:/var/lib/tor
+    # It dials out to the Tor network; nothing is published on the host.
+    networks:
+      # Pinned like the tunnel, so every onion visitor arrives from this one address and never
+      # from an address another container may take. Never list it in TRUSTED_PROXIES (docs/DEPLOY.md).
+      edge:
+        ipv4_address: 172.30.111.3
+    depends_on: [server]
+
+  server:
+    networks: [default, edge]
+
+networks:
+  # As in compose.tunnel.yml: the tunnel or proxy at .2, Tor at .3, others from ip_range.
+  edge:
+    ipam:
+      config:
+        - subnet: 172.30.111.0/29
+          ip_range: 172.30.111.4/30
+
+volumes:
+  # The keys and Tor's cached view of the network. Back up site/ (docs/DEPLOY.md).
+  onion-data:
