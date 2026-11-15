@@ -493,7 +493,7 @@ A Tor container beside the server publishes the site as a v3 onion service. Tor 
 
 4. If the site is also served over HTTPS, point Tor Browser's visitors at the onion: set `ONION_LOCATION=http://<address>` in `.env` and run step 1's command again ([`CONFIG.md`](CONFIG.md#onion-location)). Tor Browser ignores the header on plain HTTP.
 
-5. Check from another machine running Tor (Tor Browser's SOCKS port is `9150`):
+5. Check from another machine running Tor (`9050`; with Tor Browser open instead, `9150`):
 
    ```sh
    curl -s --socks5-hostname 127.0.0.1:9050 http://<address>/healthz                  # {"status":"ok",…}

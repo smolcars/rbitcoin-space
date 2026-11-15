@@ -305,7 +305,7 @@ jobs:
           push-to-registry: true
 
   # Tor for compose.onion.yml, each architecture built natively and pushed as <version>-<arch>, then
-  # joined as <version>. A version already published is left as it is, so its digest never changes.
+  # joined by digest as <version>. A version already published is left as it is, so its digest never changes.
   tor-build:
     name: tor-build (${{ matrix.arch }})
     strategy:
@@ -355,8 +355,18 @@ jobs:
           run --version | grep -q "^Tor version ${version%-r*}\.$"
           run --list-modules | grep -qx 'pow: yes'
           if [ "$GITHUB_EVENT_NAME" = push ]; then
-            docker push --quiet "$image:$version-$ARCH"
+            # The join takes this digest, not the tag, which a concurrent run may move.
+            docker push "$image:$version-$ARCH" | tee push.txt
+            sed -n 's/.*digest: \(sha256:[0-9a-f]\{64\}\).*/\1/p' push.txt > "tor-digest-$ARCH"
+            grep -q . "tor-digest-$ARCH"
           fi
+      - if: github.event_name == 'push' && steps.build.outputs.published == 'false'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: tor-digest-${{ matrix.arch }}
+          path: tor-digest-${{ matrix.arch }}
+          retention-days: 7
+          if-no-files-found: error
 
   tor:
     needs: tor-build
@@ -376,6 +386,10 @@ jobs:
       image: ${{ steps.join.outputs.image }}
       digest: ${{ steps.join.outputs.digest }}
     steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: tor-digest-*
+          merge-multiple: true
       - name: Join
         id: join
         env:
@@ -392,7 +406,7 @@ jobs:
             echo "::error::Could not read $image:$VERSION: $(cat err.txt)"
             exit 1
           fi
-          docker buildx imagetools create -t "$image:$VERSION" "$image:$VERSION-amd64" "$image:$VERSION-arm64"
+          docker buildx imagetools create -t "$image:$VERSION" "$image@$(cat tor-digest-amd64)" "$image@$(cat tor-digest-arm64)"
           digest=$(docker buildx imagetools inspect "$image:$VERSION" --format '{{json .Manifest}}' | jq -r .digest)
           echo "Published $image:$VERSION as \`$digest\`" >> "$GITHUB_STEP_SUMMARY"
           echo "image=$image" >> "$GITHUB_OUTPUT"
