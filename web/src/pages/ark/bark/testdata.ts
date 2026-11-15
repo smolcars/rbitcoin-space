@@ -10,6 +10,7 @@ export const SAMPLE = {
     vout: 0,
   },
   exit_delta: 2016,
+  expiry_bound: true,
   expiry_height: 101010,
   id: "125985e9e2bfa047fe064967bb988623098f08e1808c6e27ad82d220594b7567:0",
   policy: {

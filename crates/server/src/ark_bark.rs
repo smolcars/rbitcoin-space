@@ -277,6 +277,7 @@ fn report(c: &Checked, id: VtxoId) -> Value {
             "found": c.anchored,
         },
         "rebuilt": c.rebuilt,
+        "expiry_bound": c.expiry_bound,
         "signatures": if c.all_signed() { "valid" } else if c.txs.iter().any(|t| t.signature == SigState::Missing) { "missing" } else { "unchecked" },
         "txs": txs,
     })

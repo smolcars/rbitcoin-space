@@ -67,6 +67,7 @@ describe("badges", () => {
     ]);
     expect(badges(v, v.expiryHeight, [])).toContain("expired");
     expect(badges({ ...v, rebuilt: false }, undefined, [])[0]).toBe("unverified");
+    expect(badges({ ...v, expiryBound: false }, undefined, [])[0]).toBe("unverified");
     expect(badges({ ...v, signatures: "missing" }, undefined, [])[0]).toBe("unsigned");
   });
 });

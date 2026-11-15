@@ -29,6 +29,8 @@ export interface BarkVtxo {
   policy: { kind: string; userPubkey: string | null };
   anchor: { txid: string; vout: number; value: number; found: boolean };
   rebuilt: boolean;
+  /** The anchor commits to the expiry (and server key); otherwise they are the Bark server's word. */
+  expiryBound: boolean;
   signatures: Signature;
   txs: ExitTx[];
 }
@@ -75,7 +77,8 @@ export function parseVtxo(body: unknown): BarkVtxo | null {
   if (user !== undefined && (typeof user !== "string" || !KEY.test(user))) return null;
   if (!isRecord(anchor) || !isHex64(anchor["txid"]) || !isCount(anchor["vout"])) return null;
   if (!isCount(anchor["value"]) || typeof anchor["found"] !== "boolean") return null;
-  if (typeof b["rebuilt"] !== "boolean" || !isSig(b["signatures"]) || !Array.isArray(txs)) {
+  if (typeof b["rebuilt"] !== "boolean" || typeof b["expiry_bound"] !== "boolean") return null;
+  if (!isSig(b["signatures"]) || !Array.isArray(txs)) {
     return null;
   }
   const parsed = txs.map((t) => parseTx(t));
@@ -95,6 +98,7 @@ export function parseVtxo(body: unknown): BarkVtxo | null {
       found: anchor["found"],
     },
     rebuilt: b["rebuilt"],
+    expiryBound: b["expiry_bound"],
     signatures: b["signatures"],
     txs: parsed as ExitTx[],
   };
@@ -142,7 +146,7 @@ export type Badge =
 
 export function badges(v: BarkVtxo, tip: number | undefined, onChain: readonly OnChain[]): Badge[] {
   const out: Badge[] = [];
-  if (!v.rebuilt || !v.anchor.found) out.push("unverified");
+  if (!v.rebuilt || !v.anchor.found || !v.expiryBound) out.push("unverified");
   else if (v.signatures === "valid") out.push("signed");
   else out.push("unsigned");
   if (onChain.some((s) => s.state !== "none")) out.push("exiting");

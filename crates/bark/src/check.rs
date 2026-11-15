@@ -54,12 +54,20 @@ pub struct Checked {
     pub anchored: bool,
     /// Every transaction was rebuilt and the last one's output is the id.
     pub rebuilt: bool,
+    /// The anchor output commits to the expiry height and server key: its first transition is
+    /// cosigned or hash-locked, whose outputs carry the expiry clause. An arkoor transition's
+    /// tweak is opaque and a policy's output holds no expiry, so a chain that starts with one, or
+    /// has no transactions, could carry any expiry and still check out.
+    pub expiry_bound: bool,
 }
 
 impl Checked {
-    /// Every signature there and valid, on a chain rebuilt whole and anchored.
+    /// Every signature there and valid, on a chain rebuilt whole and anchored, its expiry bound.
     pub fn all_signed(&self) -> bool {
-        self.anchored && self.rebuilt && self.txs.iter().all(|t| t.signature == SigState::Valid)
+        self.anchored
+            && self.rebuilt
+            && self.expiry_bound
+            && self.txs.iter().all(|t| t.signature == SigState::Valid)
     }
 }
 
@@ -265,6 +273,7 @@ pub fn check(vtxo: Vtxo, id: VtxoId, anchor: Option<&TxOut>) -> Result<Checked, 
         return Ok(Checked {
             anchored: anchor.is_some() && rebuilt,
             rebuilt,
+            expiry_bound: false,
             anchor_value,
             txs: Vec::new(),
             vtxo,
@@ -323,6 +332,7 @@ pub fn check(vtxo: Vtxo, id: VtxoId, anchor: Option<&TxOut>) -> Result<Checked, 
     Ok(Checked {
         anchored: anchor.is_some(),
         rebuilt,
+        expiry_bound: !matches!(first.transition, Transition::Arkoor { .. }),
         anchor_value,
         txs,
         vtxo,
@@ -488,6 +498,38 @@ pub(crate) mod tests {
                 }
             }
         }
+    }
+
+    /// A server can restate a cosigned first transition as arkoor, the server's key left out of
+    /// the cosigners and the taproot tweak given as is: the same output key and signature, so the
+    /// chain still checks out, but nothing then binds the expiry. It must not read as verified.
+    #[test]
+    fn an_expiry_nothing_commits_to_is_not_verified() {
+        let (_, set) = &vectors()[0];
+        let good = decode(named(set, "board_vtxo")).unwrap();
+        let anchor = anchor_of(set, &good).clone();
+        let id = VtxoId(good.point);
+        let Transition::Cosigned { pubkeys, signature } = good.items[0].transition.clone() else {
+            unreachable!()
+        };
+        let server = good.server_pubkey;
+        let expiry = keys::timelock_sign(good.expiry_height, &server);
+        let tweak = keys::taproot(&keys::aggregate(&pubkeys).unwrap(), &[expiry])
+            .unwrap()
+            .tap_tweak()
+            .to_byte_array();
+        let mut forged = good.clone();
+        forged.items[0].transition = Transition::Arkoor {
+            cosigners: pubkeys.into_iter().filter(|k| *k != server).collect(),
+            tap_tweak: tweak,
+            signature,
+        };
+        forged.expiry_height = 400_000_000;
+        let c = check(forged, id, Some(&anchor)).unwrap();
+        assert!(c.rebuilt && c.anchored);
+        assert!(!c.expiry_bound && !c.all_signed());
+        // The honest one binds it.
+        assert!(check(good, id, Some(&anchor)).unwrap().expiry_bound);
     }
 
     #[test]

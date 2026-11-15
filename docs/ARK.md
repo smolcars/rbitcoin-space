@@ -38,7 +38,8 @@ Nothing the Bark server sends is shown until it checks out (`crates/bark/src/che
 2. Each exit transaction is rebuilt: version 3, lock time 0, one input at sequence 0 spending the last one's output, the other outputs with ours put at its index, then a pay-to-anchor output holding the fee. Our output's script is not sent: it is the next transition's spending conditions (a MuSig2 aggregate of the cosigners, BIP 327 over the sorted keys, and for arkoor the tweak added; or a taproot over the expiry clause and the leaf's hash lock), or for the last one the policy's taproot. Amounts are checked as they go: no overflow, no output worth more than its input.
 3. The anchor output, the VTXO's amount plus everything paid out along the way, must be the one the node holds at the anchor outpoint. A node that does not know the anchor transaction leaves the VTXO unverified, and says so.
 4. The last rebuilt transaction's output must be the id.
-5. Every signature present must verify against its rebuilt transaction: a key spend for cosigned and arkoor, the hash lock's script spend for a leaf with its preimage. A leaf without its preimage, or any missing signature, is "not signed yet"; an invalid one refuses the answer.
+5. The expiry height and server key must be bound to the anchor: the first transition is cosigned or hash-locked, whose spending conditions hold the expiry clause. An arkoor transition's tweak is opaque and a policy holds no expiry, so a chain that starts with one, or a VTXO with no exit transactions, could state any expiry and still check out: `expiry_bound` is false and the VTXO is not called verified. (Found in review: a cosigned board restated as arkoor, the server's key dropped from the cosigners and its tweak given as is, keeps the same output key and signature.)
+6. Every signature present must verify against its rebuilt transaction: a key spend for cosigned and arkoor, the hash lock's script spend for a leaf with its preimage. A leaf without its preimage, or any missing signature, is "not signed yet"; an invalid one refuses the answer.
 
 A refusal is `502 bark server answer did not verify`, never a page. A policy the server does not build leaves the last transaction unrebuilt: the page shows what decodes, and no claim that it verified.
 
@@ -53,13 +54,13 @@ The tests run every ark-lib vector in both encodings (fixtures in [`fixtures/bar
   "id": "125985e9…b7567:0", "version": 2, "amount": 10000, "expiry_height": 101010, "exit_delta": 2016,
   "server_pubkey": "0365a8…2b62", "policy": { "kind": "pubkey", "user_pubkey": "02ed13…1f97" },
   "anchor": { "txid": "abd5d3…c2a3", "vout": 0, "value": 45000, "found": true },
-  "rebuilt": true, "signatures": "valid",
+  "rebuilt": true, "expiry_bound": true, "signatures": "valid",
   "txs": [{ "txid": "09f89b…1825", "kind": "branch", "bark": "cosigned", "output": 3, "value": 30000,
             "siblings": [5000, 5000, 5000], "fee": 0, "signature": "valid" }, …]
 }
 ```
 
-Amounts in sats, keys and txids as hex. `kind` is `branch`, `leaf` or `transfer`; `bark` is Bark's own word. `signatures` is `valid` only when the chain was rebuilt whole, anchored on the node and every signature verified; otherwise `missing` or `unchecked`. The whole answer for ark-lib's `arkoor3_vtxo` is [`fixtures/bark/answer-arkoor3.json`](../fixtures/bark/answer-arkoor3.json), which a test holds equal to what the server writes.
+Amounts in sats, keys and txids as hex. `kind` is `branch`, `leaf` or `transfer`; `bark` is Bark's own word. `signatures` is `valid` only when the chain was rebuilt whole, anchored on the node, its expiry bound (`expiry_bound`) and every signature verified; otherwise `missing` or `unchecked`. The whole answer for ark-lib's `arkoor3_vtxo` is [`fixtures/bark/answer-arkoor3.json`](../fixtures/bark/answer-arkoor3.json), which a test holds equal to what the server writes.
 
 | Status | Body | When |
 |---|---|---|
