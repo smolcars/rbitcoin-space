@@ -428,6 +428,21 @@ describe("a channel", () => {
     expect(text(none)).not.toContain("Disabled");
   });
 
+  // The clock ticks every second for "1 129 days old": it once rebuilt every step, so a copy
+  // button pressed just before a tick lost its "Copied" (and a reader its focus).
+  it("keeps the life's copy button in place as the clock ticks", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
+    const el = show(channel());
+    await shows(el, "Open now");
+    const button = () => el.querySelector('button[title="Copy the funding transaction ID"]');
+    const before = button();
+    expect(before).not.toBeNull();
+    vi.advanceTimersByTime(3000);
+    flush();
+    expect(button()).toBe(before);
+    expect(before?.isConnected).toBe(true);
+  });
+
   it("says when the funding transaction is not looked up yet", async () => {
     const el = show(channel({ funding: { ...channel().funding, txid: null } }));
     await shows(el, "Transaction not looked up yet");

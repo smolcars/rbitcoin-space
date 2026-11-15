@@ -582,7 +582,9 @@ function Life(props: { channel: ChannelDetail }) {
                   )}
                 </Show>
               </p>
-              <div class="ln-step__body">{stepBody(s, c(), now())}</div>
+              {/* The clock goes in as itself: read here, its tick would rebuild every step each second,
+                  copy buttons and their "Copied" with them. */}
+              <div class="ln-step__body">{stepBody(s, c(), now)}</div>
             </li>
           )}
         </For>
@@ -600,7 +602,7 @@ const STEP_TITLES: Record<Step["key"], string> = {
   continued: "Continued as a new channel",
 };
 
-function stepBody(s: Step, c: ChannelDetail, now: number): JSX.Element {
+function stepBody(s: Step, c: ChannelDetail, now: () => number): JSX.Element {
   if (s.key === "from" || s.key === "continued") return <ChannelLink id={s.channel.id} />;
   if (s.key === "closed") return <KindTag kind={s.kind} long />;
   if (s.key === "swept") {
@@ -614,7 +616,7 @@ function stepBody(s: Step, c: ChannelDetail, now: number): JSX.Element {
     return (
       <span>
         <Show when={c.funding.block}>
-          {(b) => <span class="num">{days(now - b().time)} old; </span>}
+          {(b) => <span class="num">{days(now() - b().time)} old; </span>}
         </Show>
         {channelTag(c).word.toLowerCase()}
       </span>
