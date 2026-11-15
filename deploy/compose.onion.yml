@@ -6,7 +6,7 @@ services:
     # deploy/tor/Dockerfile: Alpine's tor package, built with the proof-of-work defence, and nothing
     # else. Published for amd64 and arm64 by release.yml; runs as uid 100. To build it yourself
     # instead, uncomment build and set ONION_IMAGE to a name of your own.
-    image: ${ONION_IMAGE:-ghcr.io/smolcars/rbitcoin-space-tor:0.4.9.17-r0}
+    image: ${ONION_IMAGE:-ghcr.io/smolcars/rbitcoin-space-tor:0.4.9.17-r0@sha256:a829020ba524ab504dda7ee9bbe96a5aec8f74926a158f739a32e3663106c28d}
     # build: tor
     # Each option is a name and a value, as torrc lines.
     command:
