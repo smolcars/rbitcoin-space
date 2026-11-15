@@ -1091,10 +1091,41 @@ A **feed event** is `{event, time, id, scid, capacity, node_one, node_two}` with
 A **mover** is `{id, alias, capacity_change, channels_change, capacity, channels}`: the change over the period (signed) and what the node holds now by the index (0 for a node gone from the graph, its alias `null`). `new` and `left` rows add `time`, the node's first funding time or its last close's time. The lists are `capacity_up` and `capacity_down` (largest change first), `channels_up` and `channels_down`, `new` (newest first) and `left` (newest close first), each at most 10.
 
 ```json
-EXAMPLES
+GET /app/lightning/feed
+{"events": [
+  {"event": "closed", "time": 1794781324, "id": "975931x290x1", "scid": "1073047482426064897", "capacity": 25000000,
+   "node_one": {"id": "028268dc…49a2", "alias": "⚡blitz⚡"}, "node_two": {"id": "037f990e…a590", "alias": "fixedfloat.com"},
+   "height": 976024, "kind": "cooperative"},
+  {"event": "fee", "time": 1794781265, "id": "906418x1091x1", "scid": "996617130696966145", "capacity": 1000000,
+   "node_one": {"id": "0364d6ff…318d", "alias": "Crazy ⚡"}, "node_two": {"id": "03c2a82c…5da8", "alias": "Matkeez's stronghodl 🏰"},
+   "by": "node_two", "before": {"fee_rate": 148, "base_fee_msat": 0, "inbound_fee": {"base_fee_msat": 0, "fee_rate": 0}},
+   "after": {"fee_rate": 154, "base_fee_msat": 0, "inbound_fee": {"base_fee_msat": 0, "fee_rate": 0}}},
+  {"event": "opened", "time": 1794779376, "id": "976017x1412x1", "scid": "1073142040499585025", "capacity": 3652452,
+   "node_one": {"id": "0324ba23…2247", "alias": "kappa"}, "node_two": {"id": "0357bd63…67ea", "alias": "0357bd63443d00a78fa0"},
+   "height": 976017}, …]}
+GET /app/lightning/movers?period=1w
+{"period": "1w", "from": 1794176168, "time": 1794780968,
+ "capacity_up": [{"id": "02710044…4190", "alias": "block-iad-1", "capacity_change": 5560286338, "channels_change": 68, "capacity": 24015680064, "channels": 517}, …],
+ "capacity_down": [{"id": "03cde60a…01d6", "alias": "bfx-lnd1", "capacity_change": -525000000, "channels_change": -3, "capacity": 20934316655, "channels": 473}, …],
+ "channels_up": […], "channels_down": […],
+ "new": [{"id": "03bc425b…4471", "alias": null, "capacity_change": 200000, "channels_change": 1, "capacity": 200000, "channels": 1, "time": 1794775386}, …],
+ "left": [{"id": "026668d8…d09c", "alias": null, "capacity_change": -1022000, "channels_change": -2, "capacity": 0, "channels": 0, "time": 1794759484}, …]}
+GET /app/lightning/closes?days=30
+{"time": 1794780968, "days": [{"time": 1792195200, "cooperative": 0, "force": 0, "penalty": 0, "other": 0, "capacity": 0}, …,
+  {"time": 1794700800, "cooperative": 86, "force": 20, "penalty": 0, "other": 0, "capacity": 1719161789}],
+ "total": {"cooperative": 484, "force": 71, "penalty": 0, "other": 0, "capacity": 21351790419}}
 ```
 
-**Cost.** COST_TABLE
+**Cost.** Measured 2026-11-15 on mainnet (36,294 channels, 13,621 nodes), release build, the server's own `duration_ms` over 15 to 100 requests each: least, median and most.
+
+| Request | Answer | ms |
+|---|---|---|
+| `/feed`, 150 events | 60 KB | 0.008, 0.03, 0.10 |
+| `/movers`, any period | 11 KB | 0.010, 0.02, 0.06 |
+| `/closes?days=90` (`30`: 2.6 KB) | 7.4 KB | 0.032, 0.06, 0.19 |
+| `/overview`, with `before` | 14 KB | 0.36, 0.46, 1.18 |
+
+The feed, movers and closes answer from memory: the feed and movers bodies are encoded when they change, a closes answer is summed from 90 kept days per request.
 
 ##### `/api/v1/lightning/…`
 

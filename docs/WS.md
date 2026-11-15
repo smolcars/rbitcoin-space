@@ -141,7 +141,7 @@ An event is the route's: `event` (`opened`, `closed` or `fee`), `time`, `id`, `s
 
 **Keeping up.** Keep the snapshot, put each `events` message's events in front, and drop duplicates by `event`, `scid`, `time` and `by`. A missed message is not resent: after a reconnect the snapshot again holds the newest 50 of each kind. The events' order is by `time`, not by arrival: an open is dated by its funding block, an hour or more before it reaches the feed.
 
-**Cost.** MEASURED_COST
+**Cost.** One subscriber, mainnet, 18 minutes: 36 frames, the median 5.2 KB and the largest 24 KB (the 50 fee changes of a capped burst), 12 KB a minute, plus the `recent` snapshot on subscribe, 60 KB with 150 events. Each frame is encoded once per build whatever the number of subscribers, and the snapshot once per build that found something. No upstream work: the events come from what the index task and the history consumer already do ([`LIGHTNING.md`](LIGHTNING.md#the-overview)).
 
 ### When a block is found
 

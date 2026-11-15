@@ -436,7 +436,9 @@ The overview page's live feed, movers and closes by day ([`API.md`](API.md#appli
 
 **Closes by day** count each UTC day's closes by kind (a breach as `penalty`, not `force`) and the capacity they closed, for the 90 days up to today.
 
-**When and what it costs.** Every ten minutes once the graph is indexed, on its own task: one read of every channel's nodes, capacity and times (36,765 rows on mainnet: MEASURED_READ), then the three periods' movers and the 90 days on a blocking thread (MEASURED_WORK), and the answers kept in memory: three encoded movers answers and 90 day counts. Requests read memory only. So the figures lag the table by up to ten minutes.
+**When and what it costs.** Every ten minutes once the graph is indexed, on its own task: one read of every channel's nodes, capacity and times (36,765 rows on mainnet: 7 to 16 ms, once 64 ms on the busy machine), then the three periods' movers and the 90 days on a blocking thread (6 to 11 ms), and the answers kept in memory: three encoded movers answers and 90 day counts. Requests read memory only. So the figures lag the table by up to ten minutes. The feed's turn after each build, events found, frame and kept state together, took 0.9 to 1.2 ms; the build itself is unchanged.
+
+**Measured on mainnet**, 2026-11-15, release build, read-only against a synced node, mempool engine off, from a copy of a store last written six hours before. The restart's catch-up rechecked all 36,294 outputs and found 52 closes in six minutes; none was pushed, and the feed went live with them at the first build after (from 22:16 to 22:22 UTC, `GET /app/lightning/feed` answered `{"events": []}`). Then 18 minutes live: 417 fee changes (23 a minute, 102 s median from the update's own time to the frame), 12 opens and 2 closes, in 36 frames; one burst of 73 fee changes in one build sent 50 and `more: 23`. The index build took 27 to 71 ms in that run (24 to 41 ms when measured on a quieter machine before this work; the build's code did not change).
 
 **What they cannot know.**
 
