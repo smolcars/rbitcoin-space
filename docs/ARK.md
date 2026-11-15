@@ -11,14 +11,15 @@ The lookup's list of implementations is `IMPLEMENTATIONS` in `web/src/pages/ark/
 
 ## The entry page
 
-`/ark` is one box and an Open button. `classify` in `web/src/pages/ark/paste.ts` reads what was pasted by its form alone, trimmed, and asks nothing:
+`/ark` is one box and an Open button. `classify` in `web/src/pages/ark/paste.ts` reads what was pasted by its form alone, trimmed, and asks nothing. Addresses follow [BOAT-1, "Ark address format"](https://github.com/ark-protocol/boats/blob/master/boat-0001.md): bech32m, `ark` on mainnet and `tark` on any test network, the first 5-bit group after the `1` the version.
 
 | Pasted | Read as | Opens |
 |---|---|---|
 | `<txid>:<vout>` (hex in either case) | a VTXO: Bark's id and Arkade's outpoint look the same | `/ark/vtxo/<txid>:<vout>` |
 | hex starting `0100` or `0200` (a little-endian `u16` version), whole bytes, 50 bytes or more | a serialized Bark VTXO | `/ark/bark/hex#<hex>`: in the fragment, so no server sees it |
-| bech32m `ark1q…` (mainnet) or `tark1q…` (other networks), checksum verified | an Arkade address | `/ark/arkade/address/<address>` |
-| bech32m `ark1p…` or `tark1p…` | a Bark address | nothing: "A Bark address cannot be looked up" |
+| bech32m `ark1q…` (mainnet) or `tark1q…` (any test network), checksum verified | an Arkade address (version 0) | `/ark/arkade/address/<address>` |
+| bech32m `ark1p…` or `tark1p…` | a Bark address (version 1) | nothing: "A Bark address cannot be looked up" |
+| bech32m `ark1…` or `tark1…` of any other version | an Ark address we cannot read | nothing: "An Ark address of an unknown version" |
 | an Ark address of the other kind of network | | nothing: "A mainnet address" or "A test network address" |
 | 64 hex digits alone | a txid, never hex | nothing: "Add :vout to the txid" |
 | anything else | | nothing: "Not a VTXO or an Ark address" |

@@ -12,6 +12,8 @@ export type Pasted =
   | { kind: "arkade-address"; address: string }
   /** A Bark address: nothing can look one up. */
   | { kind: "bark-address" }
+  /** An Ark address of a version past BOAT-1's 0 and 1. */
+  | { kind: "unknown-version" }
   /** An Ark address of the other kind of network: mainnet's on a test network, or the reverse. */
   | { kind: "other-network"; mainnet: boolean }
   /** 64 hex digits with no output: a transaction, not a VTXO. */
@@ -55,7 +57,8 @@ export function classify(input: string, network: Network): Pasted {
       ? { kind: "bark-hex", hex }
       : { kind: "unknown" };
   }
-  // Bech32m is all lower or all upper case.
+  // An Ark address (BOAT-1): bech32m, `ark` on mainnet and `tark` on any test network, its first
+  // 5-bit group the version. Bech32m is all lower or all upper case.
   const lower = s.toLowerCase();
   if (s !== lower && s !== s.toUpperCase()) return { kind: "unknown" };
   const m = /^(t?ark)1([qpzry9x8gf2tvdw0s3jn54khce6mua7l]{7,})$/.exec(lower);
@@ -64,7 +67,7 @@ export function classify(input: string, network: Network): Pasted {
   if (!hrp || !data || !isBech32m(hrp, data)) return { kind: "unknown" };
   const version = data[0];
   if (version === "p") return { kind: "bark-address" };
-  if (version !== "q") return { kind: "unknown" };
+  if (version !== "q") return { kind: "unknown-version" };
   const mainnet = hrp === "ark";
   if (mainnet !== (network === "mainnet")) return { kind: "other-network", mainnet };
   return { kind: "arkade-address", address: lower };
@@ -74,6 +77,7 @@ export function classify(input: string, network: Network): Pasted {
 export function refusal(p: Pasted): string | undefined {
   if (p.kind === "txid") return "Add :vout to the txid";
   if (p.kind === "bark-address") return "A Bark address cannot be looked up";
+  if (p.kind === "unknown-version") return "An Ark address of an unknown version";
   if (p.kind === "other-network") return p.mainnet ? "A mainnet address" : "A test network address";
   if (p.kind === "unknown") return "Not a VTXO or an Ark address";
   return undefined;

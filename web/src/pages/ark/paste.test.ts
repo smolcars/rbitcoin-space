@@ -95,10 +95,17 @@ describe("classify", () => {
     expect(destination(classify(BARK_SIGNET, "signet"))).toBeUndefined();
   });
 
-  it("mixed case, a bad checksum, another version or prefix is nothing", () => {
+  it("an Ark address of a version BOAT-1 does not define says so", () => {
+    expect(classify(address("tark", 2), "signet")).toStrictEqual({ kind: "unknown-version" });
+    expect(refusal(classify(address("ark", 31), "mainnet"))).toBe(
+      "An Ark address of an unknown version",
+    );
+  });
+
+  it("mixed case, a bad checksum or another prefix is nothing", () => {
     const mixed = `${ARKADE_SIGNET.slice(0, 10)}${ARKADE_SIGNET.slice(10).toUpperCase()}`;
     const typo = `${ARKADE_SIGNET.slice(0, -1)}${ARKADE_SIGNET.endsWith("q") ? "p" : "q"}`;
-    for (const s of [mixed, typo, address("tark", 2), address("bc", 0), "tark1qqqq", ""]) {
+    for (const s of [mixed, typo, address("bc", 0), "tark1qqqq", ""]) {
       expect(classify(s, "signet")).toStrictEqual({ kind: "unknown" });
     }
   });
