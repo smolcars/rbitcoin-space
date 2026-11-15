@@ -815,6 +815,63 @@ Every route but `prevouts` asks the node nothing: a request is a parse and a few
 - **Restart.** The final build read the 437 stored replacements back in under a millisecond, and every route answered from them.
 - **CPFP**, eight transactions with unconfirmed relatives: the effective rate equal to the reference's to the last digit for four, and within 0.08 % for three, where the reference's own view of the cluster was older (it listed fewer descendants: 15 against our 18). Ancestors: equal counts for six, where the reference listed 0 of 9 for one. Descendants: ours are every descendant in the cluster, the reference's often fewer (10 of 33). `bestDescendant` was `null` on the reference for all of them; ours names one for 32 of 34 checked, because on these chains of 0.12 sat/vB transactions the chunk pays a little more than the transaction alone.
 - **First-seen.** Equal to the node's `getmempoolentry` time; 1 to 2 s before the reference's, as above. Transactions that left the mempool as replaced: ours from the record, `0` on the reference.
+### Transaction flags
+
+The reference's per-transaction `flags` (in block summaries and the like) is a bit field of features; bit N is the value `1 << N`. We keep its layout, so the field can be passed through. Not served yet: the rows above that say `flags` is absent or `0` still hold. Code: `crates/engine/src/flags.rs`, one pure function of the transaction's own bytes, with a constant per bit.
+
+**Input types are inferred,** with no previous outputs: from the scriptSig and the witness alone ([below](#how-an-input-is-placed)). A spend the rules cannot place sets no type bit rather than a guess.
+
+**Agreement** is with the reference's `/api/v1/block/:hash/summary` over 23 mainnet blocks, heights 170 to 976,000: 47,243 transactions, 47,241 equal on every bit below (`cargo run --release -p engine --example flags_compare -- <dir>`). `fixtures/flags/mainnet.json` holds 68 of those transactions with the reference's answer, and a test holds every one equal.
+
+| Bit | Meaning | Our rule | Agreement |
+|---|---|---|---|
+| 0 | Signals RBF | An input's sequence is below `0xfffffffe`; the coinbase's counts | Every transaction |
+| 1 | Does not signal RBF | Not bit 0 | Every transaction |
+| 2, 3, 4 | Version 1, 2, 3 | `version` is 1, 2 or 3; any other version sets none | Every transaction |
+| 8 | P2PK | An output is P2PK, or an input is inferred to spend one | Every transaction |
+| 9 | Bare multisig | An output is `OP_m <n keys of 33 or 65 bytes> OP_n OP_CHECKMULTISIG`, or an input is inferred to spend one | Every transaction |
+| 10 | P2PKH | Output or inferred input | Every transaction |
+| 11 | P2SH | Output or inferred input; a wrapped SegWit spend is P2SH | Every transaction |
+| 12 | P2WPKH | Output or inferred input | Every transaction |
+| 13 | P2WSH | Output or inferred input | All but 1 (one extra) |
+| 14 | Taproot | Output or inferred input | Every transaction |
+| 24 | `OP_RETURN` | An output script starts with `OP_RETURN` | Every transaction |
+| 25 | Fake public key | A bare multisig output holds a key that is not a point on the curve | 31 of 32, none extra |
+| 26 | Inscription | A Taproot script-path input whose script holds `OP_FALSE OP_IF`, read as opcodes (any envelope, not only `ord`) | Every transaction (1,275) |
+| 33 | Consolidation | Not the coinbase, and inputs ≥ 5 × outputs | Every transaction (890) |
+| 34 | Batch payment | Outputs ≥ 5 × inputs; the coinbase counts | Every transaction (1,668) |
+| 40 | `SIGHASH_ALL` | A signature's type, low five bits, is 1 | Every transaction |
+| 41 | `SIGHASH_NONE` | Low five bits are 2 | Not seen: the bit is assumed from its place between ALL and SINGLE |
+| 42 | `SIGHASH_SINGLE` | Low five bits are 3 | Every transaction |
+| 43 | `SIGHASH_DEFAULT` | A 64-byte Taproot signature | All but 1 (one extra) |
+| 44 | `SIGHASH_ANYONECANPAY` | A signature's type has `0x80` set | Every transaction |
+
+The two transactions that differ:
+
+- `d2f4b28e…` has two 1-of-3 bare multisig outputs carrying data in their keys. Every key is a point on the curve, but the reference marks it fake (bit 25) by a rule we did not find.
+- `f8ac0f8d…` spends a Taproot key path (one 64-byte signature) and a P2WSH script with an empty signature (a Lightning anchor after its delay). The reference sets neither P2WSH nor `SIGHASH_DEFAULT` for it, though it does set Taproot.
+
+**Left unset:**
+
+| Bit | Why |
+|---|---|
+| 5 to 7, 15 | Never seen in the sample |
+| 16, 17 (CPFP), 18 (replacement) | They need the mempool's context, not the transaction's bytes; a later task |
+| 27 | Seen 18 times, on transactions carrying data in pairs of 330-sat P2WSH outputs; no rule found that derives it |
+| 32 (coinjoin) | Seen 16 times; no simple rule matched ("5+ inputs and 5+ equal outputs" found 14 with 25 false positives), and a noisy bit is worse than none |
+
+A pay-to-anchor output (`51 02 4e73`) sets no type bit on the reference, and neither does spending one; the same here.
+
+#### How an input is placed
+
+The coinbase's input has no type and no signature. Any other input, with its scriptSig and witness:
+
+- **Witness and scriptSig:** P2SH.
+- **Witness, empty scriptSig:** the annex is dropped first (the last of two or more items, when it starts with `0x50`). One item of 64 or 65 bytes is Taproot (key path). Two or more items whose last is a control block (at least 33 bytes, `(len - 33) % 32 == 0`, first byte `& 0xfe == 0xc0`) is Taproot (script path; the script is the item before it). Exactly two items whose last is 33 bytes starting `02` or `03` is P2WPKH. Anything else is P2WSH.
+- **No witness:** the scriptSig is read as pushes only (data pushes, `OP_0`, `OP_1NEGATE`, `OP_1` to `OP_16`); any other opcode, or no push at all, gives no type, though its signatures still count. One DER signature is P2PK. A DER signature then a public key (33 bytes starting `02` or `03`, or 65 starting `04`) is P2PKH. `OP_0` then only DER signatures is bare multisig. Anything else is P2SH.
+
+A DER signature here is 9 to 73 bytes, starting `0x30`, whose second byte is its length minus 3; its last byte is the sighash type. The sighash bits read, for a Taproot key path, its one item; for a Taproot script path, the items before the script of 64 bytes (`SIGHASH_DEFAULT`) or 65 (the type is the last byte); for anything else, every witness item and scriptSig push that is a DER signature.
+
 ### Lightning
 
 What the Lightning peer knows ([`LIGHTNING.md`](LIGHTNING.md#in-the-server)), from the store or the peer's memory, never from the node. With `{NET}_LIGHTNING_ENABLED` off every route here answers `503` `lightning is off on this network`, except the status, which answers `{"state": "off"}`. Code: `crates/server/src/lightning.rs`, and `lightning/nodes.rs` for [nodes, channels, search and rankings](#nodes-channels-search-and-rankings). Which `/api/v1/lightning` routes of the inventory are served, and why the rest are not: [`compat/api-v1.md`](compat/api-v1.md#lightning).

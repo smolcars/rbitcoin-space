@@ -4,6 +4,7 @@ pub mod audit;
 pub mod blocks;
 pub mod difficulty;
 pub mod fees;
+pub mod flags;
 pub mod history;
 pub mod ledger;
 pub mod lightning;
