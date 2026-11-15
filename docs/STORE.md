@@ -506,7 +506,7 @@ What each end of each open channel charged over time, for a channel's fee chart 
 
 `ln_watched` is one row per run of the server: `start`, its first round, and `end`, its latest, moved forward at every round. The newest 100 rows are kept.
 
-**Written** after every index build, 30 s apart, in one `try_write` (a first round's starting points in writes of 2,000 records): for each record, a read of the direction's newest row and of the channel's close, then the insert and a delete of anything past the newest 50. A record older than the newest kept, or with its fees, is not stored, so writing the same records twice changes nothing. A channel's rows are deleted in the write that stores its close (`Closed`) or undoes its open (`OpenUndone`), so only open channels have rows.
+**Written** after every index build, 30 s apart, in one `try_write` (a first round's starting points in writes of 2,000 records): for each record, a read of whether `ln_channels` holds the channel open (if not, nothing is stored) and of the direction's two newest rows, then the insert and a delete of anything past the newest 50. A record older than the newest kept, or with its fees, is not stored, so writing the same records twice changes nothing. A channel's rows are deleted in the write that stores its close (`Closed`) or undoes its open (`OpenUndone`), so only open channels have rows.
 
 **Bound.** At most 50 rows a direction and two directions an open channel: @@STORE_BOUND@@. Measured on mainnet: @@STORE_MEASURED@@.
 

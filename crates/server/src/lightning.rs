@@ -572,7 +572,17 @@ impl Pending {
     async fn store_front(&mut self, store: &Store, l: &Lightning) -> Result<(), store::Error> {
         let n = self.changes.len().min(BATCH);
         let batch: Vec<Change> = self.changes.iter().take(n).map(|(_, c)| *c).collect();
-        store_ln::apply_from(store, self.generation, batch).await?;
+        store_ln::apply_from(store, self.generation, batch.clone()).await?;
+        // Those deleted the channel's fee history: its next round starts it again.
+        let mut heads = l.fees.write().unwrap_or_else(PoisonError::into_inner);
+        for c in &batch {
+            match c {
+                Change::Closed(o, _) => heads.forget(o.scid),
+                Change::OpenUndone(scid) => heads.forget(*scid),
+                _ => {}
+            }
+        }
+        drop(heads);
         if let Some((seq, _)) = self.changes.drain(..n).next_back() {
             l.seq.store(seq, Ordering::Relaxed);
         }

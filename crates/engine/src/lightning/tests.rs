@@ -1018,6 +1018,18 @@ const T: u32 = 1_790_000_000;
 async fn fee_history_keeps_each_change_at_its_own_time_fifty_a_direction() {
     let t = temp();
     let mut heads = fees::Heads::default();
+    // Nothing is kept for a channel not stored open yet; the next round tries again.
+    let g = vec![graph_channel(A, Some(priced(100, T, None)), None)];
+    assert_eq!(
+        fee_round(&t.store, &mut heads, &g, 1).await,
+        [fees::Outcome::NotOpen]
+    );
+    apply(
+        &t.store,
+        vec![Change::Opened(open(A, 1)), Change::Opened(open(B, 1))],
+    )
+    .await
+    .unwrap();
     // The first policy seen is the starting point; a direction without one has nothing.
     let mut g = vec![graph_channel(A, Some(priced(100, T, None)), None)];
     let first = fee_round(&t.store, &mut heads, &g, 1).await;
@@ -1093,18 +1105,45 @@ async fn fee_history_keeps_each_change_at_its_own_time_fifty_a_direction() {
     g[0].policies[0] = Some(priced(5, T + 500, None));
     assert_eq!(
         fee_round(&t.store, &mut heads, &g[..1], 1).await,
-        [fees::Outcome::Closed]
+        [fees::Outcome::NotOpen]
     );
     assert_eq!(heads.changed(A, 0), None);
-    // B is untouched; a reorg that undoes its open deletes its history too.
+    // B is untouched; a reorg that undoes its open deletes its history too, and a round that
+    // read the graph before it stores nothing after it.
     assert_eq!(fees::history(&t.store, B).await.unwrap().0[1].len(), 1);
     apply(&t.store, vec![Change::OpenUndone(B)]).await.unwrap();
     assert!(fees::history(&t.store, B).await.unwrap().0[1].is_empty());
+    let stale = vec![(
+        B,
+        1,
+        fees::FeeRecord {
+            time: T + 9,
+            fees: priced(8, 0, None).fees(),
+        },
+    )];
+    let o = fees::record(&t.store, stale, 1, u64::from(T))
+        .await
+        .unwrap();
+    assert_eq!(o, [fees::Outcome::NotOpen]);
+    assert!(fees::history(&t.store, B).await.unwrap().0[1].is_empty());
+    // Opened again in another block: once forgotten, the next round starts it again.
+    apply(&t.store, vec![Change::Opened(open(B, 2))])
+        .await
+        .unwrap();
+    assert!(heads.diff(&g[1..]).is_empty());
+    heads.forget(B);
+    assert_eq!(
+        fee_round(&t.store, &mut heads, &g[1..], 1).await,
+        [fees::Outcome::Stored { changed: false }]
+    );
 }
 
 #[tokio::test]
 async fn fee_history_after_a_restart_neither_invents_nor_reorders() {
     let t = temp();
+    apply(&t.store, vec![Change::Opened(open(A, 1))])
+        .await
+        .unwrap();
     let mut heads = fees::Heads::default();
     let mut g = vec![graph_channel(
         A,
@@ -1151,7 +1190,19 @@ async fn fee_history_after_a_restart_neither_invents_nor_reorders() {
     let o = fees::record(&t.store, asked, 20, u64::from(T) + 20_000)
         .await
         .unwrap();
-    assert_eq!(o, [fees::Outcome::Kept(kept), fees::Outcome::Kept(kept)]);
+    assert_eq!(
+        o,
+        [
+            fees::Outcome::Kept {
+                record: kept,
+                changed: true
+            },
+            fees::Outcome::Kept {
+                record: kept,
+                changed: true
+            }
+        ]
+    );
 
     // Changes made while the server was down: only the last is seen, at its own time.
     g[0].policies[0] = Some(priced(300, T + 1_000, None));
@@ -1169,8 +1220,13 @@ async fn fee_history_after_a_restart_neither_invents_nor_reorders() {
         runs,
         [(10, u64::from(T) + 9_999), (20, u64::from(T) + 9_999)]
     );
-    // A channel that left the graph is forgotten in memory, not in the table.
+    // A channel that left the graph is forgotten in memory, not in the table; back with the
+    // same fees, its newest record is still a change, as the table says.
     fresh.retain(|_| false);
     assert!(fresh.is_empty());
     assert_eq!(fees::history(&t.store, A).await.unwrap().0[0].len(), 3);
+    g[0].policies[0] = Some(priced(300, T + 2_000, None));
+    fee_round(&t.store, &mut fresh, &g, 20).await;
+    assert_eq!(fresh.changed(A, 0), Some(T + 1_000));
+    assert_eq!(fresh.changed(A, 1), None);
 }

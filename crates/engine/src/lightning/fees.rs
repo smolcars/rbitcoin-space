@@ -57,10 +57,12 @@ pub struct Heads(HashMap<(u64, u8), Head>);
 pub enum Outcome {
     /// Stored: the direction's newest now. `changed` when an older one was kept.
     Stored { changed: bool },
-    /// Not stored: the newest kept, which is as new or has the same fees.
-    Kept(FeeRecord),
-    /// Not stored: the channel is closed, and its history gone.
-    Closed,
+    /// Not stored: the newest kept, which is as new or has the same fees, and whether an older
+    /// one is kept too.
+    Kept { record: FeeRecord, changed: bool },
+    /// Not stored: the channel is not stored open (closed, its open undone by a reorg, or not
+    /// stored yet), so it has no history. Tried again at the next round while the graph holds it.
+    NotOpen,
 }
 
 impl Heads {
@@ -95,11 +97,10 @@ impl Heads {
                 Outcome::Stored { changed } => {
                     self.0.insert((scid, side), Head { record, changed });
                 }
-                Outcome::Kept(record) => {
-                    let changed = self.0.get(&(scid, side)).is_some_and(|h| h.changed);
+                Outcome::Kept { record, changed } => {
                     self.0.insert((scid, side), Head { record, changed });
                 }
-                Outcome::Closed => {
+                Outcome::NotOpen => {
                     self.0.remove(&(scid, side));
                 }
             }
@@ -110,6 +111,12 @@ impl Heads {
     /// follows the graph. Their rows go when the channel closes.
     pub fn retain(&mut self, open: impl Fn(u64) -> bool) {
         self.0.retain(|(scid, _), _| open(*scid));
+    }
+
+    /// Forgets a channel whose history was deleted, so the next round records its starting
+    /// point again if the graph still holds it (an open moved by a reorg).
+    pub fn forget(&mut self, scid: u64) {
+        self.0.retain(|(s, _), _| *s != scid);
     }
 
     /// When the newest change of this direction was made, if its newest record is a change.
@@ -192,7 +199,7 @@ pub async fn heads(store: &Store) -> Result<Heads, Error> {
 }
 
 /// Stores `records` in one write, each only if the newest kept for its direction is older and
-/// has other fees and the channel is not closed, then keeps the newest [`KEPT`] of each
+/// has other fees and the channel is stored open, then keeps the newest [`KEPT`] of each
 /// direction; and marks the server as watching from `run` to `now` (`ln_watched`, the newest
 /// [`RUNS`] runs kept). Fails with [`Error::Full`] rather than wait behind a full write queue.
 pub async fn record(
@@ -204,12 +211,13 @@ pub async fn record(
     store
         .try_write(move |sql| {
             let mut out = Vec::with_capacity(records.len());
-            let mut closed = sql.prepare(
-                "SELECT 1 FROM ln_channels WHERE scid = ?1 AND close_height IS NOT NULL",
-            )?;
+            // A stale round must not write for a channel whose close or undone open was stored
+            // after the round read the graph: those deleted its history.
+            let mut open =
+                sql.prepare("SELECT 1 FROM ln_channels WHERE scid = ?1 AND close_height IS NULL")?;
             let mut newest = sql.prepare(
                 "SELECT time, fee_rate, base_fee, inbound_base, inbound_rate FROM ln_fees \
-                 WHERE scid = ?1 AND side = ?2 ORDER BY time DESC LIMIT 1",
+                 WHERE scid = ?1 AND side = ?2 ORDER BY time DESC LIMIT 2",
             )?;
             let mut insert = sql.prepare(
                 "INSERT INTO ln_fees (scid, side, time, fee_rate, base_fee, inbound_base, \
@@ -221,18 +229,21 @@ pub async fn record(
             )?;
             for &(scid, side, r) in &records {
                 let scid = scid_value(scid);
-                if closed.exists(params![scid])? {
-                    out.push(Outcome::Closed);
+                if !open.exists(params![scid])? {
+                    out.push(Outcome::NotOpen);
                     continue;
                 }
-                let kept = newest
+                let two = newest
                     .query_map(params![scid, side], |row| record_at(row, 0))?
-                    .next()
-                    .transpose()?;
+                    .collect::<Result<Vec<_>, _>>()?;
+                let kept = two.first().copied();
                 if let Some(k) = kept
                     && (k.time >= r.time || k.fees == r.fees)
                 {
-                    out.push(Outcome::Kept(k));
+                    out.push(Outcome::Kept {
+                        record: k,
+                        changed: two.len() > 1,
+                    });
                     continue;
                 }
                 let inbound = r.fees.inbound;
