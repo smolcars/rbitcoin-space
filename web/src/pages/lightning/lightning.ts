@@ -2,7 +2,7 @@
 // pages say about them. Pure. Aliases are gossip, chosen by whoever runs the node (SECURITY.md
 // rule 14): they reach the page only as text, through cleanAlias.
 import { cap, recentMoment, share } from "../mempool/history";
-import { groupDigits, MISSING, NNBSP } from "../../lib/format";
+import { formatBtcShort, groupDigits, MISSING, NNBSP } from "../../lib/format";
 
 export type State = "off" | "starting" | "syncing" | "synced" | "failed" | "stopped";
 
@@ -676,17 +676,20 @@ export function feeSentence(rows: FeeRow[]): string {
 const group = (digits: string): string => digits.replaceAll(/\B(?=(\d{3})+(?!\d))/g, NNBSP);
 
 /**
- * Millisatoshis as sats, exact to the msat, as operators write a policy: `1 sat`, `0.5 sat` is
- * `500 msat` (under a sat, in msat), `1.001 sats`, `20 000 000 sats`. A bigint for a fee past 2⁵³.
+ * Millisatoshis as an operator reads a policy: under a bitcoin, as sats exact to the msat (`1 sat`,
+ * `500 msat` under a sat, `1.001 sats`, `20 000 000 sats`); from one, in magnitude like any
+ * summary (`5.00 BTC`, `21 000 000 BTC`), which fits a phone at any text size, the exact msat
+ * a press away (`Msat`). A bigint for a fee past 2⁵³.
  */
-export function msatAsSats(n: number | bigint): string {
+export function msatAsSats(n: number | bigint, btcFrom = 100_000_000_000n): string {
   if (typeof n === "number" && !Number.isFinite(n)) return MISSING;
-  // A number's decimal digits, as `msat` and `plainMsat` show and copy them, not its binary value
-  // past 2⁵³; from 10²¹ JavaScript writes an exponent, which BigInt cannot read.
-  const r = typeof n === "number" ? Math.round(n) : 0;
-  const big = typeof n === "bigint" ? n : BigInt(Math.abs(r) < 1e21 ? String(r) : r);
+  const big = typeof n === "bigint" ? n : BigInt(Math.round(n));
   const sign = big < 0n ? "−" : "";
   const m = big < 0n ? -big : big;
+  if (m >= btcFrom) {
+    const btc = m / 100_000_000_000n;
+    return `${sign}${btc >= 1000n ? group(String(btc)) : formatBtcShort(Number(m / 1000n))} BTC`;
+  }
   if (m > 0n && m < 1000n) return `${sign}${group(String(m))} msat`;
   const frac = String(m % 1000n)
     .padStart(3, "0")
@@ -694,6 +697,12 @@ export function msatAsSats(n: number | bigint): string {
   const whole = group(String(m / 1000n));
   return `${sign}${whole}${frac === "" ? "" : `.${frac}`} ${m === 1000n ? "sat" : "sats"}`;
 }
+
+/**
+ * A fee in msat, as {@link msatAsSats} but in magnitude from a million sats (0.01 BTC), where no
+ * routing fee is: an extreme base fee (u32 allows 4 294 967.295 sats) then fits a phone's line.
+ */
+export const feeAsSats = (n: number | bigint): string => msatAsSats(n, 1_000_000_000n);
 
 /** What an amount typed in sats reads as: whole sats above zero, grouping spaces allowed. */
 export function parseSats(text: string): { sats: number } | { error: string } {
@@ -758,8 +767,8 @@ export const TERMS: readonly {
   {
     key: "base_fee_msat",
     label: "Base fee",
-    show: (p) => msatAsSats(p.base_fee_msat),
-    diff: (a, b) => by(a.base_fee_msat, b.base_fee_msat, msatAsSats),
+    show: (p) => feeAsSats(p.base_fee_msat),
+    diff: (a, b) => by(a.base_fee_msat, b.base_fee_msat, feeAsSats),
   },
   {
     key: "cltv_delta",

@@ -34,9 +34,18 @@ function channelStates(): Record<string, unknown> {
     closed: { block: block(975_590, 1_794_508_800), txid: "5c".repeat(32), kind, fee },
     penalty: null,
   });
+  const base = { ...real.node_one.policy, enabled: true };
   const next = { id: "975402x1310x1", scid: "1072528709001609217", capacity: 4_000_000 };
   return {
     open: { ...real, ...ends(long, rtl) },
+    // The longest terms a policy can hold: a limit of all bitcoin, a rate that takes the whole
+    // amount, and the largest base fee (u32 msat).
+    "largest limit": { ...real, ...ends(rtl, long, { ...base, max_htlc_msat: 2.1e18 }, null) },
+    "largest rate": { ...real, ...ends(rtl, long, { ...base, fee_rate: 1_000_000 }, null) },
+    "largest base": {
+      ...real,
+      ...ends(rtl, long, { ...base, base_fee_msat: 4_294_967_295 }, null),
+    },
     "disabled one way": {
       ...real,
       ...ends(emoji, long, real.node_one.policy, { ...real.node_two.policy, enabled: false }),
@@ -148,7 +157,7 @@ test("a channel page draws every state at a desktop's and a phone's width, light
       expect(await channelFaults(page), label).toStrictEqual([]);
     }
     // What each state says, once.
-    const closed = name !== "open" && !name.includes("way");
+    const closed = ["cooperative", "force", "penalty", "other, continued"].includes(name);
     await expect(page.getByRole("heading", { name: "How it ended" })).toHaveCount(closed ? 1 : 0);
     await expect(page.getByRole("heading", { name: "Fee for this hop" })).toHaveCount(
       closed || name === "no policy either way" ? 0 : 1,
@@ -171,10 +180,12 @@ test("a channel page holds at 320 px and 200% text, in every state, with hostile
   await cdp.send("Page.setFontSizes", { fontSizes: { standard: 32, fixed: 26 } });
   await page.setViewportSize({ width: 320, height: 800 });
   const answer = await serveChannel(page);
+  const faults: string[] = [];
   for (const [name, channel] of Object.entries(channelStates())) {
     answer(channel);
     await page.goto("/regtest/lightning/channel/811984x2037x0");
     await expect(page.getByRole("heading", { name: "Life of the channel" })).toBeVisible();
-    expect(await channelFaults(page), name).toStrictEqual([]);
+    faults.push(...(await channelFaults(page)).map((f) => `${name}: ${f}`));
   }
+  expect(faults).toStrictEqual([]);
 });

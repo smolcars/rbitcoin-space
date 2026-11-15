@@ -424,16 +424,17 @@ export function LightningNav(props: { here: "overview" | "rankings" | "search" |
 /**
  * A channel term in millisatoshis, as sats to the msat (`20 000 000 sats`), never broken inside:
  * a tap or a key opens it in msat (`20 000 000 000 msat`) with a copy button that copies it as
- * plain digits, its unit in the button's label. `what` names the term in that label.
+ * plain digits, its unit in the button's label. `what` names the term in that label; `figure`
+ * is the term's own way of writing it, where it has one (a fee, `feeAsSats`).
  */
-export function Msat(props: { msat: number; what: string }) {
+export function Msat(props: { msat: number; what: string; figure?: string }) {
   return (
     <Exact
       class="ln-msat num tap"
       title={msat(props.msat)}
       figure={
         <>
-          {msatAsSats(props.msat)}
+          {props.figure ?? msatAsSats(props.msat)}
           <span class="visually-hidden">, exactly {msat(props.msat)}</span>
         </>
       }

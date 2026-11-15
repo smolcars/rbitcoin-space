@@ -1190,16 +1190,16 @@
     .ln-step__body .hash {
       flex-wrap: wrap;
     }
-    /* The capacity at its line's size and a hop's fee at the reader's own, not above them, and
-       the fee's well with less padding, so a whole "500 000 000 sats" or "250.9 sats" fits. */
-    .ln-chan__line strong {
-      font-size: inherit;
-    }
+    /* The display figures (capacity, a lane's fee, a hop's fee) at the size of the text round
+       them, not above it, and the fee's well with less padding, so a whole "500 000 000 sats",
+       "1 000 000 ppm" or "100 001 sats" fits the narrow room. */
+    .ln-chan__line strong,
+    .ln-lane__fee,
     .ln-hop__fee {
-      font-size: var(--text-md);
+      font-size: var(--text-sm);
     }
     .ln-hop__way {
-      padding-inline: var(--space-2);
+      padding-inline: var(--space-1);
     }
   }
 }

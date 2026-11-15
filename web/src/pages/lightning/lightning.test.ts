@@ -18,6 +18,7 @@ import {
   parseRanking,
   searchProblem,
   channelTag,
+  feeAsSats,
   hopFee,
   htlcLimit,
   lifeSteps,
@@ -244,14 +245,20 @@ describe("msatAsSats", () => {
     expect(msatAsSats(1001)).toBe("1.001 sats");
     expect(plain(msatAsSats(20_000_000_000))).toBe("20 000 000 sats");
     expect(msatAsSats(-1000)).toBe("−1 sat");
-    // Past 2⁵³, as a bigint: every digit kept.
-    expect(plain(msatAsSats(8_400_000_000_000_000_123n))).toBe("8 400 000 000 000 000.123 sats");
+    expect(plain(msatAsSats(99_999_999_999))).toBe("99 999 999.999 sats");
     expect(msatAsSats(Number.NaN)).toBe("–");
-    // A number past 2⁵³ reads as the digits the exact pop-up shows and copies.
-    const big = 1_000_000_000_000_000_100;
-    expect(plain(msatAsSats(big))).toBe("1 000 000 000 000 000.1 sats");
-    expect(plainMsat(big)).toBe("1000000000000000100");
-    expect(msatAsSats(1e22)).toMatch(/ sats$/);
+  });
+
+  it("reads a bitcoin and more in magnitude, so the longest still fits a phone", () => {
+    expect(msatAsSats(100_000_000_000)).toBe("1.00 BTC");
+    expect(msatAsSats(523_456_789_000)).toBe("5.23 BTC");
+    expect(plain(msatAsSats(2_100_000_000_000_000_000))).toBe("21 000 000 BTC");
+    expect(plain(msatAsSats(-150_000_000_000_000))).toBe("−1 500 BTC");
+    // A fee from a million sats, where no routing fee is: the largest base fee u32 allows.
+    expect(plain(feeAsSats(999_999_999))).toBe("999 999.999 sats");
+    expect(feeAsSats(4_294_967_295)).toBe("0.0429 BTC");
+    // A fee past 2⁵³, as a bigint.
+    expect(plain(msatAsSats(8_400_000_000_000_000_000_123n))).toBe("84 000 000 000 BTC");
   });
 
   it("never lets a figure break inside its digits", () => {

@@ -26,6 +26,7 @@ import {
   count,
   days,
   type End,
+  feeAsSats,
   hopFee,
   htlcLimit,
   isChannelDetail,
@@ -342,7 +343,7 @@ function Lane(props: { from: End; to: End; tone: 1 | 2 }) {
             <p class="ln-lane__fee">
               <span class="num">{ppm(pol().fee_rate)}</span>
               <span class="ln-lane__plus"> + </span>
-              <span class="num">{msatAsSats(pol().base_fee_msat)}</span>
+              <span class="num">{feeAsSats(pol().base_fee_msat)}</span>
             </p>
             <p class="ln-lane__note">
               <Show
@@ -453,15 +454,15 @@ function WayFee(props: { policy: Policy | null; sats: number | null }) {
                           : `Under min HTLC (${msatAsSats(p().min_htlc_msat)})`}
                       </Tag>
                       <span class="ln-hop__work">
-                        Would be <span class="num">{msatAsSats(fee().msat)}</span>
+                        Would be <span class="num">{feeAsSats(fee().msat)}</span>
                       </span>
                     </>
                   )}
                 </Match>
                 <Match when={true}>
-                  <strong class="ln-hop__fee num">{msatAsSats(fee().msat)}</strong>
+                  <strong class="ln-hop__fee num">{feeAsSats(fee().msat)}</strong>
                   <span class="ln-hop__work">
-                    <span class="num">{msatAsSats(p().base_fee_msat)}</span> +{" "}
+                    <span class="num">{feeAsSats(p().base_fee_msat)}</span> +{" "}
                     <span class="num">{groupDigits(n())}</span> ×{" "}
                     <span class="num">{groupDigits(p().fee_rate)}</span> ÷{" "}
                     <span class="num">{groupDigits(1_000_000)}</span>
@@ -483,7 +484,7 @@ function term(t: (typeof TERMS)[number], p: Policy | null): JSX.Element {
   const k = t.key;
   if (k === "base_fee_msat" || k === "min_htlc_msat" || k === "max_htlc_msat") {
     const what = `${t.label[0]?.toLowerCase() ?? ""}${t.label.slice(1)}`;
-    return <Msat msat={p[k]} what={what} />;
+    return <Msat msat={p[k]} what={what} figure={t.show(p)} />;
   }
   if (k === "last_update") return <TimeAgo time={p.last_update} />;
   return <span class="num">{t.show(p)}</span>;
