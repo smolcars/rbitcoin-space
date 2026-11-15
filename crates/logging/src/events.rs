@@ -1506,6 +1506,12 @@ pub struct LightningSummary {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub index_ms: Option<f64>,
     pub funding_txids: u64,
+    /// Fee history: records stored since start, the last round's write, and rounds whose write
+    /// failed or found the queue full (retried at the next).
+    pub fee_records: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fee_write_ms: Option<f64>,
+    pub fee_failures: u64,
 }
 event!(LightningSummary, "lightning_summary", Info, keep);
 
@@ -2478,6 +2484,9 @@ mod tests {
                 history_seq: 36_250,
                 index_ms: Some(41.5),
                 funding_txids: 36_000,
+                fee_records: 72_400,
+                fee_write_ms: Some(3.5),
+                fee_failures: 0,
             }),
             both(&LightningIndexBuilt {
                 network: n,

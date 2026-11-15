@@ -413,8 +413,9 @@ async fn a_peer_that_cannot_start_leaves_the_explorer_working() {
 
 mod graph {
     use super::*;
+    use engine::lightning::fees::{self, FeeRecord, Fees};
     use engine::lightning::{
-        Announcement, GraphChannel, GraphNode, Index, Penalty, Policy, set_funding,
+        Announcement, GraphChannel, GraphNode, Inbound, Index, Penalty, Policy, set_funding,
     };
 
     pub fn key(n: u8) -> [u8; 33] {
@@ -439,6 +440,7 @@ mod graph {
             max_htlc_msat: 990_000_000,
             enabled,
             last_update: 1_790_000_100,
+            inbound: None,
         }
     }
 
@@ -527,6 +529,33 @@ mod graph {
         )
         .await
         .unwrap();
+        // Fee history: node 1 moved its fee on c1 at T + 100 (with an inbound discount) and node
+        // 2 its own at T + 90; c2 has only node 1's starting point.
+        let rec = |time: u64, fee_rate, inbound| FeeRecord {
+            time: u32::try_from(time).unwrap(),
+            fees: Fees {
+                fee_rate,
+                base_fee_msat: 1_000,
+                inbound,
+            },
+        };
+        let discount = Some(Inbound {
+            base_fee_msat: -1_000,
+            fee_rate: -50,
+        });
+        for batch in [
+            vec![
+                (c1, 0, rec(T + 10, 2_000, None)),
+                (c1, 1, rec(T + 20, 5, None)),
+            ],
+            vec![
+                (c1, 0, rec(T + 100, 2_499, discount)),
+                (c1, 1, rec(T + 90, 1, None)),
+                (c2, 0, rec(T + 100, 150, None)),
+            ],
+        ] {
+            fees::record(&store, batch, T, T + 1_000).await.unwrap();
+        }
         // The history starts two days before the first close.
         lightning::insert(
             &store,
@@ -566,7 +595,16 @@ mod graph {
                 scid: c1,
                 nodes: [key(1), key(2)],
                 capacity: 5_000_000,
-                policies: [Some(policy(2_499, true)), Some(policy(1, true))],
+                policies: [
+                    Some(Policy {
+                        inbound: Some(Inbound {
+                            base_fee_msat: -1_000,
+                            fee_rate: -50,
+                        }),
+                        ..policy(2_499, true)
+                    }),
+                    Some(policy(1, true)),
+                ],
             },
             GraphChannel {
                 scid: c2,
@@ -594,6 +632,7 @@ mod graph {
         let store = Store::open(dir, "regtest", Options::default()).unwrap();
         let past = lightning::past(&store).await.unwrap();
         l.set_index(Index::build(nodes, channels, &past));
+        l.set_fee_heads(fees::heads(&store).await.unwrap());
     }
 }
 
@@ -968,6 +1007,29 @@ async fn nodes_channels_search_and_rankings_answer_exactly_in_both_shapes() {
             ),
             200,
         ),
+        // Fee history: a bounded limit, written plainly, once; nothing else.
+        (format!("/app/lightning/nodes/{unknown}/fees"), 404),
+        ("/app/lightning/channels/1x1x1/fees".to_owned(), 404),
+        ("/app/lightning/channels/800000x5/fees".to_owned(), 400),
+        (
+            "/app/lightning/channels/800000x5x1/fees?x=1".to_owned(),
+            400,
+        ),
+        (format!("/app/lightning/nodes/{}/fees", &one[..64]), 400),
+        (format!("/app/lightning/nodes/{one}/fees?limit=0"), 400),
+        (format!("/app/lightning/nodes/{one}/fees?limit=51"), 400),
+        (format!("/app/lightning/nodes/{one}/fees?limit=01"), 400),
+        (format!("/app/lightning/nodes/{one}/fees?limit=-1"), 400),
+        (
+            format!("/app/lightning/nodes/{one}/fees?limit={}", "9".repeat(30)),
+            400,
+        ),
+        (
+            format!("/app/lightning/nodes/{one}/fees?limit=2&limit=2"),
+            400,
+        ),
+        (format!("/app/lightning/nodes/{one}/fees?limit=2&x=1"), 400),
+        (format!("/app/lightning/nodes/{one}/fees?limit=50"), 200),
         ("/app/lightning/rankings/liquidity".to_owned(), 400),
         ("/app/lightning/rankings/capacity?limit=101".to_owned(), 400),
         ("/api/v1/lightning/nodes/rankings/capacity".to_owned(), 404),

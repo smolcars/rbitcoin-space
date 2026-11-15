@@ -22,6 +22,17 @@ pub struct Policy {
     pub enabled: bool,
     /// The update's own timestamp, Unix seconds.
     pub last_update: u32,
+    /// lnd's inbound fee, when the update carries one.
+    pub inbound: Option<Inbound>,
+}
+
+/// An inbound fee: what a node adds to, or with a negative value takes off, the fee of a payment
+/// that reaches it over the channel. lnd's extension; usually a discount.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Inbound {
+    pub base_fee_msat: i32,
+    /// Parts per million.
+    pub fee_rate: i32,
 }
 
 /// A verified channel in the live graph.
@@ -313,6 +324,11 @@ impl Index {
     pub fn channel(&self, scid: u64) -> Option<&GraphChannel> {
         let i = self.channels.binary_search_by_key(&scid, |c| c.scid).ok()?;
         self.channels.get(i)
+    }
+
+    /// Every channel, by short channel id.
+    pub fn channels(&self) -> &[GraphChannel] {
+        &self.channels
     }
 
     /// A node's open channels, largest first.

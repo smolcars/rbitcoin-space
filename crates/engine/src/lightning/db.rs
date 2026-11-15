@@ -61,6 +61,13 @@ fn open_params(o: &Open) -> [rusqlite::types::Value; 6] {
     ]
 }
 
+/// A channel's fee history goes when it closes, so `ln_fees` holds open channels only.
+fn forget_fees(sql: &Sql, scid: u64) -> Result<(), Error> {
+    sql.prepare("DELETE FROM ln_fees WHERE scid = ?1")?
+        .execute(params![int(scid)])?;
+    Ok(())
+}
+
 fn change(sql: &Sql, c: &Change) -> Result<(), Error> {
     match c {
         Change::Opened(o) => {
@@ -78,6 +85,7 @@ fn change(sql: &Sql, c: &Change) -> Result<(), Error> {
             sql.prepare(CLOSE)?.execute(rusqlite::params_from_iter(
                 open_params(o).into_iter().chain(close),
             ))?;
+            forget_fees(sql, o.scid)?;
         }
         Change::Penalty(scid, p) => {
             sql.prepare(
@@ -95,6 +103,7 @@ fn change(sql: &Sql, c: &Change) -> Result<(), Error> {
         Change::OpenUndone(scid) => {
             sql.prepare("DELETE FROM ln_channels WHERE scid = ?1")?
                 .execute(params![int(*scid)])?;
+            forget_fees(sql, *scid)?;
         }
         Change::CloseUndone(scid) => {
             sql.prepare(

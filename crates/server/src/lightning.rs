@@ -97,6 +97,13 @@ pub struct Lightning {
     /// Rounds of the index task in a row that failed (`index::round`).
     index_failures: AtomicU32,
     funded: AtomicU64,
+    /// The newest fee record kept for each direction: what a round compares the index with, and
+    /// what a node's newest fee changes are found by ([`fees`]).
+    fees: RwLock<store_ln::fees::Heads>,
+    /// Fee records stored since start, the last round's write (microseconds), failed rounds.
+    fee_records: AtomicU64,
+    fee_write_us: AtomicU64,
+    fee_failures: AtomicU64,
 }
 
 impl std::fmt::Debug for Lightning {
@@ -127,6 +134,10 @@ impl Lightning {
             index_ms: AtomicU64::new(0),
             index_failures: AtomicU32::new(0),
             funded: AtomicU64::new(0),
+            fees: RwLock::default(),
+            fee_records: AtomicU64::new(0),
+            fee_write_us: AtomicU64::new(0),
+            fee_failures: AtomicU64::new(0),
         }
     }
 
@@ -184,6 +195,13 @@ impl Lightning {
     #[doc(hidden)]
     pub fn set_index(&self, index: Index) {
         *self.index.write().unwrap_or_else(PoisonError::into_inner) = Some(Arc::new(index));
+    }
+
+    /// Replaces the fee history's heads, as the index task loads them at its first round. Tests
+    /// use it beside [`Lightning::set_index`].
+    #[doc(hidden)]
+    pub fn set_fee_heads(&self, heads: store_ln::fees::Heads) {
+        *self.fees.write().unwrap_or_else(PoisonError::into_inner) = heads;
     }
 
     /// Stops the peer and waits, at most [`STOP_WAIT`], for it to write its graph.
@@ -888,6 +906,12 @@ fn summary(network: &'static str, s: &ln::Stats, status: &ln::Status, l: &Lightn
             us => Some(us as f64 / 1000.0),
         },
         funding_txids: l.funded.load(Ordering::Relaxed),
+        fee_records: l.fee_records.load(Ordering::Relaxed),
+        fee_write_ms: match l.fee_write_us.load(Ordering::Relaxed) {
+            0 => None,
+            us => Some(us as f64 / 1000.0),
+        },
+        fee_failures: l.fee_failures.load(Ordering::Relaxed),
     });
 }
 
@@ -1006,6 +1030,7 @@ pub fn routes() -> Router<Arc<NetworkContext>> {
         .route("/api/v1/lightning/statistics/latest", get(v1_latest))
         .route("/api/v1/lightning/statistics/{interval}", get(v1_series))
         .merge(nodes::routes())
+        .merge(fees::routes())
 }
 
 fn json_response(body: Bytes, route: &'static str, cache: &'static str) -> Response {
@@ -1455,6 +1480,7 @@ async fn v1_series(
     series(&ctx, Shape::Reference, &i).await
 }
 
+mod fees;
 mod index;
 pub(crate) mod nodes;
 #[cfg(test)]

@@ -675,6 +675,7 @@ mod operators {
             max_htlc_msat: max_htlc,
             enabled,
             last_update: U + update,
+            inbound: None,
         })
     }
 

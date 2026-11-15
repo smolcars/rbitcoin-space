@@ -34,8 +34,8 @@ const NO_INDEX: ApiError = ApiError::new(
     StatusCode::SERVICE_UNAVAILABLE,
     "lightning graph is synced but cannot be indexed; retry later",
 );
-const NO_NODE: ApiError = ApiError::new(StatusCode::NOT_FOUND, "node not found");
-const NO_CHANNEL: ApiError = ApiError::new(StatusCode::NOT_FOUND, "channel not found");
+pub(crate) const NO_NODE: ApiError = ApiError::new(StatusCode::NOT_FOUND, "node not found");
+pub(crate) const NO_CHANNEL: ApiError = ApiError::new(StatusCode::NOT_FOUND, "channel not found");
 const BAD_KEY: ApiError = ApiError::bad_request("invalid public key: 66 hex digits");
 const BAD_CHANNEL: ApiError =
     ApiError::bad_request("invalid channel id: a decimal id or <height>x<index>x<output>");
@@ -88,17 +88,19 @@ pub fn routes() -> Router<Arc<NetworkContext>> {
         .route("/api/v1/lightning/channels/{id}", get(v1_channel))
 }
 
-fn send(v: &impl Serialize, route: &'static str) -> Response {
+pub(crate) fn send(v: &impl Serialize, route: &'static str) -> Response {
     match serde_json::to_vec(v) {
         Ok(b) => json_response(b.into(), route, CACHE),
         Err(_) => axum::response::IntoResponse::into_response(ApiError::INTERNAL),
     }
 }
 
-type Answer = Result<Response, ApiError>;
+pub(crate) type Answer = Result<Response, ApiError>;
 
 /// The index, the Lightning side and the store, or why a route cannot answer yet.
-fn graph(ctx: &NetworkContext) -> Result<(Arc<Index>, &Lightning, &Arc<Store>), ApiError> {
+pub(crate) fn graph(
+    ctx: &NetworkContext,
+) -> Result<(Arc<Index>, &Lightning, &Arc<Store>), ApiError> {
     let (l, store) = enabled(ctx)?;
     let unindexed = || if l.index_failing() { NO_INDEX } else { SYNCING };
     Ok((l.index().ok_or_else(unindexed)?, l, store))
@@ -123,7 +125,7 @@ pub(crate) fn pubkey(s: &str) -> Result<[u8; 33], ApiError> {
 }
 
 /// Decimal digits without a leading zero (but `0`), as a number at most `max`.
-fn number(s: &str, max: u64) -> Option<u64> {
+pub(crate) fn number(s: &str, max: u64) -> Option<u64> {
     let plain = !s.is_empty()
         && s.len() <= 20
         && s.bytes().all(|b| b.is_ascii_digit())
@@ -174,7 +176,7 @@ pub(crate) fn decode(s: &str) -> Option<String> {
 
 /// The query's parameters, decoded, each at most once. With `strict`, a name not in `known` is
 /// refused; without, it is ignored, like every `/api/v1` query.
-fn query<'a>(
+pub(crate) fn query<'a>(
     raw: Option<&str>,
     known: &[&'a str],
     strict: bool,
@@ -1035,8 +1037,17 @@ fn policy_json(p: Option<Policy>) -> Value {
             "max_htlc_msat": p.max_htlc_msat,
             "enabled": p.enabled,
             "last_update": p.last_update,
+            "inbound_fee": inbound_json(p.inbound),
         })
     })
+}
+
+/// lnd's inbound fee, signed, or `null` when the update carries none.
+pub(crate) fn inbound_json(i: Option<store_ln::Inbound>) -> Value {
+    i.map_or(
+        Value::Null,
+        |i| json!({ "base_fee_msat": i.base_fee_msat, "fee_rate": i.fee_rate }),
+    )
 }
 
 /// A channel as both sources know it: the index while open, the store always (once stored).

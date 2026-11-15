@@ -349,8 +349,9 @@ At shutdown, after the last request, the server stops each peer (which writes it
 |---|---|---|
 | [`ln_channels`](STORE.md#ln_channels) | Every channel the peer verified and how it closed: kind, block, txid and fee, kept consistent through reorgs by the `…Undone` records | As the [history](#history) arrives, in writes of up to 2,000 records |
 | [`ln_statistics`](STORE.md#ln_statistics) | Channels, nodes (by address kind), capacity and fee policies every ten minutes, rolled into hours and days | At every whole ten minutes while the graph is synced |
+| [`ln_fees`, `ln_watched`](STORE.md#ln_fees-and-ln_watched) | Each open channel's newest 50 fee changes each way, and the stretches the server was recording them | After every index build, 30 s apart ([Fee history](#fee-history)) |
 
-Both are written with `try_write`: when the store's queue is full the Lightning side waits and retries instead of taking a slot, so block and mempool history writes never queue behind it. Nodes, aliases and open channels' policies are not stored: they are in the live graph, and come back from the graph file after a restart.
+All are written with `try_write`: when the store's queue is full the Lightning side waits and retries instead of taking a slot, so block and mempool history writes never queue behind it. Nodes, aliases and open channels' current policies are not stored: they are in the live graph, and come back from the graph file after a restart. Only the fees of each policy are kept as a history.
 
 ### What is served
 
@@ -376,6 +377,34 @@ The node, channel, search and ranking routes read an **index** of the verified g
 **Search** is bounded whatever the query: 3 to 66 characters, a binary search over the public keys for a prefix and one pass over at most 2 × the ceiling aliases of at most 32 bytes, 10 results. Aliases are kept as the index cleans them (LDK's printing: up to the first NUL, control and format characters as U+FFFD; then runs of combining marks cut to two; so at most 96 bytes), matched lowercased, served as JSON strings and never interpreted; an alias proves nothing, so the impostor of a well-known name is found too, ranked by capacity ([`API.md`](API.md#nodes-channels-search-and-rankings)).
 
 **A node's past** (`/app/lightning/nodes/:key/history`, `/api/v1/lightning/nodes/:key/statistics`) is rebuilt from `ln_channels`, which already holds every channel's funding and closing block times: the node's channels open at each UTC midnight are a sweep over its rows (one indexed read, 1.6 ms for ACINQ's 1,807). Nothing new is stored. Snapshotting every node's totals instead would add 13,600 rows every period (150 MB a year at one a day) for the same numbers. Before our history starts the table does not know the channels that had already closed, so the series begins at the first statistics snapshot. A channel LDK pruned keeps its row as open ([Still missing](#still-missing)) and is counted open.
+
+### Fee history
+
+The channel page charts each end's fee rate over time and the node page lists its newest fee changes ([`API.md`](API.md#fee-history)), so the server keeps a bounded history of what each end of each open channel charges: fee rate, base fee and [inbound fee](#inbound-fees).
+
+**What is a change.** A policy whose fees (any of the three) differ from the newest record kept for its direction. The record carries the channel update's own timestamp, when the node set it, not when we saw it. The first policy seen for a direction is its starting point, a record with nothing before it. Enabling or disabling a channel, and a new CLTV delta or HTLC limit, are not fee changes.
+
+**How it is found.** After every index build, 30 s apart, the index task compares each policy of the new index with the newest record kept for its direction, held in memory (about 50 bytes a direction: @@HEADS_MB@@ on mainnet), on a blocking thread after the build, never inside it, and stores what differs in one write (`crates/server/src/lightning/fees.rs`, `crates/engine/src/lightning/fees.rs`). The write itself decides: a record is stored only if the newest kept for its direction is older and has other fees, and only while the channel is not closed. So a round repeated after a failed or full write (it is simply tried again at the next round), or an index built from a graph older than the table, stores nothing twice and nothing out of order. A first round stores every direction's starting point, in writes of 2,000.
+
+**Bounded.** At most 50 records a direction, the oldest dropped as the 51st is stored, and a channel's records are deleted in the same write that stores its close (or the reorg that undoes its open). So the table holds at most open channels × 2 × 50 rows, about @@BOUND@@ at mainnet's size if every direction changed 50 times. Measured: @@MEASURED_SIZE@@ ([`STORE.md`](STORE.md#ln_fees-and-ln_watched)). A channel LDK pruned keeps its row as open ([Still missing](#still-missing)) and so keeps its records until it closes.
+
+**What a restart loses.** Exactly these, and nothing once its write has committed:
+
+- **Changes made while the server was down, but the last.** At its first round after a start the server sees each direction's newest update only, and records it at its own time if its fees differ from the newest kept. A direction that changed three times while the server was down keeps only the third; one that changed and changed back keeps nothing.
+- **Changes between the last round before a stop and the first after the next start,** the same way: up to 30 s before the stop, plus the time until the graph is synced again after the start (20 s to four minutes). A direction is not watched until its graph is synced.
+- **Between two rounds,** at any time, only the newest of a direction's updates is seen: two changes less than 30 s apart keep the second.
+
+Order is never invented: a record is stored only if it is newer than the newest kept, so a graph file saved before the table's last write (the graph is saved every ten minutes, the table every 30 s) cannot put an older update after a newer one.
+
+**The stretches watched.** Each run of the server is one row of `ln_watched`: when its first round ran and when its latest did (moved forward at every round). The channel route serves the runs that end after the channel's oldest record, so a page draws no fee line across the time between two runs. A change recorded at the first round after a gap carries its own time, which may fall in the gap: its fees hold from then on, and before it, back to the previous run's end, nothing is known. The newest 100 runs are kept; a record older than all of them has no run around it.
+
+### Inbound fees
+
+lnd lets a node advertise an inbound fee, a fee (usually a discount, so negative) on payments that reach it over the channel, as a TLV record of type 55555 at the end of its `channel_update`: base fee and rate, two signed 32-bit integers, big-endian. LDK neither applies nor decodes it, but keeps each policy's signed update, extra data and all, when that data is at most 1,024 bytes (`ChannelUpdateInfo::last_update_message`), on every path an update reaches our graph: live gossip, the updates held while a channel's lookup waits, and the replay of the graph file. The server decodes it when it builds the index (`ln::inbound_fee`, `crates/ln/src/inbound.rs`, after lnd's own decoder, which the code cites), and serves it on every policy and fee record.
+
+The bytes are a peer's: every read is bounded and nothing panics. A stream lnd would refuse (a record cut short, a length past the end, types out of order or repeated, a type or length not minimally encoded, the record's length other than 8) is no inbound fee at all, as lnd treats it, never an error. Unknown records before and after it are skipped.
+
+**Measured on mainnet** (@@INBOUND_WHEN@@): @@INBOUND_NUMBERS@@
 
 ### Funding transactions
 

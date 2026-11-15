@@ -75,6 +75,7 @@ Inside a migration: no `BEGIN` or `COMMIT` (it already runs in a transaction; th
 | [`replacements`](#replacements) | `0005_replacements.sql`, `0008_replacement_blocks.sql` | The replacement record: what replaced what, as the mempool tracker saw it | No: observed live, lost with the file |
 | [`ln_channels`](#ln_channels) | `0006_lightning.sql`, `0007_lightning_lookups.sql` (`open_txid` and the lookup indexes), `0017_lightning_closes.sql` (a node's closes) | Every public channel the Lightning peer verified, with its close | **No:** gossip forgets a channel once it closes |
 | [`ln_statistics`](#ln_statistics) | `0006_lightning.sql` | The Lightning network's totals every ten minutes, rolled into hours and days as they age | No: observed live |
+| [`ln_fees`, `ln_watched`](#ln_fees-and-ln_watched) | `0018_lightning_fees.sql` | Each open channel's newest 50 fee changes each way, and the stretches the server was recording them | No: observed live |
 | [`chain`](#chain) | `0009_chain.sql` | One row: the genesis hash of the chain the file was written for | Yes: written again by the check below |
 | [`block_totals`, `pool_totals`](#totals) | `0010_block_totals.sql` | The block table's running totals: per day and per block series point, and per pool per 1,008 heights and per week | Yes: recomputed from `blocks` |
 | `totals_dirty` | `0010_block_totals.sql` | The buckets a write has touched; always empty once it commits | Yes |
@@ -492,6 +493,26 @@ The Lightning network's totals over time: channels, nodes, capacity, fee policie
 **Reading.** `lightning::series(store, interval, now)`: the intervals of `history::Interval`, with no step finer than ten minutes, so `2h` has 12 points and `24h` 144; the coverage counts ten-minute slots. `lightning::latest(store)`: the newest row.
 
 **Rebuildable:** no. It was observed live.
+
+### ln_fees and ln_watched
+
+What each end of each open channel charged over time, for a channel's fee chart and a node's newest fee changes ([`LIGHTNING.md`](LIGHTNING.md#fee-history), [`API.md`](API.md#fee-history)). Code: `crates/engine/src/lightning/fees.rs`.
+
+| Column | Why |
+|---|---|
+| `scid`, `side`, `time` | The key: the channel, whose policy (0 node one's, 1 node two's), and the channel update's own timestamp. A direction's records are one range of the key, newest last |
+| `fee_rate`, `base_fee` | ppm and msat |
+| `inbound_base`, `inbound_rate` | lnd's inbound fee, signed; null when the update carries none |
+
+`ln_watched` is one row per run of the server: `start`, its first round, and `end`, its latest, moved forward at every round. The newest 100 rows are kept.
+
+**Written** after every index build, 30 s apart, in one `try_write` (a first round's starting points in writes of 2,000 records): for each record, a read of the direction's newest row and of the channel's close, then the insert and a delete of anything past the newest 50. A record older than the newest kept, or with its fees, is not stored, so writing the same records twice changes nothing. A channel's rows are deleted in the write that stores its close (`Closed`) or undoes its open (`OpenUndone`), so only open channels have rows.
+
+**Bound.** At most 50 rows a direction and two directions an open channel: @@STORE_BOUND@@. Measured on mainnet: @@STORE_MEASURED@@.
+
+**Reading.** `fees::history(store, scid)`: one range of at most 100 rows, and the runs since its oldest. `fees::newest(store, directions, limit)`: each direction's newest `limit` + 1 rows, one range each; which directions to ask is known from memory (`fees::Heads`, loaded once per run by `fees::heads`, one pass over the table).
+
+**Rebuildable:** no. Gossip carries only each direction's newest update.
 
 ### ledger
 
