@@ -1,6 +1,7 @@
 // The `projected-txs:N` topics (docs/WS.md "Binary frames"): one projected block's transactions,
 // a snapshot and then deltas. Decoding is strict and never throws: a server's bytes are still input.
 import type { GridTx } from "../components/txgrid/layout";
+import { readFlags } from "./flags";
 import type { Topic } from "./live";
 
 /** Blocks with a transactions topic: 0 (the next) to 6. The last projected block has none. */
@@ -12,7 +13,7 @@ const KIND_SNAPSHOT = 1;
 const KIND_DELTA = 2;
 const SNAPSHOT_HEADER = 16;
 const DELTA_HEADER = 32;
-// txid 32, rate 4, vsize 4, fee 8, flags 8: the flags are not read yet.
+// txid 32, rate 4, vsize 4, fee 8, flags 8.
 const RECORD = 56;
 const TXID = 32;
 
@@ -20,6 +21,7 @@ const TXID = 32;
 export interface ProjectedTx extends GridTx {
   id: string;
   rate: number;
+  flags: number;
 }
 
 export type Frame =
@@ -59,6 +61,7 @@ function records(view: DataView, bytes: Uint8Array, at: number, count: number) {
       rate: view.getUint32(o + TXID, true) / 1000,
       vsize: view.getUint32(o + 36, true),
       fee: Number(fee),
+      flags: readFlags(view, o + 48),
     });
   }
   return txs;
@@ -182,8 +185,9 @@ export class BlockTxs {
   }
 }
 
+// Flags count: a child arriving sets "paid for by a child" on a transaction already in the block.
 const same = (a: ProjectedTx, b: ProjectedTx) =>
-  a.rate === b.rate && a.vsize === b.vsize && a.fee === b.fee;
+  a.rate === b.rate && a.vsize === b.vsize && a.fee === b.fee && a.flags === b.flags;
 
 export type ProjectedTxsMessage = Frame | { kind: "off" };
 

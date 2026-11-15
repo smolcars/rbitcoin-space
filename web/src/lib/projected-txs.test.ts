@@ -29,8 +29,8 @@ describe("decodeFrame", () => {
       block: 3,
       seq: 812n,
       txs: [
-        { id: fakeTxid(1), rate: 1.234, vsize: 141, fee: 174 },
-        { id: fakeTxid(2), rate: 1.002, vsize: 102, fee: 202 },
+        { id: fakeTxid(1), rate: 1.234, vsize: 141, fee: 174, flags: 0 },
+        { id: fakeTxid(2), rate: 1.002, vsize: 102, fee: 202, flags: 0 },
       ],
     });
   });
@@ -43,7 +43,7 @@ describe("decodeFrame", () => {
       seq: 9n,
       prev: 8n,
       removed: [fakeTxid(7)],
-      set: [{ id: fakeTxid(5), rate: 1.005, vsize: 105, fee: 205 }],
+      set: [{ id: fakeTxid(5), rate: 1.005, vsize: 105, fee: 205, flags: 0 }],
     });
   });
 
@@ -67,14 +67,13 @@ describe("decodeFrame", () => {
     expect(decodeFrame(buf)).toStrictEqual({ kind: "version", block: 2 });
   });
 
-  it("steps over each record's flags", () => {
-    const flagged = (n: number) => ({ ...rec(n), flags: 2n ** 63n + 0x1a_0000_1000n });
-    expect(decodeFrame(snapshotFrame(0, 1, [flagged(1), flagged(2)]))).toStrictEqual(
-      decodeFrame(snapshotFrame(0, 1, [rec(1), rec(2)])),
-    );
-    expect(decodeFrame(deltaFrame(0, 2, 1, [fakeTxid(1)], [flagged(3)]))).toStrictEqual(
-      decodeFrame(deltaFrame(0, 2, 1, [fakeTxid(1)], [rec(3)])),
-    );
+  it("reads each record's flags, both words, dropping bits a number cannot hold", () => {
+    const flagged = (n: number) => ({ ...rec(n), flags: 2n ** 63n + 2n ** 44n + 2n ** 16n + 1n });
+    const want = 2 ** 44 + 2 ** 16 + 1;
+    const snap = decodeFrame(snapshotFrame(0, 1, [flagged(1), rec(2)]));
+    expect(snap.kind === "snapshot" && snap.txs.map((t) => t.flags)).toStrictEqual([want, 0]);
+    const delta = decodeFrame(deltaFrame(0, 2, 1, [fakeTxid(1)], [flagged(3)]));
+    expect(delta.kind === "delta" && delta.set.map((t) => t.flags)).toStrictEqual([want]);
   });
 
   it("refuses truncated, overlong and padded frames, and counts that do not match the length", () => {
@@ -167,6 +166,10 @@ describe("BlockTxs", () => {
     expect(m.txs.get(fakeTxid(2))?.rate).toBe(9.999);
     apply(m, snapshotFrame(0, 3, [rec(1), rec(2, 9999)]));
     expect(m.txs.get(fakeTxid(1))).toBe(one);
+    // Only its flags changed (a child came and pays for it): a new object, so the map relights it.
+    apply(m, deltaFrame(0, 4, 3, [], [{ ...rec(1), flags: 2n ** 16n }]));
+    expect(m.txs.get(fakeTxid(1))).not.toBe(one);
+    expect(m.txs.get(fakeTxid(1))?.flags).toBe(2 ** 16);
   });
 
   it("matches the server's block after a snapshot and a long random run of deltas", () => {
@@ -205,7 +208,13 @@ describe("BlockTxs", () => {
     expect(m.seq).toBe(BigInt(seq));
     expect(ids(m)).toStrictEqual(sortedIds(server.keys()));
     for (const [id, r] of server) {
-      expect(m.txs.get(id)).toStrictEqual({ id, rate: r.rate / 1000, vsize: r.vsize, fee: r.fee });
+      expect(m.txs.get(id)).toStrictEqual({
+        id,
+        rate: r.rate / 1000,
+        vsize: r.vsize,
+        fee: r.fee,
+        flags: Number(r.flags ?? 0n),
+      });
     }
   });
 

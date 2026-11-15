@@ -104,7 +104,14 @@ export class Scene {
    * Moves to a new layout at `now` (ms after the epoch). Squares are matched by id: a square that
    * stays travels from wherever it is now, a new one drops in, and one that went fades out.
    */
-  update(l: Layout, txs: readonly GridTx[], now: number, arrival: Arrival, motion: Motion): void {
+  update(
+    l: Layout,
+    txs: readonly GridTx[],
+    now: number,
+    arrival: Arrival,
+    motion: Motion,
+    alphaOf: (tx: GridTx) => number = () => 1,
+  ): void {
     const reduced = motion.slow === 0;
     const was = new Map<number | string, number>();
     for (const [i, id] of this.ids.entries()) was.set(id, i);
@@ -137,7 +144,7 @@ export class Scene {
     for (let r = 0; r < n; r++) {
       const tx = txs[l.order[r] ?? 0];
       if (!tx) continue;
-      const to = [l.x[r] ?? 0, l.y[r] ?? 0, l.w[r] ?? 0, l.h[r] ?? 0, 1];
+      const to = [l.x[r] ?? 0, l.y[r] ?? 0, l.w[r] ?? 0, l.h[r] ?? 0, alphaOf(tx)];
       const color = colorOf(tx);
       const old = was.get(tx.id);
       if (old !== undefined) was.delete(tx.id);
@@ -187,6 +194,40 @@ export class Scene {
     this.ids = ids;
     this.live = live;
     this.end = end;
+  }
+
+  /**
+   * Fades live squares to the alpha `alphaOf(rank)` gives, where they stand, with no new layout. A
+   * square coming up to full alpha also grows into place, leaders first, so a few lit squares
+   * catch the eye; under reduced motion it only fades.
+   */
+  relight(alphaOf: (rank: number) => number, now: number, motion: Motion): void {
+    const reduced = motion.slow === 0;
+    const d = this.data;
+    for (let r = 0; r < this.live; r++) {
+      const a = alphaOf(r);
+      const o = r * STRIDE;
+      // Squares already heading to this alpha keep their animation, the pour included.
+      if (Math.abs((d[o + 13] ?? 1) - a) < 1e-3) continue;
+      const [x, y, w, h, alpha] = this.sample(r, now, motion);
+      const [tx, ty, tw, th] = [d[o + 4] ?? 0, d[o + 5] ?? 0, d[o + 6] ?? 0, d[o + 7] ?? 0];
+      // Only a square coming fully lit grows; a new dim level (a theme switch) only fades.
+      const pop = a > 0.999 && a > alpha && !reduced;
+      d.set(pop ? [tx + tw * 0.3, ty + th * 0.3, tw * 0.4, th * 0.4] : [x, y, w, h], o);
+      d[o + 8] = now + (pop ? (r / Math.max(1, this.live)) * motion.stagger * 4 : 0);
+      d[o + 9] = reduced ? motion.fade : pop ? motion.slow : motion.base;
+      d[o + 10] = pop ? SETTLE : IN_OUT;
+      d[o + 12] = alpha;
+      d[o + 13] = a;
+      this.end = Math.max(this.end, (d[o + 8] ?? 0) + (d[o + 9] ?? 0));
+    }
+  }
+
+  /** Live squares at full alpha once their animations end: the lit ones while some are dimmed. */
+  get lit(): number {
+    let n = 0;
+    for (let r = 0; r < this.live; r++) if ((this.data[r * STRIDE + 13] ?? 1) > 0.999) n++;
+    return n;
   }
 
   /** Ends every animation now: what a hidden tab comes back to. */

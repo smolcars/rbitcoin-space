@@ -2,15 +2,15 @@ import { describe, expect, it } from "vitest";
 import { decodeTxs, TxsFormatError } from "./decode";
 
 /** The server's format: version, count, then vsize u32, fee u64, value u64, flags u64 per record. */
-function encode(records: [number, number, number][], version = 2, count = records.length) {
+function encode(records: [number, number, number, bigint?][], version = 2, count = records.length) {
   const view = new DataView(new ArrayBuffer(8 + records.length * 28));
   view.setUint32(0, version, true);
   view.setUint32(4, count, true);
-  for (const [i, [vsize, fee, value]] of records.entries()) {
+  for (const [i, [vsize, fee, value, flags = 0n]] of records.entries()) {
     view.setUint32(8 + i * 28, vsize, true);
     view.setBigUint64(12 + i * 28, BigInt(fee), true);
     view.setBigUint64(20 + i * 28, BigInt(value), true);
-    view.setBigUint64(28 + i * 28, 0xffff_ffff_ffff_ffffn, true);
+    view.setBigUint64(28 + i * 28, flags, true);
   }
   return view.buffer;
 }
@@ -29,13 +29,31 @@ describe("decodeTxs", () => {
   it("reads every record in block order, the coinbase first", () => {
     const txs = decodeTxs(
       encode([
-        [180, 0, 313_000_000],
-        [141, 1410, 2_099_999_997_690_000], // the most sats there can be, still exact
+        [180, 0, 313_000_000, 0b1_0000_0000_0000_1010n],
+        // The most sats there can be, still exact; Taproot, inscription, SIGHASH_DEFAULT.
+        [141, 1410, 2_099_999_997_690_000, 2n ** 14n + 2n ** 26n + 2n ** 43n],
+        // Bits a number cannot hold are dropped, the rest read.
+        [100, 100, 1, 0xffff_ffff_ffff_ffffn],
       ]),
     );
     expect(txs).toStrictEqual([
-      { id: 0, vsize: 180, fee: 0, value: 313_000_000, coinbase: true },
-      { id: 1, vsize: 141, fee: 1410, value: 2_099_999_997_690_000, coinbase: false },
+      {
+        id: 0,
+        vsize: 180,
+        fee: 0,
+        value: 313_000_000,
+        flags: 0b1_0000_0000_0000_1010,
+        coinbase: true,
+      },
+      {
+        id: 1,
+        vsize: 141,
+        fee: 1410,
+        value: 2_099_999_997_690_000,
+        flags: 2 ** 14 + 2 ** 26 + 2 ** 43,
+        coinbase: false,
+      },
+      { id: 2, vsize: 100, fee: 100, value: 1, flags: 2 ** 53 - 1, coinbase: false },
     ]);
   });
 

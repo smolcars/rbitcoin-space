@@ -38,10 +38,10 @@ One table per group, each on its own page:
 | Esplora REST (`/api`) | [`compat/esplora.md`](compat/esplora.md) | 56 | 44 | 0 | 0 | 12 | 48 |
 | mempool.space REST (`/api/v1`) | [`compat/api-v1.md`](compat/api-v1.md) | 74 | 53 | 4 | 2 | 15 | 73 |
 | WebSocket | [`compat/websocket.md`](compat/websocket.md) | 48 | 28 | 1 | 3 | 16 | 43 |
-| Pages and visible features | [`compat/pages.md`](compat/pages.md) | 55 | 33 | 9 | 5 | 8 | 31 |
-| **Total** | | **233** | **158** | **14** | **10** | **51** | **195** |
+| Pages and visible features | [`compat/pages.md`](compat/pages.md) | 55 | 33 | 8 | 6 | 8 | 31 |
+| **Total** | | **233** | **158** | **13** | **11** | **51** | **195** |
 
-Every row's status was checked against `master` on 2026-11-12 (task C1), and the rows of `vBytesPerSecond`, `live-2h-chart` and `backend-info` again when they were built (task G1), the Lightning node's fee histogram and history when they were (task G3), the three mining rows of the pages when they were (task G2), the two replacements rows of the pages when they were (task G4), the five rows of broadcast, test-accept and package submission when the owner decided on them (2026-11-13), the socket's `init`, `backend` and block rows when they were built (task WS3, 2026-11-15), its `track-mempool-block` and `projected-block-transactions` rows when they were (task WS4, 2026-11-15), its replacement feeds and `init` rows when they were (task WS5, 2026-11-15), and the Lightning `channels`, `isp-ranking` and `channels-geo` rows when they were (task WS7, 2026-11-15): routes by request to a server on regtest and, read-only, on mainnet, signet and testnet4; pages by loading them in headless Chromium on each network. A page is `served` only when it shows everything its row names; a part it lacks has a row of its own.
+Every row's status was checked against `master` on 2026-11-12 (task C1), and the rows of `vBytesPerSecond`, `live-2h-chart` and `backend-info` again when they were built (task G1), the Lightning node's fee histogram and history when they were (task G3), the three mining rows of the pages when they were (task G2), the two replacements rows of the pages when they were (task G4), the five rows of broadcast, test-accept and package submission when the owner decided on them (2026-11-13), the socket's `init`, `backend` and block rows when they were built (task WS3, 2026-11-15), its `track-mempool-block` and `projected-block-transactions` rows when they were (task WS4, 2026-11-15), its replacement feeds and `init` rows when they were (task WS5, 2026-11-15), the Lightning `channels`, `isp-ranking` and `channels-geo` rows when they were (task WS7, 2026-11-15), and the goggles row when they were built (task GG5, 2026-11-15): routes by request to a server on regtest and, read-only, on mainnet, signet and testnet4; pages by loading them in headless Chromium on each network. A page is `served` only when it shows everything its row names; a part it lacks has a row of its own.
 
 Each row gives the feature, what it returns, where our answer comes from (an rbitcoin Esplora route or RPC method, our engine, our store, or Lightning), its status, its milestone from [`PLAN.md`](PLAN.md) and how it was checked.
 
@@ -70,7 +70,6 @@ Every `planned` row, as of the count above, and the rows the owner has decided. 
 | Clock `/clock` | Full-screen tip height, fee and mempool size | Nothing, without the price | A few hours | Build later; leave the price out |
 | TV `/tv` | Full-screen block strip and mempool chart | Nothing | A day | Skip: the home page in full screen is the same view |
 | Preview `/tx/preview` | Decodes a pasted transaction or PSBT | A transaction and PSBT parser in the browser, for untrusted input | Several days | An idea for later: with no broadcast page (the owner's decision), nothing is scheduled |
-| Mempool goggles | Filters the block drawing by transaction kind | Per-transaction flags: computed in the engine and served for mined blocks (`/v1/block/:hash/summary`, the grid's records). Left: our own filter UI. CPFP in a mined block is our plain child-pays-more rule, narrower than the reference's | Several days | Build the filter UI later |
 
 ### REST routes
 
@@ -99,7 +98,7 @@ cd web && node ../dev/compat/probe.mjs http://127.0.0.1:<port> <out dir> --netwo
 
 | Page | Works | Missing |
 |---|---|---|
-| Home `/` | Fee panel, projected and mined blocks with fees and pools, difficulty, mempool figures and chart, goggles drawing, recent replacements, live | Goggles filters on the projected blocks (no flags there yet; a mined block's are served) |
+| Home `/` | Fee panel, projected and mined blocks with fees and pools, difficulty, mempool figures and chart, goggles drawing, recent replacements, live | Goggles on the projected tiles: its tiles are fee strata, not drawings; the block and projected-block pages have them |
 | Block `/block/:hash` | Everything, drawing included | Audit of a block the server did not watch |
 | Transaction, confirmed | Everything | Per-transaction audit of an unwatched block |
 | Transaction, unconfirmed | Everything, with its position, ETA and the projected blocks above it | |

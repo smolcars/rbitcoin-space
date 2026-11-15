@@ -15,9 +15,13 @@ uniform float u_dpr;
 uniform float u_radius;
 uniform vec4 u_ease[2];
 uniform vec3 u_colors[13];
+// 0 draws every square; 1 draws only the marks: lit squares narrower than u_mark, ringed.
+uniform float u_pass;
+uniform float u_mark;
 out vec2 v_local;
 out vec2 v_half;
 out float v_radius;
+out float v_ring;
 out vec4 v_color;
 
 float bez(float a, float b, float t) {
@@ -53,6 +57,20 @@ void main() {
   // A one-pixel seam on each side wide enough to spare it; thinner ones meet their neighbour.
   float px = max(1.0, floor(u_dpr + 0.5));
   hi -= min(floor((hi - lo) / 4.0), vec2(px));
+  v_ring = 0.0;
+  if (u_pass > 0.5) {
+    // A small lit square drawn again at least u_mark wide, centred, in a ring of its own, so one
+    // transaction among thousands dimmed can be found.
+    if (a_alpha.y < 0.999 || min(hi.x - lo.x, hi.y - lo.y) >= u_mark) {
+      gl_Position = vec4(2.0, 2.0, 0.0, 1.0);
+      return;
+    }
+    v_ring = px * 1.5;
+    vec2 c = (lo + hi) * 0.5;
+    vec2 ext = max(hi - lo, vec2(u_mark)) * 0.5 + v_ring;
+    lo = floor(c - ext + 0.5);
+    hi = floor(c + ext + 0.5);
+  }
   vec2 corner = vec2(float(gl_VertexID & 1), float(gl_VertexID >> 1));
   v_half = max((hi - lo) * 0.5, vec2(0.0));
   v_local = (corner - 0.5) * (hi - lo);
@@ -66,13 +84,16 @@ precision mediump float;
 in vec2 v_local;
 in vec2 v_half;
 in float v_radius;
+in float v_ring;
 in vec4 v_color;
+uniform vec3 u_ring;
 out vec4 o;
 void main() {
   vec2 q = abs(v_local) - v_half + v_radius;
   float d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - v_radius;
   float a = clamp(0.5 - d, 0.0, 1.0) * v_color.a;
-  o = vec4(v_color.rgb * a, a);
+  vec3 rgb = v_ring > 0.0 ? mix(v_color.rgb, u_ring, clamp(d + v_ring + 0.5, 0.0, 1.0)) : v_color.rgb;
+  o = vec4(rgb * a, a);
 }`;
 
 /** Where and how big the grid is drawn, in device pixels. */
@@ -88,12 +109,15 @@ export interface View {
   dpr: number;
   /** Corner radius of a square. */
   radius: number;
+  /** Lit squares narrower than this are drawn again this wide, ringed; 0 draws no marks. */
+  mark: number;
 }
 
-/** Eleven RGB colors (ten fee bands, then the coinbase), and the two easing curves. */
+/** The squares' RGB colors (the fee bands, then the coinbase), the two easing curves, the ring's color. */
 export interface Paint {
   colors: Float32Array;
   ease: Float32Array;
+  ring: Float32Array;
 }
 
 function compile(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader | null {
@@ -198,8 +222,15 @@ export class Renderer {
     gl.uniform1f(this.at("u_radius"), view.radius);
     gl.uniform4fv(this.at("u_ease"), paint.ease);
     gl.uniform3fv(this.at("u_colors"), paint.colors);
+    gl.uniform3fv(this.at("u_ring"), paint.ring);
+    gl.uniform1f(this.at("u_mark"), view.mark);
+    gl.uniform1f(this.at("u_pass"), 0);
     gl.bindVertexArray(this.vao);
     gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, this.count);
+    if (view.mark > 0) {
+      gl.uniform1f(this.at("u_pass"), 1);
+      gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, this.count);
+    }
     gl.bindVertexArray(null);
   }
 }

@@ -1,8 +1,19 @@
 @layer components {
   /* Fills the box it is put in; the page gives that box its size and padding. */
   .txgrid {
+    /* A dimmed square's alpha: low enough that a lit one stands out, high enough that the block
+       keeps its shape and its fee colours hint through. */
+    --txgrid-dim: 0.14;
     position: absolute;
     inset: 0;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .txgrid {
+      --txgrid-dim: 0.2;
+    }
+  }
+  :root[data-theme="dark"] .txgrid {
+    --txgrid-dim: 0.2;
   }
   .txgrid__canvas {
     display: block;

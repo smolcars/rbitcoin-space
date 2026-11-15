@@ -18,6 +18,8 @@ export interface GridTx {
    * transaction's effective rate, the rate of the chunk it is mined in.
    */
   rate?: number;
+  /** The transaction's flags (docs/API.md "Transaction flags"), bits 0 to 52; none when absent. */
+  flags?: number;
   /** The coinbase pays no fee rate: it is drawn first, in a neutral color. */
   coinbase?: boolean;
 }

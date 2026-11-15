@@ -27,6 +27,8 @@ export interface TxGridProps {
   label: string;
   /** The txid of a transaction, shown on hover and opened on click. */
   txid: (tx: GridTx) => Promise<string>;
+  /** Keeps the transactions this returns true for lit and dims the rest; all lit when absent. */
+  lit?: ((tx: GridTx) => boolean) | undefined;
   /** Rings this transaction, by id, such as while its row in a list is hovered. */
   highlight?: number | string | undefined;
   onState?: (state: GridState) => void;
@@ -39,6 +41,15 @@ const ms = (v: string): number => {
 };
 
 const SETTLE: [number, number, number, number] = [0.3, 1.45, 0.6, 1];
+/** A dimmed square's alpha when the theme does not say (`--txgrid-dim`). */
+const DIM = 0.14;
+/**
+ * While no more than this share of the squares is lit, a lit square narrower than `MARK` CSS px is
+ * drawn again that wide in a ring: a few among thousands are found. More lit than that, and the
+ * dimmed ones are the few: rings everywhere would only be noise.
+ */
+const RARE = 0.1;
+const MARK = 5;
 const IN_OUT: [number, number, number, number] = [0.65, 0, 0.35, 1];
 
 /**
@@ -68,7 +79,11 @@ export default function TxGrid(props: TxGridProps) {
   let paint: Paint = {
     colors: new Float32Array(33),
     ease: new Float32Array([...SETTLE, ...IN_OUT]),
+    ring: new Float32Array(3),
   };
+  const [dim, setDim] = createSignal(DIM);
+  /** Whether small lit squares are marked: see `RARE`. */
+  let marks = false;
   const [geometry, setGeometry] = createSignal(0);
   const [rankOf, setRankOf] = createSignal(new Map<number | string, number>());
   const [active, setActive] = createSignal<number | string>();
@@ -102,8 +117,14 @@ export default function TxGrid(props: TxGridProps) {
     for (const [i, name] of names.entries()) {
       colors.set(parseColor(s.getPropertyValue(name)) ?? [0.5, 0.5, 0.5], i * 3);
     }
+    const d = Number.parseFloat(s.getPropertyValue("--txgrid-dim"));
+    setDim(Number.isFinite(d) ? d : DIM);
     const m = motion();
-    paint = { colors, ease: new Float32Array([...m.settle, ...m.inOut]) };
+    paint = {
+      colors,
+      ease: new Float32Array([...m.settle, ...m.inOut]),
+      ring: new Float32Array(parseColor(s.getPropertyValue("--color-text")) ?? [0.5, 0.5, 0.5]),
+    };
   };
 
   /** The grid's cell and origin in CSS pixels: as large as fits, centred, on the floor. */
@@ -129,6 +150,7 @@ export default function TxGrid(props: TxGridProps) {
       cell: p.cell * scale,
       dpr: scale,
       radius: radius * scale,
+      mark: marks ? MARK * scale : 0,
     };
   };
 
@@ -159,7 +181,17 @@ export default function TxGrid(props: TxGridProps) {
     const start = performance.now();
     current = layout(shown, width / height, props.capacity);
     performance.measure("txgrid layout", { start });
-    scene.update(current, shown, start - scene.epoch, document.hidden ? "snap" : arrival, motion());
+    const lit = props.lit;
+    const d = dim();
+    scene.update(
+      current,
+      shown,
+      start - scene.epoch,
+      document.hidden ? "snap" : arrival,
+      motion(),
+      lit ? (tx) => (lit(tx) ? 1 : d) : undefined,
+    );
+    marks = lit !== undefined && scene.lit <= scene.live * RARE;
     const ranks = new Map<number | string, number>();
     for (let r = 0; r < scene.live; r++) ranks.set(scene.ids[r] ?? r, r);
     setRankOf(ranks);
@@ -176,6 +208,29 @@ export default function TxGrid(props: TxGridProps) {
       if (first) arrived = performance.now();
       relayout(first || !drawn ? "pour" : "change");
     },
+  );
+
+  // A new pick, or a theme's dim level: the squares fade where they stand, with no new layout.
+  createEffect(
+    () => [props.lit, dim()] as const,
+    ([lit, d]) => {
+      const l = current;
+      if (!renderer || !l) return;
+      const start = performance.now();
+      scene.relight(
+        (r) => {
+          const tx = shown[l.order[r] ?? -1];
+          return !lit || !tx || lit(tx) ? 1 : d;
+        },
+        start - scene.epoch,
+        document.hidden ? { ...motion(), slow: 0, base: 0, fade: 0 } : motion(),
+      );
+      marks = lit !== undefined && scene.lit <= scene.live * RARE;
+      performance.measure("txgrid relight", { start });
+      renderer.upload(scene.data);
+      schedule();
+    },
+    { defer: true },
   );
 
   onSettled(() => {

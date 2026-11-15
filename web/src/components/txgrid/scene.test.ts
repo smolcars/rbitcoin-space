@@ -33,6 +33,68 @@ const close = (a: readonly number[], b: readonly number[]) =>
   a.forEach((v, k) => expect(v).toBeCloseTo(b[k] ?? Number.NaN, 4));
 
 describe("Scene", () => {
+  it("dims and lights squares where they stand, the lit ones growing back into place", () => {
+    const l = layout(txs, 1.2, 100_000);
+    const s = new Scene(0);
+    s.update(l, txs, 0, "snap", MOTION, (t) => (t.id === "b" ? 1 : 0.16));
+    expect(record(s, "a")[13]).toBeCloseTo(0.16);
+    expect(record(s, "b")[13]).toBe(1);
+    expect(s.lit).toBe(1);
+    const targets = s.ids.map((id) => record(s, String(id)).slice(4, 8));
+    s.relight((r) => (s.ids[r] === "a" ? 1 : 0.16), 1000, MOTION);
+    // No square goes anywhere new: only alphas change.
+    expect(s.ids.map((id) => record(s, String(id)).slice(4, 8))).toStrictEqual(targets);
+    const a = record(s, "a");
+    close(a.slice(4, 8), at(l, txs, "a").slice(0, 4));
+    expect(a[12]).toBeCloseTo(0.16);
+    expect(a[13]).toBe(1);
+    expect(a[2] ?? 0).toBeLessThan(a[6] ?? 0); // grows from smaller
+    const b = record(s, "b");
+    close(b.slice(0, 4), b.slice(4, 8)); // fades where it is
+    expect(b[13]).toBeCloseTo(0.16);
+    expect(s.lit).toBe(1);
+    // Unchanged squares keep their record.
+    expect(record(s, "c")[9]).toBe(0);
+    expect(s.end).toBeGreaterThan(1000);
+    // Lit again with nothing to change: nothing restarts.
+    const before = [...s.data];
+    s.relight((r) => (s.ids[r] === "a" ? 1 : 0.16), 2000, MOTION);
+    expect([...s.data]).toStrictEqual(before);
+  });
+
+  it("only fades dimmed squares to a new dim level, as a theme switch gives", () => {
+    const l = layout(txs, 1.2, 100_000);
+    const s = new Scene(0);
+    s.update(l, txs, 0, "snap", MOTION, (t) => (t.id === "b" ? 1 : 0.14));
+    s.relight((r) => (s.ids[r] === "b" ? 1 : 0.2), 1000, MOTION);
+    const a = record(s, "a");
+    close(a.slice(0, 4), a.slice(4, 8)); // where it stands, its size kept
+    expect(a[12]).toBeCloseTo(0.14);
+    expect(a[13]).toBeCloseTo(0.2);
+    expect(a[10]).toBe(1); // in-out, not the settle a lit square grows with
+  });
+
+  it("relights with a fade alone under reduced motion", () => {
+    const l = layout(txs, 1.2, 100_000);
+    const s = new Scene(0);
+    s.update(l, txs, 0, "snap", REDUCED, () => 0.2);
+    s.relight(() => 1, 500, REDUCED);
+    const a = record(s, "a");
+    close(a.slice(0, 4), a.slice(4, 8));
+    expect(a[9]).toBe(REDUCED.fade);
+  });
+
+  it("keeps each square's alpha through a change of layout", () => {
+    const s = new Scene(0);
+    const lit = (t: GridTx) => (t.id === "a" ? 1 : 0.2);
+    s.update(layout(txs, 1.2, 100_000), txs, 0, "snap", MOTION, lit);
+    const more = [...txs, tx("e", 300, 3)];
+    s.update(layout(more, 1.2, 100_000), more, 100, "change", MOTION, lit);
+    expect(record(s, "a")[13]).toBe(1);
+    expect(record(s, "e")[13]).toBeCloseTo(0.2);
+    expect(record(s, "c")[12]).toBeCloseTo(0.2); // from where it was
+  });
+
   it("pours the squares in, cheapest first, each settling where the layout puts it", () => {
     const l = layout(txs, 1.2, 100_000);
     const s = new Scene(0);

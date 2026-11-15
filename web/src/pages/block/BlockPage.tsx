@@ -19,6 +19,7 @@ import { AuditSection } from "../../components/audit/Audit";
 import { readAudit } from "../../components/audit/model";
 import { DataTable } from "../../components/DataTable";
 import { FeeKey, FeeRate } from "../../components/FeeRate";
+import { Goggles } from "../../components/Goggles";
 import { Hash, HashFull } from "../../components/Hash";
 import { Link } from "../../components/Link";
 import { SectionHeader } from "../../components/SectionHeader";
@@ -38,6 +39,7 @@ import {
   type Stamped,
 } from "../../lib/api";
 import { blocksTopic } from "../../lib/blocks-topic";
+import { litLabel, litOf, pick } from "../../lib/goggles";
 import type { Block, BlockStatus, Transaction } from "../../lib/esplora";
 import {
   feeRate,
@@ -965,6 +967,8 @@ function CoreSample(props: {
   });
   const described = () => (props.summary ? describeBands(props.summary.fee_bands) : []);
   const [grid, setGrid] = createSignal<GridState>();
+  const lit = createMemo(() => litOf(pick()));
+  let frame: HTMLDivElement | undefined;
   const drawn = () => grid() === "drawn" && props.txs !== undefined;
   const filled = () => (
     <Show when={share() !== undefined} fallback={<Skel size="s" />}>
@@ -973,11 +977,11 @@ function CoreSample(props: {
   );
   const label = () => {
     const n = props.txs?.length ?? 0;
-    return `Map of the block's ${groupDigits(n)} ${n === 1 ? "transaction" : "transactions"}, one rectangle each, the highest fee rate at the top left. The list below has every one.`;
+    return `Map of the block's ${groupDigits(n)} ${n === 1 ? "transaction" : "transactions"}, one rectangle each, the highest fee rate at the top left.${litLabel(pick())} The list below has every one.`;
   };
   return (
     <figure class={["block-core panel", { "block-core--grid": drawn() }]}>
-      <div class="block-core__frame">
+      <div class="block-core__frame" ref={frame}>
         <span class="block-core__limit" aria-hidden="true">
           Weight limit
         </span>
@@ -1011,6 +1015,7 @@ function CoreSample(props: {
                 capacity={MAX_BLOCK_WEIGHT / 4}
                 label={label()}
                 txid={props.txid}
+                lit={lit()}
                 highlight={props.highlight}
                 onState={setGrid}
               />
@@ -1018,6 +1023,9 @@ function CoreSample(props: {
           </div>
         </Show>
       </div>
+      <Show when={grid() !== "unsupported" && props.txsError === undefined}>
+        <Goggles txs={props.txs} frame={() => frame} />
+      </Show>
       {/* Both captions are always laid out in one cell, so the taller sets its height and the
           swap from layers to map moves nothing. */}
       <figcaption class="block-core__caption">

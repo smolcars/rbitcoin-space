@@ -1,12 +1,13 @@
 // Reads GET /app/block/:hash/txs?v=2, the fixed-width record of every transaction in a block
 // (docs/FRONTEND.md "Block summaries"). Small and dependency-free, so a page can import it
 // without loading the renderer.
+import { readFlags } from "../../lib/flags";
 import type { GridTx } from "./layout";
 
 /** The record format this app reads. A different one means a newer server. */
 export const TXS_VERSION = 2;
 const HEADER = 8;
-// The record's last eight bytes, the transaction's flags, are not read yet.
+// vsize 4, fee 8, value 8, flags 8.
 const RECORD = 28;
 
 /** Why a reply could not be read. `version` asks for a reload; `malformed` is a broken reply. */
@@ -45,6 +46,7 @@ export function decodeTxs(buffer: ArrayBuffer): GridTx[] {
       vsize: view.getUint32(o, true),
       fee: Number(view.getBigUint64(o + 4, true)),
       value: Number(view.getBigUint64(o + 12, true)),
+      flags: readFlags(view, o + 20),
       coinbase: i === 0,
     });
   }

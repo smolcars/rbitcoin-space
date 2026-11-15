@@ -211,6 +211,10 @@
     gap: var(--space-5);
     align-items: start;
   }
+  /* The goggles' panel docks beside it, over the facts (components/Goggles.css). */
+  .projected-core {
+    position: relative;
+  }
 
   /* The same box a mined block's map gets, but dashed and open: nothing here has set yet. */
   .projected-core__frame {

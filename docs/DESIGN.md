@@ -289,6 +289,16 @@ Decided while building it, and redrawn by the design council's first round:
 - **Captions.** One line: how full the block is, what a rectangle means, and that the space above is unused. The fee-layer caption shown before the map draws sits in the same cell, so swapping one for the other moves nothing.
 - **Fallbacks.** The fee layers stay in the frame until the map has drawn, and come back if the WebGL context is lost, until it is restored. A browser without WebGL2 keeps the layers and the caption says the map needs WebGL2. If the data fails, the caption offers "Try again".
 
+### The goggles
+
+Approved by the owner as a mockup (GG5), on a phone. On the block and projected-block pages, not the home page.
+
+- **Closed, one button.** "Highlight" under the map; the picked kinds beside it as tags joined by "or" or "and", × to take one out; one result line, "9 of 3 862 · 0.2% of the block" (the count in transactions, the share in virtual size, the area the eye sees).
+- **Open:** a bottom sheet on phones and tablets (to 65em), the map kept in view above it; on a desktop a panel docked beside the map, over the facts. Done or Escape closes it.
+- **Kinds:** five first (Taproot, Inscription, OP_RETURN, Consolidation, Paid by a child); "More kinds" opens the rest in four groups. Each shows its share of the block, with a wash as wide as the share. Absent from the block: dashed, cannot be picked. In "All" mode, one that would leave nothing lit turns dashed before it is picked. "Any / All" and Clear appear once a kind is picked.
+- **The map:** unmatched squares fade where they stand to `--txgrid-dim` (0.14 light, 0.2 dark), matched ones keep their fee colour and grow back into place; reduced motion only fades. While a tenth or fewer are lit, each lit square under 5 px is drawn at 5 px in a ring of `--color-text`: one inscription among 4 000 squares is found at a glance on a phone.
+- **Words:** titles, figures and controls only, no instructions.
+
 ### The projected-block page
 
 Decided while building it (`/block/next`, `/block/next/:n`), where the rest of this document left it open:

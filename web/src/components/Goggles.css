@@ -1,0 +1,292 @@
+/* The goggles' control (Goggles.tsx). Its panel docks against the nearest positioned ancestor on a
+   wide screen: the page's map panel, which sits beside its facts. */
+@layer components {
+  .gg {
+    margin-top: var(--space-3);
+  }
+  .gg__bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-3);
+  }
+  .gg__icon {
+    width: 20px;
+    height: 20px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+  }
+  .gg__toggle[aria-expanded="true"] {
+    border-color: var(--color-accent);
+    background: var(--color-accent-soft);
+  }
+  .gg__picked {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 0;
+    list-style: none;
+  }
+  .gg__picked li {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  .gg__join {
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+  .gg__tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 32px;
+    padding: 0 10px 0 12px;
+    border: 1px solid var(--color-accent);
+    border-radius: var(--radius-pill);
+    background: var(--color-accent-soft);
+    font-size: var(--text-sm);
+    cursor: pointer;
+    animation: gg-in var(--dur-base) var(--ease-settle);
+  }
+  .gg__x {
+    width: 10px;
+    height: 10px;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+  }
+  .gg__result {
+    margin-left: auto;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+  }
+  .gg__result--none {
+    color: var(--color-text-muted);
+  }
+
+  /* The panel: a sheet from the bottom on narrow screens, non-modal, so the map above stays live. */
+  .gg__panel {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: var(--z-toast);
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    max-width: 40rem;
+    /* About half a phone; more at a large text size, where the head alone is taller. */
+    max-height: min(85dvh, max(52dvh, 22rem));
+    margin-inline: auto;
+    border: 1px solid var(--color-line);
+    border-bottom: 0;
+    border-radius: var(--radius-l) var(--radius-l) 0 0;
+    background: var(--color-surface-raised);
+    box-shadow: var(--shadow-pop);
+    opacity: 0;
+    transform: translateY(100%);
+    visibility: hidden;
+    transition:
+      transform var(--dur-base) var(--ease-out),
+      opacity var(--dur-fade) linear,
+      visibility 0s linear var(--dur-base);
+  }
+  .gg--open .gg__panel {
+    opacity: 1;
+    transform: none;
+    visibility: visible;
+    transition:
+      transform var(--dur-base) var(--ease-out),
+      opacity var(--dur-fade) linear;
+  }
+  .gg__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    border-bottom: 1px solid var(--color-line);
+  }
+  .gg__now {
+    flex: 1 1 100%;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+  }
+  .gg__mode {
+    display: inline-flex;
+    border: 1px solid var(--color-line-strong);
+    border-radius: var(--radius-m);
+    overflow: hidden;
+  }
+  .gg__mode button,
+  .gg__clear,
+  .gg__more {
+    border: 0;
+    background: none;
+    color: inherit;
+  }
+  .gg__done {
+    margin-left: auto;
+  }
+  .gg__mode button {
+    min-height: 32px;
+    padding: 0 var(--space-3);
+    font-size: var(--text-sm);
+    cursor: pointer;
+  }
+  .gg__mode button + button {
+    border-left: 1px solid var(--color-line-strong);
+  }
+  .gg__mode [aria-pressed="true"] {
+    background: var(--color-accent-soft);
+    font-weight: var(--weight-medium);
+    box-shadow: inset 0 -2px 0 var(--color-accent);
+  }
+  .gg__clear {
+    min-height: 32px;
+    padding: 0 var(--space-2);
+    font-size: var(--text-sm);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    cursor: pointer;
+  }
+  .gg__body {
+    display: grid;
+    align-content: start;
+    gap: var(--space-4);
+    padding: var(--space-3) var(--space-4) max(var(--space-4), env(safe-area-inset-bottom));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .gg__group-name {
+    display: block;
+    margin-bottom: var(--space-2);
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+  }
+  .gg__chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+
+  /* A kind: its name and its share of the block, the share also a wash across the chip as wide as
+     it, so a kind that is all or none of the block shows before it is picked. */
+  .gg__chip {
+    --gg-wash: color-mix(in srgb, var(--color-line-strong) 24%, var(--color-surface-raised));
+    --gg-ground: var(--color-surface-raised);
+    display: inline-flex;
+    /* At a large text size a long name and its share outgrow a phone: the share goes under it. */
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0 var(--space-2);
+    max-width: 100%;
+    min-height: 36px;
+    padding: var(--space-1) var(--space-3);
+    border: 1px solid var(--color-line-strong);
+    border-radius: var(--radius-pill);
+    text-align: start;
+    background: linear-gradient(
+      to right,
+      var(--gg-wash) calc(var(--share) * 100%),
+      var(--gg-ground) 0
+    );
+    font-size: var(--text-sm);
+    cursor: pointer;
+    transition: transform var(--dur-instant) var(--ease-out);
+  }
+  .gg__chip:active:not([aria-disabled="true"]) {
+    transform: scale(0.96);
+  }
+  /* As wide as its widest figure ("<0.1%"), so a live block's new shares never move a chip. */
+  .gg__share {
+    min-width: 5ch;
+    color: var(--color-text-muted);
+    text-align: end;
+  }
+  .gg__chip[aria-pressed="true"] {
+    --gg-wash: color-mix(in srgb, var(--color-accent) 22%, var(--color-accent-soft));
+    --gg-ground: var(--color-accent-soft);
+    border-color: var(--color-accent);
+  }
+  .gg__chip[aria-pressed="true"]::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--color-accent);
+  }
+  .gg__chip[aria-pressed="true"] .gg__share {
+    color: var(--color-text);
+  }
+  /* None in this block, or none with the kinds already picked ("All"). */
+  .gg__chip--dashed {
+    border-style: dashed;
+    color: var(--color-text-muted);
+  }
+  .gg__chip[aria-disabled="true"] {
+    cursor: default;
+  }
+  .gg__more {
+    justify-self: start;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: 36px;
+    font-size: var(--text-sm);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    cursor: pointer;
+  }
+  .gg__more .num {
+    color: var(--color-text-muted);
+  }
+
+  @media (pointer: coarse) {
+    .gg__chip,
+    .gg__more,
+    .gg__mode button,
+    .gg__clear,
+    .gg__tag {
+      min-height: var(--touch);
+    }
+  }
+
+  @keyframes gg-in {
+    from {
+      opacity: 0;
+      transform: scale(0.85);
+    }
+  }
+
+  /* The sheet covers the page's lower half: room below, so the map can come up under the header. */
+  @media (max-width: 65em) {
+    main:has(.gg--open) {
+      padding-bottom: 60dvh;
+    }
+  }
+
+  /* Wide screens: the panel docks beside the map, over the facts, never over the map. */
+  @media (min-width: 65.01em) {
+    .gg__panel {
+      position: absolute;
+      top: 0;
+      right: calc(100% + var(--space-5));
+      bottom: auto;
+      left: auto;
+      z-index: 5;
+      width: min(24rem, 90%);
+      max-width: none;
+      max-height: 100%;
+      border-bottom: 1px solid var(--color-line);
+      border-radius: var(--radius-l);
+      transform: translateX(var(--space-3));
+    }
+    .gg--open .gg__panel {
+      transform: none;
+    }
+  }
+}

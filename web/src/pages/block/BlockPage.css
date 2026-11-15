@@ -111,6 +111,8 @@
     grid-area: side;
   }
   .block-core {
+    /* The goggles' panel docks beside it, over the facts (components/Goggles.css). */
+    position: relative;
     grid-area: core;
   }
   .block-more {

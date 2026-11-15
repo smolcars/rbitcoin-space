@@ -15,6 +15,7 @@ import type { JSX } from "@solidjs/web";
 import { Amount } from "../../components/Amount";
 import { DataTable } from "../../components/DataTable";
 import { FeeKey, FeeRate } from "../../components/FeeRate";
+import { Goggles } from "../../components/Goggles";
 import { Hash } from "../../components/Hash";
 import { Link } from "../../components/Link";
 import { More } from "../../components/More";
@@ -31,6 +32,7 @@ import {
   MISSING,
   truncateMiddle,
 } from "../../lib/format";
+import { litLabel, litOf, pick } from "../../lib/goggles";
 import { useLiveStatus, useTopic } from "../../lib/live";
 import { NETWORK_NAMES, paths } from "../../lib/network";
 import { useNetwork, usePageTitle } from "../../lib/page";
@@ -647,6 +649,8 @@ function CoreSample(props: {
     return b && f !== undefined ? strataLayers(b.bands, f, LAYER_MIN) : [];
   });
   const [grid, setGrid] = createSignal<GridState>();
+  const lit = createMemo(() => litOf(pick()));
+  let frame: HTMLDivElement | undefined;
   const empty = () => props.block?.txs === 0;
   const drawn = () => grid() === "drawn" && (props.txs?.length ?? 0) > 0;
   // The frame sets once when the chain moves: the moment a guess became, or lost to, a block.
@@ -661,11 +665,14 @@ function CoreSample(props: {
   const where = positionName(props.index, true);
   const label = () => {
     const n = props.txs?.length ?? 0;
-    return `Map of ${where}'s ${groupDigits(n)} ${n === 1 ? "transaction" : "transactions"}, one rectangle each, the highest fee rate at the top left. It changes as the mempool does; the list below has every one.`;
+    return `Map of ${where}'s ${groupDigits(n)} ${n === 1 ? "transaction" : "transactions"}, one rectangle each, the highest fee rate at the top left.${litLabel(pick())} It changes as the mempool does; the list below has every one.`;
   };
   return (
     <figure class={["projected-core panel", { "projected-core--grid": drawn() }]}>
-      <div class={["projected-core__frame", { "projected-core__frame--empty": empty() }]}>
+      <div
+        class={["projected-core__frame", { "projected-core__frame--empty": empty() }]}
+        ref={frame}
+      >
         <span class="projected-core__limit" aria-hidden="true">
           {isRest ? "One block's limit" : "Weight limit"}
         </span>
@@ -703,6 +710,7 @@ function CoreSample(props: {
                 capacity={MAX_WEIGHT / 4}
                 label={label()}
                 txid={(tx) => Promise.resolve(String(tx.id))}
+                lit={lit()}
                 highlight={props.highlight}
                 onState={setGrid}
               />
@@ -730,6 +738,9 @@ function CoreSample(props: {
           />
         </Show>
       </div>
+      <Show when={!isRest && grid() !== "unsupported"}>
+        <Goggles txs={props.txs} frame={() => frame} />
+      </Show>
       <figcaption class="projected-core__caption">
         <Show
           when={!isRest}
