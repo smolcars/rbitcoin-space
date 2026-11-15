@@ -10,7 +10,7 @@ import type { Column } from "../../components/DataTable";
 import { Link } from "../../components/Link";
 import { Empty, ErrorState, Loading } from "../../components/States";
 import { ApiError, createRequest, fetchApp } from "../../lib/api";
-import { groupDigits, truncateMiddle } from "../../lib/format";
+import { formatPowerOfTen, groupDigits, truncateMiddle } from "../../lib/format";
 import { hasLightning, NETWORK_NAMES, type Network, paths } from "../../lib/network";
 import { useNetwork } from "../../lib/page";
 import {
@@ -20,6 +20,8 @@ import {
   count,
   cut,
   type IconName,
+  type InboundFee,
+  inboundWord,
   isStatus,
   KIND_SHORT,
   KIND_TAG,
@@ -31,6 +33,8 @@ import {
   NAME_IN_LIST,
   type NodeRef,
   plainMsat,
+  plus,
+  ppm,
   type RankedNode,
   type Status,
   type Tone,
@@ -494,3 +498,34 @@ export function Fig(props: { exact: string; short: string; unit?: string }) {
     </span>
   );
 }
+
+/** A fee rate whole with its unit, as a power of ten where the room is too narrow for it; a
+ *  positive one carries its plus with `signed`. */
+export const PpmFig = (props: { rate: number; signed?: boolean }) => {
+  const sign = () => (props.signed ? plus(props.rate) : "");
+  return (
+    <Fig
+      exact={`${sign()}${ppm(props.rate)}`}
+      short={`${sign()}${formatPowerOfTen(props.rate)} ppm`}
+    />
+  );
+};
+
+/** An inbound fee's figures, each signed: `−200 ppm`, `+1 sat`, `−100 ppm −1 sat`. */
+export function InboundFig(props: { fee: InboundFee }) {
+  return (
+    <>
+      <Show when={props.fee.fee_rate !== 0}>
+        <PpmFig rate={props.fee.fee_rate} signed />
+      </Show>
+      <Show when={props.fee.fee_rate !== 0 && props.fee.base_fee_msat !== 0}> </Show>
+      <Show when={props.fee.base_fee_msat !== 0}>
+        <MsatFig msat={props.fee.base_fee_msat} sign={plus(props.fee.base_fee_msat)} />
+      </Show>
+    </>
+  );
+}
+
+/** "Inbound discount", "Inbound surcharge" or "Inbound fee", by the fee's sign. */
+export const inboundName = (f: InboundFee): string =>
+  inboundWord(f) === "fee" ? "Inbound fee" : `Inbound ${inboundWord(f)}`;

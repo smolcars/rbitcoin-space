@@ -48,6 +48,7 @@ async function lightning(page: Page) {
     [`nodes/${ACINQ}`]: node,
     [`nodes/${ACINQ}/history`]: recorded("node-acinq-history"),
     "channels/811984x2037x0": channel,
+    "channels/811984x2037x0/fees": recorded("channel-811984x2037x0-fees"),
   };
   await page.route(/\/regtest\/app\/lightning\//, async (route) => {
     const url = new URL(route.request().url());

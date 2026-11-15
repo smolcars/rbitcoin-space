@@ -3,6 +3,7 @@
 // The default export so pages load it with lazy().
 import { useNavigate } from "@solidjs/router";
 import { createMemo, createSignal, createUniqueId, For, onSettled, Show } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import { FEE_KEY_BOUNDS } from "../../lib/format";
 import { onNetwork } from "../../lib/network";
 import { useNetwork } from "../../lib/page";
@@ -158,6 +159,11 @@ export interface ChartProps {
    * to it.
    */
   href?: (i: number) => string | undefined;
+  /**
+   * The table "Show the figures" opens, in place of a row per point: for a chart whose points are
+   * not all its records (a fee's steps, broken at gaps), so the table lists only the records.
+   */
+  table?: () => JSX.Element;
 }
 
 /** How far from the picked point, in px, a second tap still means that point: half a thumb's
@@ -894,12 +900,19 @@ export default function Chart(props: ChartProps) {
               role="region"
               aria-label={`${props.label}, figures`}
             >
-              <DataTable
-                caption={props.label}
-                columns={columns()}
-                rows={Array.from({ length: props.x.length }, (_, i) => props.x.length - 1 - i)}
-                {...(props.href ? { rowHref: props.href } : {})}
-              />
+              <Show
+                when={props.table}
+                fallback={
+                  <DataTable
+                    caption={props.label}
+                    columns={columns()}
+                    rows={Array.from({ length: props.x.length }, (_, i) => props.x.length - 1 - i)}
+                    {...(props.href ? { rowHref: props.href } : {})}
+                  />
+                }
+              >
+                {(t) => t()()}
+              </Show>
             </div>
           </Show>
         </details>

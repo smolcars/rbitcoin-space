@@ -500,6 +500,65 @@ describe("a node", () => {
     expect(links(el)).toContain(`/lightning/node/${ACINQ}?fee=in:none`);
   });
 
+  it("lists its recent fee changes only in the Fees view, naming a fee that moved when the rate held", async () => {
+    replies[node] = json(acinq());
+    const fees = (fee_rate: number, base_fee_msat = 0) => ({
+      fee_rate,
+      base_fee_msat,
+      inbound_fee: null,
+    });
+    const change = (id: string, whose: string, before: unknown, after: unknown) => ({
+      id,
+      scid: "1",
+      peer: { id: BFX, alias: "bfx-lnd0" },
+      whose,
+      time: Math.floor(Date.now() / 1000) - 3600,
+      before,
+      after,
+    });
+    replies[`${node}/fees`] = json({
+      changes: [
+        change("913755x2933x0", "peer", fees(1000), fees(50)),
+        change("913755x2933x1", "own", fees(500, 1000), fees(500, 2000)),
+      ],
+    });
+    const plain = open(`/lightning/node/${ACINQ}`);
+    await shows(plain, "3rd by capacity");
+    expect(requests.some((r) => r.endsWith("/fees"))).toBe(false);
+    const el = open(`/lightning/node/${ACINQ}?view=fees`);
+    await shows(el, "Recent fee changes");
+    await shows(el, "The peer1 00050");
+    expect(text(el)).toContain("This node, base fee1 sat2 sats");
+    expect(text(el)).not.toContain("500500");
+    expect(links(el)).toContain("/lightning/channel/913755x2933x0#fee-history");
+    replies[`${node}/fees`] = json({ changes: [] });
+    clearApiCache();
+    const none = open(`/lightning/node/${ACINQ}?view=fees`);
+    await shows(none, "No change kept");
+  });
+
+  it("puts an inbound fee under the fee it belongs to, a discount or a surcharge by its sign", async () => {
+    const a = acinq();
+    const own = a.open_channels.channels[0]?.own_policy;
+    const inbound = (fee_rate: number) => ({ base_fee_msat: 0, fee_rate });
+    replies[node] = json({
+      ...a,
+      open_channels: {
+        ...a.open_channels,
+        channels: [
+          openChannel(0, { own_policy: { ...own, inbound_fee: inbound(-200) } as Policy }),
+          openChannel(1, { peer_policy: { ...own, inbound_fee: inbound(150) } as Policy }),
+          openChannel(2, { own_policy: { ...own, inbound_fee: inbound(0) } as Policy }),
+        ],
+      },
+    });
+    const el = open(`/lightning/node/${ACINQ}`);
+    await shows(el, "discount −200 ppm");
+    expect(text(el)).toContain("surcharge +150 ppm");
+    expect(text(el)).not.toContain("discount +");
+    expect(el.querySelectorAll(".ln-node-fee__in")).toHaveLength(2);
+  });
+
   it("gives the week's change only once its record is a week old", async () => {
     replies[node] = json(acinq());
     const now = Math.floor(Date.now() / 1000);
@@ -580,6 +639,7 @@ describe("a channel", () => {
       "Who charges what",
       "Fee for this hop",
       "Policies side by side",
+      "Fee rate over time",
       "Life of the channel",
     ]);
     expect(text(el.querySelector("h1") as HTMLElement)).toBe("Channel 811984x2037x0");
@@ -671,6 +731,73 @@ describe("a channel", () => {
     const after = [...(funded() ?? [])];
     expect(after.length === before.length && after.every((e, i) => e === before[i])).toBe(true);
     expect(before.every((e) => e.isConnected)).toBe(true);
+  });
+
+  it("charts each way's fee history, says when a way has one record, and counts the changes", async () => {
+    const c = channel();
+    const rec = (time: number, fee_rate: number) => ({
+      time,
+      fee_rate,
+      base_fee_msat: 1000,
+      inbound_fee: null,
+    });
+    replies[`/app/lightning/channels/${c.id}/fees`] = json({
+      id: c.id,
+      scid: c.scid,
+      node_one: { from: T0, records: [rec(T0, 1), rec(T0 + 600, 5), rec(T0 + 4000, 9)] },
+      node_two: { from: T0, records: [rec(T0, 2499)] },
+      watched: [
+        { from: T0, to: T0 + 1200 },
+        { from: T0 + 3600, to: T0 + 4800 },
+      ],
+    });
+    const el = show(c);
+    await shows(el, "No change seen since");
+    const fees = text(section(el, "Fee rate over time") as HTMLElement);
+    expect(fees).toContain("Last 50 changes each way");
+    expect(fees).toContain("bfx-lnd0 → ACINQ1 ppm");
+    expect(fees).toContain("ACINQ → bfx-lnd02 499 ppmNo change seen since");
+    // Its life counts the changes, not the first record, and leads to the chart.
+    await vi.waitFor(() =>
+      expect(steps(el)).toStrictEqual(["Funded", "2 fee changes", "Open now"]),
+    );
+    expect(links(el)).toContain("#fee-history");
+    expect(text(el)).toContain("bfx-lnd0 2, ACINQ 0; the latest");
+    // The hop's working-out says an inbound fee is left out.
+    expect(text(section(el, "Fee for this hop") as HTMLElement)).toContain(
+      "An inbound fee is not included",
+    );
+  });
+
+  it("shows an inbound fee by its sign, in the lanes and as terms of their own", async () => {
+    const one = { ...channel().node_one.policy, inbound_fee: { base_fee_msat: 0, fee_rate: -200 } };
+    const two = { ...channel().node_two.policy, inbound_fee: { base_fee_msat: 1000, fee_rate: 0 } };
+    const el = show(
+      channel({
+        node_one: { ...channel().node_one, policy: one as Policy },
+        node_two: { ...channel().node_two, policy: two as Policy },
+      }),
+    );
+    await shows(el, "Inbound discount −200 ppm");
+    const lanes = text(section(el, "Who charges what") as HTMLElement);
+    expect(lanes).toContain("Inbound surcharge +1 sat");
+    expect(lanes).not.toContain("discount +");
+    const terms = text(section(el, "Policies side by side") as HTMLElement);
+    expect(terms).toContain("Inbound rate");
+    expect(terms).toContain("−200 ppm");
+    expect(terms).toContain("ACINQ +200 ppm");
+    // Zero both ways is no inbound fee: no terms for it.
+    const zero = show(
+      channel({
+        id: "811984x2037x8",
+        node_one: {
+          ...channel().node_one,
+          policy: { ...one, inbound_fee: { base_fee_msat: 0, fee_rate: 0 } } as Policy,
+        },
+      }),
+    );
+    await shows(zero, "Policies side by side");
+    expect(text(zero)).not.toContain("Inbound");
   });
 
   it("says when the funding transaction is not looked up yet", async () => {

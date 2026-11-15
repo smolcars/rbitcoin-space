@@ -26,13 +26,7 @@ import { scrollCue } from "../../components/scrollCue";
 import { SectionHeader } from "../../components/SectionHeader";
 import { Empty, ErrorState, Loading } from "../../components/States";
 import { createRequest } from "../../lib/api";
-import {
-  formatBtcShort,
-  formatPowerOfTen,
-  groupDigits,
-  MISSING,
-  truncateMiddle,
-} from "../../lib/format";
+import { formatBtcShort, groupDigits, MISSING, truncateMiddle } from "../../lib/format";
 import { type Network, paths } from "../../lib/network";
 import {
   ageShort,
@@ -44,13 +38,14 @@ import {
   count,
   type FeeFilter,
   firstDir,
+  inboundOf,
+  inboundWord,
   isClosedPage,
   isOpenPage,
   KIND_SHORT,
   KIND_TAG,
   listRequest,
   type ListView,
-  ppm,
   type NodeDetail,
   OP_STATES,
   OP_WORDS,
@@ -64,7 +59,19 @@ import {
   sortName,
   viewHref,
 } from "./lightning";
-import { Alias, ask, BlockLink, ChannelId, ChannelLink, Fig, MsatFig, Tag } from "./parts";
+import {
+  Alias,
+  ask,
+  BlockLink,
+  ChannelId,
+  ChannelLink,
+  Fig,
+  InboundFig,
+  inboundName,
+  MsatFig,
+  PpmFig,
+  Tag,
+} from "./parts";
 
 /** Whether the viewport is a phone's (the 40em breakpoint), kept current. */
 function usePhone(): Accessor<boolean> {
@@ -88,11 +95,6 @@ export const SatsFig = (props: { sats: number }) => (
     unit={props.sats === 1 ? "sat" : "sats"}
     short={`${formatBtcShort(props.sats)} BTC`}
   />
-);
-
-/** A fee rate whole with its unit, as a power of ten where the room is too narrow for it. */
-const PpmFig = (props: { rate: number }) => (
-  <Fig exact={ppm(props.rate)} short={`${formatPowerOfTen(props.rate)} ppm`} />
 );
 
 interface ListProps {
@@ -290,7 +292,8 @@ function PeerBar(props: {
   );
 }
 
-/** A policy's rate in a column, its base fee in a slot of its own after it. */
+/** A policy's rate in a column, its base fee in a slot of its own after it, and its inbound fee
+ *  on a small line under them when it has one. */
 function Fee(props: { p: Policy | null }) {
   return (
     <Show when={props.p} fallback={<span title="No policy">{MISSING}</span>}>
@@ -298,6 +301,14 @@ function Fee(props: { p: Policy | null }) {
         <span class="ln-node-fee">
           <span>{groupDigits(p().fee_rate)}</span>
           <span class="ln-node-fee__base">+{baseShort(p().base_fee_msat)}</span>
+          <Show when={inboundOf(p())}>
+            {(f) => (
+              <span class="ln-node-fee__in" title={inboundName(f())}>
+                <span class="visually-hidden">Inbound </span>
+                {inboundWord(f()) === "fee" ? "inbound" : inboundWord(f())} <InboundFig fee={f()} />
+              </span>
+            )}
+          </Show>
         </span>
       )}
     </Show>
@@ -599,9 +610,10 @@ export function OpenList(props: ListProps) {
       <More label="About policies">
         <p>
           Fee out is what this node charges to forward over the channel; fee in is what the peer
-          charges to forward towards it. "Updated" is the newer of the two policies. Enabled means
-          both ends advertise forwarding: what they say, not proof the channel can route a payment.
-          A policy goes missing when none has come for two weeks.
+          charges to forward towards it. A discount or surcharge under a fee is that end's inbound
+          fee (lnd's), on payments that reach it over the channel. "Updated" is the newer of the two
+          policies. Enabled means both ends advertise forwarding: what they say, not proof the
+          channel can route a payment. A policy goes missing when none has come for two weeks.
         </p>
       </More>
     </section>
@@ -742,6 +754,22 @@ function OpenCard(props: {
               </Show>
             </dd>
           </div>
+          <For each={[c().own_policy, c().peer_policy]}>
+            {(p, k) => (
+              <Show when={inboundOf(p)}>
+                {(f) => (
+                  <div>
+                    <dt>
+                      {inboundName(f())}, {k() === 0 ? "this node" : "the peer"}
+                    </dt>
+                    <dd>
+                      <InboundFig fee={f()} />
+                    </dd>
+                  </div>
+                )}
+              </Show>
+            )}
+          </For>
           <div>
             <dt>Policies updated</dt>
             <dd>

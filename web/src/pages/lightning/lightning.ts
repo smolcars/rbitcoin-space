@@ -244,6 +244,51 @@ export interface Policy {
   max_htlc_msat: number;
   enabled: boolean;
   last_update: number;
+  /** lnd's inbound fee, signed (a discount is negative); absent from a server older than it. */
+  inbound_fee?: InboundFee | null;
+}
+
+/** An inbound fee: what an end adds to (or, negative, takes off) a payment arriving over the channel. */
+export interface InboundFee {
+  base_fee_msat: number;
+  fee_rate: number;
+}
+
+/** What an end charged from `time` on: its fees, without the policy's other terms. */
+export interface Fees {
+  fee_rate: number;
+  base_fee_msat: number;
+  inbound_fee: InboundFee | null;
+}
+
+export interface FeeRecord extends Fees {
+  time: number;
+}
+
+/** A stretch of time the server was recording fee changes. */
+export interface Watched {
+  from: number;
+  to: number;
+}
+
+/** A channel's fee history: each end's records, oldest first, and when the server was watching. */
+export interface FeeHistory {
+  id: string;
+  scid: string;
+  node_one: { from: number | null; records: FeeRecord[] };
+  node_two: { from: number | null; records: FeeRecord[] };
+  watched: Watched[];
+}
+
+/** A fee change on one of a node's channels: its own (`own`) or the peer's. */
+export interface FeeChange {
+  id: string;
+  scid: string;
+  peer: NodeRef;
+  whose: "own" | "peer";
+  time: number;
+  before: Fees;
+  after: Fees;
 }
 
 export interface End extends NodeRef {
@@ -372,8 +417,39 @@ export const isOverview = (v: unknown): v is Overview =>
   list(v["opened"], isListedChannel) &&
   list(v["closed"], isListedChannel);
 
+const isInbound = (v: unknown): v is InboundFee =>
+  obj(v) && num(v["base_fee_msat"]) && num(v["fee_rate"]);
+const isFees = (v: unknown): v is Fees =>
+  obj(v) && num(v["fee_rate"]) && num(v["base_fee_msat"]) && nullable(v["inbound_fee"], isInbound);
+const isRecord = (v: unknown): v is FeeRecord => isFees(v) && obj(v) && num(v["time"]);
+const isWay = (v: unknown): v is FeeHistory["node_one"] =>
+  obj(v) && nullable(v["from"], num) && list(v["records"], isRecord);
+
+export const isFeeHistory = (v: unknown): v is FeeHistory =>
+  obj(v) &&
+  str(v["id"]) &&
+  isWay(v["node_one"]) &&
+  isWay(v["node_two"]) &&
+  list(v["watched"], (w): w is Watched => obj(w) && num(w["from"]) && num(w["to"]));
+
+const WHOSE: ReadonlySet<unknown> = new Set(["own", "peer"]);
+export const isFeeChanges = (v: unknown): v is { changes: FeeChange[] } =>
+  obj(v) &&
+  list(
+    v["changes"],
+    (c): c is FeeChange =>
+      obj(c) &&
+      str(c["id"]) &&
+      isNodeRef(c["peer"]) &&
+      WHOSE.has(c["whose"]) &&
+      num(c["time"]) &&
+      isFees(c["before"]) &&
+      isFees(c["after"]),
+  );
+
 const isPolicy = (v: unknown): v is Policy =>
   obj(v) &&
+  nullable(v["inbound_fee"] ?? null, isInbound) &&
   num(v["fee_rate"]) &&
   num(v["base_fee_msat"]) &&
   num(v["cltv_delta"]) &&
@@ -596,6 +672,9 @@ export const count = (n: number, one: string, many = `${one}s`): string =>
 
 /** Parts per million, as fee rates on Lightning are written. */
 export const ppm = (n: number): string => `${groupDigits(n)} ppm`;
+
+/** A signed figure's sign as it is written before it: a plus for a rise, the minus is the figure's own. */
+export const plus = (n: number): string => (n > 0 ? "+" : "");
 /** A capacity axis's ticks, in BTC: three significant digits below 100, never a power of ten. */
 export const btcAxis = (sats: number): string => {
   const btc = sats / 1e8;
@@ -854,8 +933,10 @@ const blocks = (n: number) => `${groupDigits(n)} ${n === 1 ? "block" : "blocks"}
 
 /** A policy's terms, as the side-by-side table reads them; `last_update` is drawn as a time. */
 export const TERMS: readonly {
-  key: keyof Policy;
+  key: keyof Policy | "inbound_rate" | "inbound_base";
   label: string;
+  /** An inbound fee's term: shown only when an end advertises one. */
+  inbound?: true;
   show: (p: Policy) => string;
   diff: (a: Policy, b: Policy) => Difference;
 }[] = [
@@ -870,6 +951,24 @@ export const TERMS: readonly {
     label: "Base fee",
     show: (p) => msatAsSats(p.base_fee_msat),
     diff: (a, b) => byMsat(a.base_fee_msat, b.base_fee_msat),
+  },
+  {
+    key: "inbound_rate",
+    label: "Inbound rate",
+    inbound: true,
+    show: (p) =>
+      p.inbound_fee ? `${plus(p.inbound_fee.fee_rate)}${ppm(p.inbound_fee.fee_rate)}` : "None",
+    diff: (a, b) => by(a.inbound_fee?.fee_rate ?? 0, b.inbound_fee?.fee_rate ?? 0, ppm),
+  },
+  {
+    key: "inbound_base",
+    label: "Inbound base",
+    inbound: true,
+    show: (p) =>
+      p.inbound_fee
+        ? `${plus(p.inbound_fee.base_fee_msat)}${msatAsSats(p.inbound_fee.base_fee_msat)}`
+        : "None",
+    diff: (a, b) => byMsat(a.inbound_fee?.base_fee_msat ?? 0, b.inbound_fee?.base_fee_msat ?? 0),
   },
   {
     key: "cltv_delta",
@@ -908,6 +1007,80 @@ export const TERMS: readonly {
         : { side: a.last_update > b.last_update ? "one" : "two", text: "newer" },
   },
 ];
+
+/** An end's inbound fee when it advertises one: none when absent or zero both ways. */
+export const inboundOf = (p: { inbound_fee?: InboundFee | null } | null): InboundFee | null => {
+  const f = p?.inbound_fee ?? null;
+  return f === null || (f.fee_rate === 0 && f.base_fee_msat === 0) ? null : f;
+};
+
+/** An inbound fee named by its sign: taken off is a discount, added a surcharge, both an inbound fee. */
+export function inboundWord(f: InboundFee): "discount" | "surcharge" | "fee" {
+  const parts = [f.fee_rate, f.base_fee_msat].filter((n) => n !== 0);
+  if (parts.every((n) => n < 0)) return "discount";
+  if (parts.every((n) => n > 0)) return "surcharge";
+  return "fee";
+}
+
+/** Which of a change's fees to show, so a row never reads "from 500 to 500": the rate if it moved,
+ *  else the base fee, else the inbound fee. */
+export function changeShown(c: { before: Fees; after: Fees }): "rate" | "base" | "inbound" {
+  if (c.before.fee_rate !== c.after.fee_rate) return "rate";
+  if (c.before.base_fee_msat !== c.after.base_fee_msat) return "base";
+  const a = c.before.inbound_fee;
+  const b = c.after.inbound_fee;
+  const same =
+    (a?.fee_rate ?? 0) === (b?.fee_rate ?? 0) &&
+    (a?.base_fee_msat ?? 0) === (b?.base_fee_msat ?? 0);
+  return same ? "rate" : "inbound";
+}
+
+/** The channel page's fee history section, which the node's fee changes and its life link to. */
+export const FEE_HISTORY = "fee-history";
+
+/** How many of an end's records are changes: its first is where watching began. */
+export const changesIn = (records: readonly unknown[]): number => Math.max(0, records.length - 1);
+
+/**
+ * One end's fee rate as chart points: a step that holds each rate until the next record, drawn only
+ * while the server was recording (`watched`), with a `null` in each gap so no line crosses it. The
+ * last stretch runs on to `now`, since the server answering is recording. A rate set before a
+ * stretch began holds from its start.
+ */
+export function feeSteps(
+  records: readonly FeeRecord[],
+  watched: readonly Watched[],
+  now: number,
+): { x: number[]; y: (number | null)[] } {
+  const x: number[] = [];
+  const y: (number | null)[] = [];
+  const first = records[0];
+  const stretches: readonly Watched[] =
+    watched.length > 0 || first === undefined ? watched : [{ from: first.time, to: now }];
+  const lastTime = records.at(-1)?.time ?? now;
+  const push = (t: number, v: number | null) => {
+    x.push(t);
+    y.push(v);
+  };
+  stretches.forEach((s, k) => {
+    const next = stretches[k + 1];
+    const to = next ? s.to : Math.max(s.to, now, lastTime);
+    let held: number | null = null;
+    for (const r of records) if (r.time <= s.from) held = r.fee_rate;
+    if (held !== null) push(s.from, held);
+    for (const r of records) {
+      if (r.time > s.from && r.time <= to) {
+        push(r.time, r.fee_rate);
+        held = r.fee_rate;
+      }
+    }
+    if (held === null) return;
+    push(to, held);
+    // The gap's middle, so the readout in it says there is no data.
+    if (next) push((to + next.from) / 2, null);
+  });
+  return { x, y };
+}
 
 export type Tone = "positive" | "caution" | "negative" | "muted";
 export type IconName =
@@ -956,15 +1129,21 @@ export function channelTag(c: ChannelDetail): { word: string; icon: IconName; to
 export type Step =
   | { key: "from"; time: null; channel: Lineage }
   | { key: "funded"; time: number | null }
+  | { key: "fees"; time: null; one: number; two: number; latest: number }
   | { key: "open"; time: null }
   | { key: "closed"; time: number; kind: CloseKind }
   | { key: "swept"; time: number; sweep: Sweep }
   | { key: "continued"; time: number; channel: Lineage };
 
-export function lifeSteps(c: ChannelDetail): Step[] {
+/** The steps of a channel's life; `fees`, the fee changes held each way, adds a step when any are. */
+export function lifeSteps(
+  c: ChannelDetail,
+  fees?: { one: number; two: number; latest: number },
+): Step[] {
   const steps: Step[] = [];
   if (c.continued_from) steps.push({ key: "from", time: null, channel: c.continued_from });
   steps.push({ key: "funded", time: c.funding.block?.time ?? null });
+  if (fees && fees.one + fees.two > 0) steps.push({ key: "fees", time: null, ...fees });
   if (!c.closed) return [...steps, { key: "open", time: null }];
   const t = c.closed.block.time;
   steps.push({ key: "closed", time: t, kind: closeShown(c.closed.kind) });

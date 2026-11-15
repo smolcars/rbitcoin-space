@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  changeShown,
+  changesIn,
+  feeSteps,
+  type Fees,
+  inboundOf,
+  inboundWord,
+  isFeeChanges,
+  isFeeHistory,
   btcAxis,
   cleanAlias,
   msat,
@@ -611,5 +619,143 @@ describe("a node's words", () => {
       false,
     );
     expect(isOpenPage({ ...page, per_page: 0 })).toBe(false);
+  });
+});
+
+describe("fee history", () => {
+  const rec = (time: number, fee_rate: number, f: Partial<Fees> = {}) => ({
+    time,
+    fee_rate,
+    base_fee_msat: 0,
+    inbound_fee: null,
+    ...f,
+  });
+
+  it("steps from each record, holding the rate set before a stretch began, on to now", () => {
+    const records = [rec(100, 500), rec(1100, 400), rec(1500, 450)];
+    expect(feeSteps(records, [{ from: 1000, to: 1800 }], 2000)).toStrictEqual({
+      x: [1000, 1100, 1500, 2000],
+      y: [500, 400, 450, 450],
+    });
+  });
+
+  it("leaves a gap where the server was not recording, and picks up with the rate then", () => {
+    // 3000 is the last change made while it was down, recorded at its own time.
+    const records = [rec(1000, 500), rec(1200, 600), rec(3000, 700), rec(4500, 650)];
+    const watched = [
+      { from: 1000, to: 2000 },
+      { from: 4000, to: 5000 },
+    ];
+    expect(feeSteps(records, watched, 5000)).toStrictEqual({
+      x: [1000, 1200, 2000, 3000, 4000, 4500, 5000],
+      y: [500, 600, 600, null, 700, 650, 650],
+    });
+  });
+
+  it("draws nothing for an end with no record, and runs a lone record from where watching began", () => {
+    expect(feeSteps([], [{ from: 1000, to: 2000 }], 2000)).toStrictEqual({ x: [], y: [] });
+    expect(feeSteps([rec(10, 5)], [{ from: 1000, to: 2000 }], 2500)).toStrictEqual({
+      x: [1000, 2500],
+      y: [5, 5],
+    });
+    // A stretch before an end's first record draws nothing for it.
+    expect(
+      feeSteps(
+        [rec(3000, 5)],
+        [
+          { from: 1000, to: 2000 },
+          { from: 2500, to: 3500 },
+        ],
+        3500,
+      ),
+    ).toStrictEqual({ x: [3000, 3500], y: [5, 5] });
+  });
+
+  it("counts changes, not the first record, which is where watching began", () => {
+    expect(changesIn([])).toBe(0);
+    expect(changesIn([rec(1, 1)])).toBe(0);
+    expect(changesIn([rec(1, 1), rec(2, 2), rec(3, 3)])).toBe(2);
+  });
+
+  it("shows the fee that moved, so a row never reads from 500 to 500", () => {
+    const fees = (f: Partial<Fees> = {}): Fees => ({
+      fee_rate: 500,
+      base_fee_msat: 1000,
+      inbound_fee: null,
+      ...f,
+    });
+    const shown = (before: Partial<Fees>, after: Partial<Fees>) =>
+      changeShown({ before: fees(before), after: fees(after) });
+    expect(shown({}, { fee_rate: 400, base_fee_msat: 0 })).toBe("rate");
+    expect(shown({}, { base_fee_msat: 0 })).toBe("base");
+    expect(shown({}, { inbound_fee: { base_fee_msat: 0, fee_rate: -200 } })).toBe("inbound");
+    expect(
+      shown(
+        { inbound_fee: { base_fee_msat: 0, fee_rate: -200 } },
+        { inbound_fee: { base_fee_msat: -1000, fee_rate: -200 } },
+      ),
+    ).toBe("inbound");
+    // None and zero both ways are the same fee.
+    expect(shown({}, { inbound_fee: { base_fee_msat: 0, fee_rate: 0 } })).toBe("rate");
+  });
+
+  it("names an inbound fee by its sign, and shows none when it is zero both ways", () => {
+    const f = (fee_rate: number, base_fee_msat = 0) => ({ fee_rate, base_fee_msat });
+    expect(inboundWord(f(-200))).toBe("discount");
+    expect(inboundWord(f(0, -1000))).toBe("discount");
+    expect(inboundWord(f(200))).toBe("surcharge");
+    expect(inboundWord(f(0, 1))).toBe("surcharge");
+    expect(inboundWord(f(-200, 1000))).toBe("fee");
+    expect(inboundOf({ inbound_fee: f(0) })).toBeNull();
+    expect(inboundOf({ inbound_fee: null })).toBeNull();
+    expect(inboundOf({})).toBeNull();
+    expect(inboundOf(null)).toBeNull();
+    expect(inboundOf({ inbound_fee: f(-2_147_483_648, -2_147_483_648) })).toStrictEqual(
+      f(-2_147_483_648, -2_147_483_648),
+    );
+  });
+
+  it("compares the ends' inbound fees, none as zero", () => {
+    const diff = (key: string, a: Policy, b: Policy) =>
+      TERMS.find((t) => t.key === key)?.diff(a, b);
+    const one = policy({ inbound_fee: { base_fee_msat: 0, fee_rate: -200 } });
+    expect(diff("inbound_rate", one, policy())).toStrictEqual({ side: "two", text: "+200 ppm" });
+    expect(diff("inbound_base", one, policy())).toStrictEqual({ side: null, text: "Same" });
+    const show = (key: string, p: Policy) => TERMS.find((t) => t.key === key)?.show(p);
+    expect(show("inbound_rate", one)).toBe("−200 ppm");
+    expect(show("inbound_rate", policy({ inbound_fee: { base_fee_msat: 0, fee_rate: 5 } }))).toBe(
+      "+5 ppm",
+    );
+  });
+
+  it("reads the history and the changes as the server sends them, and refuses others", () => {
+    const history = {
+      id: "868675x206x2",
+      scid: "955118263271817218",
+      node_one: {
+        from: 1,
+        records: [rec(1, 638, { inbound_fee: { base_fee_msat: 0, fee_rate: -465 } })],
+      },
+      node_two: { from: null, records: [] },
+      watched: [{ from: 1, to: 2 }],
+    };
+    expect(isFeeHistory(history)).toBe(true);
+    expect(isFeeHistory({ ...history, watched: [{ from: 1 }] })).toBe(false);
+    expect(isFeeHistory({ ...history, node_two: { from: null, records: [{ time: 1 }] } })).toBe(
+      false,
+    );
+    const change = {
+      id: "913755x2933x0",
+      scid: "1004684247630675968",
+      peer: { id: PEER, alias: "hashposition.com" },
+      whose: "peer",
+      time: 1_794_758_519,
+      before: { fee_rate: 1000, base_fee_msat: 0, inbound_fee: null },
+      after: { fee_rate: 50, base_fee_msat: 0, inbound_fee: null },
+    };
+    expect(isFeeChanges({ changes: [change] })).toBe(true);
+    expect(isFeeChanges({ changes: [] })).toBe(true);
+    expect(isFeeChanges({ changes: [{ ...change, whose: "theirs" }] })).toBe(false);
+    expect(isFeeChanges({ changes: [{ ...change, before: null }] })).toBe(false);
   });
 });

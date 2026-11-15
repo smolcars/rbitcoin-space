@@ -1,7 +1,16 @@
 // A node's past (its channels and capacity since this server's record began, stepping at each
 // open and close) and how it prices its channels, out and in (docs/DESIGN.md "Lightning").
-import { createSignal, For, lazy, Loading as Pending, onSettled, Show } from "solid-js";
-import type { ApiResource } from "../../lib/api";
+import {
+  createSignal,
+  For,
+  lazy,
+  Loading as Pending,
+  Match,
+  onSettled,
+  Show,
+  Switch,
+} from "solid-js";
+import { type ApiResource, createRequest } from "../../lib/api";
 import { Amount } from "../../components/Amount";
 import { formatDay, formatMoment } from "../../components/chart/scale";
 import "../../components/chart/Chart.css";
@@ -11,16 +20,25 @@ import { SectionHeader } from "../../components/SectionHeader";
 import { Empty, ErrorState, Loading } from "../../components/States";
 import { formatBtcShort, groupDigits } from "../../lib/format";
 import { Link } from "../../components/Link";
-import { paths } from "../../lib/network";
+import { type Network, paths } from "../../lib/network";
+import { TimeAgo } from "../../components/Time";
 import {
   btcAxis,
+  changeShown,
+  FEE_HISTORY,
   count,
   feeRows,
   type FeeFigures as Figures,
+  type FeeChange,
   type FeeRow,
+  type Fees,
+  inboundOf,
+  isFeeChanges,
   type NodeDetail,
   type NodeHistory as HistoryAnswer,
 } from "./lightning";
+
+import { Alias, ask, ChannelId, InboundFig, MsatFig } from "./parts";
 
 const Chart = lazy(() => import("../../components/chart/Chart"));
 
@@ -295,5 +313,105 @@ function Count(props: { n: number; most: number }) {
       <span class="ln-fees__fill" style={{ "--w": String(props.n / props.most) }} />
       <span class="ln-fees__n num">{groupDigits(props.n)}</span>
     </Show>
+  );
+}
+
+/** What a change's row names when the rate held: the fee that moved. */
+const MOVED = { rate: "", base: "base fee", inbound: "inbound fee" } as const;
+
+/** Whose fee moved, and which fee when it was not the rate: `this node`, `the peer, base fee`. */
+const whose = (c: FeeChange) => {
+  const what = MOVED[changeShown(c)];
+  const who = c.whose === "own" ? "this node" : "the peer";
+  return what === "" ? who : `${who}, ${what}`;
+};
+
+/** One side of a change, as the row shows it: the rate bare (the header's ppm), another fee whole. */
+function Moved(props: { c: FeeChange; fees: Fees }) {
+  return (
+    <Switch>
+      <Match when={changeShown(props.c) === "base"}>
+        <MsatFig msat={props.fees.base_fee_msat} />
+      </Match>
+      <Match when={changeShown(props.c) === "inbound"}>
+        <Show when={inboundOf(props.fees)} fallback="none">
+          {(f) => <InboundFig fee={f()} />}
+        </Show>
+      </Match>
+      <Match when={true}>{groupDigits(props.fees.fee_rate)}</Match>
+    </Switch>
+  );
+}
+
+const CHANGE_COLUMNS: Column<FeeChange>[] = [
+  {
+    header: "Channel and peer",
+    cell: (c) => (
+      <span class="ln-node-row2 ln-recent__who">
+        <span class="ln-node-row2__line">
+          <Link class="ln-id num" href={`${paths.lightningChannel(c.id)}#${FEE_HISTORY}`}>
+            <ChannelId id={c.id} />
+          </Link>
+          {/* A phone drops the Whose and When columns; both stay in this cell. */}
+          <span class="ln-recent__sub ln-recent__phone">{whose(c)}</span>
+        </span>
+        <span class="ln-node-row2__line ln-recent__ends">
+          {/* Text, not a link: the row opens the channel, which links its peer; two links in one
+              row would leave neither a thumb's target. */}
+          <span class="ln-recent__sub">
+            <Alias alias={c.peer.alias} max={18} />
+          </span>
+          <span class="ln-recent__sub ln-recent__phone">
+            <TimeAgo time={c.time} />
+          </span>
+        </span>
+      </span>
+    ),
+  },
+  {
+    header: "Whose",
+    optional: true,
+    cell: (c) => `${whose(c)[0]?.toUpperCase() ?? ""}${whose(c).slice(1)}`,
+  },
+  { header: "From", numeric: true, cell: (c) => <Moved c={c} fees={c.before} /> },
+  { header: "To", numeric: true, cell: (c) => <Moved c={c} fees={c.after} /> },
+  { header: "When", numeric: true, optional: true, cell: (c) => <TimeAgo time={c.time} /> },
+];
+
+/** The newest fee changes on its channels, either end's: asked for only when the Fees view opens. */
+export function RecentChanges(props: { node: NodeDetail; network: Network }) {
+  const [changes, { refetch }] = createRequest(
+    () => props.node.id,
+    (id, signal) => ask(props.network, `/nodes/${id}/fees`, isFeeChanges, signal),
+  );
+  return (
+    <section aria-labelledby="ln-recent-title" class="ln-recent">
+      <SectionHeader title="Recent fee changes" id="ln-recent-title">
+        ppm
+      </SectionHeader>
+      <Switch>
+        <Match when={changes.latest}>
+          {(a) => (
+            <DataTable
+              caption="The latest fee changes on its channels, newest first"
+              columns={CHANGE_COLUMNS}
+              rows={a().changes}
+              rowHref={(c) => `${paths.lightningChannel(c.id)}#${FEE_HISTORY}`}
+              empty={<Empty title="No change kept" />}
+            />
+          )}
+        </Match>
+        <Match when={changes.state === "errored"}>
+          <ErrorState
+            title="Could not load its fee changes"
+            error={changes.error}
+            retry={refetch}
+          />
+        </Match>
+        <Match when={true}>
+          <Loading label="Loading its fee changes" />
+        </Match>
+      </Switch>
+    </section>
   );
 }

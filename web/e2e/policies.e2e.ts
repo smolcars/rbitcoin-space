@@ -3,7 +3,19 @@
 // so CI's sharding puts it on the lightest shard (docs/CI.md "Browser test shards").
 import type { Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
-import { pageFaults, recorded } from "./lightning-answers";
+import {
+  ACINQ,
+  feeHistory,
+  I32_MAX,
+  I32_MIN,
+  mainnet,
+  pageFaults,
+  recorded,
+  serve,
+} from "./lightning-answers";
+
+/** The largest a policy's 32-bit rate can be, in ppm. */
+const U32 = 4_294_967_295;
 
 /**
  * A channel in each state its page draws, from the recorded answer, its ends given names made to
@@ -57,6 +69,17 @@ function channelStates(): Record<string, unknown> {
     },
     "no policy one way": { ...real, ...ends(rtl, emoji, real.node_one.policy, null) },
     "no policy either way": { ...real, ...ends(long, long, null, null) },
+    // An inbound fee at both its ends, a discount one way and a surcharge the other, beside the
+    // largest rate a policy holds.
+    "inbound at the extremes": {
+      ...real,
+      ...ends(
+        long,
+        rtl,
+        { ...base, fee_rate: U32, inbound_fee: { base_fee_msat: I32_MIN, fee_rate: I32_MIN } },
+        { ...base, fee_rate: U32, inbound_fee: { base_fee_msat: I32_MAX, fee_rate: I32_MAX } },
+      ),
+    },
     cooperative: { ...closed("cooperative"), ...ends(emoji, long, null, null) },
     force: closed("force", null),
     penalty: {
@@ -71,17 +94,46 @@ function channelStates(): Record<string, unknown> {
   };
 }
 
-/** Serves one channel answer at a time, so each state is a reload with nothing else changed. */
-async function serveChannel(page: Page): Promise<(answer: unknown) => void> {
+/** Each open state's fee history: a full one, or the short ones real data starts with. */
+function feesOf(name: string): Record<string, unknown> {
+  const full = feeHistory();
+  const one = (full["node_one"] as { records: unknown[] }).records;
+  const short = (records: unknown[]) => ({ from: 1_794_700_000, records });
+  if (name === "disabled one way")
+    return { ...full, node_one: short(one.slice(0, 1)), node_two: short(one.slice(0, 1)) };
+  if (name === "no policy one way") return { ...full, node_two: short([]) };
+  if (name === "inbound at the extremes")
+    return feeHistory((i) => (i % 2 === 0 ? U32 : 0), [I32_MIN, I32_MAX]);
+  return full;
+}
+
+/**
+ * Serves one channel answer and its fee history at a time, so each state is a reload with nothing
+ * else changed.
+ */
+async function serveChannel(page: Page): Promise<(answer: unknown, fees?: unknown) => void> {
   let answer: unknown;
-  await page.route(/\/regtest\/app\/lightning\//, (route) =>
-    route.fulfill({
-      json: route.request().url().endsWith("/status") ? recorded("status") : answer,
-    }),
-  );
-  return (a) => {
+  let history: unknown;
+  await page.route(/\/regtest\/app\/lightning\//, (route) => {
+    const url = route.request().url();
+    return route.fulfill({
+      json: url.endsWith("/status") ? recorded("status") : url.endsWith("/fees") ? history : answer,
+    });
+  });
+  return (a, f) => {
     answer = a;
+    history = f;
   };
+}
+
+/** Waits for the fee history to be drawn each way, then opens its figures, for `pageFaults`. */
+async function feesDrawn(page: Page, open: boolean) {
+  if (!open) return;
+  const ways = page.locator("#fee-history .ln-feehist__way");
+  for (const way of await ways.all())
+    await expect(way.locator("[role='slider'], .ln-feehist__still")).toHaveCount(1);
+  for (const more of await page.locator("#fee-history .chart__figures > summary").all())
+    await more.click();
 }
 
 test("a channel page draws every state at a desktop's and a phone's width, light and dark", async ({
@@ -93,12 +145,15 @@ test("a channel page draws every state at a desktop's and a phone's width, light
     { width: 390, colorScheme: "dark" },
   ] as const;
   for (const [name, channel] of Object.entries(channelStates())) {
-    answer(channel);
+    answer(channel, feesOf(name));
+    const closed = ["cooperative", "force", "penalty", "other, continued"].includes(name);
+    const hasFees = !closed && name !== "no policy either way";
     for (const view of views) {
       await page.setViewportSize({ width: view.width, height: 900 });
       await page.emulateMedia({ colorScheme: view.colorScheme });
       await page.goto("/regtest/lightning/channel/811984x2037x0");
       await expect(page.getByRole("heading", { name: "Life of the channel" })).toBeVisible();
+      await feesDrawn(page, hasFees);
       const label = `${name} at ${view.width} px, ${view.colorScheme}`;
       expect(await pageFaults(page), label).toStrictEqual([]);
       if (name === "longest exact base") {
@@ -110,7 +165,9 @@ test("a channel page draws every state at a desktop's and a phone's width, light
       }
     }
     // What each state says, once.
-    const closed = ["cooperative", "force", "penalty", "other, continued"].includes(name);
+    await expect(page.getByRole("heading", { name: "Fee rate over time" })).toHaveCount(
+      hasFees ? 1 : 0,
+    );
     await expect(page.getByRole("heading", { name: "How it ended" })).toHaveCount(closed ? 1 : 0);
     await expect(page.getByRole("heading", { name: "Fee for this hop" })).toHaveCount(
       closed || name === "no policy either way" ? 0 : 1,
@@ -141,12 +198,74 @@ for (const text of [20, 24, 32]) {
     for (const width of [320, 390]) {
       await page.setViewportSize({ width, height: 800 });
       for (const [name, channel] of Object.entries(channelStates())) {
-        answer(channel);
+        answer(channel, feesOf(name));
         await page.goto("/regtest/lightning/channel/811984x2037x0");
         await expect(page.getByRole("heading", { name: "Life of the channel" })).toBeVisible();
+        // The section comes with the page's own content, so it is there to count by now.
+        await feesDrawn(page, (await page.locator("#fee-history").count()) > 0);
         faults.push(...(await pageFaults(page)).map((f) => `${width} px, ${name}: ${f}`));
       }
     }
     expect(faults).toStrictEqual([]);
   });
 }
+
+// A fee holds until it changes: the chart steps, and draws nothing across time the server was not
+// recording. A node's fee change opens the channel at this chart.
+test("a channel's fee steps break at a gap, and a node's fee change lands on them", async ({
+  page,
+}) => {
+  const answer = await serveChannel(page);
+  const real = recorded("channel-811984x2037x0");
+  answer(real, feeHistory());
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/regtest/lightning/channel/811984x2037x0");
+  const fees = page.locator("#fee-history");
+  const lines = fees.locator(".chart__line");
+  await expect(lines).toHaveCount(2);
+  for (const d of await lines.evaluateAll((p) => p.map((e) => e.getAttribute("d") ?? ""))) {
+    // Two runs, one each side of the gap; within a run only flat and upright strokes.
+    expect(d.match(/M/g), d).toHaveLength(2);
+    expect(d, d).not.toMatch(/L/);
+  }
+  await fees.locator(".chart__figures > summary").first().click();
+  const table = fees.getByRole("table").first();
+  await expect(table.locator("tbody tr")).toHaveCount(50);
+  await expect(table.locator("thead th")).toHaveText([
+    "Time",
+    "Fee rate, ppm",
+    "Base fee",
+    "Inbound fee",
+  ]);
+  await expect(page.getByRole("link", { name: "98 fee changes" })).toHaveAttribute(
+    "href",
+    "#fee-history",
+  );
+
+  // From the node's Fees view, a row opens the channel at its fee history.
+  await page.unrouteAll();
+  const change = {
+    id: "811984x2037x0",
+    scid: "892785849701564416",
+    peer: {
+      id: "033d8656219478701227199cbd6f670335c8d408a92ae88b962c49d4dc0e83e025",
+      alias: "bfx-lnd0",
+    },
+    whose: "peer",
+    time: 1_794_729_400,
+    before: { fee_rate: 1, base_fee_msat: 1000, inbound_fee: null },
+    after: { fee_rate: 1, base_fee_msat: 2000, inbound_fee: null },
+  };
+  await serve(page, {
+    ...mainnet(),
+    [`nodes/${ACINQ}/fees`]: { changes: [change] },
+    "channels/811984x2037x0/fees": feeHistory(),
+  });
+  await page.goto(`/regtest/lightning/node/${ACINQ}?view=fees`);
+  const row = page.getByRole("table", { name: /latest fee changes/ }).locator("tbody tr");
+  await expect(row).toContainText("the peer, base fee");
+  await expect(row).toContainText("1 sat");
+  await row.getByRole("link", { name: "811984x2037x0" }).click();
+  await expect(page).toHaveURL(/\/channel\/811984x2037x0#fee-history$/);
+  await expect(page.getByRole("heading", { name: "Fee rate over time" })).toBeInViewport();
+});

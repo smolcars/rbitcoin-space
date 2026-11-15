@@ -24,6 +24,8 @@ async function lightning(page: Page) {
     [`nodes/${ACINQ}`]: recorded("node-acinq"),
     [`nodes/${ACINQ}/history`]: recorded("node-acinq-history"),
     "channels/811984x2037x0": recorded("channel-811984x2037x0"),
+    "channels/811984x2037x0/fees": recorded("channel-811984x2037x0-fees"),
+    [`nodes/${ACINQ}/fees`]: recorded("node-acinq-fees"),
     "search?q=acinq": recorded("search-acinq"),
     "rankings/capacity?limit=100": recorded("rankings-capacity"),
   };

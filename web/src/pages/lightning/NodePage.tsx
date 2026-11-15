@@ -37,7 +37,7 @@ import {
   weekAgo,
 } from "./lightning";
 import { ClosedList, OpenList, SatsFig } from "./NodeChannels";
-import { FeeFigures, NodeFees, NodeHistory } from "./NodeCharts";
+import { FeeFigures, NodeFees, NodeHistory, RecentChanges } from "./NodeCharts";
 import { ask, Gate, LightningNav, rememberList, Stat, Tag } from "./parts";
 
 export default function NodePage() {
@@ -162,6 +162,7 @@ function Body(props: { node: NodeDetail; network: Network }) {
             <div class="ln-node-fees">
               <FeeFigures node={props.node} />
               <NodeFees node={props.node} />
+              <RecentChanges node={props.node} network={props.network} />
             </div>
           </Match>
           <Match when={view() === "history"}>

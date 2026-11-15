@@ -2,8 +2,17 @@
 // costs, the two policies side by side, how it ended, and its life from funding to close
 // (docs/DESIGN.md "Lightning"). Policies are what gossip advertises: enabled is not routable, and
 // a missing policy is not a disabled one.
-import { useParams } from "@solidjs/router";
-import { createSignal, createUniqueId, For, Match, Show, Switch } from "solid-js";
+import { useLocation, useParams } from "@solidjs/router";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  createUniqueId,
+  For,
+  Match,
+  Show,
+  Switch,
+} from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { formatDay, formatMoment } from "../../components/chart/scale";
 import { CopyButton } from "../../components/CopyButton";
@@ -12,12 +21,13 @@ import { More } from "../../components/More";
 import { SectionHeader } from "../../components/SectionHeader";
 import { Empty, ErrorState, Loading } from "../../components/States";
 import { TimeAgo } from "../../components/Time";
-import { createRequest, isNotFound } from "../../lib/api";
+import { type ApiResource, createRequest, isNotFound } from "../../lib/api";
 import { useNow } from "../../lib/clock";
 import { formatBtcShort, formatUtc, groupDigits, isoTime } from "../../lib/format";
 import { type Network, paths } from "../../lib/network";
 import { useNetwork, usePageTitle } from "../../lib/page";
 import {
+  changesIn,
   type ChannelDetail,
   channelTag,
   CLOSE_WORDS,
@@ -26,14 +36,18 @@ import {
   count,
   days,
   type End,
+  FEE_HISTORY,
+  type FeeHistory,
   hopFee,
   htlcLimit,
+  inboundOf,
   isChannelDetail,
+  isFeeHistory,
   isChannelId,
   lifeSteps,
   parseSats,
   type Policy,
-  ppm,
+  plus,
   shortName,
   type Step,
   TERMS,
@@ -47,13 +61,17 @@ import {
   Fig,
   Gate,
   Icon,
+  InboundFig,
+  inboundName,
   KindTag,
   LightningNav,
   Msat,
   MsatFig,
   NodeName,
+  PpmFig,
   Tag,
 } from "./parts";
+import { ChannelFees } from "./ChannelFees";
 
 export default function ChannelPage() {
   const params = useParams<{ id: string }>();
@@ -100,7 +118,7 @@ function Channel(props: { network: Network; id: string }) {
   );
   return (
     <Switch>
-      <Match when={channel.latest}>{(c) => <Body channel={c()} />}</Match>
+      <Match when={channel.latest}>{(c) => <Body channel={c()} network={props.network} />}</Match>
       <Match when={channel.state === "errored" && isNotFound(channel.error)}>
         <NotFound title="This server knows no such channel">
           It lists only public channels whose funding output it found on the chain, from when its
@@ -118,10 +136,28 @@ function Channel(props: { network: Network; id: string }) {
   );
 }
 
-function Body(props: { channel: ChannelDetail }) {
+function Body(props: { channel: ChannelDetail; network: Network }) {
   const c = () => props.channel;
   const tag = () => channelTag(c());
   const now = useNow();
+  // The fee history is a second request, after the channel's own: a closed channel has none.
+  const [fees, { refetch }] = createRequest(
+    () => (c().closed ? undefined : c().id),
+    (id, signal) => ask(props.network, `/channels/${id}/fees`, isFeeHistory, signal),
+  );
+  // Read once per answer: the steps run on to it, and the chart is not drawn again on the clock.
+  const answered = createMemo(() => {
+    void fees.latest;
+    return Math.floor(Date.now() / 1000);
+  });
+  // A link to the history lands on it: the section is there, at its height, from the first draw.
+  const location = useLocation();
+  createEffect(
+    () => location.hash,
+    (hash) => {
+      if (hash === `#${FEE_HISTORY}`) document.getElementById(FEE_HISTORY)?.scrollIntoView();
+    },
+  );
   return (
     <>
       <header class="ln-identity ln-chan">
@@ -176,13 +212,14 @@ function Body(props: { channel: ChannelDetail }) {
             <Show when={c().node_one.policy ?? c().node_two.policy}>
               <HopFee channel={c()} />
               <Policies channel={c()} />
+              <ChannelFees channel={c()} history={fees} now={answered()} retry={refetch} />
             </Show>
           </>
         }
       >
         {(x) => <Outcome channel={c()} close={x()} />}
       </Show>
-      <Life channel={c()} />
+      <Life channel={c()} fees={fees} />
     </>
   );
 }
@@ -312,8 +349,9 @@ function Lanes(props: { channel: ChannelDetail }) {
       <More label="Whose fee is whose">
         <p>
           Each end sets the fee for forwarding out over the channel: <bdi>{shortName(one())}</bdi>{" "}
-          towards <bdi>{shortName(two())}</bdi>, and the other way. Enabled is what an end
-          advertises, not proof that a payment gets through.
+          towards <bdi>{shortName(two())}</bdi>, and the other way. An inbound discount or surcharge
+          (lnd's inbound fee) is what an end takes off or adds for a payment that reaches it over
+          the channel. Enabled is what an end advertises, not proof that a payment gets through.
         </p>
       </More>
     </section>
@@ -343,7 +381,7 @@ function Lane(props: { from: End; to: End; tone: 1 | 2 }) {
         {(pol) => (
           <>
             <p class="ln-lane__fee">
-              <span class="num">{ppm(pol().fee_rate)}</span>
+              <PpmFig rate={pol().fee_rate} />
               <span class="ln-lane__plus"> + </span>
               <MsatFig msat={pol().base_fee_msat} />
             </p>
@@ -362,6 +400,13 @@ function Lane(props: { from: End; to: End; tone: 1 | 2 }) {
                 </span>
               </Show>
             </p>
+            <Show when={inboundOf(pol())}>
+              {(f) => (
+                <p class="ln-lane__note">
+                  {inboundName(f())} <InboundFig fee={f()} />
+                </p>
+              )}
+            </Show>
           </>
         )}
       </Show>
@@ -425,7 +470,8 @@ function HopFee(props: { channel: ChannelDetail }) {
       <More label="How it is worked out">
         <p>
           Fee = base fee + amount × fee rate ÷ 1 000 000, in millisatoshis, rounded down as nodes
-          do. Gossip does not say whether the channel has the balance to forward it.
+          do. An inbound fee is not included. Gossip does not say whether the channel has the
+          balance to forward it.
         </p>
       </More>
     </section>
@@ -490,12 +536,28 @@ function term(t: (typeof TERMS)[number], p: Policy | null): JSX.Element {
     return <Msat msat={p[k]} what={what} />;
   }
   if (k === "last_update") return <TimeAgo time={p.last_update} />;
+  if (k === "fee_rate") return <PpmFig rate={p.fee_rate} />;
+  if (k === "inbound_rate" || k === "inbound_base") {
+    const f = inboundOf(p);
+    if (!f) return "None";
+    return k === "inbound_rate" ? (
+      <PpmFig rate={f.fee_rate} signed />
+    ) : (
+      <MsatFig msat={f.base_fee_msat} sign={plus(f.base_fee_msat)} />
+    );
+  }
   return <span class="num">{t.show(p)}</span>;
 }
 
 function Policies(props: { channel: ChannelDetail }) {
   const one = () => props.channel.node_one;
   const two = () => props.channel.node_two;
+  // An inbound fee's terms only where an end advertises one.
+  const terms = () =>
+    TERMS.filter(
+      (t) =>
+        t.inbound !== true || inboundOf(one().policy) !== null || inboundOf(two().policy) !== null,
+    );
   const diff = (t: (typeof TERMS)[number]): JSX.Element => {
     const a = one().policy;
     const b = two().policy;
@@ -536,7 +598,7 @@ function Policies(props: { channel: ChannelDetail }) {
             </tr>
           </thead>
           <tbody>
-            <For each={TERMS}>
+            <For each={terms()}>
               {(t) => (
                 <tr>
                   <th scope="row">
@@ -562,9 +624,19 @@ function Policies(props: { channel: ChannelDetail }) {
   );
 }
 
-function Life(props: { channel: ChannelDetail }) {
+function Life(props: { channel: ChannelDetail; fees: ApiResource<FeeHistory> }) {
   const c = () => props.channel;
-  const steps = () => lifeSteps(c());
+  const held = () => {
+    const h = props.fees.latest;
+    if (!h) return undefined;
+    const ends = [h.node_one.records, h.node_two.records].filter((r) => r.length > 1);
+    return {
+      one: changesIn(h.node_one.records),
+      two: changesIn(h.node_two.records),
+      latest: Math.max(0, ...ends.map((r) => r.at(-1)?.time ?? 0)),
+    };
+  };
+  const steps = () => lifeSteps(c(), held());
   const now = useNow();
   return (
     <section aria-labelledby="ln-life-title">
@@ -582,7 +654,15 @@ function Life(props: { channel: ChannelDetail }) {
               ]}
             >
               <p class="ln-step__title">
-                <strong>{STEP_TITLES[s.key]}</strong>
+                <strong>
+                  <Show when={s.key === "fees" && s} fallback={STEP_TITLES[s.key]}>
+                    {(f) => (
+                      <a class="tap" href={`#${FEE_HISTORY}`}>
+                        {count(f().one + f().two, "fee change")}
+                      </a>
+                    )}
+                  </Show>
+                </strong>
                 <Show when={s.time}>
                   {(t) => (
                     <time class="num ln-step__time" title={formatUtc(t())}>
@@ -605,6 +685,7 @@ function Life(props: { channel: ChannelDetail }) {
 const STEP_TITLES: Record<Step["key"], string> = {
   from: "Continues an earlier channel",
   funded: "Funded",
+  fees: "Fee changes",
   open: "Open now",
   closed: "Closed",
   swept: "Revoked state swept",
@@ -613,6 +694,15 @@ const STEP_TITLES: Record<Step["key"], string> = {
 
 function stepBody(s: Step, c: ChannelDetail, now: () => number): JSX.Element {
   if (s.key === "from" || s.key === "continued") return <ChannelLink id={s.channel.id} />;
+  if (s.key === "fees") {
+    return (
+      <span>
+        <bdi>{shortName(c.node_one)}</bdi> <span class="num">{groupDigits(s.one)}</span>,{" "}
+        <bdi>{shortName(c.node_two)}</bdi> <span class="num">{groupDigits(s.two)}</span>; the latest{" "}
+        <TimeAgo time={s.latest} />
+      </span>
+    );
+  }
   if (s.key === "closed") return <KindTag kind={s.kind} long />;
   if (s.key === "swept") {
     return (

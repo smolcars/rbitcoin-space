@@ -383,6 +383,40 @@
     min-height: calc(200px + 5.75rem);
   }
 
+  /* A channel's fee rate over time: a panel each way, side by side where both fit, each marked
+     with its lane's colour, which its step is drawn in. */
+  .ln-feehist {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-5);
+  }
+  .ln-feehist__way {
+    min-width: 0;
+  }
+  .ln-feehist__title {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0 var(--space-3);
+    margin: 0 0 var(--space-2);
+    padding-left: var(--space-2);
+    border-left: 3px solid var(--lane);
+    font-size: var(--text-md);
+    overflow-wrap: anywhere;
+  }
+  .ln-feehist__now {
+    font-weight: var(--weight-regular);
+  }
+  /* The plot and its readout, held while the history loads so nothing under it moves. */
+  .ln-feehist__plot {
+    min-height: calc(160px + 5.75rem);
+  }
+  .ln-feehist__still {
+    margin: 0;
+    padding-left: calc(var(--space-2) + 3px);
+  }
+
   /* A node's fee rates: a row per range of rates, the cheapest first, two bars in each on one
      scale, what it charges over what its peers charge, each with its count. */
   .ln-fees {
@@ -525,6 +559,10 @@
     /* A node's: the time, channels and capacity. */
     .ln-chart--node {
       min-height: calc(200px + 3 * 1.5625rem + 3.5rem);
+    }
+    /* A channel's fee: the time and the rate. */
+    .ln-feehist__plot {
+      min-height: calc(160px + 2 * 1.5625rem + 3.5rem);
     }
     .ln {
       gap: var(--space-6);
@@ -1229,7 +1267,8 @@
        "1 000 000 ppm" or "100 001 sats" fits the narrow room. */
     .ln-chan__line strong,
     .ln-lane__fee,
-    .ln-hop__fee {
+    .ln-hop__fee,
+    .ln-feehist__now {
       font-size: var(--text-sm);
     }
     .ln-hop__way {
@@ -1473,6 +1512,12 @@
     font-size: var(--text-xs);
     color: var(--color-text-muted);
   }
+  /* The inbound fee under the rate and base: small, ending on the rates' line, its figures whole. */
+  .ln-node-fee__in {
+    grid-column: 1 / -1;
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+  }
 
   /* A phone's channels: cards that fit the width, three short lines, nothing to swipe. */
   .ln-node-cards {
@@ -1605,6 +1650,18 @@
   .ln-node-fees > * {
     min-width: 0;
   }
+  /* Its recent fee changes take the view's whole width, under the rates. */
+  .ln-recent {
+    grid-column: 1 / -1;
+  }
+  .ln-recent__sub {
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+  }
+  /* What a phone's dropped Whose and When columns said, in the row's first cell. */
+  .ln-recent__phone {
+    display: none;
+  }
   .ln-node-ratio {
     margin: var(--space-3) 0 0;
     font-size: var(--text-sm);
@@ -1685,13 +1742,27 @@
     }
   }
   @media (max-width: 65em) {
-    .ln-node-fees {
+    .ln-node-fees,
+    .ln-feehist {
       grid-template-columns: minmax(0, 1fr);
     }
   }
   @media (max-width: 40em) {
     .ln-node-sortpick {
       display: inline-flex;
+    }
+    .ln-recent__phone {
+      display: inline;
+    }
+    /* The time ago at the far end of the peer's line, the whose under a long id where it must. */
+    .ln-recent__who {
+      align-items: stretch;
+    }
+    .ln-recent__who .ln-node-row2__line {
+      flex-wrap: wrap;
+    }
+    .ln-recent__ends {
+      justify-content: space-between;
     }
     .ln-node-filter {
       max-width: none;

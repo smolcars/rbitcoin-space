@@ -4,7 +4,16 @@
 // shard (docs/CI.md "Browser test shards").
 import type { Page, Route } from "@playwright/test";
 import { expect, test } from "./fixtures";
-import { ACINQ, mainnet, ONE, pageFaults, recorded, serve } from "./lightning-answers";
+import {
+  ACINQ,
+  I32_MAX,
+  I32_MIN,
+  mainnet,
+  ONE,
+  pageFaults,
+  recorded,
+  serve,
+} from "./lightning-answers";
 import { frames } from "./layout";
 import { tablesFit } from "./rows";
 
@@ -41,7 +50,16 @@ async function serveLists(
 /** The node's first page, its rows in another order or kept by `keep`, its total `total`. */
 const pageOf = (q: URLSearchParams, keep: (r: Row) => boolean = () => true): Answer => {
   const first = node().open_channels;
-  const rows = first.channels.filter(keep);
+  // An inbound discount on every other row's own fee, a surcharge on every third row's peer fee.
+  const inbound = (p: unknown, fee_rate: number) =>
+    p === null ? null : { ...(p as object), inbound_fee: { base_fee_msat: -1000, fee_rate } };
+  const rows = first.channels
+    .map((r, i) => ({
+      ...r,
+      own_policy: i % 2 === 0 ? inbound(r["own_policy"], -200) : r["own_policy"],
+      peer_policy: i % 3 === 0 ? inbound(r["peer_policy"], 150) : r["peer_policy"],
+    }))
+    .filter((r) => keep(r));
   return {
     ...first,
     sort: q.get("sort") ?? "capacity",
@@ -197,20 +215,25 @@ function extremes(): Record<string, unknown> {
   const names = ["0256ccca46170ff4b1ef0256ccca4617", "عقدةالبرقالسريعة", "⚡🐙🦀⚡🐙🦀⚡🐙"];
   const n = node();
   const c = closed();
-  const policy = (p: unknown) => ({
+  const policy = (p: unknown, i = 0) => ({
     ...(p as object),
     fee_rate: U32,
     base_fee_msat: U32,
     cltv_delta: 65_535,
     max_htlc_msat: ALL_SATS * 1000,
+    // The longest inbound fees: the most negative, and the largest surcharge.
+    inbound_fee:
+      i % 2 === 0
+        ? { base_fee_msat: I32_MIN, fee_rate: I32_MIN }
+        : { base_fee_msat: I32_MAX, fee_rate: I32_MAX },
   });
   const open = n.open_channels.channels.map((r, i) => ({
     ...r,
     capacity: ALL_SATS - i,
     funded: 1_231_006_505,
     peer: { ...r.peer, alias: names[i % 3], capacity: ALL_SATS, channels: 99_999 },
-    own_policy: policy(r["own_policy"]),
-    peer_policy: policy(r["peer_policy"]),
+    own_policy: policy(r["own_policy"], i),
+    peer_policy: policy(r["peer_policy"], i + 1),
   }));
   const shut = c.channels.map((r, i) => ({
     ...r,
@@ -240,6 +263,27 @@ function extremes(): Record<string, unknown> {
     },
     [`nodes/${ACINQ}/channels?sort=htlc`]: { ...n.open_channels, sort: "htlc", channels: open },
     [`nodes/${ACINQ}/channels?status=closed`]: { ...c, channels: shut },
+    // Ten changes with hostile names: the largest rates, and a base fee and an inbound fee moving
+    // at their longest while the rate holds.
+    [`nodes/${ACINQ}/fees`]: {
+      changes: Array.from({ length: 10 }, (_, i) => {
+        const fees = (fee_rate: number, base_fee_msat: number, inbound: number | null) => ({
+          fee_rate,
+          base_fee_msat,
+          inbound_fee: inbound === null ? null : { base_fee_msat: inbound, fee_rate: inbound },
+        });
+        const kind = i % 3;
+        return {
+          id: "4294967295x4294967295x65535".slice(0, 27 - (i % 4)),
+          scid: "18446744073709551615",
+          peer: { id: n.open_channels.channels[i]?.peer["id"], alias: names[i % 3] },
+          whose: i % 2 === 0 ? "own" : "peer",
+          time: 1_231_006_505 + i,
+          before: kind === 0 ? fees(U32, 0, null) : fees(1, kind === 1 ? U32 : 0, null),
+          after: kind === 0 ? fees(0, 0, null) : fees(1, 0, kind === 2 ? I32_MIN : null),
+        };
+      }),
+    },
     [`nodes/${ACINQ}/history`]: {
       ...history,
       // A fresh copy of the recording each call: its points are this answer's own.
