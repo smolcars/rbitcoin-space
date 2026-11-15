@@ -22,6 +22,7 @@ use engine::mempool::{Mempool, Tracker};
 use engine::projected::{Placed, ProjectedBlock, Projection, Projector};
 use node::electrum::{self, ScriptHash};
 use node::esplora::{Esplora, Route, ScriptRef};
+use serde_json::value::RawValue;
 use serde_json::{Map, Value, json};
 use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::{Notify, Semaphore, watch};
@@ -48,11 +49,9 @@ const RETRY: Duration = Duration::from_secs(1);
 const TOO_FAST: &str = "too many new addresses from this client; retry in a moment";
 /// Messages the reference has that this server does not serve, answered with `<key>-error` so a
 /// person reading the traffic sees why nothing comes.
-const UNSERVED: [&str; 7] = [
+const UNSERVED: [&str; 5] = [
     "track-mempool",
     "track-mempool-txids",
-    "track-rbf",
-    "track-rbf-summary",
     "track-txs",
     "track-scripthashes",
     "track-accelerations",
@@ -84,6 +83,8 @@ pub struct Compat {
     esplora: Option<Esplora>,
     /// A socket started drawing a projected block: [`drawings`] sends it the block.
     drawings: Notify,
+    /// A socket started a replacement feed: [`run`] sends the list if it has none stored.
+    feeds: Notify,
 }
 
 impl std::fmt::Debug for Compat {
@@ -142,6 +143,7 @@ impl Compat {
                 Esplora::with_limits(u, crate::esplora::HEAVY_CEILING, MAX_PAGE).ok()
             }),
             drawings: Notify::new(),
+            feeds: Notify::new(),
         }
     }
 
@@ -233,6 +235,10 @@ pub(crate) struct Session<'a> {
     /// `track-mempool-block`, and when its state was last sent.
     drawing: Option<u8>,
     sent: Option<Instant>,
+    /// `track-rbf` (`true` for full RBF) and `track-rbf-summary`, each with when its list was
+    /// last sent.
+    rbf: Option<(bool, Instant)>,
+    summary: Option<Instant>,
 }
 
 impl<'a> Session<'a> {
@@ -245,6 +251,8 @@ impl<'a> Session<'a> {
             addresses: Vec::new(),
             drawing: None,
             sent: None,
+            rbf: None,
+            summary: None,
         }
     }
 
@@ -269,12 +277,19 @@ impl<'a> Session<'a> {
         };
         match m.get("action").and_then(Value::as_str) {
             Some("ping") => self.send(&json!({ "pong": true })),
-            // What no `want` part carries; the parts' state comes with `want`.
-            Some("init") => self.send(&json!({
-                "loadingIndicators": {},
-                "backend": "esplora",
-                "backendInfo": api_v1::backend_info(self.ctx),
-            })),
+            // What no `want` part carries, and `da`, which the reference's transaction page needs
+            // for its ETA without wanting `stats`; the parts' state comes with `want`.
+            Some("init") => {
+                let mut init = json!({
+                    "loadingIndicators": {},
+                    "backend": "esplora",
+                    "backendInfo": api_v1::backend_info(self.ctx),
+                });
+                if let (Some(m), Some(da)) = (init.as_object_mut(), da(self.ctx)) {
+                    m.insert("da".into(), da);
+                }
+                self.send(&init);
+            }
             Some("want") => {
                 if let Some(names) = strings(m.get("data")) {
                     self.want(&names, limits)?;
@@ -293,6 +308,24 @@ impl<'a> Session<'a> {
         }
         if let Some(n) = m.get("track-mempool-block").and_then(Value::as_i64) {
             self.track_mempool_block(n, limits);
+        }
+        // Anything else stops a feed, as `"stop"` and `false` do on the reference.
+        if let Some(v) = m.get("track-rbf") {
+            let want = match v.as_str() {
+                Some("all") => Some(false),
+                Some("fullRbf") => Some(true),
+                _ => None,
+            };
+            let held = self.rbf.map(|(full, at)| (Topic::V1Rbf(full), at));
+            let now = self.feed(held, want.map(Topic::V1Rbf), "track-rbf", limits);
+            self.rbf = now.zip(want).map(|((_, at), full)| (full, at));
+        }
+        if let Some(v) = m.get("track-rbf-summary") {
+            let held = self.summary.map(|at| (Topic::V1RbfSummary, at));
+            let want = (v == &Value::Bool(true)).then_some(Topic::V1RbfSummary);
+            self.summary = self
+                .feed(held, want, "track-rbf-summary", limits)
+                .map(|(_, at)| at);
         }
         for key in UNSERVED {
             if m.contains_key(key) {
@@ -450,6 +483,43 @@ impl<'a> Session<'a> {
                 "track-mempool-block",
                 "too many subscriptions on this connection",
             ),
+        }
+    }
+
+    /// A replacement feed follows `want` instead of `held`, the topic it followed and when its
+    /// list was last sent; `None` stops it. Returns what it follows now. The topic already
+    /// followed, asked again, is sent its stored list again at most once per
+    /// `WS_MEMPOOL_INTERVAL_MS`; the rest are ignored.
+    fn feed(
+        &mut self,
+        held: Option<(Topic, Instant)>,
+        want: Option<Topic>,
+        key: &str,
+        limits: &WsLimits,
+    ) -> Option<(Topic, Instant)> {
+        if let (Some((t, sent)), Some(w)) = (held, want)
+            && t == w
+        {
+            if sent.elapsed() < limits.mempool_interval {
+                return held;
+            }
+            // The topic's stored list again: a frame already encoded, queued by reference.
+            self.ctx.hub.subscribe(t, self.subs.conn());
+            return Some((t, Instant::now()));
+        }
+        if let Some((old, _)) = held {
+            self.subs.part(old);
+        }
+        let t = want?;
+        match self.subs.join(t, "", limits) {
+            Ok(_) => {
+                self.ctx.v1.feeds.notify_one();
+                Some((t, Instant::now()))
+            }
+            Err(_) => {
+                self.error(key, "too many subscriptions on this connection");
+                None
+            }
         }
     }
 
@@ -734,14 +804,93 @@ fn stats(ctx: &NetworkContext) -> Option<Value> {
             serde_json::to_value(api_v1::precise(&a.rates)).ok()?,
         );
     }
-    if let Some(a) = ctx.difficulty.current() {
-        let da = api_v1::difficulty(&a, SystemTime::now());
-        m.insert("da".into(), serde_json::to_value(da).ok()?);
+    if let Some(da) = da(ctx) {
+        m.insert("da".into(), da);
     }
     if let Some(t) = lock(&ctx.v1.latest).clone() {
         m.insert("transactions".into(), t);
     }
     (!m.is_empty()).then_some(Value::Object(m))
+}
+
+/// `GET /api/v1/difficulty-adjustment`'s answer, from the figures held in memory; `None` before
+/// the first tip was read.
+fn da(ctx: &NetworkContext) -> Option<Value> {
+    let a = ctx.difficulty.current()?;
+    serde_json::to_value(api_v1::difficulty(&a, SystemTime::now())).ok()
+}
+
+/// The replacement feeds' topics: `track-rbf` `"all"` and `"fullRbf"`, and `track-rbf-summary`.
+const FEEDS: [Topic; 3] = [Topic::V1Rbf(false), Topic::V1Rbf(true), Topic::V1RbfSummary];
+
+/// What the replacement feeds last published: the record's version each topic's list is of
+/// (`None` while nobody follows it, its list cleared), and when the last list went out.
+#[derive(Default)]
+struct Feeds {
+    version: [Option<u64>; 3],
+    at: Option<Instant>,
+}
+
+impl Feeds {
+    /// Publishes each followed feed's list when the record changed since it was last sent, and
+    /// clears the lists nobody follows, so nothing is encoded for nobody. `tick` is the
+    /// `WS_MEMPOOL_INTERVAL_MS` tick; between ticks (a socket started a feed with no list stored)
+    /// lists go out only if none did for an interval, so lists never go out more often than twice
+    /// an interval. The trees are the bytes `GET /api/v1/replacements` answers, encoded once per
+    /// change of the record for both.
+    fn step(&mut self, ctx: &NetworkContext, tick: bool, now: Instant) {
+        let mut due = [false; 3];
+        for ((t, v), d) in FEEDS.iter().zip(&mut self.version).zip(&mut due) {
+            if ctx.hub.subscribers(*t) > 0 {
+                *d = true;
+            } else if v.take().is_some() {
+                ctx.hub.clear(*t);
+            }
+        }
+        let quiet = self
+            .at
+            .is_some_and(|a| now < a + ctx.sockets.limits.mempool_interval);
+        if !due.contains(&true) || !tick && quiet || !ctx.track.mempool_enabled() {
+            return;
+        }
+        let msgs: Vec<(Topic, Frame)> = ctx.track.with_replacements(|r| {
+            let version = r.version();
+            let mut out = Vec::new();
+            for ((t, v), d) in FEEDS.iter().zip(&mut self.version).zip(due) {
+                if !d || *v == Some(version) {
+                    continue;
+                }
+                *v = Some(version);
+                let msg = match t {
+                    Topic::V1Rbf(full) => trees(&ctx.trees.get(r, *full)),
+                    _ => Some(Frame::text(&crate::transactions::summary(r))),
+                };
+                out.extend(msg.map(|m| (*t, m)));
+            }
+            out
+        });
+        for (t, msg) in &msgs {
+            ctx.hub.publish(*t, msg, Snapshot::Replace);
+        }
+        if !msgs.is_empty() {
+            self.at = Some(now);
+        }
+    }
+}
+
+/// The `rbfLatest` message.
+#[derive(serde::Serialize)]
+struct Latest<'a> {
+    #[serde(rename = "rbfLatest")]
+    list: &'a RawValue,
+}
+
+/// `{"rbfLatest":<trees>}` around a list already serialized: checked as JSON, not encoded again.
+fn trees(list: &[u8]) -> Option<Frame> {
+    let list: &RawValue = serde_json::from_slice(list).ok()?;
+    serde_json::to_vec(&Latest { list })
+        .ok()
+        .map(|b| Frame::text(&b))
 }
 
 /// What the `mempool-blocks` topic last published, and since when it has waited on a block.
@@ -980,8 +1129,8 @@ fn changes(
     })
 }
 
-/// Keeps one network's compatible topics current: `stats` and `mempool-blocks` once per
-/// `WS_MEMPOOL_INTERVAL_MS`, and each followed address's history when the node says it changed.
+/// Keeps one network's compatible topics current: `stats`, `mempool-blocks` and the replacement
+/// feeds once per `WS_MEMPOOL_INTERVAL_MS`, and each followed address's history when the node says it changed.
 pub async fn run(ctx: Arc<NetworkContext>) {
     let mut events = ctx.electrum.events();
     let mut tick = tokio::time::interval(ctx.sockets.limits.mempool_interval);
@@ -989,6 +1138,7 @@ pub async fn run(ctx: Arc<NetworkContext>) {
     let mut sent = ctx.v1.sent.subscribe();
     tokio::spawn(follow_table(Arc::clone(&ctx)));
     let mut blocks = ctx.fees.blocks_changed();
+    let mut feeds = Feeds::default();
     loop {
         tokio::select! {
             // A block sent, or projected blocks on a new tip: the two go out together.
@@ -1011,7 +1161,9 @@ pub async fn run(ctx: Arc<NetworkContext>) {
                     ctx.hub.publish(Topic::V1Stats, &text(&msg), Snapshot::Replace);
                 }
                 mempool_blocks(&ctx, &mut published);
+                feeds.step(&ctx, true, Instant::now());
             }
+            () = ctx.v1.feeds.notified() => feeds.step(&ctx, false, Instant::now()),
             e = events.recv() => match e {
                 Ok(electrum::Event::Status { topic: electrum::Topic::ScriptHash(sh), .. }) => {
                     ctx.v1.changed(&ctx, sh);

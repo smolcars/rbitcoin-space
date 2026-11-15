@@ -284,7 +284,9 @@ fn mined(m: Mined) -> Option<Value> {
 pub struct Trees(Mutex<Option<(u64, Bytes, Bytes)>>);
 
 impl Trees {
-    fn get(&self, r: &Replacements, full_rbf: bool) -> Bytes {
+    /// What `/replacements` answers, or with `full_rbf` `/fullrbf/replacements`; the socket's
+    /// `rbfLatest` carries the same bytes.
+    pub(crate) fn get(&self, r: &Replacements, full_rbf: bool) -> Bytes {
         let mut held = self.0.lock().unwrap_or_else(PoisonError::into_inner);
         let fresh = held.as_ref().filter(|(v, ..)| *v == r.version());
         let (all, full) = match fresh {
@@ -305,6 +307,56 @@ impl Trees {
         };
         if full_rbf { full } else { all }
     }
+}
+
+/// Replacements in the socket's `rbfLatestSummary`, as the reference sends.
+pub(crate) const SUMMARY_TREES: usize = 6;
+
+/// One replacement in short: the newest of a tree and what it directly replaced, summed, as the
+/// reference adds them up (seen on mempool.space 2026-11-15: two replaced, 152 + 330 sats).
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Brief {
+    txid: Txid,
+    mined: Value,
+    full_rbf: bool,
+    old_fee: u64,
+    old_vsize: Number,
+    new_fee: Option<u64>,
+    new_vsize: Option<Number>,
+}
+
+/// The socket's `rbfLatestSummary` message.
+#[derive(Debug, Serialize)]
+struct Briefs {
+    #[serde(rename = "rbfLatestSummary")]
+    list: Vec<Brief>,
+}
+
+/// The `rbfLatestSummary` message, in the reference's field order: the [`SUMMARY_TREES`] newest
+/// trees of `/replacements`, in short.
+pub(crate) fn summary(r: &Replacements) -> Vec<u8> {
+    let briefs: Vec<Brief> = r
+        .recent(SUMMARY_TREES, false)
+        .iter()
+        .map(|n| {
+            // From the record, not the tree, which stops at `MAX_TREE` transactions.
+            let old = r
+                .replaced_by(&n.txid)
+                .iter()
+                .filter_map(|t| r.get(t).map(|l| l.tx));
+            Brief {
+                txid: n.txid,
+                mined: n.mined.json(),
+                full_rbf: n.full_rbf(),
+                old_fee: old.clone().map(|f| f.fee).sum(),
+                old_vsize: num(old.map(|f| f64::from(f.weight) / 4.0).sum()),
+                new_fee: n.tx.map(|f| f.fee),
+                new_vsize: n.tx.map(|f| num(f64::from(f.weight) / 4.0)),
+            }
+        })
+        .collect();
+    serde_json::to_vec(&Briefs { list: briefs }).unwrap_or_default()
 }
 
 fn record(ctx: &NetworkContext) -> Result<(), ApiError> {

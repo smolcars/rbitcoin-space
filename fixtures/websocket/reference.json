@@ -1,5 +1,5 @@
 {
- "observed": "mempool.space /api/v1/ws, 2026-11-12 (init and projected-block-transactions: 2026-11-15), mainnet; lists cut to their first element",
+ "observed": "mempool.space /api/v1/ws, 2026-11-12 (init, projected-block-transactions, rbfLatest and rbfLatestSummary: 2026-11-15), mainnet; lists cut to their first element",
  "pong": {
   "pong": true
  },
@@ -539,5 +539,53 @@
     ]
    }
   }
+ },
+ "rbfLatest": {
+  "rbfLatest": [
+   {
+    "tx": {
+     "txid": "8ecc2387798974f220d99e7da9f0c1626070b3836e6f32474187711ade64cce1",
+     "fee": 32,
+     "vsize": 139.5,
+     "value": 42097,
+     "rate": 0.13334329920023918,
+     "time": 1794761598,
+     "rbf": true,
+     "fullRbf": false
+    },
+    "time": 1794761598,
+    "fullRbf": false,
+    "replaces": [
+     {
+      "tx": {
+       "txid": "76c44c54fc1b6e3b6cdd89fc463f2da4576c3aa82f3e104f73514a38a305ceb0",
+       "fee": 18,
+       "vsize": 139.5,
+       "value": 42111,
+       "rate": 0.12903225806451613,
+       "time": 1794761565,
+       "rbf": true
+      },
+      "time": 1794761565,
+      "interval": 33,
+      "fullRbf": false,
+      "replaces": []
+     }
+    ]
+   }
+  ]
+ },
+ "rbfLatestSummary": {
+  "rbfLatestSummary": [
+   {
+    "txid": "8ecc2387798974f220d99e7da9f0c1626070b3836e6f32474187711ade64cce1",
+    "mined": false,
+    "fullRbf": false,
+    "oldFee": 18,
+    "oldVsize": 139.5,
+    "newFee": 32,
+    "newVsize": 139.5
+   }
+  ]
  }
 }

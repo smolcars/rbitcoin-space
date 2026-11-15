@@ -135,6 +135,10 @@ pub enum Topic {
     /// `/api/v1/ws`: one projected block's transactions, `track-mempool-block`. Always below
     /// [`mempool::TXS_TOPICS`].
     V1ProjectedTxs(u8),
+    /// `/api/v1/ws`: `track-rbf`, the newest replacement trees; `true` for the full-RBF ones only.
+    V1Rbf(bool),
+    /// `/api/v1/ws`: `track-rbf-summary`, the newest replacements in short.
+    V1RbfSummary,
 }
 
 /// Names of the [`Topic::ProjectedTxs`] topics, by block.
@@ -184,6 +188,8 @@ impl Topic {
             Self::V1Tx(_) => "v1:tx",
             Self::V1Address(_) | Self::V1Addresses(_) => "v1:address",
             Self::V1ProjectedTxs(_) => "v1:projected-txs",
+            Self::V1Rbf(_) => "v1:rbf",
+            Self::V1RbfSummary => "v1:rbf-summary",
             Self::ProjectedTxs(i) => PROJECTED_TXS.get(usize::from(i)).copied().unwrap_or(""),
         }
     }

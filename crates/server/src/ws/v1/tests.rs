@@ -658,7 +658,7 @@ const OMITTED: &[&str] = &[
 ];
 
 /// What the reference's answer to `init` carries that ours leaves to the `want` parts' state, or
-/// does not send at all (`rbfSummary`, `conversions`).
+/// does not send at all (`rbfSummary`, which `rbfLatestSummary` brings, and `conversions`).
 const INIT_OMITTED: &[&str] = &[
     ".mempoolInfo",
     ".vBytesPerSecond",
@@ -667,7 +667,6 @@ const INIT_OMITTED: &[&str] = &[
     ".fees",
     ".rbfSummary",
     ".conversions",
-    ".da",
     ".blocks",
     // `null`, as `/api/v1/backend-info` serves them: private, or a node call.
     ".backendInfo.hostname",
@@ -715,6 +714,10 @@ async fn every_message_has_the_reference_shape() {
         computed: SystemTime::now(),
     };
     stats["da"] = serde_json::to_value(api_v1::difficulty(&answer, SystemTime::now())).unwrap();
+    ctx.difficulty.set(answer);
+    // A replacement for the feeds: one signalling transaction replaced by another.
+    ctx.track
+        .restore_replacements(vec![replaced(1, 9, 18, 558, true, Some(32))]);
 
     let blocks = crate::ws::fees::Blocks {
         blocks: Arc::new([crate::ws::fees::MempoolBlock {
@@ -778,6 +781,15 @@ async fn every_message_has_the_reference_shape() {
     let flood: Vec<String> = (0..3).map(|i| format!("x{i}")).collect();
     send(&mut s, &json!({"track-addresses": flood}));
     let replies = c.all();
+    let mut feeds = Client::new();
+    let feeds_conn = Arc::clone(&feeds.conn);
+    let mut fs = Session::new(ctx, &feeds_conn);
+    send(
+        &mut fs,
+        &json!({"track-rbf": "all", "track-rbf-summary": true}),
+    );
+    Feeds::default().step(ctx, true, Instant::now());
+    let rbf = feeds.all();
 
     let ours = [
         ("pong", replies[0].clone()),
@@ -802,6 +814,8 @@ async fn every_message_has_the_reference_shape() {
         ("live-2h-chart", live_chart(&sample)),
         ("projected-block-transactions", drawn),
         ("projected-block-transactions:delta", delta),
+        ("rbfLatest", rbf[0].clone()),
+        ("rbfLatestSummary", rbf[1].clone()),
     ];
     let mut wrong = Vec::new();
     for (name, msg) in &ours {
@@ -1385,4 +1399,272 @@ async fn a_drawing_on_another_block_than_the_last_one_sent_waits_for_it() {
     tokio::time::timeout(Duration::from_millis(500), c.next(DRAWING))
         .await
         .unwrap();
+}
+
+/// A replacement: transaction `n` (weight `weight`, paying `fee`, signalling when `rbf`) replaced
+/// by transaction `by`, which pays `by_fee` and weighs 651.
+fn replaced(n: u8, by: u8, fee: u64, weight: u32, rbf: bool, by_fee: Option<u64>) -> Link {
+    let facts = |fee, weight: u32, rbf| crate::replacements::Facts {
+        fee,
+        vsize: weight.div_ceil(4),
+        weight,
+        value: 42_000,
+        time: 1_794_761_565 + u32::from(n),
+        rbf,
+    };
+    Link {
+        txid: Txid::from_byte_array([n; 32]),
+        by: Txid::from_byte_array([by; 32]),
+        seen: 1_794_761_598 + u64::from(n),
+        tx: facts(fee, weight, rbf),
+        by_tx: by_fee.map(|f| facts(f, 651, true)),
+        mined: crate::replacements::Mined::No,
+    }
+}
+
+/// The frame's payload as sent, byte for byte.
+fn payload(f: &Frame) -> Vec<u8> {
+    let b = f.as_bytes();
+    let at = match b[1] & 0x7F {
+        126 => 4,
+        127 => 10,
+        _ => 2,
+    };
+    b[at..].to_vec()
+}
+
+#[tokio::test]
+async fn the_replacement_feeds_send_what_the_routes_serve_then_each_change() {
+    let ctx = context("127.0.0.1:1", true, |_| {});
+    // 1 replaced by 9, signalling; 2 and 3 both replaced by 8, and 3 did not signal (full RBF).
+    ctx.track.restore_replacements(vec![
+        replaced(1, 9, 18, 558, true, Some(32)),
+        replaced(2, 8, 152, 6_019, false, Some(180)),
+        replaced(3, 8, 330, 305, true, Some(180)),
+    ]);
+    let (mut all, mut full) = (Client::new(), Client::new());
+    let (all_conn, full_conn) = (Arc::clone(&all.conn), Arc::clone(&full.conn));
+    let (mut a, mut f) = (
+        Session::new(&ctx, &all_conn),
+        Session::new(&ctx, &full_conn),
+    );
+    send(
+        &mut a,
+        &json!({"track-rbf": "all", "track-rbf-summary": true}),
+    );
+    send(&mut f, &json!({"track-rbf": "fullRbf"}));
+    // Nothing is encoded before a socket asks, so there is no list stored yet: the producer sends.
+    assert!(all.all().is_empty() && full.all().is_empty());
+    let mut feeds = Feeds::default();
+    feeds.step(&ctx, false, Instant::now());
+
+    // `rbfLatest` is the routes' body, byte for byte, in one more key.
+    let body = |full_rbf| ctx.track.with_replacements(|r| ctx.trees.get(r, full_rbf));
+    let framed = |b: &[u8]| [br#"{"rbfLatest":"#.as_slice(), b, b"}"].concat();
+    let mut got = Vec::new();
+    while let Ok(m) = all.rx.try_recv() {
+        got.push(m);
+    }
+    assert_eq!(got.len(), 2);
+    assert_eq!(payload(&got[0]), framed(&body(false)));
+    let trees: Value = serde_json::from_slice(&body(false)).unwrap();
+    assert_eq!(trees.as_array().unwrap().len(), 2);
+    // The full-RBF feed holds only the tree where something did not signal.
+    let only = full.rx.try_recv().unwrap();
+    assert_eq!(payload(&only), framed(&body(true)));
+    let full_trees: Value = serde_json::from_slice(&body(true)).unwrap();
+    assert_eq!(full_trees.as_array().unwrap().len(), 1);
+    assert_eq!(full_trees[0]["tx"]["txid"], "08".repeat(32));
+
+    // The summary: the newest of each tree, what it directly replaced summed, as the reference,
+    // in its field order.
+    let order = br#"{"rbfLatestSummary":[{"txid":"0808"#;
+    assert!(payload(&got[1]).starts_with(order));
+    assert_eq!(
+        decode(&got[1]),
+        json!({"rbfLatestSummary": [
+            {"txid": "08".repeat(32), "mined": false, "fullRbf": true,
+             "oldFee": 482, "oldVsize": 1_581, "newFee": 180, "newVsize": 162.75},
+            {"txid": "09".repeat(32), "mined": false, "fullRbf": false,
+             "oldFee": 18, "oldVsize": 139.5, "newFee": 32, "newVsize": 162.75},
+        ]})
+    );
+
+    // Nothing again until the record changes; then the whole lists again, on the tick.
+    feeds.step(&ctx, true, Instant::now());
+    assert!(all.all().is_empty() && full.all().is_empty());
+    ctx.track
+        .restore_replacements(vec![replaced(4, 7, 100, 400, true, Some(200))]);
+    feeds.step(&ctx, true, Instant::now());
+    let again = all.all();
+    assert_eq!(again.len(), 2);
+    assert_eq!(again[0]["rbfLatest"].as_array().unwrap().len(), 3);
+    assert_eq!(again[1]["rbfLatestSummary"][0]["txid"], "07".repeat(32));
+    // The full-RBF list did not change, but the record did: sent again, as the reference does.
+    assert_eq!(full.all().len(), 1);
+
+    // A socket arriving now gets the stored lists at once, without the producer.
+    let mut late = Client::new();
+    let late_conn = Arc::clone(&late.conn);
+    let mut l = Session::new(&ctx, &late_conn);
+    send(&mut l, &json!({"track-rbf": "all"}));
+    assert_eq!(late.all(), vec![again[0].clone()]);
+}
+
+#[tokio::test]
+async fn a_feed_stops_and_switches_as_the_reference_frontend_asks() {
+    let ctx = context("127.0.0.1:1", true, |_| {});
+    ctx.track
+        .restore_replacements(vec![replaced(1, 9, 18, 558, true, Some(32))]);
+    let mut c = Client::new();
+    let conn = Arc::clone(&c.conn);
+    let mut s = Session::new(&ctx, &conn);
+    let mut feeds = Feeds::default();
+    let mut t = Instant::now();
+    let mut change = |n: u8, feeds: &mut Feeds| {
+        ctx.track
+            .restore_replacements(vec![replaced(n, n + 100, 10, 400, true, Some(20))]);
+        // Past the interval, so a socket starting a feed is answered without the tick.
+        t += Duration::from_secs(3);
+        feeds.step(&ctx, true, t);
+    };
+    // What the frontend sends leaving `/rbf` ("stop") and the home page (`false`), and anything
+    // else that is not a feed's name.
+    for (start, stop) in [
+        (json!({"track-rbf": "all"}), json!({"track-rbf": "stop"})),
+        (json!({"track-rbf": "fullRbf"}), json!({"track-rbf": false})),
+        (
+            json!({"track-rbf-summary": true}),
+            json!({"track-rbf-summary": false}),
+        ),
+        (
+            json!({"track-rbf-summary": true}),
+            json!({"track-rbf-summary": "stop"}),
+        ),
+    ] {
+        send(&mut s, &start);
+        change(2, &mut feeds);
+        assert_eq!(c.all().len(), 1, "{start}");
+        send(&mut s, &stop);
+        change(3, &mut feeds);
+        assert!(c.all().is_empty(), "{stop}");
+        for t in FEEDS {
+            assert_eq!(ctx.hub.subscribers(t), 0);
+        }
+    }
+    // Nobody follows: the stored lists are gone and nothing is encoded for nobody.
+    let version = feeds.version;
+    change(4, &mut feeds);
+    assert_eq!(version, [None; 3]);
+    assert_eq!(feeds.version, [None; 3]);
+    // Switching from all to full RBF leaves the first feed.
+    send(&mut s, &json!({"track-rbf": "all"}));
+    send(&mut s, &json!({"track-rbf": "fullRbf"}));
+    assert_eq!(ctx.hub.subscribers(Topic::V1Rbf(false)), 0);
+    assert_eq!(ctx.hub.subscribers(Topic::V1Rbf(true)), 1);
+}
+
+#[tokio::test]
+async fn a_flood_of_feed_requests_sends_the_list_at_most_once_an_interval() {
+    let interval = Duration::from_millis(200);
+    let ctx = context("127.0.0.1:1", true, |l| l.mempool_interval = interval);
+    ctx.track
+        .restore_replacements(vec![replaced(1, 9, 18, 558, true, Some(32))]);
+    let l = WsLimits {
+        mempool_interval: interval,
+        ..limits()
+    };
+    let mut c = Client::new();
+    let conn = Arc::clone(&c.conn);
+    let mut s = Session::new(&ctx, &conn);
+    let mut feeds = Feeds::default();
+    let start = Instant::now();
+    s.handle(r#"{"track-rbf":"all"}"#, &l).unwrap();
+    feeds.step(&ctx, false, start);
+    assert_eq!(c.all().len(), 1);
+    // The same request again and again: the stored list at most once an interval, by reference.
+    for _ in 0..1_000 {
+        s.handle(r#"{"track-rbf":"all"}"#, &l).unwrap();
+    }
+    assert!(c.all().is_empty());
+    tokio::time::sleep(l.mempool_interval).await;
+    for _ in 0..1_000 {
+        s.handle(r#"{"track-rbf":"all"}"#, &l).unwrap();
+    }
+    assert_eq!(c.all().len(), 1);
+    // The producer: a socket starting a feed between ticks sends nothing more within an interval
+    // of the last list; the tick does.
+    ctx.track
+        .restore_replacements(vec![replaced(2, 8, 18, 558, true, Some(32))]);
+    feeds.step(&ctx, false, start + Duration::from_millis(100));
+    assert!(c.all().is_empty());
+    feeds.step(&ctx, true, start + Duration::from_millis(100));
+    assert_eq!(c.all().len(), 1);
+}
+
+#[tokio::test]
+async fn init_carries_the_difficulty_figures_once_the_server_has_them() {
+    let ctx = context("127.0.0.1:1", true, |_| {});
+    let mut c = Client::new();
+    let conn = Arc::clone(&c.conn);
+    let mut s = Session::new(&ctx, &conn);
+    send(&mut s, &json!({"action": "init"}));
+    let init = c.all().remove(0);
+    assert_eq!(init.get("da"), None);
+    assert_eq!(init["backend"], "esplora");
+
+    let block = |height, time| engine::difficulty::Block {
+        height,
+        time,
+        bits: bitcoin::CompactTarget::from_consensus(0x1702_6dcc),
+    };
+    let period = engine::difficulty::Period::new(
+        &bitcoin::params::MAINNET,
+        975_531,
+        1_794_471_896,
+        block(973_728, 1_793_301_298),
+        Some(block(971_712, 1_792_000_000)),
+    )
+    .unwrap();
+    ctx.difficulty.set(crate::difficulty::Answer {
+        period,
+        tip: BlockHash::all_zeros(),
+        computed: SystemTime::now(),
+    });
+    send(&mut s, &json!({"action": "init"}));
+    let init = c.all().remove(0);
+    // The `stats` part's `da`, from the same figures.
+    let stats = stats(&ctx).unwrap();
+    assert_eq!(init["da"]["nextRetargetHeight"], 975_744);
+    assert_eq!(
+        init["da"].as_object().unwrap().keys().collect::<Vec<_>>(),
+        stats["da"].as_object().unwrap().keys().collect::<Vec<_>>()
+    );
+    // The fields that do not move with the clock.
+    for k in [
+        "nextRetargetHeight",
+        "remainingBlocks",
+        "previousRetarget",
+        "previousTime",
+    ] {
+        assert_eq!(init["da"][k], stats["da"][k], "{k}");
+    }
+}
+
+#[tokio::test]
+async fn the_summary_sums_everything_replaced_beyond_the_trees_bound() {
+    let ctx = context("127.0.0.1:1", true, |_| {});
+    // One transaction replacing 120 at once: more than a tree holds (`MAX_TREE`, 100).
+    let links: Vec<Link> = (1..=120)
+        .map(|n| replaced(n, 200, 10, 400, true, Some(5_000)))
+        .collect();
+    ctx.track.restore_replacements(links);
+    let mut c = Client::new();
+    let conn = Arc::clone(&c.conn);
+    let mut s = Session::new(&ctx, &conn);
+    send(&mut s, &json!({"track-rbf-summary": true}));
+    Feeds::default().step(&ctx, true, Instant::now());
+    let summary = c.all().remove(0);
+    assert_eq!(summary["rbfLatestSummary"][0]["oldFee"], 1_200);
+    assert_eq!(summary["rbfLatestSummary"][0]["oldVsize"], 12_000);
 }

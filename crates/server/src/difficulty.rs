@@ -49,6 +49,13 @@ impl Difficulty {
     }
 }
 
+#[cfg(test)]
+impl Difficulty {
+    pub(crate) fn set(&self, a: Answer) {
+        self.0.send_replace(Some(a));
+    }
+}
+
 /// Recomputes `ctx.difficulty` on every new tip until `events` ends. Bursts of blocks (catching
 /// up after a restart) are coalesced into one refresh at the newest tip; a failed refresh keeps
 /// the last answer and is retried with backoff.

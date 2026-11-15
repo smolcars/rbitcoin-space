@@ -19,7 +19,8 @@ hyper = { workspace = true, features = ["server"] }
 hyper-util.workspace = true
 logging.workspace = true
 serde.workspace = true
-serde_json.workspace = true
+# `raw_value`: `rbfLatest` carries the list `/api/v1/replacements` keeps, serialized once.
+serde_json = { workspace = true, features = ["raw_value"] }
 tokio = { workspace = true, features = ["sync", "time"] }
 tower.workspace = true
 tower-http.workspace = true

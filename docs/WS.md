@@ -356,12 +356,14 @@ Text frames with one JSON object. An object may hold several of these keys; each
 | Message | Does |
 |---|---|
 | `{"action":"ping"}` | Answered `{"pong":true}` |
-| `{"action":"init"}` | Answered `{"loadingIndicators":{},"backend":"esplora","backendInfo":{…}}`: what no part carries. `backendInfo` is `GET /api/v1/backend-info`'s answer; `loadingIndicators` is always empty. The parts' state comes with `want`, not here |
+| `{"action":"init"}` | Answered `{"loadingIndicators":{},"backend":"esplora","backendInfo":{…},"da":{…}}`: what no part carries, and `da`, which the reference's transaction page reads for its ETA without wanting `stats`. `backendInfo` is `GET /api/v1/backend-info`'s answer; `loadingIndicators` is always empty; `da` is `stats`' (below), left out before the server has read a tip. The parts' state comes with `want`, not here |
 | `{"action":"want","data":["blocks","stats","mempool-blocks","live-2h-chart"]}` | Replaces the set of parts wanted; other names are ignored. Each newly wanted part first sends its current state, then every change; `live-2h-chart` has no state and sends each new sample, as on the reference. `"data":[]` stops them all |
 | `{"track-tx":"<txid>"}` | Follows one transaction, 64 hex digits in lower case. A new one replaces the last; `{"track-tx":"stop"}` ends it |
 | `{"track-address":"<address>"}` | Follows one address of this network (bech32 in either case). A new one replaces the last; `"stop"` ends it |
 | `{"track-addresses":["<address>", …]}` | Follows a set of addresses, replacing the last set; `[]` stops it. Duplicates count once |
 | `{"track-mempool-block":<n>}` | Draws projected block `n` ([below](#projected-block-drawings)). A new one replaces the last; a negative `n` stops it, as the reference's frontend sends (`-1`) when it leaves the page |
+| `{"track-rbf":"all"}`, `{"track-rbf":"fullRbf"}` | The newest replacement trees, all or only those with a full-RBF replacement ([below](#replacement-feeds)). One replaces the other; any other value stops it, as `"stop"` does when the reference's frontend leaves `/rbf` |
+| `{"track-rbf-summary":true}` | The newest replacements in short. Any other value stops it, as `false` does when the reference's frontend leaves its home page |
 
 What else happens, as on the reference unless it says otherwise:
 
@@ -369,7 +371,7 @@ What else happens, as on the reference unless it says otherwise:
 |---|---|
 | Text that is not JSON | Close `4000` (the reference closes too, without a status) |
 | JSON it does not understand: another type, an unknown key or `action`, a value of the wrong type, a txid or address that does not parse for this network | Nothing; the socket stays |
-| `track-mempool`, `track-mempool-txids`, `track-rbf`, `track-rbf-summary`, `track-txs`, `track-scripthashes`, `track-accelerations` | `{"<key>-error":"not served by this server"}`, and the socket stays. Ours: the reference serves them |
+| `track-mempool`, `track-mempool-txids`, `track-txs`, `track-scripthashes`, `track-accelerations` | `{"<key>-error":"not served by this server"}`, and the socket stays. Ours: the reference serves them |
 | `refresh-blocks` and the reference's other keys | Nothing |
 
 ### What the server sends
@@ -390,6 +392,8 @@ Every message is one JSON object in its own frame, with the key named here.
 | `{"block-transactions":[…]}` | `track-address`: transactions of it confirmed | As above |
 | `{"projected-block-transactions":{"index":0,"sequence":1,"blockTransactions":[…]}}` | `track-mempool-block`, and when a block found changes most of it | The block's transactions in mining order, each `[txid, fee, vsize, value, rate, flags, first seen]`: sats, the sigop-adjusted vsize, total output value in sats, effective rate in sat/vB, `0`, Unix seconds |
 | `{"projected-block-transactions":{"index":0,"sequence":2,"delta":{"added":[…],"removed":[…],"changed":[…]}}}` | Its changes, at most once per `WS_MEMPOOL_INTERVAL_MS` (2 s), at once on a new tip | `added` as above; `removed` txids; `changed` `[txid, rate, 0, 0]` for a transaction whose rate moved |
+| `{"rbfLatest":[…]}` | `track-rbf`, then when the record of replacements changes, checked every `WS_MEMPOOL_INTERVAL_MS` (2 s) | The bytes `GET /api/v1/replacements` (or `/fullrbf/replacements`) answers at that moment: the 25 newest trees |
+| `{"rbfLatestSummary":[{"txid","mined","fullRbf","oldFee","oldVsize","newFee","newVsize"},…]}` | `track-rbf-summary`, then as `rbfLatest` | The 6 newest trees of `/replacements`, each its newest transaction (`txid`, `new…`, `mined` `false` when not mined) and the sums of fee and vsize of what it directly replaced (`old…`), as the reference adds them |
 | `{"multi-address-transactions":{"<address>":{"mempool":[…],"confirmed":[…],"removed":[]}}}` | `track-addresses`: the same events | One address per message, written as the server writes it (bech32 in lower case); `removed` is always empty |
 | `{"<key>-error":"…"}` | `track-tx`, `track-address`, `track-addresses` or `track-mempool-block` over a limit below, or a block that is not served | The socket stays. What the message asked to stop is stopped: a refused `track-tx` or `track-address` has still ended the previous one, and a `track-addresses` set keeps the addresses the server could take |
 
@@ -406,6 +410,20 @@ A part wanted, or a transaction followed, gets its current message at once (a tr
 | The block already drawn, again | Its stored state again (frames already encoded), at most once per `WS_MEMPOOL_INTERVAL_MS`; the rest are ignored. The frontend asks again when it loses its place, hundreds of times a second |
 
 `sequence` rises by exactly one with each message of a block, for every socket: one that joins gets the list and up to 16 changes since, one higher each, and then the same messages as everyone. The frontend asks for the block again when a `sequence` does not follow. The order against `block` is `mempool-blocks`' ([above](#what-the-server-sends)), with the exception every topic has: the state a socket gets when it joins, or asks again, is the latest held, possibly on the parent of the last `block`, and the drawing on that block follows as a change ([When a block is found](#when-a-block-is-found)). A slow client is dropped (`4003`), as on every topic.
+
+#### Replacement feeds
+
+Observed on mempool.space's public socket and frontend, 2026-11-15, and served the same way:
+
+| Case | Answer |
+|---|---|
+| A feed started | Its list at once: the stored one, or, if no socket held the feed, one the server builds within `WS_MEMPOOL_INTERVAL_MS` |
+| The record changed (a replacement, one mined, a reorg) | Every followed list again, whole, both trees lists even if one did not change, as the reference does. On mainnet the reference sent one every 3 to 20 s |
+| The same feed asked again | Its stored list again (a frame already encoded), at most once per `WS_MEMPOOL_INTERVAL_MS`; the rest are ignored |
+| A feed stopped and started again, or switched | Its stored list at once each time, so at most one list per message the socket sends: `WS_MESSAGES_PER_SEC` (10) bounds it, and a faster socket is closed. A frame already encoded, as switching `track-mempool-block` sends a block's |
+| The mempool engine off | Nothing: there is no record (`/replacements` answers 503) |
+
+A list does not depend on the projected blocks, so it is not held against `block`: a tree's `mined` can turn `true` just before or after its block's `block` message. A slow client is dropped (`4003`), as on every topic.
 
 #### Blocks and their extras
 
@@ -445,7 +463,7 @@ Every rule in [Connection rules](#connection-rules) applies, with the same setti
 
 They are pools of their own: a compatible socket never takes one of `WS_MAX_SOCKETS` or a client's `WS_CLIENT_MAX_SOCKETS`, and the reverse. Over a cap at upgrade, `503` or `429` as for `/app/ws`, logged with `refused` `v1_server_sockets` or `v1_client_sockets`.
 
-Per socket, the parts wanted (four at most) and the block drawn count inside `WS_MAX_SUBSCRIPTIONS`; the `track-tx` transaction inside `WS_MAX_TRACKED_TXS`; the `track-address` address and the `track-addresses` set together inside `WS_MAX_TRACKED_ADDRESSES` (2; the reference allows 10). Over it, `track-addresses` is answered `track-addresses-error` and changes nothing; `track-tx` and `track-address` answer `track-tx-error` and `track-address-error`. Past the network's `WS_TRACKED_TXS_TOTAL` or `WS_TRACKED_ADDRESSES_TOTAL`, shared with `/app/ws`, the same keys say the server is full, for the transaction or each address it could not take; past the client's budget for new addresses, that it is going too fast. A message is at most `WS_MAX_MESSAGE_BYTES` (1,024 bytes, about twenty addresses).
+Per socket, the parts wanted (four at most), the block drawn and the two replacement feeds count inside `WS_MAX_SUBSCRIPTIONS`; the `track-tx` transaction inside `WS_MAX_TRACKED_TXS`; the `track-address` address and the `track-addresses` set together inside `WS_MAX_TRACKED_ADDRESSES` (2; the reference allows 10). Over it, `track-addresses` is answered `track-addresses-error` and changes nothing; `track-tx` and `track-address` answer `track-tx-error` and `track-address-error`. Past the network's `WS_TRACKED_TXS_TOTAL` or `WS_TRACKED_ADDRESSES_TOTAL`, shared with `/app/ws`, the same keys say the server is full, for the transaction or each address it could not take; past the client's budget for new addresses, that it is going too fast. A message is at most `WS_MAX_MESSAGE_BYTES` (1,024 bytes, about twenty addresses).
 
 ### Why other sites may open it
 
@@ -457,7 +475,8 @@ Per socket, the parts wanted (four at most) and the block drawn count inside `WS
 |---|---|---|
 | Frames | One part per message | The reference puts several in one frame (a block with `mempool-blocks`, `fees`, `da`, `txConfirmed`, …). Each of ours is encoded once and shared by every subscriber; bundling would mean a frame per combination. A client reads every key of every message |
 | `blocks`, `block` | `GET /api/v1/blocks`' JSON: its `extras` lack `orphans`, `utxoSetChange`, `avgTxSize`, `totalInputs`, `totalOutputs`, `totalOutputAmt`, `segwitTotalTxs`, `segwitTotalSize`, `segwitTotalWeight`, `coinbaseBip54`, `similarity`. Sent once the block's row is written ([above](#blocks-and-their-extras)); without a data directory, the node's Esplora JSON | The extras are what our block table holds. Only best-chain blocks are sent |
-| `init` | `loadingIndicators`, `backend`, `backendInfo` only | The rest is each part's state, sent on `want` |
+| `init` | `loadingIndicators`, `backend`, `backendInfo`, `da` only; no `rbfSummary` | The rest is each part's state, sent on `want`. `track-rbf-summary` brings the replacements: the reference's home page fills its list from `rbfLatestSummary` alone |
+| `rbfLatest`, `rbfLatestSummary` | Their own messages, within 2 s of a change | The reference sends them in the stats frame when `stats` is wanted, alone otherwise |
 | `vBytesPerSecond` | The last sampled minute's inflow, once a minute; absent without a recent sample | From the stored samples rather than a second, faster count ([above](#the-inflow-rate)) |
 | `live-2h-chart` | Once a minute, stamped with the minute (`added` a multiple of 60); none after a block | The sample as stored. The reference stamps the second it sampled, and sent one more sample, off the minute, when a block arrived |
 | `mempoolInfo` | rbitcoin's `getmempoolinfo`: has `fullrbf`, `limitclustercount`, `limitclustersize`; no `permitbaremultisig`, `maxdatacarriersize` or `optimal` | The node's own answer |
@@ -469,11 +488,11 @@ Per socket, the parts wanted (four at most) and the block drawn count inside `WS
 | `track-addresses` | 2 addresses per socket by default | Each address is a node subscription; raise `WS_MAX_TRACKED_ADDRESSES` to allow more |
 | `multi-address-transactions` | One address per message; `removed` always empty | Each address's message is encoded once for every socket following it |
 | `projected-block-transactions` | Flags always `0`, so the goggles' filters find nothing; vsize the sigop-adjusted integer; changes at most every 2 s and none when nothing changed; block 7 not served ([above](#projected-block-drawings)) | Flags are not computed yet. The reference sends a change about once a second, empty ones too |
-| Not served | `refresh-blocks`, `conversions`, the replacement feeds (`rbfLatest`, `rbfSummary`, …), `track-txs`, `track-mempool`, `track-mempool-txids`, `utxoSpent`, `address-removed-transactions`, `rbfTransaction`, `rbfInfo` | Status and reason per message in [`compat/websocket.md`](compat/websocket.md) |
+| Not served | `refresh-blocks`, `conversions`, `track-txs`, `track-mempool`, `track-mempool-txids`, `utxoSpent`, `address-removed-transactions`, `rbfTransaction`, `rbfInfo` | Status and reason per message in [`compat/websocket.md`](compat/websocket.md) |
 
 ### Cost of a compatible socket
 
-A compatible socket costs what an `/app/ws` socket costs: every message is encoded once per network and each socket's queue holds references to the same bytes. `live-2h-chart` is encoded once per sample, in the sampler's own report of the write, and `vBytesPerSecond` is read from that sample in memory: neither reads the store or the node. The blocks are one read of the block table per change of it, for every socket. Nothing it sends reaches the node except a new block's header, once and shared with `GET /api/v1/blocks`, and following an address, which reads one history page per change of the address, shared by every socket following it.
+A compatible socket costs what an `/app/ws` socket costs: every message is encoded once per network and each socket's queue holds references to the same bytes. The replacement lists are the bytes the `/replacements` routes keep, built once per change of the record for both; while no socket follows a feed, its list is dropped and nothing is built for it. A change costs about 90 µs for both tree lists (25 trees, 17 KB) and the summary (1 KB), release build. On mainnet, 2026-11-15, over the same 200 s: ours sent 12 lists, at most one per 2 s, the reference 18, at matching moments. `live-2h-chart` is encoded once per sample, in the sampler's own report of the write, and `vBytesPerSecond` is read from that sample in memory: neither reads the store or the node. The blocks are one read of the block table per change of it, for every socket. Nothing it sends reaches the node except a new block's header, once and shared with `GET /api/v1/blocks`, and following an address, which reads one history page per change of the address, shared by every socket following it.
 
 A projected block is encoded only while a compatible socket draws it, once per message for all of them, by one task per network. Block 0 on mainnet, 2026-11-15, release build:
 
