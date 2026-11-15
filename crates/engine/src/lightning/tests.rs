@@ -173,6 +173,8 @@ async fn only_changes_the_table_did_not_hold_are_written() {
         [false, false]
     );
     assert_eq!(channel(s, A).await.unwrap().unwrap().penalty, Some(penalty));
+    let swept = penalties(s, 10).await.unwrap();
+    assert_eq!(swept.iter().map(|c| c.open.scid).collect::<Vec<_>>(), [A]);
     // Another closing transaction is news.
     let other = Change::Closed(open(A, 2), close(800_010, Kind::Cooperative, 8));
     assert_eq!(wrote(vec![other]).await.unwrap(), [true]);

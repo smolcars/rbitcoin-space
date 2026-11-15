@@ -295,7 +295,12 @@ async fn stored(
     for c in store_ln::opened(store, KEPT).await? {
         out.extend(Event::from_change(&Change::Opened(c.open)));
     }
-    for c in store_ln::closed(store, KEPT).await? {
+    // A sweep can come long after its close: the newest sweeps are read apart.
+    let closed = store_ln::closed(store, KEPT).await?;
+    for c in closed
+        .into_iter()
+        .chain(store_ln::penalties(store, KEPT).await?)
+    {
         match (c.close, c.penalty) {
             (_, Some(p)) => out.push(Event::penalty(&c, &p)),
             (Some(close), None) => out.extend(Event::from_change(&Change::Closed(c.open, close))),
@@ -364,10 +369,11 @@ pub(crate) async fn round(
         "events": send.iter().map(Event::json).collect::<Vec<_>>(),
         "more": left,
     });
+    // Appended to the state until `keep` folds it in: a subscriber in between gets it too.
     hub.publish(
         Topic::LightningFeed,
         &Frame::text(msg.to_string().as_bytes()),
-        Snapshot::Keep,
+        Snapshot::Append,
     );
     l.feed_events
         .fetch_add(send.len() as u64, Ordering::Relaxed);
@@ -392,6 +398,13 @@ fn keep(l: &Lightning, hub: &Hub, events: &[Event]) {
 }
 
 impl Lightning {
+    pub(crate) fn feed_live(&self) -> bool {
+        self.feed
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .live
+    }
+
     fn feed_answer(&self) -> Option<Bytes> {
         self.feed
             .lock()

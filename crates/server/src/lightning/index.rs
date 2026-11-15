@@ -150,7 +150,11 @@ pub(crate) async fn keep(
             let fees = super::fees::round(&l, &store, &mut run).await;
             if let Some(index) = l.index() {
                 let started = Instant::now();
-                let caught_up = status.borrow().closes.caught_up;
+                // Live once the close-watcher has caught up and every record it sent is stored:
+                // what the catch-up found must be in the table, not on its way to it.
+                let caught_up = l.feed_live()
+                    || (status.borrow().closes.caught_up
+                        && peer.recent(l.seq.load(Ordering::Relaxed)).is_empty());
                 super::feed::round(&l, &store, &hub, &index, fees, caught_up).await;
                 let us = started.elapsed().as_micros().try_into().unwrap_or(u64::MAX);
                 l.feed_us.store(us, Ordering::Relaxed);
