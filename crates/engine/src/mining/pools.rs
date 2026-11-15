@@ -1,5 +1,5 @@
-//! Who mined a block: the pool list (`data/pools/`, MIT, from bitcoin-data/mining-pools) and the
-//! rules that match a block's coinbase against it (`docs/API.md`, "Mining").
+//! Who mined a block: the pool list (`data/pools/`, MIT, from bitcoin-data/mining-pools, plus our
+//! own additions) and the rules that match a block's coinbase against it (`docs/API.md`, "Mining").
 //!
 //! The coinbase tag and payout scripts are written by whoever mined the block, so matching is
 //! bounded by the inputs' stored sizes and the list's, allocates nothing per block and cannot
@@ -10,7 +10,7 @@ use std::str::FromStr;
 use std::sync::OnceLock;
 
 use bitcoin::address::{Address, NetworkUnchecked};
-use bitcoin::hashes::{Hash, sha256};
+use bitcoin::hashes::{Hash, HashEngine, sha256};
 use bitcoin::{Script, ScriptBuf};
 use serde::Deserialize;
 
@@ -18,6 +18,9 @@ use serde::Deserialize;
 pub const UNKNOWN: u16 = 0;
 
 const LIST: &str = include_str!("../../data/pools/pool-list.json");
+/// Pools upstream does not list yet, ids from 10000 so they never meet upstream's.
+const LOCAL: &str = include_str!("../../data/pools/local-pools.json");
+const SHIPPED: [&str; 2] = [LIST, LOCAL];
 /// Bumped whenever the matching rules change, so stored attributions are redone like after a
 /// change to the list.
 const RULES: u32 = 1;
@@ -79,7 +82,7 @@ pub enum ListError {
 /// only `Unknown`, so every block is unattributed rather than the server failing.
 pub fn list() -> &'static Pools {
     static POOLS: OnceLock<Pools> = OnceLock::new();
-    POOLS.get_or_init(|| Pools::parse(LIST).unwrap_or_else(|_| Pools::empty(LIST)))
+    POOLS.get_or_init(|| Pools::parse_all(&SHIPPED).unwrap_or_else(|_| Pools::empty(&SHIPPED)))
 }
 
 fn slug(name: &str) -> String {
@@ -104,9 +107,18 @@ impl Pools {
     /// Reads a list in bitcoin-data/mining-pools' `pool-list.json` format. An address that does
     /// not parse is kept for display but matches nothing.
     pub fn parse(json: &str) -> Result<Self, ListError> {
-        let entries: Vec<Entry> =
-            serde_json::from_str(json).map_err(|e| ListError::Json(e.to_string()))?;
-        let mut pools = Self::empty(json);
+        Self::parse_all(&[json])
+    }
+
+    /// Several lists read as one, in order: an id or slug in two of them refuses the whole.
+    fn parse_all(lists: &[&str]) -> Result<Self, ListError> {
+        let mut entries = Vec::new();
+        for json in lists {
+            let list: Vec<Entry> =
+                serde_json::from_str(json).map_err(|e| ListError::Json(e.to_string()))?;
+            entries.extend(list);
+        }
+        let mut pools = Self::empty(lists);
         let mut tags = Vec::new();
         for e in entries {
             let pool = Pool {
@@ -148,8 +160,12 @@ impl Pools {
         Ok(pools)
     }
 
-    fn empty(json: &str) -> Self {
-        let hash = sha256::Hash::hash(json.as_bytes()).to_string();
+    fn empty(lists: &[&str]) -> Self {
+        let mut engine = sha256::Hash::engine();
+        for json in lists {
+            engine.input(json.as_bytes());
+        }
+        let hash = sha256::Hash::from_engine(engine).to_string();
         let u = unknown();
         Self {
             by_id: HashMap::from([(UNKNOWN, 0)]),
@@ -255,15 +271,45 @@ mod tests {
 
     #[test]
     fn shipped_list_parses_whole() {
-        let p = Pools::parse(LIST).unwrap();
+        let p = Pools::parse_all(&SHIPPED).unwrap();
         assert!(p.all().len() > 100);
         assert_eq!(p.all()[0].slug, "unknown");
         assert_eq!(p.by_slug("foundryusa").unwrap().name, "Foundry USA");
+        let v2 = p.by_slug("p2poolv2").unwrap();
+        assert_eq!((v2.id, v2.addresses.len()), (10000, 0));
         // Every address in the shipped list is a valid mainnet address.
         let listed: usize = p.all().iter().map(|p| p.addresses.len()).sum();
         assert_eq!(p.scripts.len(), listed);
         assert_eq!(list().version(), p.version());
         assert!(p.version().starts_with("1-"));
+    }
+
+    /// Testnet 5 block 4329 (`0000000000000038d4…7a8b`): its coinbase script and first 8 payouts.
+    #[test]
+    fn p2poolv2_block_by_tag() {
+        let hex = |h: &str| {
+            (0..h.len())
+                .step_by(2)
+                .map(|i| u8::from_str_radix(&h[i..i + 2], 16).unwrap())
+                .collect::<Vec<u8>>()
+        };
+        let tag = hex("02e91001000c9f579b58040000000000000008538548613d4be818085032506f6f6c7632");
+        let payouts: Vec<ScriptBuf> = [
+            "512052ef4dd1295ff526d7b761366fcbd83081ba588e300e26185445818f5b0f05b5",
+            "5120c6cdf3f715a8c3c38ed34a6dc80b02fd3e99ae94973d590324448827c9cf2d7b",
+            "512072c6aa2cc4dc5ac3ee2a888d90094fc4d86480939310debc7061368111698c63",
+            "0014af4dc32d8b78346a8fc838240d8937b59d55c90c",
+            "0014c51738a852d902cacbf583858d6d5a318cbbea8d",
+            "0014c62c7f3ce17699f15c704989ee0905c5b44c477e",
+            "00141a1ef865e8ef1d7a607d8a36c81b1c4b3ed70a47",
+            "001436b2f44bc0f1b83fbcf874c3bcb33a76849aadda",
+        ]
+        .map(|s| ScriptBuf::from_bytes(hex(s)))
+        .into();
+        assert_eq!(list().attribute(&tag, &payouts), (10000, Method::Tag));
+        // No upstream tag outranks it: upstream alone finds nothing in this coinbase.
+        let upstream = Pools::parse(LIST).unwrap();
+        assert_eq!(upstream.attribute(&tag, &payouts), (UNKNOWN, Method::None));
     }
 
     #[test]
@@ -341,10 +387,19 @@ mod tests {
         let slugs = r#"[{"id":1,"name":"A b","addresses":[],"tags":[],"link":""},
                         {"id":2,"name":"Ab","addresses":[],"tags":[],"link":""}]"#;
         assert!(matches!(Pools::parse(slugs), Err(ListError::Duplicate(_))));
+        // A clash across two lists refuses both.
+        let a = r#"[{"id":1,"name":"A","addresses":[],"tags":[],"link":""}]"#;
+        let b = r#"[{"id":2,"name":"a","addresses":[],"tags":[],"link":""}]"#;
+        assert!(matches!(
+            Pools::parse_all(&[a, b]),
+            Err(ListError::Duplicate(_))
+        ));
         let zero = r#"[{"id":0,"name":"Z","addresses":[],"tags":[],"link":""}]"#;
         assert!(Pools::parse(zero).is_err());
         assert!(matches!(Pools::parse("{"), Err(ListError::Json(_))));
         // Any change to the list changes the version.
         assert_ne!(Pools::parse("[]").unwrap().version(), p.version());
+        // Either shipped file changing changes the version.
+        assert_ne!(Pools::parse(LIST).unwrap().version(), list().version());
     }
 }
