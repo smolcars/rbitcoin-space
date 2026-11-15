@@ -1242,3 +1242,33 @@ async fn fee_history_after_a_restart_neither_invents_nor_reorders() {
     assert_eq!(fresh.changed(A, 0), Some(T + 1_000));
     assert_eq!(fresh.changed(A, 1), None);
 }
+
+/// A round whose outcomes are dropped (another channel's history was forgotten meanwhile) leaves
+/// no stale head behind: a fee that moves back to where the head stood is still recorded.
+#[tokio::test]
+async fn fee_history_records_a_return_after_dropped_outcomes() {
+    let t = temp();
+    apply(&t.store, vec![Change::Opened(open(A, 1))])
+        .await
+        .unwrap();
+    let mut heads = fees::Heads::default();
+    let mut g = vec![graph_channel(A, Some(priced(100, T, None)), None)];
+    fee_round(&t.store, &mut heads, &g, 1).await;
+    g[0].policies[0] = Some(priced(200, T + 10, None));
+    let (epoch, records) = (heads.epoch(), heads.diff(&g));
+    let outcomes = fees::record(&t.store, records.clone(), 1, u64::from(T))
+        .await
+        .unwrap();
+    heads.forget(C);
+    heads.apply(epoch, &records, &outcomes);
+    g[0].policies[0] = Some(priced(100, T + 20, None));
+    fee_round(&t.store, &mut heads, &g, 1).await;
+    let ([one, _], _) = fees::history(&t.store, A).await.unwrap();
+    assert_eq!(
+        one.iter()
+            .map(|r| (r.time, r.fees.fee_rate))
+            .collect::<Vec<_>>(),
+        [(T, 100), (T + 10, 200), (T + 20, 100)]
+    );
+    assert_eq!(heads.changed(A, 0), Some(T + 20));
+}

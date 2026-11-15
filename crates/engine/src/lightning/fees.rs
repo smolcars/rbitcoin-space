@@ -53,7 +53,8 @@ struct Head {
 pub struct Heads(HashMap<(u64, u8), Head>, Epoch);
 
 /// Moves at every [`Heads::forget`]: a write's outcomes from before it may predate a deleted
-/// history, so [`Heads::apply`] drops them, and the next round asks the table again.
+/// history, so [`Heads::apply`] drops them with their heads, and the next round asks the table
+/// again.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Epoch(u64);
 
@@ -100,10 +101,14 @@ impl Heads {
         self.1
     }
 
-    /// Takes in what a write did with each record of a [`Heads::diff`] taken at `epoch`; nothing
-    /// if a history was forgotten since, which the write may have raced.
+    /// Takes in what a write did with each record of a [`Heads::diff`] taken at `epoch`. If a
+    /// history was forgotten since, which the write may have raced, the records' heads are
+    /// dropped instead: the next round sends them again and the table says where they stand.
     pub fn apply(&mut self, epoch: Epoch, records: &[(u64, u8, FeeRecord)], outcomes: &[Outcome]) {
         if epoch != self.1 {
+            for (scid, side, _) in records {
+                self.0.remove(&(*scid, *side));
+            }
             return;
         }
         for (&(scid, side, record), o) in records.iter().zip(outcomes) {
