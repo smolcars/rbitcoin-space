@@ -68,10 +68,10 @@ pub(crate) struct Head {
 }
 
 impl Pages {
-    pub(crate) fn new(web_dir: &Path, networks: Vec<Arc<NetworkContext>>) -> Self {
+    pub(crate) fn new(web_dir: Option<&Path>, networks: Vec<Arc<NetworkContext>>) -> Self {
         Self {
-            shell: std::fs::read_to_string(web_dir.join("index.html"))
-                .ok()
+            shell: web_dir
+                .and_then(|d| std::fs::read_to_string(d.join("index.html")).ok())
                 .map(Shell::new),
             networks,
             reads: Semaphore::new(STORE_READS),

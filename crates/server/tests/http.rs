@@ -62,7 +62,7 @@ fn config(limits: Limits) -> Config {
         }
     }
     let mut c = Config::from_vars(|k| vars.get(k).cloned()).unwrap();
-    c.web_dir = fixture();
+    c.web_dir = Some(fixture());
     c.limits = limits;
     c
 }
@@ -175,6 +175,27 @@ async fn healthz_is_ok_json() {
     assert!(r.head.contains("content-type: application/json"));
     let json: serde_json::Value = serde_json::from_str(&r.body).unwrap();
     assert_eq!(json["status"], "ok");
+}
+
+#[tokio::test]
+async fn an_empty_web_dir_serves_the_api_alone() {
+    let mut c = config(limits());
+    c.web_dir = None;
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap().to_string();
+    tokio::spawn(App::new(&c).serve(listener, std::future::pending()));
+    for path in [
+        "/",
+        "/block/abc",
+        "/signet/tx/abc",
+        "/assets/app.js",
+        "/index.html",
+    ] {
+        assert_json_error(&get_path(&addr, path).await, 404, "not found");
+    }
+    for path in ["/healthz", "/api/v1/backend-info", "/app/config"] {
+        assert_eq!(get_path(&addr, path).await.status, 200, "{path}");
+    }
 }
 
 #[tokio::test]
@@ -464,7 +485,11 @@ async fn a_client_that_stops_reading_loses_its_connection() {
         request_timeout: Duration::from_millis(300),
         ..limits()
     });
-    std::fs::write(config.web_dir.join("assets/big.bin"), vec![0u8; 1 << 20]).unwrap();
+    std::fs::write(
+        config.web_dir.as_ref().unwrap().join("assets/big.bin"),
+        vec![0u8; 1 << 20],
+    )
+    .unwrap();
     let addr = start_with(config).await;
     // Pipeline far more than the socket buffers hold, and never read.
     let mut stalled = TcpStream::connect(&addr).await.unwrap();

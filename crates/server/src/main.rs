@@ -70,7 +70,11 @@ fn started(config: &Config, log: logging::Settings) {
         version: env!("CARGO_PKG_VERSION"),
         revision: rbitcoin_space::REVISION,
         listen_addr: config.listen.to_string(),
-        web_dir: config.web_dir.display().to_string(),
+        // Empty: the frontend is off (`WEB_DIR=`).
+        web_dir: config
+            .web_dir
+            .as_ref()
+            .map_or_else(String::new, |d| d.display().to_string()),
         networks: config.networks.iter().map(|n| n.network.name()).collect(),
         log_format: log.format.as_str(),
         log_level: log.level.as_str(),
@@ -140,9 +144,11 @@ fn started(config: &Config, log: logging::Settings) {
     if config.networks.is_empty() {
         logging::emit(&NoNetworks {});
     }
-    if !config.web_dir.join("index.html").is_file() {
+    if let Some(dir) = &config.web_dir
+        && !dir.join("index.html").is_file()
+    {
         logging::emit(&WebDirMissing {
-            web_dir: config.web_dir.display().to_string(),
+            web_dir: dir.display().to_string(),
         });
     }
 }
@@ -211,7 +217,7 @@ mod tests {
         let addr = listener.local_addr().unwrap();
         let config = Config {
             listen: addr,
-            web_dir: "missing".into(),
+            web_dir: Some("missing".into()),
             data_dir: None,
             backfill: rbitcoin_space::config::Backfill::default(),
             ledger: rbitcoin_space::config::LedgerConfig::default(),
@@ -233,5 +239,45 @@ mod tests {
         stop.send(()).unwrap();
         server.await.unwrap();
         assert!(!healthcheck(addr).await);
+    }
+
+    #[derive(Clone, Default)]
+    struct Capture(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+    impl std::io::Write for Capture {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn an_empty_web_dir_is_no_frontend_and_no_warning() {
+        let config = Config::from_vars(|k| (k == "WEB_DIR").then(String::new)).unwrap();
+        assert_eq!(config.web_dir, None);
+        let settings = logging::Settings {
+            format: logging::Format::Json,
+            level: logging::Level::Debug,
+            max_bytes_per_sec: logging::DEFAULT_MAX_BYTES_PER_SEC,
+        };
+        let out = Capture::default();
+        assert!(logging::init(settings, out.clone()));
+        started(&config, settings);
+        logging::flush(LOG_FLUSH);
+        let log = String::from_utf8(out.0.lock().unwrap().clone()).unwrap();
+        let events: Vec<serde_json::Value> = log
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
+        let starting = events.iter().find(|e| e["event"] == "server_starting");
+        assert_eq!(starting.unwrap()["web_dir"], "", "{log}");
+        assert!(
+            events.iter().all(|e| e["event"] != "web_dir_missing"),
+            "{log}"
+        );
     }
 }

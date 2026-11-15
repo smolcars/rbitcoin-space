@@ -374,7 +374,10 @@ impl App {
                 app.nest(prefix, scope)
             };
         }
-        let pages = Arc::new(pages::Pages::new(&config.web_dir, enabled_networks.clone()));
+        let pages = Arc::new(pages::Pages::new(
+            config.web_dir.as_deref(),
+            enabled_networks.clone(),
+        ));
         let contexts = enabled_networks.clone();
         let networks = Arc::new(enabled_networks);
         app = app.route(
@@ -389,42 +392,52 @@ impl App {
             app = app.route(&format!("/{{network}}{path}"), any(not_found));
         }
 
-        let dir = &config.web_dir;
-        let assets_dir = dir.join("assets");
-        let assets = ServeDir::new(&assets_dir)
-            .precompressed_br()
-            .precompressed_gzip();
-        // A non-JSON 404, so `finish` replaces it whole and it loses the `immutable` header.
-        let assets = tower::service_fn(move |req: Request| {
-            let (assets, unservable) = (assets.clone(), too_long(&assets_dir, req.uri().path()));
-            async move {
-                if unservable {
-                    return Ok(axum::http::StatusCode::NOT_FOUND.into_response());
-                }
-                assets.oneshot(req).await.map(IntoResponse::into_response)
-            }
-        });
-        // ServeDir rejects `..` and absolute components, so nothing outside web_dir is reachable.
-        // A path that is no file, `/` included, is a page: the shell with its head ([`pages`]).
-        let page = axum::handler::Handler::with_state(pages::page, pages);
-        let files = ServeDir::new(dir)
-            .precompressed_br()
-            .precompressed_gzip()
-            .append_index_html_on_directories(false)
-            .fallback(page.clone());
-        let web_dir = dir.clone();
-        let pages = tower::service_fn(move |req: Request| {
-            let (files, page) = (files.clone(), page.clone());
-            let unservable = too_long(&web_dir, req.uri().path());
-            async move {
-                if unservable {
-                    return page.oneshot(req).await;
-                }
-                files.oneshot(req).await.map(IntoResponse::into_response)
-            }
-        });
         let cache =
             |v| SetResponseHeaderLayer::overriding(CACHE_CONTROL, HeaderValue::from_static(v));
+        let page = axum::handler::Handler::with_state(pages::page, pages);
+        // Pages and unhashed files are revalidated on every load, so a deploy shows at once.
+        // A page's head varies by its URL alone, which every cache keys on.
+        app = match &config.web_dir {
+            // No frontend: every path that is no API is the page handler's 404.
+            None => app.fallback_service(cache("no-cache").layer(page)),
+            Some(dir) => {
+                let assets_dir = dir.join("assets");
+                let assets = ServeDir::new(&assets_dir)
+                    .precompressed_br()
+                    .precompressed_gzip();
+                // A non-JSON 404, so `finish` replaces it whole and it loses the `immutable` header.
+                let assets = tower::service_fn(move |req: Request| {
+                    let (assets, unservable) =
+                        (assets.clone(), too_long(&assets_dir, req.uri().path()));
+                    async move {
+                        if unservable {
+                            return Ok(axum::http::StatusCode::NOT_FOUND.into_response());
+                        }
+                        assets.oneshot(req).await.map(IntoResponse::into_response)
+                    }
+                });
+                // ServeDir rejects `..` and absolute components, so nothing outside web_dir is reachable.
+                // A path that is no file, `/` included, is a page: the shell with its head ([`pages`]).
+                let files = ServeDir::new(dir)
+                    .precompressed_br()
+                    .precompressed_gzip()
+                    .append_index_html_on_directories(false)
+                    .fallback(page.clone());
+                let web_dir = dir.clone();
+                let pages = tower::service_fn(move |req: Request| {
+                    let (files, page) = (files.clone(), page.clone());
+                    let unservable = too_long(&web_dir, req.uri().path());
+                    async move {
+                        if unservable {
+                            return page.oneshot(req).await;
+                        }
+                        files.oneshot(req).await.map(IntoResponse::into_response)
+                    }
+                });
+                app.nest_service("/assets", cache(IMMUTABLE).layer(assets))
+                    .fallback_service(cache("no-cache").layer(pages))
+            }
+        };
 
         let csp = if config.cloudflare_web_analytics {
             CLOUDFLARE_CSP
@@ -440,10 +453,6 @@ impl App {
             ));
         }
         let router = app
-            .nest_service("/assets", cache(IMMUTABLE).layer(assets))
-            // Pages and unhashed files are revalidated on every load, so a deploy shows at once.
-            // A page's head varies by its URL alone, which every cache keys on.
-            .fallback_service(cache("no-cache").layer(pages))
             .layer(DefaultBodyLimit::max(config.limits.max_body_bytes))
             .layer(middleware::from_fn_with_state(
                 Arc::new(limiter.clone()),

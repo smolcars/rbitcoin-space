@@ -1,6 +1,6 @@
 # Configuration
 
-The server reads its configuration from the environment once, at startup. Invalid or half-set configuration stops it with a message naming the variable; values are never echoed, so a mistyped password does not land in a log. The error is written as a `config_invalid` event ([`LOGGING.md`](LOGGING.md)). An empty value counts as unset.
+The server reads its configuration from the environment once, at startup. Invalid or half-set configuration stops it with a message naming the variable; values are never echoed, so a mistyped password does not land in a log. The error is written as a `config_invalid` event ([`LOGGING.md`](LOGGING.md)). An empty value counts as unset, except `WEB_DIR`.
 
 [`.env.example`](../.env.example) is a starting point. The server does not read `.env` itself; load it into the environment (`set -a; . ./.env; set +a`) or pass the variables through your process manager.
 
@@ -9,7 +9,7 @@ The server reads its configuration from the environment once, at startup. Invali
 | Variable | Default | What it does |
 |---|---|---|
 | `LISTEN_ADDR` | `127.0.0.1:8080` | Address and port to listen on. Port `0` picks a free one; the `listening` event shows which |
-| `WEB_DIR` | `web/dist` | The built frontend. Nothing outside it is served |
+| `WEB_DIR` | `web/dist` | The built frontend. Nothing outside it is served. Empty (`WEB_DIR=`): no frontend, API only |
 | `DATA_DIR` | unset | Where each network's SQLite file lives (`<DATA_DIR>/mainnet.sqlite`, …). Created if missing; must be writable. It holds only derived and observed data ([`STORE.md`](STORE.md)). Unset, the server runs without a store: everything is asked of the node, and the block table below, the mining routes ([`API.md`](API.md#mining)), the mempool history ([`API.md`](API.md#mempool-statistics)) and Lightning ([below](#lightning)) do not exist. A file that will not open is a `store_open_failed` event, and that network runs without one |
 
 ## Networks

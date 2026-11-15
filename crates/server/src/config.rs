@@ -383,7 +383,8 @@ impl Default for Backfill {
 #[derive(Debug, Clone)]
 pub struct Config {
     pub listen: SocketAddr,
-    pub web_dir: PathBuf,
+    /// `WEB_DIR`: the built frontend. `None` (set to the empty string) serves no frontend.
+    pub web_dir: Option<PathBuf>,
     /// `DATA_DIR`: where each network's SQLite file lives. `None` runs without a store.
     pub data_dir: Option<PathBuf>,
     pub backfill: Backfill,
@@ -406,7 +407,7 @@ impl Config {
         Self::from_vars(|name| std::env::var(name).ok())
     }
 
-    /// Parses configuration from a variable lookup. An empty value counts as unset.
+    /// Parses configuration from a variable lookup. An empty value counts as unset, except `WEB_DIR`.
     pub fn from_vars(get: impl Fn(&str) -> Option<String>) -> Result<Self, String> {
         let var = |name: &str| get(name).filter(|v| !v.is_empty());
 
@@ -439,7 +440,11 @@ impl Config {
                     .ok_or("LEDGER_MAX_HISTORY_ROWS must be a whole number from 0 to 1000000000")?,
             },
         };
-        let web_dir = var("WEB_DIR").map_or_else(|| "web/dist".into(), PathBuf::from);
+        // Unlike every other variable, an empty `WEB_DIR` is not unset: it turns the frontend off.
+        let web_dir = match get("WEB_DIR") {
+            None => Some("web/dist".into()),
+            Some(v) => (!v.is_empty()).then(|| PathBuf::from(v)),
+        };
         let data_dir = var("DATA_DIR").map(PathBuf::from);
         let b = Backfill::default();
         let backfill = Backfill {
@@ -898,6 +903,7 @@ mod tests {
     fn defaults_with_nothing_set() {
         let c = parse(&[]).unwrap();
         assert_eq!(c.listen.to_string(), "127.0.0.1:8080");
+        assert_eq!(c.web_dir, Some("web/dist".into()));
         assert!(c.networks.is_empty());
         assert_eq!(c.limits, Limits::default());
     }
