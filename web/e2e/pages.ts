@@ -1,6 +1,7 @@
 // Every page type, each with what it needs stubbed, for the rule tests that walk them all.
 import { readFileSync } from "node:fs";
 import type { Page } from "@playwright/test";
+import { ID, withBark } from "./ark-answers";
 import { chain, stubRetargets } from "./fixtures";
 import { KEPT, LARGE, stubLarge } from "./large-address";
 
@@ -66,5 +67,7 @@ export const PAGES: { path: string; stub?: (page: Page) => Promise<void> }[] = [
   { path: `/regtest/lightning/node/${ACINQ}`, stub: lightning },
   { path: "/regtest/lightning/channel/811984x2037x0", stub: lightning },
   { path: "/regtest/lightning/search?q=acinq", stub: lightning },
+  { path: "/regtest/ark", stub: (page) => withBark(page) },
+  { path: `/regtest/ark/bark/vtxo/${ID}`, stub: (page) => withBark(page, true) },
   { path: "/regtest/no/such/page" },
 ];

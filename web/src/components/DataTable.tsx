@@ -21,6 +21,17 @@ export interface Column<T> {
   short?: string;
   /** The header for screen readers only, where the rows name themselves in sight. */
   hidden?: boolean;
+  /** A quieter second line under the header: whose figure it is, its unit. */
+  sub?: string;
+  /** The key the list sorts by when this header is pressed (`DataTableProps.sort`). */
+  sort?: string;
+}
+
+/** A list the reader sorts by pressing a header: its key and direction, and what a press does. */
+export interface TableSort {
+  by: string;
+  dir: "asc" | "desc";
+  onSort: (by: string) => void;
 }
 
 export interface DataTableProps<T> {
@@ -38,6 +49,8 @@ export interface DataTableProps<T> {
    * own link in the cells stays the one keyboard stop, as the row link is hidden from both.
    */
   rowHref?: (row: T) => string | undefined;
+  /** Makes the headers of columns with a `sort` key buttons that sort the list. */
+  sort?: TableSort;
 }
 
 /** A table with units in headers, right-aligned numbers and row rules. */
@@ -90,6 +103,26 @@ export function DataTable<T>(props: DataTableProps<T>) {
     if (scroller.firstElementChild) observer.observe(scroller.firstElementChild);
     onCleanup(() => observer.disconnect());
   };
+  const heading = (c: Column<T>) => (
+    <>
+      <Show
+        when={c.short}
+        fallback={c.hidden ? <span class="visually-hidden">{c.header}</span> : c.header}
+      >
+        {(short) => (
+          <>
+            <span class="table__long">{c.header}</span>
+            <span class="table__short" aria-hidden="true">
+              {short()}
+            </span>
+          </>
+        )}
+      </Show>
+    </>
+  );
+  const sub = (c: Column<T>) => (
+    <Show when={c.sub}>{(text) => <span class="table__sub">{text()}</span>}</Show>
+  );
   return (
     <Show when={props.rows.length > 0 || props.empty === undefined} fallback={props.empty}>
       <div
@@ -107,22 +140,40 @@ export function DataTable<T>(props: DataTableProps<T>) {
             <tr>
               <For each={props.columns}>
                 {(c) => (
-                  <th scope="col" class={cellClass(c)}>
+                  <th
+                    scope="col"
+                    class={cellClass(c)}
+                    aria-sort={
+                      c.sort !== undefined && c.sort === props.sort?.by
+                        ? props.sort.dir === "asc"
+                          ? "ascending"
+                          : "descending"
+                        : undefined
+                    }
+                  >
                     <Show
-                      when={c.short}
+                      when={c.sort !== undefined && props.sort}
                       fallback={
-                        c.hidden ? <span class="visually-hidden">{c.header}</span> : c.header
+                        <>
+                          {heading(c)}
+                          {sub(c)}
+                        </>
                       }
                     >
-                      {(short) => (
-                        <>
-                          <span class="table__long">{c.header}</span>
-                          <span class="table__short" aria-hidden="true">
-                            {short()}
+                      {(s) => (
+                        <button
+                          class="table__sort"
+                          type="button"
+                          onClick={() => s().onSort(c.sort ?? "")}
+                        >
+                          {heading(c)}
+                          <span class="table__arrow" aria-hidden="true">
+                            {c.sort === s().by ? (s().dir === "asc" ? "↑" : "↓") : "↕"}
                           </span>
-                        </>
+                        </button>
                       )}
                     </Show>
+                    <Show when={c.sort !== undefined && props.sort}>{sub(c)}</Show>
                   </th>
                 )}
               </For>
@@ -134,7 +185,10 @@ export function DataTable<T>(props: DataTableProps<T>) {
                 <tr class={props.rowClass?.(row)}>
                   <For each={props.columns}>
                     {(c, k) => (
-                      <td class={cellClass(c)}>
+                      <td
+                        class={cellClass(c)}
+                        data-label={c.hidden === true ? undefined : c.header}
+                      >
                         {c.cell(row, i())}
                         {/* In a column that is never dropped: a dropped one's link takes no room. */}
                         <Show when={k() === linkColumn() && props.rowHref?.(row)}>

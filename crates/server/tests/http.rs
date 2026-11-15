@@ -17,7 +17,9 @@ use axum::extract::{ConnectInfo, State};
 use axum::http::Request;
 use axum::routing::{get, post};
 use rbitcoin_space::config::{IpNet, TrustedProxy};
-use rbitcoin_space::{App, Config, IMMUTABLE, Limits, NetworkContext, SECURITY_HEADERS};
+use rbitcoin_space::{
+    App, CLOUDFLARE_CSP, Config, IMMUTABLE, Limits, NetworkContext, SECURITY_HEADERS,
+};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tower::ServiceExt;
@@ -44,10 +46,10 @@ fn fixture() -> PathBuf {
     root.join("web")
 }
 
-/// Mainnet, signet and testnet4 enabled; regtest disabled. Nothing listens on the endpoints.
+/// Mainnet, signet, testnet4 and testnet5 enabled; regtest disabled. Nothing listens on the endpoints.
 fn config(limits: Limits) -> Config {
     let mut vars = std::collections::HashMap::new();
-    for net in ["MAINNET", "SIGNET", "TESTNET4"] {
+    for net in ["MAINNET", "SIGNET", "TESTNET4", "TESTNET5"] {
         for (k, v) in [
             ("RPC_HOST", "127.0.0.1"),
             ("RPC_PORT", "1"),
@@ -60,7 +62,7 @@ fn config(limits: Limits) -> Config {
         }
     }
     let mut c = Config::from_vars(|k| vars.get(k).cloned()).unwrap();
-    c.web_dir = fixture();
+    c.web_dir = Some(fixture());
     c.limits = limits;
     c
 }
@@ -176,6 +178,27 @@ async fn healthz_is_ok_json() {
 }
 
 #[tokio::test]
+async fn an_empty_web_dir_serves_the_api_alone() {
+    let mut c = config(limits());
+    c.web_dir = None;
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap().to_string();
+    tokio::spawn(App::new(&c).serve(listener, std::future::pending()));
+    for path in [
+        "/",
+        "/block/abc",
+        "/signet/tx/abc",
+        "/assets/app.js",
+        "/index.html",
+    ] {
+        assert_json_error(&get_path(&addr, path).await, 404, "not found");
+    }
+    for path in ["/healthz", "/api/v1/backend-info", "/app/config"] {
+        assert_eq!(get_path(&addr, path).await.status, 200, "{path}");
+    }
+}
+
+#[tokio::test]
 async fn backend_info_says_the_version_and_revision_and_nothing_about_the_host() {
     let app = App::new(&config(limits()));
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -209,9 +232,11 @@ async fn app_config_lists_enabled_networks_at_the_root_only() {
     let json: serde_json::Value = serde_json::from_str(&r.body).unwrap();
     assert_eq!(
         json["networks"],
-        serde_json::json!(["mainnet", "signet", "testnet4"])
+        serde_json::json!(["mainnet", "signet", "testnet4", "testnet5"])
     );
     assert_eq!(json["version"], env!("CARGO_PKG_VERSION"));
+    // No network has an Ark implementation configured.
+    assert_eq!(json["ark"], serde_json::json!({}));
     assert_json_error(
         &get_path(&addr, "/signet/app/config").await,
         404,
@@ -221,10 +246,12 @@ async fn app_config_lists_enabled_networks_at_the_root_only() {
     // Still served when mainnet, which owns the root, is disabled.
     let mut c = config(limits());
     c.networks.retain(|n| n.network.name() == "signet");
+    c.networks[0].bark = Some(bark::Endpoint::parse("http://127.0.0.1:1").unwrap());
     let addr = start_with(c).await;
     let json: serde_json::Value =
         serde_json::from_str(&get_path(&addr, "/app/config").await.body).unwrap();
     assert_eq!(json["networks"], serde_json::json!(["signet"]));
+    assert_eq!(json["ark"], serde_json::json!({ "signet": ["bark"] }));
     assert_json_error(&get_path(&addr, "/app/other").await, 404, "not found");
 }
 
@@ -235,6 +262,7 @@ async fn each_enabled_network_gets_its_own_context() {
         ("/api/net", "mainnet"),
         ("/signet/api/net", "signet"),
         ("/testnet4/api/net", "testnet4"),
+        ("/testnet5/api/net", "testnet5"),
     ] {
         let r = get_path(&addr, path).await;
         assert_eq!(r.status, 200, "{path}");
@@ -260,7 +288,7 @@ async fn disabled_and_unknown_networks_are_404() {
 #[tokio::test]
 async fn api_paths_do_not_fall_back_to_the_app_shell() {
     let addr = start(limits()).await;
-    for prefix in ["", "/signet", "/testnet4"] {
+    for prefix in ["", "/signet", "/testnet4", "/testnet5"] {
         for path in [
             "/api",
             "/api/",
@@ -288,6 +316,7 @@ async fn pages_fall_back_to_the_app_shell() {
         "/signet/",
         "/signet/tx/abc",
         "/testnet4/",
+        "/testnet5/tx/abc",
     ] {
         let r = get_path(&addr, path).await;
         assert_eq!(r.status, 200, "{path}");
@@ -460,7 +489,11 @@ async fn a_client_that_stops_reading_loses_its_connection() {
         request_timeout: Duration::from_millis(300),
         ..limits()
     });
-    std::fs::write(config.web_dir.join("assets/big.bin"), vec![0u8; 1 << 20]).unwrap();
+    std::fs::write(
+        config.web_dir.as_ref().unwrap().join("assets/big.bin"),
+        vec![0u8; 1 << 20],
+    )
+    .unwrap();
     let addr = start_with(config).await;
     // Pipeline far more than the socket buffers hold, and never read.
     let mut stalled = TcpStream::connect(&addr).await.unwrap();
@@ -798,6 +831,29 @@ async fn security_headers_on_every_response() {
     let csp = SECURITY_HEADERS[0].1;
     assert!(csp.starts_with("default-src 'self';"));
     assert!(!csp.contains("unsafe"));
+    assert!(
+        !csp.contains("http"),
+        "no third-party origin unless the setting is on"
+    );
+
+    // CLOUDFLARE_WEB_ANALYTICS adds the beacon's two origins, and the rest stays.
+    let mut on = config(limits());
+    on.cloudflare_web_analytics = true;
+    let addr = start_with(on).await;
+    for path in ["/", "/no/such/page", "/api/nope"] {
+        let r = get_path(&addr, path).await;
+        assert_eq!(
+            r.header("content-security-policy"),
+            Some(CLOUDFLARE_CSP),
+            "{path}"
+        );
+    }
+    for directive in csp.split("; ") {
+        assert!(CLOUDFLARE_CSP.contains(directive), "{directive}");
+    }
+    assert!(CLOUDFLARE_CSP.contains("script-src 'self' https://static.cloudflareinsights.com;"));
+    assert!(CLOUDFLARE_CSP.contains("connect-src 'self' https://cloudflareinsights.com;"));
+    assert!(!CLOUDFLARE_CSP.contains("unsafe"));
 }
 
 #[tokio::test]

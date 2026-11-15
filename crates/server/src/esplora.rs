@@ -1221,12 +1221,7 @@ fn hash<T: FromStr>(s: &str) -> Option<T> {
 }
 
 pub(crate) fn address(s: &str, network: Network) -> Result<Address, ApiError> {
-    let chain = match network {
-        Network::Mainnet => bitcoin::Network::Bitcoin,
-        Network::Signet => bitcoin::Network::Signet,
-        Network::Testnet4 => bitcoin::Network::Testnet4,
-        Network::Regtest => bitcoin::Network::Regtest,
-    };
+    let chain = crate::difficulty::chain(network);
     // Longer than any address; refuse before the decoder looks at it.
     if s.len() > 128 {
         return Err(ApiError::bad_request("invalid address"));
@@ -1618,7 +1613,7 @@ mod tests {
     #[test]
     fn addresses_are_checked_for_the_network() {
         let p = format!("address/{TEST_ADDR}");
-        for net in [Network::Signet, Network::Testnet4] {
+        for net in [Network::Signet, Network::Testnet4, Network::Testnet5] {
             assert!(parse(&p, None, net).is_ok());
         }
         assert!(parse(&format!("address/{MAIN_ADDR}"), None, Network::Signet).is_err());

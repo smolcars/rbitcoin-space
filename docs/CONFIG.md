@@ -1,6 +1,6 @@
 # Configuration
 
-The server reads its configuration from the environment once, at startup. Invalid or half-set configuration stops it with a message naming the variable; values are never echoed, so a mistyped password does not land in a log. The error is written as a `config_invalid` event ([`LOGGING.md`](LOGGING.md)). An empty value counts as unset.
+The server reads its configuration from the environment once, at startup. Invalid or half-set configuration stops it with a message naming the variable; values are never echoed, so a mistyped password does not land in a log. The error is written as a `config_invalid` event ([`LOGGING.md`](LOGGING.md)). An empty value counts as unset, except `WEB_DIR`.
 
 [`.env.example`](../.env.example) is a starting point. The server does not read `.env` itself; load it into the environment (`set -a; . ./.env; set +a`) or pass the variables through your process manager.
 
@@ -9,12 +9,12 @@ The server reads its configuration from the environment once, at startup. Invali
 | Variable | Default | What it does |
 |---|---|---|
 | `LISTEN_ADDR` | `127.0.0.1:8080` | Address and port to listen on. Port `0` picks a free one; the `listening` event shows which |
-| `WEB_DIR` | `web/dist` | The built frontend. Nothing outside it is served |
+| `WEB_DIR` | `web/dist` | The built frontend. Nothing outside it is served. Empty (`WEB_DIR=`): no frontend, API only |
 | `DATA_DIR` | unset | Where each network's SQLite file lives (`<DATA_DIR>/mainnet.sqlite`, …). Created if missing; must be writable. It holds only derived and observed data ([`STORE.md`](STORE.md)). Unset, the server runs without a store: everything is asked of the node, and the block table below, the mining routes ([`API.md`](API.md#mining)), the mempool history ([`API.md`](API.md#mempool-statistics)) and Lightning ([below](#lightning)) do not exist. A file that will not open is a `store_open_failed` event, and that network runs without one |
 
 ## Networks
 
-A network is enabled when all six of its variables are set, and disabled when none are. Setting only some is an error. `{NET}` is one of `MAINNET`, `SIGNET`, `TESTNET4`, `REGTEST`. Mainnet is served at `/`, the others under `/signet`, `/testnet4` and `/regtest`; a disabled network's paths are a 404.
+A network is enabled when all six of its variables are set, and disabled when none are. Setting only some is an error. `{NET}` is one of `MAINNET`, `SIGNET`, `TESTNET4`, `TESTNET5`, `REGTEST`. Mainnet is served at `/`, the others under `/signet`, `/testnet4`, `/testnet5` and `/regtest`; a disabled network's paths are a 404. Testnet 5 needs a node newer than rbitcoin v0.9.2, given a peer ([`DEPLOY.md`](DEPLOY.md#testnet-5)).
 
 | Variable | Format |
 |---|---|
@@ -35,7 +35,7 @@ A network is enabled when all six of its variables are set, and disabled when no
 
 ### Lightning
 
-The gossip-only Lightning peer ([`LIGHTNING.md`](LIGHTNING.md#in-the-server)), per network. Off unless switched on; it needs `DATA_DIR`, where it keeps its node key, graph file and saved answers in `<DATA_DIR>/lightning/<network>/` (32 bytes, about 33 MB and 3.3 MB on mainnet) beside the history it stores in the network's SQLite file. Setting `{NET}_LIGHTNING_ENABLED=true` without `DATA_DIR` stops the server at startup.
+The gossip-only Lightning peer ([`LIGHTNING.md`](LIGHTNING.md#in-the-server)), per network. Off unless switched on; it needs `DATA_DIR`, where it keeps its node key, graph file and saved answers in `<DATA_DIR>/lightning/<network>/` (32 bytes, about 33 MB and 3.3 MB on mainnet) beside the history it stores in the network's SQLite file. Setting `{NET}_LIGHTNING_ENABLED=true` without `DATA_DIR` stops the server at startup, and so does `TESTNET5_LIGHTNING_ENABLED=true`: LDK has no Testnet 5, so there is no Lightning there and its Lightning pages are not offered.
 
 | Variable | Default | What it does |
 |---|---|---|
@@ -48,11 +48,27 @@ The gossip-only Lightning peer ([`LIGHTNING.md`](LIGHTNING.md#in-the-server)), p
 
 **The node's share:** the peer checks each channel's funding output against the node, at most two requests a second whatever gossip sends, and reads each new block once to find closes ([`LIGHTNING.md`](LIGHTNING.md#bounds-and-cost)). A first start on mainnet costs about 125 requests and 18 MB; after that a block costs one raw block (about 1.7 MB) and a request per close.
 
+### Ark
+
+VTXO pages for Ark implementations, per network ([`ARK.md`](ARK.md)). Off unless set; a network without one shows no Ark item in its header and its Ark pages say so. Setting it for a network that is not configured stops the server at startup.
+
+| Variable | Default | What it does |
+|---|---|---|
+| `{NET}_BARK_URL` | unset | The Bark server whose VTXOs the network's Bark pages look up: `https://host[:port]`, or `http://` for a test or a server of your own. No credentials and no path. Public servers: mainnet `https://ark.second.tech`, signet `https://ark.signet.2nd.dev` |
+
+**It connects out to the Bark server,** one HTTP/2 connection per lookup the server does not already hold (TCP 443 for the public servers), at most four at once per network and each within 6 s. Browsers never reach it: the Content-Security-Policy is unchanged. Behind a firewall that blocks outbound traffic, allow that host, or leave it unset.
+
 ## Broadcast
 
 | Variable | Default | What it does |
 |---|---|---|
 | `BROADCAST_ENABLED` | `true` | `false` turns off `POST /api/tx` on every network (it answers `403`). Broadcast is the only write the server makes to the node; its size cap and per-client rate limit are fixed ([`API.md`](API.md#broadcast)) |
+
+## Cloudflare Web Analytics
+
+| Variable | Default | What it does |
+|---|---|---|
+| `CLOUDFLARE_WEB_ANALYTICS` | `false` | `true` lets the Content-Security-Policy load the beacon Cloudflare injects when Web Analytics is on for the site, and send its reports: `script-src` and `connect-src` gain Cloudflare's two origins. The only exception to [`SECURITY.md`](SECURITY.md) rule 15; leave it off unless the site is served through Cloudflare with Web Analytics on |
 
 ## Logging
 

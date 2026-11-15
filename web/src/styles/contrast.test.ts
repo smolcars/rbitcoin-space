@@ -45,10 +45,13 @@ const MARKS = [
   "color-focus",
   ...range("fee", 12),
   ...range("series", 3),
+  "ln-caution",
+  "ln-age",
   ...range("pool", 12),
   "pool-other",
   "network-signet",
   "network-testnet4",
+  "network-testnet5",
   "network-regtest",
 ];
 
@@ -85,9 +88,32 @@ describe("contrast from the tokens", () => {
       expect(short(theme, MARKS, SURFACES, 3)).toStrictEqual([]);
     });
 
+    it(`steps the forwarding-rate ramp in lightness, away from the surface, ${name}`, () => {
+      const lum = range("ln-ppm", 6).map((n) => luminance(rgb(theme.get(n) ?? "")));
+      // Darker step by step on a light page, lighter on a dark one: each step apart from the last.
+      const steps = lum.slice(1).map((l, i) => {
+        const prev = lum[i] ?? 0;
+        return name === "light" ? (prev + 0.05) / (l + 0.05) : (l + 0.05) / (prev + 0.05);
+      });
+      expect(steps.filter((r) => r < 1.15)).toStrictEqual([]);
+      expect(short(theme, ["ln-ppm-6"], SURFACES, 3)).toStrictEqual([]);
+    });
+
+    it(`fades the age ramp into the surface in even steps, ${name}`, () => {
+      const surface = rgb(theme.get("color-surface") ?? "");
+      const age = rgb(theme.get("ln-age") ?? "");
+      // tokens.css mixes --ln-age into the surface at these shares, youngest first.
+      const lum = [1, 0.74, 0.52, 0.34, 0.2].map((k) => ratio(mix(age, k, surface), surface));
+      const steps = lum.slice(1).map((l, i) => (lum[i] ?? 0) / l);
+      expect(steps.filter((r) => r < 1.15)).toStrictEqual([]);
+      expect(tokens).toContain(
+        "--ln-age-5: color-mix(in srgb, var(--ln-age) 20%, var(--color-surface));",
+      );
+    });
+
     it(`keeps a test network's band readable, ${name}`, () => {
       const surface = rgb(theme.get("color-surface") ?? "");
-      for (const net of ["signet", "testnet4", "regtest"]) {
+      for (const net of ["signet", "testnet4", "testnet5", "regtest"]) {
         const colour = rgb(theme.get(`network-${net}`) ?? "");
         const band = mix(colour, 0.12, surface);
         expect(ratio(rgb(theme.get("color-text") ?? ""), band), `text on ${net}`).toBeGreaterThan(

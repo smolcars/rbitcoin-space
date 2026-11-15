@@ -219,6 +219,8 @@ describe("networks", () => {
     expect(networkNote("mainnet")).toBeUndefined();
     expect(networkNote("signet")).toContain("signers");
     expect(networkNote("testnet4")).toContain("minimum difficulty");
+    // Testnet 5 has no minimum-difficulty exception: no note.
+    expect(networkNote("testnet5")).toBeUndefined();
     expect(networkNote("regtest")).toContain("no pools");
   });
 });

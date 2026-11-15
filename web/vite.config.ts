@@ -65,7 +65,7 @@ export default defineConfig({
     fs: { allow: [".."] },
     proxy: {
       // Every network has its own API under its prefix.
-      "^(/(signet|testnet4|regtest))?/(api|app)(/|$)": { target: server, ws: true },
+      "^(/(signet|testnet4|testnet5|regtest))?/(api|app)(/|$)": { target: server, ws: true },
       "/healthz": server,
     },
   },

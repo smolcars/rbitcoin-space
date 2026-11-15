@@ -46,6 +46,7 @@ pub struct ServerStarting<'a> {
     pub log_client_addr: bool,
     pub log_max_bytes_per_sec: u64,
     pub broadcast_enabled: bool,
+    pub cloudflare_web_analytics: bool,
     pub max_body_bytes: usize,
     pub request_timeout_secs: u64,
     pub max_connections: usize,
@@ -107,6 +108,8 @@ pub struct NetworkEnabled<'a> {
     pub mempool: bool,
     /// Whether the Lightning gossip peer runs (`{NET}_LIGHTNING_ENABLED`).
     pub lightning: bool,
+    /// Whether VTXOs are looked up on a Bark server (`{NET}_BARK_URL`).
+    pub bark: bool,
 }
 event!(NetworkEnabled<'a>, "network_enabled", Info, keep);
 
@@ -1505,6 +1508,12 @@ pub struct LightningSummary {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub index_ms: Option<f64>,
     pub funding_txids: u64,
+    /// Fee history: records stored since start, the last round's write, and rounds whose write
+    /// failed or found the queue full (retried at the next).
+    pub fee_records: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fee_write_ms: Option<f64>,
+    pub fee_failures: u64,
 }
 event!(LightningSummary, "lightning_summary", Info, keep);
 
@@ -1756,6 +1765,7 @@ mod tests {
                 log_client_addr: false,
                 log_max_bytes_per_sec: 262_144,
                 broadcast_enabled: true,
+                cloudflare_web_analytics: false,
                 max_body_bytes: 1,
                 request_timeout_secs: 1,
                 max_connections: 1,
@@ -1803,6 +1813,7 @@ mod tests {
                 electrum_addr: "node.example:3",
                 mempool: true,
                 lightning: false,
+                bark: true,
             }),
             both(&NoNetworks {}),
             both(&WebDirMissing {
@@ -2476,6 +2487,9 @@ mod tests {
                 history_seq: 36_250,
                 index_ms: Some(41.5),
                 funding_txids: 36_000,
+                fee_records: 72_400,
+                fee_write_ms: Some(3.5),
+                fee_failures: 0,
             }),
             both(&LightningIndexBuilt {
                 network: n,

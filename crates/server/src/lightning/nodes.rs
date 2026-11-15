@@ -4,7 +4,7 @@
 //!
 //! Every alias here is a node's own claim: serialized as a JSON string, never trusted or parsed.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use axum::Router;
@@ -14,7 +14,7 @@ use axum::response::Response;
 use axum::routing::{any, get};
 use bitcoin::Txid;
 use engine::lightning::{
-    self as store_ln, Bucket, Channel, GraphChannel, Index, Kind, Node, Policy, Rank,
+    self as store_ln, Bucket, Channel, GraphChannel, Index, Kind, Link, Node, Policy, Rank,
 };
 use engine::store::Store;
 use serde::Serialize;
@@ -34,8 +34,8 @@ const NO_INDEX: ApiError = ApiError::new(
     StatusCode::SERVICE_UNAVAILABLE,
     "lightning graph is synced but cannot be indexed; retry later",
 );
-const NO_NODE: ApiError = ApiError::new(StatusCode::NOT_FOUND, "node not found");
-const NO_CHANNEL: ApiError = ApiError::new(StatusCode::NOT_FOUND, "channel not found");
+pub(crate) const NO_NODE: ApiError = ApiError::new(StatusCode::NOT_FOUND, "node not found");
+pub(crate) const NO_CHANNEL: ApiError = ApiError::new(StatusCode::NOT_FOUND, "channel not found");
 const BAD_KEY: ApiError = ApiError::bad_request("invalid public key: 66 hex digits");
 const BAD_CHANNEL: ApiError =
     ApiError::bad_request("invalid channel id: a decimal id or <height>x<index>x<output>");
@@ -83,20 +83,24 @@ pub fn routes() -> Router<Arc<NetworkContext>> {
         .route("/api/v1/lightning/nodes/{key}/fees/histogram", get(v1_fees))
         .route("/api/v1/lightning/channels", get(v1_node_channels))
         .route("/api/v1/lightning/channels/txids", get(v1_txids))
+        // As the reference's frontend asks it: a listed path, not a rule for every slash.
+        .route("/api/v1/lightning/channels/txids/", get(v1_txids))
         .route("/api/v1/lightning/channels/{id}", get(v1_channel))
 }
 
-fn send(v: &impl Serialize, route: &'static str) -> Response {
+pub(crate) fn send(v: &impl Serialize, route: &'static str) -> Response {
     match serde_json::to_vec(v) {
         Ok(b) => json_response(b.into(), route, CACHE),
         Err(_) => axum::response::IntoResponse::into_response(ApiError::INTERNAL),
     }
 }
 
-type Answer = Result<Response, ApiError>;
+pub(crate) type Answer = Result<Response, ApiError>;
 
 /// The index, the Lightning side and the store, or why a route cannot answer yet.
-fn graph(ctx: &NetworkContext) -> Result<(Arc<Index>, &Lightning, &Arc<Store>), ApiError> {
+pub(crate) fn graph(
+    ctx: &NetworkContext,
+) -> Result<(Arc<Index>, &Lightning, &Arc<Store>), ApiError> {
     let (l, store) = enabled(ctx)?;
     let unindexed = || if l.index_failing() { NO_INDEX } else { SYNCING };
     Ok((l.index().ok_or_else(unindexed)?, l, store))
@@ -121,7 +125,7 @@ pub(crate) fn pubkey(s: &str) -> Result<[u8; 33], ApiError> {
 }
 
 /// Decimal digits without a leading zero (but `0`), as a number at most `max`.
-fn number(s: &str, max: u64) -> Option<u64> {
+pub(crate) fn number(s: &str, max: u64) -> Option<u64> {
     let plain = !s.is_empty()
         && s.len() <= 20
         && s.bytes().all(|b| b.is_ascii_digit())
@@ -172,7 +176,7 @@ pub(crate) fn decode(s: &str) -> Option<String> {
 
 /// The query's parameters, decoded, each at most once. With `strict`, a name not in `known` is
 /// refused; without, it is ignored, like every `/api/v1` query.
-fn query<'a>(
+pub(crate) fn query<'a>(
     raw: Option<&str>,
     known: &[&'a str],
     strict: bool,
@@ -324,37 +328,393 @@ fn v1_alias(index: &Index, id: &[u8; 33]) -> String {
 
 // /app routes.
 
-fn row_json(
+/// An open channel as its operator reads it: which end, if any, has switched it off. An end is
+/// off when its policy is disabled or there is none.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum OpState {
+    /// Both ends on.
+    Active = 0,
+    /// Only this node's end off.
+    Here = 1,
+    /// Only the peer's end off.
+    Peer = 2,
+    /// Both ends off.
+    Inactive = 3,
+}
+
+const OP_STATES: [(OpState, &str); 4] = [
+    (OpState::Active, "active"),
+    (OpState::Here, "here"),
+    (OpState::Peer, "peer"),
+    (OpState::Inactive, "inactive"),
+];
+
+impl OpState {
+    pub(crate) fn of(own: Option<Policy>, theirs: Option<Policy>) -> Self {
+        let on = |p: Option<Policy>| p.is_some_and(|p| p.enabled);
+        match (on(own), on(theirs)) {
+            (true, true) => Self::Active,
+            (false, true) => Self::Here,
+            (true, false) => Self::Peer,
+            (false, false) => Self::Inactive,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        OP_STATES
+            .iter()
+            .find(|s| s.0 == self)
+            .map_or("inactive", |s| s.1)
+    }
+}
+
+/// How many of each [`OpState`], by label.
+fn states_json(counts: [u64; 4]) -> Value {
+    let [active, here, peer, inactive] = counts;
+    json!({ "active": active, "here": here, "peer": peer, "inactive": inactive })
+}
+
+/// This node's policy on `c`, the peer's, and the peer.
+fn ends(c: &GraphChannel, node: &[u8; 33]) -> (Option<Policy>, Option<Policy>, [u8; 33]) {
+    let ([one, two], [a, b]) = (c.policies, c.nodes);
+    if a == *node {
+        (one, two, b)
+    } else {
+        (two, one, a)
+    }
+}
+
+/// What a node's open channels sort by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum OpenSort {
+    Capacity,
+    /// By funding time: descending is oldest first.
+    Age,
+    /// This node's fee rate.
+    Out,
+    /// The peer's fee rate.
+    In,
+    /// This node's CLTV delta.
+    Cltv,
+    /// This node's max HTLC.
+    Htlc,
+    /// The newer policy update.
+    Update,
+    /// The peer's total capacity.
+    Peer,
+}
+
+/// Each sort's name, and whether it goes descending unless `dir` says otherwise.
+const OPEN_SORTS: [(OpenSort, &str, bool); 8] = [
+    (OpenSort::Capacity, "capacity", true),
+    (OpenSort::Age, "age", true),
+    (OpenSort::Out, "out", false),
+    (OpenSort::In, "in", false),
+    (OpenSort::Cltv, "cltv", false),
+    (OpenSort::Htlc, "htlc", true),
+    (OpenSort::Update, "update", true),
+    (OpenSort::Peer, "peer", true),
+];
+
+/// What a node's closed channels sort by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ClosedSort {
+    /// The closing height.
+    Close,
+    Capacity,
+    /// The closing transaction's fee.
+    Fee,
+    /// From funding to closing block time.
+    Lived,
+}
+
+const CLOSED_SORTS: [(ClosedSort, &str); 4] = [
+    (ClosedSort::Close, "closed"),
+    (ClosedSort::Capacity, "capacity"),
+    (ClosedSort::Fee, "fee"),
+    (ClosedSort::Lived, "lived"),
+];
+
+const BAD_TEXT: ApiError =
+    ApiError::bad_request("filter text is 1 to 66 characters, without control characters");
+
+/// Filter text: a peer's alias (substring, any case), a peer's key (prefix), or a channel id in
+/// either form (exact).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Text {
+    lower: String,
+    scid: Option<u64>,
+}
+
+impl Text {
+    pub(crate) fn parse(s: &str) -> Result<Self, ApiError> {
+        let s = s.trim();
+        let ok = (1..=66).contains(&s.chars().count()) && !s.chars().any(char::is_control);
+        if !ok {
+            return Err(BAD_TEXT);
+        }
+        Ok(Self {
+            lower: s.to_lowercase(),
+            scid: scid(s).ok(),
+        })
+    }
+
+    /// `alias` is the peer's, lowercased, when it is held.
+    fn matches(&self, scid: u64, peer: &[u8; 33], alias: Option<&str>) -> bool {
+        self.scid == Some(scid)
+            || key_starts(peer, &self.lower)
+            || alias.is_some_and(|a| a.contains(&self.lower))
+    }
+}
+
+/// `key` in hex starts with `prefix` (lowercase). Without building the hex: it runs per channel.
+fn key_starts(key: &[u8; 33], prefix: &str) -> bool {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    prefix.len() <= 66
+        && key
+            .iter()
+            .flat_map(|b| [b >> 4, b & 15])
+            .zip(prefix.bytes())
+            .all(|(d, p)| HEX.get(usize::from(d)) == Some(&p))
+}
+
+/// A view of a node's open channels.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct OpenQuery {
+    pub sort: OpenSort,
+    pub desc: bool,
+    pub text: Option<Text>,
+    pub peer: Option<[u8; 33]>,
+    pub state: Option<OpState>,
+    /// Bars of the node's fee histogram: `true` for the peers' rates (incoming), and the first
+    /// and last bucket kept, `None` for no policy.
+    pub fee: Option<(bool, Option<(u64, u64)>)>,
+}
+
+impl Default for OpenQuery {
+    fn default() -> Self {
+        Self {
+            sort: OpenSort::Capacity,
+            desc: true,
+            text: None,
+            peer: None,
+            state: None,
+            fee: None,
+        }
+    }
+}
+
+/// A view of a node's closed channels.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ClosedQuery {
+    pub sort: ClosedSort,
+    pub desc: bool,
+    pub text: Option<Text>,
+    pub peer: Option<[u8; 33]>,
+    pub kind: Option<Kind>,
+}
+
+/// `incoming:` or `outgoing:`-side bucket, as `in:100`, `out:none`, or a run of them, as
+/// `out:10-40` (the buckets from 10 to 40, as the page groups its rows). Each number must be a
+/// bucket the histogram has: a lower bound, not any rate.
+fn fee_bar(s: &str) -> Result<(bool, Option<(u64, u64)>), ApiError> {
+    const BAD: ApiError = ApiError::bad_request(
+        "fee is in: or out: and a fee histogram bucket, a run of them, or none",
+    );
+    let (side, b) = s.split_once(':').ok_or(BAD)?;
+    let incoming = match side {
+        "in" => true,
+        "out" => false,
+        _ => return Err(BAD),
+    };
+    if b == "none" {
+        return Ok((incoming, None));
+    }
+    let bucket = |b: &str| {
+        let n = number(b, u64::from(u32::MAX))?;
+        (store_ln::bucket(u32::try_from(n).ok()?) == n).then_some(n)
+    };
+    let (from, to) = b.split_once('-').unwrap_or((b, b));
+    match (bucket(from), bucket(to)) {
+        (Some(from), Some(to)) if from <= to => Ok((incoming, Some((from, to)))),
+        _ => Err(BAD),
+    }
+}
+
+/// Orders `a` before `b`: present values in `desc` or ascending order, a missing one last either
+/// way.
+fn by_value(a: Option<u64>, b: Option<u64>, desc: bool) -> std::cmp::Ordering {
+    use std::cmp::Ordering::{Equal, Greater, Less};
+    match (a, b) {
+        (Some(a), Some(b)) if desc => b.cmp(&a),
+        (Some(a), Some(b)) => a.cmp(&b),
+        (Some(_), None) => Less,
+        (None, Some(_)) => Greater,
+        (None, None) => Equal,
+    }
+}
+
+/// A node's open channels that `q` keeps, in its order, and how many of each [`OpState`] its
+/// other filters keep. Work in proportion to the node's open channels.
+pub(crate) fn open_list<'a>(
+    index: &'a Index,
+    n: &'a Node,
+    q: &OpenQuery,
+) -> (Vec<Link<'a>>, [u64; 4]) {
+    let mut counts = [0; 4];
+    let mut kept: Vec<(Option<u64>, Link<'a>)> = Vec::new();
+    for link in index.links(n) {
+        let c = link.channel;
+        let (own, theirs, peer) = ends(c, &n.id);
+        if q.peer.is_some_and(|p| p != peer) {
+            continue;
+        }
+        if let Some((incoming, bar)) = q.fee {
+            let p = if incoming { theirs } else { own };
+            let kept = match (p.map(|p| store_ln::bucket(p.fee_rate)), bar) {
+                (None, None) => true,
+                (Some(b), Some((from, to))) => (from..=to).contains(&b),
+                _ => false,
+            };
+            if !kept {
+                continue;
+            }
+        }
+        let other = link.peer;
+        if let Some(t) = &q.text
+            && !t.matches(c.scid, &peer, other.map(Node::alias_key))
+        {
+            continue;
+        }
+        let state = OpState::of(own, theirs);
+        if let Some(count) = counts.get_mut(state as usize) {
+            *count += 1;
+        }
+        if q.state.is_some_and(|s| s != state) {
+            continue;
+        }
+        let value = match q.sort {
+            OpenSort::Capacity => Some(c.capacity),
+            OpenSort::Age => link.funded.map(|t| u64::MAX - t),
+            OpenSort::Out => own.map(|p| u64::from(p.fee_rate)),
+            OpenSort::In => theirs.map(|p| u64::from(p.fee_rate)),
+            OpenSort::Cltv => own.map(|p| u64::from(p.cltv_delta)),
+            OpenSort::Htlc => own.map(|p| p.max_htlc_msat),
+            OpenSort::Update => c.last_update().map(u64::from),
+            OpenSort::Peer => Some(other.map_or(0, |o| o.capacity)),
+        };
+        kept.push((value, link));
+    }
+    kept.sort_unstable_by(|(a, x), (b, y)| {
+        by_value(*a, *b, q.desc).then(x.channel.scid.cmp(&y.channel.scid))
+    });
+    (kept.into_iter().map(|k| k.1).collect(), counts)
+}
+
+/// How a closed channel ended, a breach found later counted as one.
+fn close_kind(c: &Channel) -> Option<Kind> {
+    let x = c.close?;
+    Some(if c.penalty.is_some() {
+        Kind::Penalty
+    } else {
+        x.kind
+    })
+}
+
+/// The peer of `node` on a stored channel.
+fn stored_peer(c: &Channel, node: &[u8; 33]) -> [u8; 33] {
+    if c.open.node_one == *node {
+        c.open.node_two
+    } else {
+        c.open.node_one
+    }
+}
+
+/// A node's closed channels (`rows`, newest close first) that `q` keeps, in its order. Ties keep
+/// the newest close and funding first, as before sorts existed.
+pub(crate) fn closed_list(
     index: &Index,
     node: &[u8; 33],
-    live: Option<&GraphChannel>,
-    stored: Option<&Channel>,
-) -> Value {
-    let (scid, capacity, nodes) = match (live, stored) {
-        (Some(c), _) => (c.scid, c.capacity, c.nodes),
-        (None, Some(c)) => (
-            c.open.scid,
-            c.open.capacity,
-            [c.open.node_one, c.open.node_two],
-        ),
-        (None, None) => return Value::Null,
-    };
-    let peer = if nodes[0] == *node {
-        nodes[1]
-    } else {
-        nodes[0]
-    };
-    let own = live
-        .and_then(|c| c.side(node))
-        .and_then(|s| c_policy(live, s));
+    rows: Vec<Channel>,
+    q: &ClosedQuery,
+) -> Vec<Channel> {
+    let mut kept: Vec<(Option<u64>, Channel)> = rows
+        .into_iter()
+        .filter(|c| {
+            let peer = stored_peer(c, node);
+            q.kind.is_none_or(|k| close_kind(c) == Some(k))
+                && q.peer.is_none_or(|p| p == peer)
+                && q.text.as_ref().is_none_or(|t| {
+                    t.matches(c.open.scid, &peer, index.node(&peer).map(Node::alias_key))
+                })
+        })
+        .map(|c| {
+            let close = c.close;
+            let value = match q.sort {
+                ClosedSort::Close => close.map(|x| u64::from(x.block.height)),
+                ClosedSort::Capacity => Some(c.open.capacity),
+                ClosedSort::Fee => close.and_then(|x| x.fee),
+                ClosedSort::Lived => close.map(|x| x.block.time.saturating_sub(c.open.block.time)),
+            };
+            (value, c)
+        })
+        .collect();
+    kept.sort_by(|(a, x), (b, y)| {
+        by_value(*a, *b, q.desc)
+            .then(close_height(y).cmp(&close_height(x)))
+            .then(y.open.scid.cmp(&x.open.scid))
+    });
+    kept.into_iter().map(|k| k.1).collect()
+}
+
+fn close_height(c: &Channel) -> u32 {
+    c.close.map_or(0, |x| x.block.height)
+}
+
+fn peer_json(peer: &[u8; 33], n: Option<&Node>) -> Value {
     json!({
-        "id": scid_text(scid),
-        "scid": scid.to_string(),
-        "capacity": capacity,
-        "state": state(stored, live),
-        "peer": { "id": hex(&peer), "alias": index.node(&peer).and_then(Node::alias) },
+        "id": hex(peer),
+        "alias": n.and_then(Node::alias),
+        "capacity": n.map(|n| n.capacity),
+        "channels": n.map(Node::open),
+    })
+}
+
+/// One of a node's open channels, as its list shows it. `together` counts the node's open
+/// channels with each peer, by the peer's place in the index.
+fn open_row(n: &Node, link: &Link<'_>, together: &HashMap<u32, u32>) -> Value {
+    let c = link.channel;
+    let (own, theirs, peer) = ends(c, &n.id);
+    let together = together.get(&link.peer_at).copied().unwrap_or(1);
+    json!({
+        "id": scid_text(c.scid),
+        "scid": c.scid.to_string(),
+        "capacity": c.capacity,
+        "state": state(None, Some(c)),
+        "op_state": OpState::of(own, theirs).label(),
+        "peer": peer_json(&peer, link.peer),
+        "with_peer": together,
         "fee_rate": own.map(|p| p.fee_rate),
-        "closed": stored.map_or(Value::Null, close_json),
+        "own_policy": policy_json(own),
+        "peer_policy": policy_json(theirs),
+        "last_update": c.last_update(),
+        "funded": link.funded,
+        "closed": Value::Null,
+    })
+}
+
+/// One of a node's closed channels, as its list shows it.
+fn closed_row(index: &Index, node: &[u8; 33], c: &Channel, next: Option<u64>) -> Value {
+    json!({
+        "id": scid_text(c.open.scid),
+        "scid": c.open.scid.to_string(),
+        "capacity": c.open.capacity,
+        "state": state(Some(c), None),
+        "peer": peer_json(&stored_peer(c, node), index.node(&stored_peer(c, node))),
+        "fee_rate": Value::Null,
+        "funded": c.open.block.time,
+        "closed": close_json(c),
+        "continued_as": next.map(scid_text),
     })
 }
 
@@ -362,52 +722,134 @@ fn c_policy(c: Option<&GraphChannel>, side: usize) -> Option<Policy> {
     c?.policies.get(side).copied().flatten()
 }
 
-/// A page of a node's channels: open ones from the index, largest first; closed ones from the
-/// store, newest close first.
-async fn channel_page(
+/// A page of a node's open channels from the index, and the counts by state.
+pub(crate) fn open_page(index: &Index, n: &Node, q: &OpenQuery, page: usize) -> Value {
+    let (list, counts) = open_list(index, n, q);
+    let mut together: HashMap<u32, u32> = HashMap::new();
+    for link in index.links(n) {
+        *together.entry(link.peer_at).or_default() += 1;
+    }
+    let rows: Vec<Value> = list
+        .iter()
+        .skip(page * PAGE)
+        .take(PAGE)
+        .map(|link| open_row(n, link, &together))
+        .collect();
+    let sort = OPEN_SORTS.iter().find(|s| s.0 == q.sort).map(|s| s.1);
+    json!({
+        "status": "open",
+        "page": page,
+        "per_page": PAGE,
+        "total": list.len(),
+        "sort": sort,
+        "dir": if q.desc { "desc" } else { "asc" },
+        "states": states_json(counts),
+        "channels": rows,
+    })
+}
+
+/// A page of a node's closed channels from the store.
+async fn closed_page(
     index: &Index,
     store: &Store,
     n: &Node,
-    status: Status,
-    offset: usize,
-    per_page: usize,
-) -> Result<(u64, Vec<Value>), ApiError> {
-    Ok(match status {
-        Status::Open => (
-            n.open() as u64,
-            index
-                .channels_of(n)
-                .skip(offset)
-                .take(per_page)
-                .map(|c| row_json(index, &n.id, Some(c), None))
-                .collect(),
-        ),
-        Status::Closed => {
-            let (total, rows) = store_ln::node_closed(store, n.id, offset, per_page)
-                .await
-                .map_err(|e| store_error(&e))?;
-            let rows = rows
-                .iter()
-                .map(|c| row_json(index, &n.id, None, Some(c)))
-                .collect();
-            (total, rows)
-        }
-    })
+    q: &ClosedQuery,
+    page: usize,
+) -> Result<Value, ApiError> {
+    let rows = store_ln::node_closes(store, n.id)
+        .await
+        .map_err(|e| store_error(&e))?;
+    let list = closed_list(index, &n.id, rows, q);
+    let shown: Vec<Channel> = list.iter().skip(page * PAGE).take(PAGE).copied().collect();
+    let next = store_ln::continued(store, shown.clone())
+        .await
+        .map_err(|e| store_error(&e))?;
+    let rows: Vec<Value> = shown
+        .iter()
+        .zip(next)
+        .map(|(c, next)| closed_row(index, &n.id, c, next))
+        .collect();
+    let sort = CLOSED_SORTS.iter().find(|s| s.0 == q.sort).map(|s| s.1);
+    Ok(json!({
+        "status": "closed",
+        "page": page,
+        "per_page": PAGE,
+        "total": list.len(),
+        "sort": sort,
+        "dir": if q.desc { "desc" } else { "asc" },
+        "channels": rows,
+    }))
 }
 
 fn bucket_json(b: &Bucket) -> Value {
     json!({ "bucket": b.bucket, "count": b.count, "capacity": b.capacity })
 }
 
+/// The median (the lower middle), smallest and largest of `v`, `null`s when it is empty.
+fn spread(mut v: Vec<u64>) -> [Option<u64>; 3] {
+    if v.is_empty() {
+        return [None; 3];
+    }
+    let mid = store_ln::median(&mut v);
+    [Some(mid), v.first().copied(), v.last().copied()]
+}
+
+/// Fee rates over channels with a policy one way: median, average weighted by capacity (rates
+/// over [`super::FEE_CAP`], which refuse to route, left out, as the network's averages do),
+/// lowest, highest, and how many.
+fn fee_figures(rates: &[(u32, u64)]) -> Value {
+    let [median, lowest, highest] = spread(rates.iter().map(|r| u64::from(r.0)).collect());
+    let (mut sum, mut weight) = (0u128, 0u128);
+    for (rate, cap) in rates.iter().filter(|r| u64::from(r.0) <= super::FEE_CAP) {
+        sum += u128::from(*rate) * u128::from(*cap);
+        weight += u128::from(*cap);
+    }
+    let weighted = (weight > 0).then(|| u64::try_from((sum + weight / 2) / weight).unwrap_or(0));
+    json!({
+        "median": median,
+        "weighted": weighted,
+        "lowest": lowest,
+        "highest": highest,
+        "policies": rates.len(),
+    })
+}
+
+/// The node page's figures over its open channels.
+pub(crate) fn figures(index: &Index, n: &Node) -> Value {
+    let (mut caps, mut funded, mut updated) = (Vec::new(), Vec::new(), None);
+    let (mut out, mut inc, mut counts) = (Vec::new(), Vec::new(), [0; 4]);
+    for link in index.links(n) {
+        let c = link.channel;
+        let (own, theirs, _) = ends(c, &n.id);
+        caps.push(c.capacity);
+        funded.extend(link.funded);
+        updated = updated.max(c.last_update());
+        out.extend(own.map(|p| (p.fee_rate, c.capacity)));
+        inc.extend(theirs.map(|p| (p.fee_rate, c.capacity)));
+        if let Some(count) = counts.get_mut(OpState::of(own, theirs) as usize) {
+            *count += 1;
+        }
+    }
+    let [median, smallest, largest] = spread(caps);
+    let [age, oldest, youngest] = spread(funded);
+    json!({
+        "capacity": { "median": median, "smallest": smallest, "largest": largest },
+        "funded": { "median": age, "oldest": oldest, "youngest": youngest },
+        "states": states_json(counts),
+        "fee_rates": { "outgoing": fee_figures(&out), "incoming": fee_figures(&inc) },
+        "last_policy_update": updated,
+    })
+}
+
 async fn app_node(State(ctx): State<Arc<NetworkContext>>, UrlPath(key): UrlPath<String>) -> Answer {
     let id = pubkey(&key)?;
-    let (index, _, store) = graph(&ctx)?;
+    let (index, _, _) = graph(&ctx)?;
     let n = index.node(&id).ok_or(NO_NODE)?;
-    let (total, page) = channel_page(&index, store, n, Status::Open, 0, PAGE).await?;
     let past = n.past.unwrap_or_default();
     let [cooperative, force, penalty, other] = past.closed;
     let [incoming, outgoing] = index.fees(n);
     let a = n.announcement.as_ref();
+    let [by_capacity, by_channels] = n.rank;
     let v = json!({
         "id": hex(&n.id),
         "alias": n.alias(),
@@ -418,6 +860,7 @@ async fn app_node(State(ctx): State<Arc<NetworkContext>>, UrlPath(key): UrlPath<
         "last_update": a.map(|a| a.last_update),
         "first_seen": n.past.map(|p| p.first_seen),
         "capacity": n.capacity,
+        "rank": { "capacity": by_capacity, "channels": by_channels, "of": index.len().0 },
         "channels": {
             "open": n.open(),
             "active": n.active,
@@ -427,13 +870,111 @@ async fn app_node(State(ctx): State<Arc<NetworkContext>>, UrlPath(key): UrlPath<
             "penalty": penalty,
             "other": other,
         },
+        "figures": figures(&index, n),
         "fees": {
             "incoming": incoming.iter().map(bucket_json).collect::<Vec<_>>(),
             "outgoing": outgoing.iter().map(bucket_json).collect::<Vec<_>>(),
         },
-        "open_channels": { "status": "open", "page": 0, "per_page": PAGE, "total": total, "channels": page },
+        "open_channels": open_page(&index, n, &OpenQuery::default(), 0),
     });
     Ok(send(&v, "lightning_node"))
+}
+
+/// A node's channel list: open or closed, and how.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum View {
+    Open(OpenQuery),
+    Closed(ClosedQuery),
+}
+
+/// What `/nodes/:key/channels` takes.
+const CHANNEL_PARAMS: [&str; 9] = [
+    "status", "page", "sort", "dir", "q", "peer", "state", "fee", "kind",
+];
+
+/// The view a node's channel list asks for, open or closed, and its page. Every parameter is
+/// checked before anything is read; one that applies only to the other status is refused.
+pub(crate) fn channel_view(raw: Option<&str>) -> Result<(View, usize), ApiError> {
+    let q = query(raw, &CHANNEL_PARAMS, true)?;
+    let page = match q.get("page") {
+        None => 0,
+        Some(p) => number(p, (MAX_OFFSET / PAGE) as u64)
+            .ok_or(ApiError::bad_request("page is 0 to 4000"))? as usize,
+    };
+    let dir = match q.get("dir").map(String::as_str) {
+        None => None,
+        Some("asc") => Some(false),
+        Some("desc") => Some(true),
+        Some(_) => return Err(ApiError::bad_request("dir is asc or desc")),
+    };
+    let text = q.get("q").map(|t| Text::parse(t)).transpose()?;
+    let peer = q.get("peer").map(|p| pubkey(p)).transpose()?;
+    let sort = q.get("sort").map(String::as_str);
+    let view = match status(q.get("status"))? {
+        Status::Open => {
+            if q.contains_key("kind") {
+                return Err(ApiError::bad_request("kind applies to closed channels"));
+            }
+            let (sort, desc) = match sort {
+                None => (OpenSort::Capacity, true),
+                Some(s) => OPEN_SORTS
+                    .iter()
+                    .find(|o| o.1 == s)
+                    .map(|o| (o.0, o.2))
+                    .ok_or(ApiError::bad_request(
+                        "sort is capacity, age, out, in, cltv, htlc, update or peer",
+                    ))?,
+            };
+            let state = match q.get("state") {
+                None => None,
+                Some(s) => Some(OP_STATES.iter().find(|o| o.1 == s).map(|o| o.0).ok_or(
+                    ApiError::bad_request("state is active, here, peer or inactive"),
+                )?),
+            };
+            let fee = q.get("fee").map(|f| fee_bar(f)).transpose()?;
+            View::Open(OpenQuery {
+                sort,
+                desc: dir.unwrap_or(desc),
+                text,
+                peer,
+                state,
+                fee,
+            })
+        }
+        Status::Closed => {
+            if q.contains_key("state") || q.contains_key("fee") {
+                return Err(ApiError::bad_request(
+                    "state and fee apply to open channels",
+                ));
+            }
+            let sort = match sort {
+                None => ClosedSort::Close,
+                Some(s) => CLOSED_SORTS.iter().find(|o| o.1 == s).map(|o| o.0).ok_or(
+                    ApiError::bad_request("sort is closed, capacity, fee or lived"),
+                )?,
+            };
+            let kind = match q.get("kind").map(String::as_str) {
+                None => None,
+                Some("cooperative") => Some(Kind::Cooperative),
+                Some("force") => Some(Kind::Force),
+                Some("penalty") => Some(Kind::Penalty),
+                Some("other") => Some(Kind::Other),
+                Some(_) => {
+                    return Err(ApiError::bad_request(
+                        "kind is cooperative, force, penalty or other",
+                    ));
+                }
+            };
+            View::Closed(ClosedQuery {
+                sort,
+                desc: dir.unwrap_or(true),
+                text,
+                peer,
+                kind,
+            })
+        }
+    };
+    Ok((view, page))
 }
 
 async fn app_node_channels(
@@ -442,23 +983,13 @@ async fn app_node_channels(
     RawQuery(raw): RawQuery,
 ) -> Answer {
     let id = pubkey(&key)?;
-    let q = query(raw.as_deref(), &["status", "page"], true)?;
-    let status = status(q.get("status"))?;
-    let page = match q.get("page") {
-        None => 0,
-        Some(p) => number(p, (MAX_OFFSET / PAGE) as u64)
-            .ok_or(ApiError::bad_request("page is 0 to 4000"))? as usize,
-    };
+    let (view, page) = channel_view(raw.as_deref())?;
     let (index, _, store) = graph(&ctx)?;
     let n = index.node(&id).ok_or(NO_NODE)?;
-    let (total, rows) = channel_page(&index, store, n, status, page * PAGE, PAGE).await?;
-    let v = json!({
-        "status": if status == Status::Open { "open" } else { "closed" },
-        "page": page,
-        "per_page": PAGE,
-        "total": total,
-        "channels": rows,
-    });
+    let v = match view {
+        View::Open(q) => open_page(&index, n, &q, page),
+        View::Closed(q) => closed_page(&index, store, n, &q, page).await?,
+    };
     Ok(send(&v, "lightning_node_channels"))
 }
 
@@ -506,8 +1037,17 @@ fn policy_json(p: Option<Policy>) -> Value {
             "max_htlc_msat": p.max_htlc_msat,
             "enabled": p.enabled,
             "last_update": p.last_update,
+            "inbound_fee": inbound_json(p.inbound),
         })
     })
+}
+
+/// lnd's inbound fee, signed, or `null` when the update carries none.
+pub(crate) fn inbound_json(i: Option<store_ln::Inbound>) -> Value {
+    i.map_or(
+        Value::Null,
+        |i| json!({ "base_fee_msat": i.base_fee_msat, "fee_rate": i.fee_rate }),
+    )
 }
 
 /// A channel as both sources know it: the index while open, the store always (once stored).
@@ -533,7 +1073,25 @@ async fn app_channel(
     let scid = scid(&id)?;
     let (index, _, store) = graph(&ctx)?;
     let (live, stored) = find_channel(&index, store, scid).await?;
+    let (next, previous) = match stored {
+        Some(c) => store_ln::lineage(store, c)
+            .await
+            .map_err(|e| store_error(&e))?,
+        None => (None, None),
+    };
     let (live, stored) = (live.as_ref(), stored.as_ref());
+    // The channel a lineage names: open, as the index knows it, or closed.
+    let link = |c: Option<Channel>| {
+        c.map_or(Value::Null, |c| {
+            let live = index.channel(c.open.scid);
+            json!({
+                "id": scid_text(c.open.scid),
+                "scid": c.open.scid.to_string(),
+                "capacity": live.map_or(c.open.capacity, |l| l.capacity),
+                "state": state(Some(&c), live),
+            })
+        })
+    };
     let closed = stored.is_some_and(|c| c.close.is_some());
     let nodes = live.map_or_else(
         || stored.map_or([[0; 33]; 2], |c| [c.open.node_one, c.open.node_two]),
@@ -564,6 +1122,8 @@ async fn app_channel(
         },
         "closed": stored.map_or(Value::Null, close_json),
         "penalty": stored.and_then(|c| c.penalty).map(|p| json!({ "block": block_json(&p.block), "txid": p.txid.to_string() })),
+        "continued_as": link(next),
+        "continued_from": link(previous),
     });
     Ok(send(&v, "lightning_channel"))
 }

@@ -474,6 +474,7 @@ fn policy(fee_rate: u32, enabled: bool) -> Policy {
         max_htlc_msat: 1_000_000,
         enabled,
         last_update: 1_700_000_000,
+        inbound: None,
     }
 }
 
@@ -830,6 +831,72 @@ async fn funding_txids_lookups_and_a_node_s_closed_channels() {
     assert_eq!(node_spans(s, [2; 33]).await.unwrap().len(), 2);
 }
 
+/// A close's transaction that funded a channel between the same two nodes continues it, both
+/// ways; one between other nodes does not; of several, the lowest id.
+#[tokio::test]
+async fn lineage_follows_a_closing_transaction_into_the_channels_it_funded() {
+    let t = temp();
+    let s = &t.store;
+    let x = Txid::from_byte_array([0x77; 32]);
+    let (a, d) = (open(A, 1), open(800_003 << 40, 1));
+    // B and C are both funded by A's closing transaction; D, also funded by it, is between
+    // other nodes; E is an open channel closed by nothing.
+    let (b, c) = (open(B, 1), open(C, 1));
+    let d = Open {
+        node_one: [4; 33],
+        ..d
+    };
+    let e = open(800_004 << 40, 1);
+    apply(
+        s,
+        vec![
+            Change::Closed(a, close(800_001, Kind::Other, 0x77)),
+            Change::Opened(c),
+            Change::Opened(b),
+            Change::Opened(d),
+            Change::Opened(e),
+        ],
+    )
+    .await
+    .unwrap();
+    // Funding txids, as the background filler stores them.
+    let fe = Txid::from_byte_array([0xe0; 32]);
+    set_funding(
+        s,
+        vec![
+            (B, b.block.hash, x),
+            (C, c.block.hash, x),
+            (d.scid, d.block.hash, x),
+            (e.scid, e.block.hash, fe),
+        ],
+    )
+    .await
+    .unwrap();
+    let get = |scid| async move { channel(s, scid).await.unwrap().unwrap() };
+    let (next, previous) = lineage(s, get(A).await).await.unwrap();
+    assert_eq!((next.map(|c| c.open.scid), previous), (Some(B), None));
+    for later in [B, C] {
+        let (next, previous) = lineage(s, get(later).await).await.unwrap();
+        assert_eq!((next, previous.map(|c| c.open.scid)), (None, Some(A)));
+    }
+    // Other nodes, and a channel whose funding closed nothing: no lineage.
+    assert_eq!(lineage(s, get(d.scid).await).await.unwrap(), (None, None));
+    assert_eq!(lineage(s, get(e.scid).await).await.unwrap(), (None, None));
+    // An open channel whose funding txid is not known yet: nothing to follow.
+    apply(s, vec![Change::OpenUndone(B), Change::Opened(open(B, 2))])
+        .await
+        .unwrap();
+    assert_eq!(lineage(s, get(B).await).await.unwrap(), (None, None));
+    assert_eq!(
+        lineage(s, get(A).await)
+            .await
+            .unwrap()
+            .0
+            .map(|c| c.open.scid),
+        Some(C)
+    );
+}
+
 /// Mainnet's size: 36,000 channels between 13,600 nodes.
 fn mainnet_graph() -> (Vec<GraphNode>, Vec<GraphChannel>) {
     let id = |n: u32| {
@@ -904,4 +971,304 @@ fn an_index_of_mainnet_s_size_answers_within_its_budget() {
     // Debug build; release is about ten times faster (docs/API.md).
     assert!(build < Duration::from_secs(3), "{build:?}");
     assert!(worst < Duration::from_millis(50), "{worst:?}");
+}
+
+// Fee history.
+
+fn priced(fee_rate: u32, time: u32, inbound: Option<Inbound>) -> Policy {
+    Policy {
+        fee_rate,
+        base_fee_msat: 1_000,
+        cltv_delta: 80,
+        min_htlc_msat: 1,
+        max_htlc_msat: 1_000_000,
+        enabled: true,
+        last_update: time,
+        inbound,
+    }
+}
+
+fn graph_channel(scid: u64, one: Option<Policy>, two: Option<Policy>) -> GraphChannel {
+    GraphChannel {
+        scid,
+        nodes: [[2; 33], [3; 33]],
+        capacity: 1_000_000,
+        policies: [one, two],
+    }
+}
+
+/// A round as the server runs one: diff, store, take in what was stored.
+async fn fee_round(
+    store: &Store,
+    heads: &mut fees::Heads,
+    graph: &[GraphChannel],
+    run: u64,
+) -> Vec<fees::Outcome> {
+    let (epoch, records) = (heads.epoch(), heads.diff(graph));
+    let outcomes = fees::record(store, records.clone(), run, u64::from(T) + 9_999)
+        .await
+        .unwrap();
+    heads.apply(epoch, &records, &outcomes);
+    outcomes
+}
+
+const T: u32 = 1_790_000_000;
+
+#[tokio::test]
+async fn fee_history_keeps_each_change_at_its_own_time_fifty_a_direction() {
+    let t = temp();
+    let mut heads = fees::Heads::default();
+    // Nothing is kept for a channel not stored open yet; the next round tries again.
+    let g = vec![graph_channel(A, Some(priced(100, T, None)), None)];
+    assert_eq!(
+        fee_round(&t.store, &mut heads, &g, 1).await,
+        [fees::Outcome::NotOpen]
+    );
+    apply(
+        &t.store,
+        vec![Change::Opened(open(A, 1)), Change::Opened(open(B, 1))],
+    )
+    .await
+    .unwrap();
+    // The first policy seen is the starting point; a direction without one has nothing.
+    let mut g = vec![graph_channel(A, Some(priced(100, T, None)), None)];
+    let first = fee_round(&t.store, &mut heads, &g, 1).await;
+    assert_eq!(first, [fees::Outcome::Stored { changed: false }]);
+    assert_eq!(
+        heads.changed(A, 0),
+        None,
+        "a starting point is not a change"
+    );
+    assert!(fee_round(&t.store, &mut heads, &g, 1).await.is_empty());
+
+    // Disabled, another CLTV delta, a newer update: not a fee change.
+    let mut same = priced(100, T + 5, None);
+    same.enabled = false;
+    same.cltv_delta = 144;
+    g[0].policies[0] = Some(same);
+    assert!(heads.diff(&g).is_empty());
+
+    // Another rate, then only the inbound fee: changes, at the updates' own times.
+    g[0].policies[0] = Some(priced(200, T + 10, None));
+    let inbound = Inbound {
+        base_fee_msat: -1_000,
+        fee_rate: -50,
+    };
+    fee_round(&t.store, &mut heads, &g, 1).await;
+    g[0].policies[0] = Some(priced(200, T + 20, Some(inbound)));
+    let o = fee_round(&t.store, &mut heads, &g, 1).await;
+    assert_eq!(o, [fees::Outcome::Stored { changed: true }]);
+    assert_eq!(heads.changed(A, 0), Some(T + 20));
+    let ([one, two], runs) = fees::history(&t.store, A).await.unwrap();
+    assert_eq!(
+        one.iter()
+            .map(|r| (r.time, r.fees.fee_rate))
+            .collect::<Vec<_>>(),
+        [(T, 100), (T + 10, 200), (T + 20, 200)]
+    );
+    assert_eq!(one[2].fees.inbound, Some(inbound));
+    assert!(two.is_empty());
+    assert_eq!(runs, [(1, u64::from(T) + 9_999)]);
+
+    // Sixty more changes: the newest fifty are kept, the oldest go.
+    for i in 1..=60 {
+        g[0].policies[0] = Some(priced(1_000 + i, T + 100 + i, None));
+        fee_round(&t.store, &mut heads, &g, 1).await;
+    }
+    let ([one, _], _) = fees::history(&t.store, A).await.unwrap();
+    assert_eq!(one.len(), fees::KEPT);
+    assert_eq!(one[0].time, T + 111);
+    assert_eq!(one[49].time, T + 160);
+    let newest = fees::newest(&t.store, vec![(A, 0), (A, 1)], 3)
+        .await
+        .unwrap();
+    assert_eq!(
+        newest[0]
+            .iter()
+            .map(|r| r.fees.fee_rate)
+            .collect::<Vec<_>>(),
+        [1_060, 1_059, 1_058, 1_057]
+    );
+    assert!(newest[1].is_empty());
+
+    // Closing the channel deletes its history, and nothing is stored for it after.
+    g.push(graph_channel(B, None, Some(priced(7, T, None))));
+    fee_round(&t.store, &mut heads, &g, 1).await;
+    apply(
+        &t.store,
+        vec![Change::Closed(open(A, 1), close(800_100, Kind::Force, 9))],
+    )
+    .await
+    .unwrap();
+    let ([one, two], runs) = fees::history(&t.store, A).await.unwrap();
+    assert!(one.is_empty() && two.is_empty() && runs.is_empty());
+    g[0].policies[0] = Some(priced(5, T + 500, None));
+    assert_eq!(
+        fee_round(&t.store, &mut heads, &g[..1], 1).await,
+        [fees::Outcome::NotOpen]
+    );
+    assert_eq!(heads.changed(A, 0), None);
+    // B is untouched; a reorg that undoes its open deletes its history too, and a round that
+    // read the graph before it stores nothing after it.
+    assert_eq!(fees::history(&t.store, B).await.unwrap().0[1].len(), 1);
+    apply(&t.store, vec![Change::OpenUndone(B)]).await.unwrap();
+    assert!(fees::history(&t.store, B).await.unwrap().0[1].is_empty());
+    let stale = vec![(
+        B,
+        1,
+        fees::FeeRecord {
+            time: T + 9,
+            fees: priced(8, 0, None).fees(),
+        },
+    )];
+    let o = fees::record(&t.store, stale, 1, u64::from(T))
+        .await
+        .unwrap();
+    assert_eq!(o, [fees::Outcome::NotOpen]);
+    assert!(fees::history(&t.store, B).await.unwrap().0[1].is_empty());
+    // Opened again in another block: once forgotten, the next round starts it again, even when
+    // a round whose write committed before the undone open takes in its outcome after.
+    apply(&t.store, vec![Change::Opened(open(B, 2))])
+        .await
+        .unwrap();
+    assert!(heads.diff(&g[1..]).is_empty());
+    let raced = heads.epoch();
+    let late = fees::FeeRecord {
+        time: T,
+        fees: priced(7, 0, None).fees(),
+    };
+    heads.forget(B);
+    heads.apply(
+        raced,
+        &[(B, 1, late)],
+        &[fees::Outcome::Stored { changed: false }],
+    );
+    assert!(!heads.diff(&g[1..]).is_empty());
+    assert_eq!(
+        fee_round(&t.store, &mut heads, &g[1..], 1).await,
+        [fees::Outcome::Stored { changed: false }]
+    );
+}
+
+#[tokio::test]
+async fn fee_history_after_a_restart_neither_invents_nor_reorders() {
+    let t = temp();
+    apply(&t.store, vec![Change::Opened(open(A, 1))])
+        .await
+        .unwrap();
+    let mut heads = fees::Heads::default();
+    let mut g = vec![graph_channel(
+        A,
+        Some(priced(100, T, None)),
+        Some(priced(1, T, None)),
+    )];
+    fee_round(&t.store, &mut heads, &g, 10).await;
+    g[0].policies[0] = Some(priced(150, T + 10, None));
+    fee_round(&t.store, &mut heads, &g, 10).await;
+
+    // The next run starts from the table: the same graph is nothing new.
+    let loaded = fees::heads(&t.store).await.unwrap();
+    assert_eq!(loaded.len(), 2);
+    assert_eq!(loaded.changed(A, 0), Some(T + 10));
+    assert_eq!(loaded.changed(A, 1), None);
+    assert!(loaded.diff(&g).is_empty());
+
+    // A graph file older than the table (other fees, an older update) records nothing, and
+    // neither does an update with the kept fees; the table says so if asked directly.
+    let stale = vec![graph_channel(A, Some(priced(120, T + 5, None)), None)];
+    assert!(loaded.diff(&stale).is_empty());
+    let kept = fees::FeeRecord {
+        time: T + 10,
+        fees: priced(150, T + 10, None).fees(),
+    };
+    let asked = vec![
+        (
+            A,
+            0,
+            fees::FeeRecord {
+                time: T + 5,
+                fees: priced(120, 0, None).fees(),
+            },
+        ),
+        (
+            A,
+            0,
+            fees::FeeRecord {
+                time: T + 99,
+                fees: kept.fees,
+            },
+        ),
+    ];
+    let o = fees::record(&t.store, asked, 20, u64::from(T) + 20_000)
+        .await
+        .unwrap();
+    assert_eq!(
+        o,
+        [
+            fees::Outcome::Kept {
+                record: kept,
+                changed: true
+            },
+            fees::Outcome::Kept {
+                record: kept,
+                changed: true
+            }
+        ]
+    );
+
+    // Changes made while the server was down: only the last is seen, at its own time.
+    g[0].policies[0] = Some(priced(300, T + 1_000, None));
+    let mut fresh = fees::heads(&t.store).await.unwrap();
+    fee_round(&t.store, &mut fresh, &g, 20).await;
+    let ([one, _], runs) = fees::history(&t.store, A).await.unwrap();
+    assert_eq!(
+        one.iter()
+            .map(|r| (r.time, r.fees.fee_rate))
+            .collect::<Vec<_>>(),
+        [(T, 100), (T + 10, 150), (T + 1_000, 300)]
+    );
+    // Two runs, each with the end of its last round: the time between them was not watched.
+    assert_eq!(
+        runs,
+        [(10, u64::from(T) + 9_999), (20, u64::from(T) + 9_999)]
+    );
+    // A channel that left the graph is forgotten in memory, not in the table; back with the
+    // same fees, its newest record is still a change, as the table says.
+    fresh.retain(|_| false);
+    assert!(fresh.is_empty());
+    assert_eq!(fees::history(&t.store, A).await.unwrap().0[0].len(), 3);
+    g[0].policies[0] = Some(priced(300, T + 2_000, None));
+    fee_round(&t.store, &mut fresh, &g, 20).await;
+    assert_eq!(fresh.changed(A, 0), Some(T + 1_000));
+    assert_eq!(fresh.changed(A, 1), None);
+}
+
+/// A round whose outcomes are dropped (another channel's history was forgotten meanwhile) leaves
+/// no stale head behind: a fee that moves back to where the head stood is still recorded.
+#[tokio::test]
+async fn fee_history_records_a_return_after_dropped_outcomes() {
+    let t = temp();
+    apply(&t.store, vec![Change::Opened(open(A, 1))])
+        .await
+        .unwrap();
+    let mut heads = fees::Heads::default();
+    let mut g = vec![graph_channel(A, Some(priced(100, T, None)), None)];
+    fee_round(&t.store, &mut heads, &g, 1).await;
+    g[0].policies[0] = Some(priced(200, T + 10, None));
+    let (epoch, records) = (heads.epoch(), heads.diff(&g));
+    let outcomes = fees::record(&t.store, records.clone(), 1, u64::from(T))
+        .await
+        .unwrap();
+    heads.forget(C);
+    heads.apply(epoch, &records, &outcomes);
+    g[0].policies[0] = Some(priced(100, T + 20, None));
+    fee_round(&t.store, &mut heads, &g, 1).await;
+    let ([one, _], _) = fees::history(&t.store, A).await.unwrap();
+    assert_eq!(
+        one.iter()
+            .map(|r| (r.time, r.fees.fee_rate))
+            .collect::<Vec<_>>(),
+        [(T, 100), (T + 10, 200), (T + 20, 100)]
+    );
+    assert_eq!(heads.changed(A, 0), Some(T + 20));
 }

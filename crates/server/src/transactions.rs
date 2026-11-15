@@ -49,7 +49,10 @@ pub fn routes() -> Router<Arc<NetworkContext>> {
         .route("/api/v1/validate-address/{address}", get(validate_address))
         .route("/api/v1/transaction-times", get(transaction_times))
         .route("/api/v1/replacements", get(replacements))
+        // The reference's frontend asks with a trailing slash; each such path is listed.
+        .route("/api/v1/replacements/", get(replacements))
         .route("/api/v1/fullrbf/replacements", get(full_rbf_replacements))
+        .route("/api/v1/fullrbf/replacements/", get(full_rbf_replacements))
         .route("/api/v1/tx/{txid}/rbf", get(rbf))
         .route("/api/v1/cpfp/{txid}", get(cpfp))
         .route("/api/v1/prevouts", post(prevouts))

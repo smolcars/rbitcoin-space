@@ -35,6 +35,7 @@ const PREFIXES: Record<Network, string> = {
   mainnet: "bc1, 1 or 3",
   signet: "tb1, m, n or 2",
   testnet4: "tb1, m, n or 2",
+  testnet5: "tb1, m, n or 2",
   regtest: "bcrt1, m, n or 2",
 };
 

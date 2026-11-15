@@ -110,6 +110,9 @@
   .network__option[data-network="testnet4"] .network__dot {
     background: var(--network-testnet4);
   }
+  .network__option[data-network="testnet5"] .network__dot {
+    background: var(--network-testnet5);
+  }
   .network__option[data-network="regtest"] .network__dot {
     background: var(--network-regtest);
   }

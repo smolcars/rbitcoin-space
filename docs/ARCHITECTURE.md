@@ -7,7 +7,8 @@ rbitcoin.space is a sidecar: one Rust server beside a stock rbitcoin node, a sta
                         │   │   │  ──Electrum TCP──►   (unmodified)
                         │   │   └──JSON-RPC────────►
                         │   └── SQLite (derived data only)
-                        └── LDK gossip peer ──► Lightning network
+                        ├── LDK gossip peer ──► Lightning network
+                        └── gRPC over HTTPS ──► Bark server (Ark VTXOs)
 ```
 
 ## Principles
@@ -26,9 +27,10 @@ rbitcoin.space is a sidecar: one Rust server beside a stock rbitcoin node, a sta
 | `node` | `crates/node` | Typed clients for rbitcoin: Esplora (TCP and unix socket), Electrum with subscriptions, JSON-RPC |
 | `engine` | `crates/engine` | Mempool tracking, projected blocks, block summaries, the SQLite store. Pure logic is kept separate from I/O so it can be unit-tested |
 | `ln` | `crates/ln` | The gossip-only LDK peer and Lightning graph tracking |
+| `bark` | `crates/bark` | Bark VTXOs: the Bark server's `GetVtxo` call over HTTP/2 and TLS, our own decoder of its wire format, and the exit chain rebuilt and checked ([`ARK.md`](ARK.md)) |
 | `logging` | `crates/logging` | Typed log events, their catalogue and the non-blocking writer ([`LOGGING.md`](LOGGING.md)). Only the server emits; libraries report through values |
 
-Dependencies point one way: `server` → `engine` and `ln` → `node`, and only `server` uses `logging`. A crate may be split when it earns it, not before.
+Dependencies point one way: `server` → `engine` and `ln` → `node`, `server` → `bark`, and only `server` uses `logging`. A crate may be split when it earns it, not before.
 
 Runtime is tokio with axum. SQLite is accessed through `rusqlite` with the bundled library.
 
@@ -43,6 +45,7 @@ A network is enabled by setting its variables (`.env.example`). Mainnet is serve
 | Mainnet | `/…` | `/api/…`, `/app/…` |
 | Signet | `/signet/…` | `/signet/api/…`, `/signet/app/…` |
 | Testnet4 | `/testnet4/…` | `/testnet4/api/…`, `/testnet4/app/…` |
+| Testnet 5 | `/testnet5/…` | `/testnet5/api/…`, `/testnet5/app/…` |
 | Regtest | `/regtest/…` | `/regtest/api/…`, `/regtest/app/…` |
 
 ## HTTP surface
@@ -101,7 +104,7 @@ Solid with TypeScript, built by Vite into static files. No server rendering and 
 | What | Budget |
 |---|---|
 | First load, JavaScript | 100 KB gzipped for the app shell and home page |
-| New block, from the node's Electrum announcement to the `block` message on the WebSocket | 50 ms on a node with rbitcoin PR 1577 (measured 11–43 ms on mainnet and signet). rbitcoin v0.9.2 can hold a new block for a second or more after announcing it ([`RBITCOIN.md`](RBITCOIN.md)): there the budget runs from when the node can serve the block, plus at most an eighth of the hold, the hub's retry spacing |
+| New block, from the node's Electrum announcement to the `block` message on `/app/ws` (the compatible socket's waits for the block's extras, [`WS.md`](WS.md#blocks-and-their-extras)) | 50 ms on a node with rbitcoin PR 1577 (measured 11–43 ms on mainnet and signet). rbitcoin v0.9.2 can hold a new block for a second or more after announcing it ([`RBITCOIN.md`](RBITCOIN.md)): there the budget runs from when the node can serve the block, plus at most an eighth of the hold, the hub's retry spacing |
 | Cached or immutable API response, server time | 10 ms at p99 |
 | Frame rate during block and mempool animations | 60 fps on a mid-range laptop |
 

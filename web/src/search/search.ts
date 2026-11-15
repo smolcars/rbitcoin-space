@@ -15,7 +15,7 @@ export interface Reading {
   ready: boolean;
 }
 
-/** Names networks for a sentence: "Signet or Testnet4". */
+/** Names networks for a sentence: "Signet, Testnet4 or Testnet5". */
 export function networkNames(list: readonly Network[]): string {
   const all = list.map((n) => NETWORK_NAMES[n]);
   return all.length > 1 ? `${all.slice(0, -1).join(", ")} or ${all.at(-1)}` : (all[0] ?? "");

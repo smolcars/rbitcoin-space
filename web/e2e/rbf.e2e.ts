@@ -4,6 +4,7 @@
 import { readFileSync } from "node:fs";
 import type { Page, WebSocketRoute } from "@playwright/test";
 import { expect, test } from "./fixtures";
+import { layoutFaults } from "./layout";
 import { amountsIntact, rowFaults, rowsWhole, tablesFit, wideFaces } from "./rows";
 
 const RECORDED = JSON.parse(
@@ -252,4 +253,26 @@ test("no replacement row is cut or faded, whatever its status, at 320, 390 and 7
       });
     });
   expect(await rowFaults(page, ".rbf-list")).toContainEqual(expect.stringMatching(/is cut$/));
+});
+
+// A replacement's ID was cut at its end by its own ellipsis, losing its last characters, at 320 px
+// in a wide face (SB15); the font sweep sees these panels empty.
+test.describe("in a wide face", () => {
+  test.use({ prose: "wide" });
+
+  test("the newest replacements keep each ID's last eight characters at 320 px", async ({
+    page,
+  }) => {
+    await recorded(page);
+    await page.setViewportSize({ width: 320, height: 900 });
+    for (const path of ["/regtest/", "/regtest/mempool"]) {
+      await page.goto(path);
+      await expect(page.locator(".rbf-recent tbody .hash").first()).toBeVisible({
+        timeout: 30_000,
+      });
+      await expect
+        .poll(async () => (await layoutFaults(page)).filter((f) => f.includes("loses its end")))
+        .toStrictEqual([]);
+    }
+  });
 });

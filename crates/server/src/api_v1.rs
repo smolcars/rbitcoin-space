@@ -56,7 +56,7 @@ pub fn routes() -> Router<Arc<NetworkContext>> {
         .route("/api/v1/fees/recommended", get(fees_recommended))
         .route("/api/v1/fees/precise", get(fees_precise))
         .route("/api/v1/fees/mempool-blocks", get(fees_mempool_blocks))
-        .route("/api/v1/backend-info", get(backend_info))
+        .route("/api/v1/backend-info", get(backend_info_route))
         .merge(crate::mining::routes())
         .merge(crate::statistics::routes())
         .merge(crate::v1_blocks::routes())
@@ -66,7 +66,7 @@ pub fn routes() -> Router<Arc<NetworkContext>> {
 /// name and OS, the node's version) is `null` here: private, or a node call (`docs/API.md`).
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct BackendInfo {
+pub(crate) struct BackendInfo {
     hostname: Option<&'static str>,
     version: &'static str,
     /// The commit `/healthz` reports, `null` for a build without one.
@@ -77,8 +77,9 @@ struct BackendInfo {
     os_version: Option<&'static str>,
 }
 
-async fn backend_info(State(ctx): State<Arc<NetworkContext>>) -> Response {
-    let body = BackendInfo {
+/// Also sent on the compatible socket, in its answer to `init`.
+pub(crate) fn backend_info(ctx: &NetworkContext) -> BackendInfo {
+    BackendInfo {
         hostname: None,
         version: env!("CARGO_PKG_VERSION"),
         git_commit: (crate::REVISION != "unknown").then_some(crate::REVISION),
@@ -88,8 +89,11 @@ async fn backend_info(State(ctx): State<Arc<NetworkContext>>) -> Response {
         backend: "esplora",
         core_version: None,
         os_version: None,
-    };
-    let mut res = Json(body).into_response();
+    }
+}
+
+async fn backend_info_route(State(ctx): State<Arc<NetworkContext>>) -> Response {
+    let mut res = Json(backend_info(&ctx)).into_response();
     res.headers_mut()
         .insert(CACHE_CONTROL, HeaderValue::from_static(CACHE));
     res

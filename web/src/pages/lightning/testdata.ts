@@ -4,6 +4,7 @@ import type {
   ChannelDetail,
   ListedChannel,
   NodeDetail,
+  OpenChannel,
   Overview,
   RankedNode,
   Series,
@@ -129,14 +130,38 @@ export const series = (s: Partial<Series> = {}): Series => ({
   ...s,
 });
 
-const channelOfAcinq = (n: number) => ({
+const OWN = {
+  fee_rate: 2499,
+  base_fee_msat: 1000,
+  cltv_delta: 144,
+  min_htlc_msat: 1,
+  max_htlc_msat: 20_000_000_000,
+  enabled: true,
+  last_update: 1_794_550_008,
+};
+const THEIRS = {
+  ...OWN,
+  fee_rate: 1,
+  cltv_delta: 80,
+  min_htlc_msat: 1000,
+  last_update: 1_794_715_678,
+};
+
+/** An open channel of ACINQ's as its list answers it, with bfx-lnd0 at the other end. */
+export const openChannel = (n: number, c: Partial<OpenChannel> = {}): OpenChannel => ({
   id: `81${String(n).padStart(4, "0")}x2037x0`,
   scid: "892785849701564416",
   capacity: 500_000_000 - n,
-  state: "active" as const,
-  peer: { id: BFX, alias: "bfx-lnd0" },
+  state: "active",
+  op_state: "active",
+  peer: { id: BFX, alias: "bfx-lnd0", capacity: 32_461_828_251, channels: 544 },
+  with_peer: 10,
   fee_rate: 2499,
-  closed: null,
+  own_policy: OWN,
+  peer_policy: THEIRS,
+  last_update: 1_794_715_678,
+  funded: 1_697_189_564,
+  ...c,
 });
 
 export const acinq = (n: Partial<NodeDetail> = {}): NodeDetail => ({
@@ -154,6 +179,18 @@ export const acinq = (n: Partial<NodeDetail> = {}): NodeDetail => ({
   last_update: 1_794_051_404,
   first_seen: 1_551_152_144,
   capacity: 27_383_219_285,
+  color: "#49daaa",
+  rank: { capacity: 3, channels: 1, of: 13_639 },
+  figures: {
+    capacity: { median: 1_956_163, smallest: 100_000, largest: 500_000_000 },
+    funded: { median: 1_772_013_542, oldest: 1_551_152_144, youngest: 1_794_694_919 },
+    states: { active: 1698, here: 42, peer: 7, inactive: 60 },
+    fee_rates: {
+      outgoing: { median: 499, weighted: 1522, lowest: 499, highest: 3999, policies: 1747 },
+      incoming: { median: 100, weighted: 1810, lowest: 0, highest: 2_000_000, policies: 1729 },
+    },
+    last_policy_update: 1_794_715_678,
+  },
   channels: {
     open: 1807,
     active: 1729,
@@ -168,7 +205,10 @@ export const acinq = (n: Partial<NodeDetail> = {}): NodeDetail => ({
     page: 0,
     per_page: 25,
     total: 1807,
-    channels: Array.from({ length: 25 }, (_, i) => channelOfAcinq(i)),
+    sort: "capacity",
+    dir: "desc",
+    states: { active: 1698, here: 42, peer: 7, inactive: 60 },
+    channels: Array.from({ length: 25 }, (_, i) => openChannel(i)),
   },
   fees: {
     incoming: [
@@ -223,3 +263,34 @@ export const channel = (c: Partial<ChannelDetail> = {}): ChannelDetail => ({
   penalty: null,
   ...c,
 });
+
+/** The channel a close funds, or the one this channel's funding closed: the lineage fields. */
+export const NEXT = {
+  id: "975402x1310x1",
+  scid: "1072528709001609217",
+  capacity: 4_000_000,
+  state: "active" as const,
+};
+export const EARLIER = {
+  ...NEXT,
+  id: "948730x2215x0",
+  scid: "1043139666765086720",
+  state: "closed" as const,
+};
+
+/** A closed channel of a kind, as the channel route answers it. */
+export const closedChannel = (
+  kind: "cooperative" | "force" | "penalty" | "other",
+  c: Partial<ChannelDetail> = {},
+): ChannelDetail => {
+  const l = closedOf(kind);
+  return channel({
+    id: l.id,
+    state: "closed",
+    node_one: { ...channel().node_one, policy: null },
+    node_two: { ...channel().node_two, policy: null },
+    closed: l.closed,
+    penalty: l.penalty,
+    ...c,
+  });
+};

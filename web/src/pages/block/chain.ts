@@ -8,6 +8,7 @@ export const HALVING_INTERVAL: Record<Network, number> = {
   mainnet: 210_000,
   signet: 210_000,
   testnet4: 210_000,
+  testnet5: 210_000,
   regtest: 150,
 };
 

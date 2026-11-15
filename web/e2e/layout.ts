@@ -152,10 +152,11 @@ export function layoutFaults(page: Page): Promise<string[]> {
       }
     }
 
-    // A short form's tail (Hash's `.hash--ends`, after a head that gives way) is never cut, even
-    // wholly out of sight past the box that cuts the head. A table's fitted ID (`.hash--fit`) is not
-    // held to it yet: at 320 px in a wide font its column can be narrower than its two halves.
-    for (const tail of document.querySelectorAll(".hash--ends .hash__tail")) {
+    // A hash's tail (Hash's `.hash--ends` and `.hash--fit`, after a head that gives way) is never
+    // cut, even wholly out of sight past the box that cuts the head.
+    for (const tail of document.querySelectorAll(
+      ".hash--ends .hash__tail, .hash--fit .hash__tail",
+    )) {
       if (!isShown(tail)) continue;
       const { hard } = clipOf(tail);
       range.selectNodeContents(tail);

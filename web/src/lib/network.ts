@@ -1,14 +1,18 @@
 // Networks and the paths that carry them. Mainnet has no prefix; the others live under /<name>.
 
-export const NETWORKS = ["mainnet", "signet", "testnet4", "regtest"] as const;
+export const NETWORKS = ["mainnet", "signet", "testnet4", "testnet5", "regtest"] as const;
 export type Network = (typeof NETWORKS)[number];
 
 export const NETWORK_NAMES: Record<Network, string> = {
   mainnet: "Mainnet",
   signet: "Signet",
   testnet4: "Testnet4",
+  testnet5: "Testnet5",
   regtest: "Regtest",
 };
+
+/** Whether a Lightning peer can run here: LDK, which runs it, has no Testnet 5. */
+export const hasLightning = (network: Network): boolean => network !== "testnet5";
 
 export function isNetwork(value: unknown): value is Network {
   return typeof value === "string" && (NETWORKS as readonly string[]).includes(value);
@@ -39,6 +43,13 @@ export function apiBase(network: Network): string {
 }
 
 const segment = (value: string | number) => encodeURIComponent(String(value));
+
+/** A VTXO id keeps its colon, which it needs to read as one; anything else in it is encoded. */
+const vtxoSegment = (id: string) =>
+  id
+    .split(":")
+    .map((part) => segment(part))
+    .join(":");
 
 /**
  * Network-free paths to each page. Chain data only ever lands in a path segment, encoded, so a
@@ -74,6 +85,10 @@ export const paths = {
   /** The mempool's history, for an interval such as `1w` when given. */
   mempool: (interval?: string) =>
     interval === undefined ? "/mempool" : `/mempool?interval=${encodeURIComponent(interval)}`,
+  /** Looking up an Ark VTXO. */
+  ark: () => "/ark",
+  /** A Bark VTXO by its id, `<txid>:<vout>`. */
+  barkVtxo: (id: string) => `/ark/bark/vtxo/${vtxoSegment(id)}`,
   /** Recent replacements, newest first; only those that replaced without signalling when asked. */
   rbf: (fullRbf = false) => (fullRbf ? "/rbf?view=full-rbf" : "/rbf"),
 };

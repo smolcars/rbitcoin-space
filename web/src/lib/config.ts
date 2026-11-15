@@ -5,6 +5,20 @@ export interface AppConfig {
   /** Enabled networks, in the server's order. */
   networks: Network[];
   version: string;
+  /** The Ark implementations each network looks VTXOs up on (`bark`), only where it has one. */
+  ark: Partial<Record<Network, string[]>>;
+}
+
+/** The `ark` map: known networks, each with a list of short lower-case names. */
+function parseArk(v: unknown): Partial<Record<Network, string[]>> {
+  const out: Partial<Record<Network, string[]>> = {};
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return out;
+  for (const [network, list] of Object.entries(v)) {
+    if (!isNetwork(network) || !Array.isArray(list)) continue;
+    const names = list.filter((n): n is string => typeof n === "string" && /^[a-z]{1,20}$/.test(n));
+    if (names.length > 0) out[network] = names;
+  }
+  return out;
 }
 
 /** Reads the reply, keeping only known networks. The body is untrusted until checked. */
@@ -13,8 +27,9 @@ export function parseConfig(body: unknown): AppConfig | null {
   const networks = "networks" in body && Array.isArray(body.networks) ? body.networks : null;
   if (!networks) return null;
   const version = "version" in body && typeof body.version === "string" ? body.version : "";
+  const ark = parseArk("ark" in body ? body.ark : undefined);
   // oxlint-disable-next-line unicorn/no-array-callback-reference -- isNetwork takes one argument
-  return { networks: networks.filter(isNetwork), version };
+  return { networks: networks.filter(isNetwork), version, ark };
 }
 
 /**
@@ -31,4 +46,21 @@ export async function fetchConfig(): Promise<AppConfig | null> {
   } catch {
     return null;
   }
+}
+
+let first: Promise<AppConfig | null> | undefined;
+
+/** Asks for the config and keeps the answer for {@link loadConfig}. The shell asks once, on load. */
+export function readConfig(): Promise<AppConfig | null> {
+  first = fetchConfig();
+  return first;
+}
+
+/**
+ * The config as the shell read it, for pages that need what the server offers (the Ark pages);
+ * asked now if the shell has not. {@link fetchConfig} always asks again.
+ */
+export function loadConfig(): Promise<AppConfig | null> {
+  first ??= fetchConfig();
+  return first;
 }

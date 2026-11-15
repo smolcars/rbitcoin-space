@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { apiBase, networkFromPath, onNetwork, paths, stripNetwork } from "./network";
+import {
+  apiBase,
+  hasLightning,
+  NETWORKS,
+  networkFromPath,
+  onNetwork,
+  paths,
+  stripNetwork,
+} from "./network";
 
 describe("network paths", () => {
   it("reads the network from the first segment", () => {
@@ -8,6 +16,7 @@ describe("network paths", () => {
     expect(networkFromPath("/signet")).toBe("signet");
     expect(networkFromPath("/signet/")).toBe("signet");
     expect(networkFromPath("/testnet4/block/1")).toBe("testnet4");
+    expect(networkFromPath("/testnet5/address/tb1q")).toBe("testnet5");
     expect(networkFromPath("/regtest/tx/ab")).toBe("regtest");
     // Not prefixes: mainnet has none, and look-alikes stay mainnet.
     expect(networkFromPath("/mainnet/tx/ab")).toBe("mainnet");
@@ -17,7 +26,7 @@ describe("network paths", () => {
 
   it("strips and adds the prefix symmetrically", () => {
     for (const path of ["/", "/tx/ab", "/block/12/", "/mining"]) {
-      for (const net of ["mainnet", "signet", "testnet4", "regtest"] as const) {
+      for (const net of NETWORKS) {
         const placed = onNetwork(net, path);
         expect(networkFromPath(placed)).toBe(net);
         expect(stripNetwork(placed)).toBe(path);
@@ -31,6 +40,11 @@ describe("network paths", () => {
   it("points each network at its own API", () => {
     expect(apiBase("mainnet")).toBe("/api");
     expect(apiBase("testnet4")).toBe("/testnet4/api");
+    expect(apiBase("testnet5")).toBe("/testnet5/api");
+  });
+
+  it("offers Lightning everywhere but Testnet 5, which LDK does not know", () => {
+    expect(NETWORKS.filter((n) => !hasLightning(n))).toStrictEqual(["testnet5"]);
   });
 
   it("encodes chain data into a single path segment", () => {

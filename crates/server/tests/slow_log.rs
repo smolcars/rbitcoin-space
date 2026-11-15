@@ -60,7 +60,7 @@ async fn a_stalled_log_never_holds_up_a_request() {
         ("REGTEST_MEMPOOL_ENABLED", "false"),
     ]);
     let mut config = Config::from_vars(|k| vars.get(k).map(|v| (*v).to_owned())).unwrap();
-    config.web_dir = std::env::temp_dir().join("rbitcoin-space-no-web-dir");
+    config.web_dir = Some(std::env::temp_dir().join("rbitcoin-space-no-web-dir"));
     config.limits = Limits {
         client_burst: 1_000_000,
         client_rate_per_sec: 1_000_000,

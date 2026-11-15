@@ -11,7 +11,7 @@ use serde::{Deserialize, Deserializer};
 /// `getblockchaininfo`.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct BlockchainInfo {
-    /// `main`, `test`, `testnet4`, `signet` or `regtest`.
+    /// `main`, `test`, `testnet4`, `testnet5`, `signet` or `regtest`.
     pub chain: String,
     pub blocks: u32,
     pub headers: u32,

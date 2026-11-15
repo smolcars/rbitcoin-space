@@ -40,14 +40,16 @@ for (const c of cases) {
   });
 }
 
-test("a pasted link to another explorer opens the page here", async ({ page }) => {
-  await page.goto("/regtest/blocks");
-  const field = search(page);
-  await field.fill(`https://mempool.space/testnet4/tx/${chain.txs.consolidation}#vin=0`);
-  await expect(page.getByRole("search")).toContainText("Transaction");
-  await field.press("Enter");
-  await expect(page).toHaveURL(`/regtest/tx/${chain.txs.consolidation}`);
-});
+for (const net of ["testnet4", "testnet5"]) {
+  test(`a pasted ${net} link to another explorer opens the page here`, async ({ page }) => {
+    await page.goto("/regtest/blocks");
+    const field = search(page);
+    await field.fill(`https://mempool.space/${net}/tx/${chain.txs.consolidation}#vin=0`);
+    await expect(page.getByRole("search")).toContainText("Transaction");
+    await field.press("Enter");
+    await expect(page).toHaveURL(`/regtest/tx/${chain.txs.consolidation}`);
+  });
+}
 
 test("nothing found says what was searched and what search finds", async ({ page }) => {
   await page.goto("/regtest/");

@@ -88,7 +88,7 @@ fn config(vars: &[(&str, &str)], limits: Limits) -> Config {
         map.insert((*k).to_owned(), (*v).to_owned());
     }
     let mut c = Config::from_vars(|k| map.get(k).cloned()).unwrap();
-    c.web_dir = std::env::temp_dir().join("rbitcoin-space-no-web-dir");
+    c.web_dir = Some(std::env::temp_dir().join("rbitcoin-space-no-web-dir"));
     // The proxy settings come from the variables; everything else from `limits`.
     c.limits = Limits {
         trusted_proxy: c.limits.trusted_proxy.take(),

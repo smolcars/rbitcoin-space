@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicU64, AtomicUsize};
 
 use axum::extract::Path;
 use bitcoin::hashes::Hash;
-use engine::projected::{Placed, Position};
+use engine::projected::{Placed, Position, ProjectedBlock};
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 
@@ -122,7 +122,6 @@ async fn client_messages_are_parsed_strictly() {
         json!({}),
         json!({"bogus": 1}),
         json!({"action": 5}),
-        json!({"action": "init"}),
         json!({"action": "want"}),
         json!({"action": "want", "data": "blocks"}),
         json!({"action": "want", "data": ["blocks", 1]}),
@@ -153,6 +152,13 @@ async fn client_messages_are_parsed_strictly() {
 
     send(&mut s, &json!({"action": "ping"}));
     assert_eq!(c.all(), [json!({"pong": true})]);
+    // `init`: what no part carries, the backend as `/api/v1/backend-info` describes it.
+    send(&mut s, &json!({"action": "init"}));
+    let info = serde_json::to_value(api_v1::backend_info(&ctx)).unwrap();
+    assert_eq!(
+        c.all(),
+        [json!({"loadingIndicators": {}, "backend": "esplora", "backendInfo": info})]
+    );
 
     // `want` replaces the set; unknown names are ignored.
     send(
@@ -240,7 +246,7 @@ async fn client_messages_are_parsed_strictly() {
 }
 
 #[tokio::test]
-async fn every_part_a_transaction_and_two_addresses_fit_the_subscription_cap() {
+async fn every_part_a_transaction_two_addresses_and_a_drawing_fit_the_subscription_cap() {
     let ctx = context("127.0.0.1:1", true, |_| {});
     let mut c = Client::new();
     let c_conn = Arc::clone(&c.conn);
@@ -252,14 +258,16 @@ async fn every_part_a_transaction_and_two_addresses_fit_the_subscription_cap() {
         &mut s,
         &json!({"track-addresses": [address(5), address(6)]}),
     );
+    send(&mut s, &json!({"track-mempool-block": 0}));
     let wanted = [
         Topic::V1Blocks,
         Topic::V1Stats,
         Topic::V1MempoolBlocks,
         Topic::V1LiveChart,
+        Topic::V1ProjectedTxs(0),
     ]
     .map(|t| ctx.hub.subscribers(t));
-    assert_eq!(wanted, [1, 1, 1, 1]);
+    assert_eq!(wanted, [1, 1, 1, 1, 1]);
     assert_eq!((ctx.track.tracked(), ctx.v1.followed()), ((1, 2), 2));
     // Nothing refused; the default cap of 8 topics is unchanged.
     assert!(c.all().iter().all(|m| !m.to_string().contains("-error")));
@@ -534,10 +542,13 @@ async fn addresses_say_their_new_and_confirmed_transactions_once_for_every_socke
 // Shapes against the reference, as recorded in `fixtures/websocket/reference.json`.
 
 /// Checks that `ours` has the reference's shape: each of our keys is one of its keys with a value
-/// of the same JSON type, and each of its keys we leave out is named in `omitted` (as
-/// `path.key`). A reference `null` matches any type: it says nothing about the type. Arrays are
-/// compared by their first element.
+/// of the same JSON type, and each of its keys we leave out, or send otherwise, is named in
+/// `omitted` (as `path.key`). A reference `null` matches any type: it says nothing about the
+/// type. Arrays are compared by their first element.
 fn conforms(ours: &Value, reference: &Value, path: &str, omitted: &[&str], out: &mut Vec<String>) {
+    if omitted.contains(&path) {
+        return;
+    }
     let kind = |v: &Value| match v {
         Value::Null => "null",
         Value::Bool(_) => "bool",
@@ -585,12 +596,11 @@ fn reference() -> Value {
     .unwrap()
 }
 
-fn esplora(name: &str) -> Value {
-    let text = match name {
-        "block" => include_str!("../../../../../fixtures/esplora/mainnet/block.json"),
-        _ => include_str!("../../../../../fixtures/esplora/mainnet/tx-segwit-opreturn.json"),
-    };
-    serde_json::from_str(text).unwrap()
+fn esplora_tx() -> Value {
+    serde_json::from_str(include_str!(
+        "../../../../../fixtures/esplora/mainnet/tx-segwit-opreturn.json"
+    ))
+    .unwrap()
 }
 
 /// What the reference sends that we do not, by message: each is listed in `docs/WS.md`.
@@ -601,11 +611,31 @@ const OMITTED: &[&str] = &[
     ".mempoolInfo.optimal",
     // rbitcoin's node reports it; the reference's node did not.
     ".mempoolInfo.fullrbf",
-    // The block is the node's Esplora JSON: no extras, and only best-chain blocks are sent.
-    ".blocks[].stale",
-    ".blocks[].extras",
-    ".block.stale",
-    ".block.extras",
+    // Block extras we do not compute yet: the same blocks as `GET /api/v1/blocks`.
+    ".blocks[].extras.orphans",
+    ".blocks[].extras.utxoSetChange",
+    ".blocks[].extras.avgTxSize",
+    ".blocks[].extras.totalInputs",
+    ".blocks[].extras.totalOutputs",
+    ".blocks[].extras.totalOutputAmt",
+    ".blocks[].extras.segwitTotalTxs",
+    ".blocks[].extras.segwitTotalSize",
+    ".blocks[].extras.segwitTotalWeight",
+    ".blocks[].extras.coinbaseBip54",
+    ".blocks[].extras.similarity",
+    ".block.extras.orphans",
+    ".block.extras.utxoSetChange",
+    ".block.extras.avgTxSize",
+    ".block.extras.totalInputs",
+    ".block.extras.totalOutputs",
+    ".block.extras.totalOutputAmt",
+    ".block.extras.segwitTotalTxs",
+    ".block.extras.segwitTotalSize",
+    ".block.extras.segwitTotalWeight",
+    ".block.extras.coinbaseBip54",
+    ".block.extras.similarity",
+    // `null`, as on `GET /api/v1/blocks`: we keep no miner names.
+    ".blocks[].extras.pool.minerNames",
     // CPFP details of a tracked transaction.
     ".txPosition.cpfp",
     // The reference's own fields on a transaction; ours is the node's Esplora JSON.
@@ -625,6 +655,24 @@ const OMITTED: &[&str] = &[
     ".block-transactions[].vin[].inner_redeemscript_asm",
     ".block-transactions[].vin[].inner_witnessscript_asm",
     ".block-transactions[].vout[].scriptpubkey_address",
+];
+
+/// What the reference's answer to `init` carries that ours leaves to the `want` parts' state, or
+/// does not send at all (`rbfSummary`, `conversions`).
+const INIT_OMITTED: &[&str] = &[
+    ".mempoolInfo",
+    ".vBytesPerSecond",
+    ".mempool-blocks",
+    ".transactions",
+    ".fees",
+    ".rbfSummary",
+    ".conversions",
+    ".da",
+    ".blocks",
+    // `null`, as `/api/v1/backend-info` serves them: private, or a node call.
+    ".backendInfo.hostname",
+    ".backendInfo.coreVersion",
+    ".backendInfo.osVersion",
 ];
 
 #[tokio::test]
@@ -654,7 +702,7 @@ async fn every_message_has_the_reference_shape() {
         bits: bitcoin::CompactTarget::from_consensus(0x1702_6dcc),
     };
     let period = engine::difficulty::Period::new(
-        bitcoin::Network::Bitcoin,
+        &bitcoin::params::MAINNET,
         975_531,
         1_794_471_896,
         block(973_728, 1_793_301_298),
@@ -700,37 +748,87 @@ async fn every_message_has_the_reference_shape() {
         height: 1,
         hash: BlockHash::all_zeros(),
     };
+    // A drawn block: its list, then a change with a transaction added, one removed and one whose
+    // rate changed.
+    let (tracker, projector) = ctx.track.engines().unwrap();
+    let block = Arc::clone(&projector.current().blocks[0]);
+    let placed = |rate| Placed {
+        block: 0,
+        rate,
+        vsize: 141,
+        fee: 300,
+    };
+    let (gone, added) = (
+        Txid::from_byte_array([1; 32]),
+        Txid::from_byte_array([2; 32]),
+    );
+    let mut old = ProjectedBlock::clone(&block);
+    old.txs[0].1.rate = 1_000;
+    old.txs.push((gone, placed(2_000)));
+    let mut new = ProjectedBlock::clone(&block);
+    new.txs.push((added, placed(2_000)));
+    let drawn = whole(tracker, 0, 1, &block);
+    let (delta, _) = changes(tracker, 0, 2, &old, &new).unwrap();
+
     let mut c = Client::new();
     let c_conn = Arc::clone(&c.conn);
     let mut s = Session::new(ctx, &c_conn);
     send(&mut s, &json!({"action": "ping"}));
+    send(&mut s, &json!({"action": "init"}));
     let flood: Vec<String> = (0..3).map(|i| format!("x{i}")).collect();
     send(&mut s, &json!({"track-addresses": flood}));
     let replies = c.all();
 
     let ours = [
         ("pong", replies[0].clone()),
+        ("init", replies[1].clone()),
         ("stats", stats),
         (
             "mempool-blocks",
             json!({"mempool-blocks": api_v1::mempool_blocks(&blocks)}),
         ),
-        ("blocks", json!({"blocks": [esplora("block")]})),
-        ("block", json!({"block": esplora("block")})),
+        (
+            "blocks",
+            json!({"blocks": [crate::v1_blocks::tests::sample()]}),
+        ),
+        ("block", json!({"block": crate::v1_blocks::tests::sample()})),
         ("txPosition", tx_message(&id, &tx_state, &[0]).unwrap()),
         ("txConfirmed", tx_message(&id, &confirmed, &[0]).unwrap()),
         (
             "block-transactions",
-            json!({"block-transactions": [esplora("tx")]}),
+            json!({"block-transactions": [esplora_tx()]}),
         ),
-        ("track-addresses-error", replies[1].clone()),
+        ("track-addresses-error", replies[2].clone()),
         ("live-2h-chart", live_chart(&sample)),
+        ("projected-block-transactions", drawn),
+        ("projected-block-transactions:delta", delta),
     ];
     let mut wrong = Vec::new();
     for (name, msg) in &ours {
-        conforms(msg, &r[name], "", OMITTED, &mut wrong);
+        let omitted = if *name == "init" {
+            INIT_OMITTED
+        } else {
+            OMITTED
+        };
+        conforms(msg, &r[name], "", omitted, &mut wrong);
     }
     assert_eq!(wrong, Vec::<String>::new());
+    // A drawn transaction is an array, compared above by its first element only: its length too.
+    let len = |m: &Value, path: &str| m.pointer(path).and_then(Value::as_array).map(Vec::len);
+    for path in [
+        "/projected-block-transactions/blockTransactions/0",
+        "/projected-block-transactions/delta/added/0",
+        "/projected-block-transactions/delta/changed/0",
+    ] {
+        let name = if path.contains("delta") {
+            "projected-block-transactions:delta"
+        } else {
+            "projected-block-transactions"
+        };
+        let ours = ours.iter().find(|(n, _)| *n == name).unwrap();
+        assert_eq!(len(&ours.1, path), len(&r[name], path), "{path}");
+        assert!(len(&ours.1, path).is_some(), "{path}");
+    }
     // Every recorded reference message is checked.
     let names: HashSet<&str> = ours.iter().map(|(n, _)| *n).collect();
     let recorded: HashSet<&str> = r
@@ -944,4 +1042,347 @@ async fn an_address_history_the_node_will_not_finish_is_not_read_again() {
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert_eq!(history.reads.load(Ordering::Relaxed), 1);
     assert_eq!(ctx.v1.followed(), 2);
+}
+
+#[tokio::test]
+async fn table_blocks_go_out_once_each_in_order_and_a_reorg_sends_the_list() {
+    let ctx = context("127.0.0.1:1", true, |_| {});
+    let blk = |h: u32, fork: &str| json!({"id": format!("{fork}{h}"), "height": h, "extras": {}});
+    let list = |hs: std::ops::RangeInclusive<u32>, fork: &str| -> Vec<Value> {
+        hs.map(|h| blk(h, fork)).collect()
+    };
+    let want = json!({"action": "want", "data": ["blocks"]});
+    from_table(&ctx, list(1..=8, "a"));
+    let mut c = Client::new();
+    let c_conn = Arc::clone(&c.conn);
+    let mut cs = Session::new(&ctx, &c_conn);
+    send(&mut cs, &want);
+    assert_eq!(c.all(), [json!({"blocks": list(1..=8, "a")})]);
+
+    // Two rows written at once: each block once, oldest first.
+    from_table(&ctx, list(3..=10, "a"));
+    assert_eq!(
+        c.all(),
+        [
+            json!({"block": blk(9, "a")}),
+            json!({"block": blk(10, "a")})
+        ]
+    );
+    // The same blocks again, the tip rated since: nothing is sent, a new socket gets the rates.
+    let mut rated = list(3..=10, "a");
+    rated[7]["extras"]["medianFee"] = json!(1.5);
+    from_table(&ctx, rated.clone());
+    assert_eq!(c.all(), Vec::<Value>::new());
+    let mut d = Client::new();
+    let d_conn = Arc::clone(&d.conn);
+    let mut ds = Session::new(&ctx, &d_conn);
+    send(&mut ds, &want);
+    assert_eq!(d.all(), [json!({"blocks": rated})]);
+
+    // The last two replaced: the list goes out whole, never a block of the old branch again.
+    let mut fork = list(3..=8, "a");
+    fork.extend(list(9..=10, "b"));
+    from_table(&ctx, fork.clone());
+    assert_eq!(c.all(), [json!({"blocks": fork.clone()})]);
+    // An empty table changes nothing.
+    from_table(&ctx, Vec::new());
+    assert_eq!(c.all(), Vec::<Value>::new());
+    assert_eq!(lock(&ctx.v1.blocks).back(), fork.last());
+}
+
+// Drawings: `track-mempool-block`.
+
+const DRAWING: &str = "projected-block-transactions";
+
+/// A client's copy of one drawn block, built only from the messages, as the reference's frontend
+/// would: txid to `[fee, vsize, rate]`. Every message must be one `sequence` above the last.
+#[derive(Default, Debug, PartialEq)]
+struct Drawn {
+    sequence: Option<u64>,
+    txs: HashMap<String, Value>,
+    /// The last message was the whole list.
+    whole: bool,
+}
+
+impl Drawn {
+    fn apply(&mut self, msg: &Value) {
+        let m = &msg[DRAWING];
+        let sequence = m["sequence"].as_u64().unwrap();
+        if let Some(prev) = self.sequence {
+            assert_eq!(sequence, prev + 1, "{msg}");
+        }
+        self.whole = m.get("blockTransactions").is_some();
+        if let Some(rows) = m.get("blockTransactions") {
+            self.txs = rows
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|r| (r[0].as_str().unwrap().to_owned(), json!([r[1], r[2], r[4]])))
+                .collect();
+        } else {
+            assert!(self.sequence.is_some(), "a change before the list: {msg}");
+            let d = &m["delta"];
+            for t in d["removed"].as_array().unwrap() {
+                assert!(self.txs.remove(t.as_str().unwrap()).is_some(), "{msg}");
+            }
+            for r in d["added"].as_array().unwrap() {
+                let old = self
+                    .txs
+                    .insert(r[0].as_str().unwrap().to_owned(), json!([r[1], r[2], r[4]]));
+                assert!(old.is_none(), "{msg}");
+            }
+            for c in d["changed"].as_array().unwrap() {
+                let t = self.txs.get_mut(c[0].as_str().unwrap()).unwrap();
+                t[2] = c[1].clone();
+                assert_eq!((&c[2], &c[3]), (&json!(0), &json!(0)));
+            }
+        }
+        self.sequence = Some(sequence);
+    }
+
+    /// Applies every drawing message the client has; returns how many.
+    fn follow(&mut self, c: &mut Client) -> usize {
+        let all: Vec<Value> = c
+            .all()
+            .into_iter()
+            .filter(|m| m.get(DRAWING).is_some())
+            .collect();
+        for m in &all {
+            self.apply(m);
+        }
+        all.len()
+    }
+}
+
+/// Projected block `i` now, as a [`Drawn`] holds it.
+fn projected_block(server: &Server, i: usize) -> HashMap<String, Value> {
+    server
+        .projector
+        .current()
+        .blocks
+        .get(i)
+        .map_or_else(HashMap::new, |b| {
+            b.txs
+                .iter()
+                .map(|(t, p)| {
+                    (
+                        t.to_string(),
+                        json!([p.fee, p.vsize, f64::from(p.rate) / 1000.0]),
+                    )
+                })
+                .collect()
+        })
+}
+
+/// Waits until the client's copy is exactly projected block `i`.
+async fn until_drawn(c: &mut Client, d: &mut Drawn, server: &Server, i: usize) {
+    let deadline = Instant::now() + WAIT;
+    loop {
+        d.follow(c);
+        if d.sequence.is_some() && d.txs == projected_block(server, i) {
+            return;
+        }
+        assert!(Instant::now() < deadline, "never drawn: {d:?}");
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+}
+
+#[tokio::test]
+async fn a_drawn_block_is_its_list_then_its_changes_each_one_sequence_higher() {
+    let mock = Mock::new();
+    let server = Server::start(&mock, |_| {});
+    let a = mock.send(&[coin(1)], 2, 2_000, 200);
+    let b = mock.send(&[coin(2)], 1, 500, 100);
+    server.settle().await;
+    let mut c = Client::new();
+    let c_conn = Arc::clone(&c.conn);
+    let mut s = Session::new(&server.ctx, &c_conn);
+    send(&mut s, &json!({"track-mempool-block": 0}));
+
+    // The whole list, in the reference's rows: txid, fee, vsize, value, rate, flags, first seen.
+    let first = c.next(DRAWING).await;
+    let rows = first[DRAWING]["blockTransactions"].as_array().unwrap();
+    let (tracker, _) = server.ctx.track.engines().unwrap();
+    let info = tracker.read(|m| m.get(&a).cloned()).unwrap();
+    assert_eq!(first[DRAWING]["index"], json!(0));
+    assert_eq!(
+        rows[0],
+        json!([
+            a,
+            2_000,
+            200,
+            info.value.to_sat(),
+            10.0,
+            0,
+            mock.get(a).time
+        ])
+    );
+    assert_eq!(rows[1][0], json!(b.to_string()));
+    let mut d = Drawn::default();
+    d.apply(&first);
+    until_drawn(&mut c, &mut d, &server, 0).await;
+
+    // Added, then changed (a child pays for `b`), then removed (mined): each a change, one
+    // sequence higher, and the copy is the block each time.
+    mock.send(&[coin(3)], 1, 3_000, 150);
+    server.settle().await;
+    until_drawn(&mut c, &mut d, &server, 0).await;
+    let child = mock.send(&[bitcoin::OutPoint::new(b, 0)], 1, 10_000, 100);
+    mock.join(&[&[b, child]]);
+    server.settle().await;
+    until_drawn(&mut c, &mut d, &server, 0).await;
+    assert_eq!(d.txs[&b.to_string()][2], json!(52.5));
+    // Many small changes, each its own message.
+    for n in 10..40 {
+        mock.send(&[coin(n)], 1, 1_000, 100);
+        server.settle().await;
+        until_drawn(&mut c, &mut d, &server, 0).await;
+    }
+
+    // A socket that joins late gets the list and at most 16 changes since, and from then on the
+    // same messages: its sequence rises by one too, and its copy is the same.
+    let mut late = Client::new();
+    let late_conn = Arc::clone(&late.conn);
+    let mut ls = Session::new(&server.ctx, &late_conn);
+    send(&mut ls, &json!({"track-mempool-block": 0}));
+    let mut ld = Drawn::default();
+    ld.apply(&late.next(DRAWING).await);
+    assert!(ld.follow(&mut late) <= MAX_APPENDED);
+    until_drawn(&mut late, &mut ld, &server, 0).await;
+    mock.mine(&[a]);
+    server.settle().await;
+    until_drawn(&mut c, &mut d, &server, 0).await;
+    until_drawn(&mut late, &mut ld, &server, 0).await;
+    assert!(!d.txs.contains_key(&a.to_string()));
+    assert!(!d.whole);
+    // A block that takes most of it: the whole list again, still one sequence higher.
+    let most: Vec<Txid> = server.projector.current().blocks[0].txs[1..]
+        .iter()
+        .map(|(t, _)| *t)
+        .collect();
+    mock.mine(&most);
+    server.settle().await;
+    until_drawn(&mut c, &mut d, &server, 0).await;
+    until_drawn(&mut late, &mut ld, &server, 0).await;
+    assert!(d.whole);
+    assert_eq!(ld, d);
+}
+
+#[tokio::test]
+async fn a_new_block_replaces_the_last_and_a_negative_index_stops_it() {
+    let ctx = context("127.0.0.1:1", true, |_| {});
+    let mut c = Client::new();
+    let c_conn = Arc::clone(&c.conn);
+    let mut s = Session::new(&ctx, &c_conn);
+    let drawing = |i| ctx.hub.subscribers(Topic::V1ProjectedTxs(i));
+    send(&mut s, &json!({"track-mempool-block": 0}));
+    send(&mut s, &json!({"track-mempool-block": 3}));
+    assert_eq!((drawing(0), drawing(3)), (0, 1));
+    // Not a number: nothing, and the block stays.
+    for quiet in [json!("1"), json!(1.5), json!(null), json!([1])] {
+        send(&mut s, &json!({ "track-mempool-block": quiet }));
+    }
+    assert_eq!(drawing(3), 1);
+    assert_eq!(c.all(), Vec::<Value>::new());
+    send(&mut s, &json!({"track-mempool-block": -1}));
+    assert_eq!(drawing(3), 0);
+    // A block without a topic: the last, which holds the rest of the mempool, and beyond.
+    send(&mut s, &json!({"track-mempool-block": 2}));
+    for n in [7, 8, 255, 256, i64::MAX] {
+        send(&mut s, &json!({"track-mempool-block": n}));
+    }
+    assert_eq!(drawing(2), 0);
+    let error = json!({"track-mempool-block-error": "projected blocks 0 to 6 are served"});
+    assert_eq!(c.all(), vec![error; 5]);
+}
+
+#[tokio::test]
+async fn asking_again_for_the_block_drawn_sends_its_frames_again_at_most_once_an_interval() {
+    let mock = Mock::new();
+    let server = Server::start(&mock, |_| {});
+    mock.send(&[coin(1)], 1, 2_000, 200);
+    server.settle().await;
+    let mut c = Client::new();
+    let c_conn = Arc::clone(&c.conn);
+    let mut s = Session::new(&server.ctx, &c_conn);
+    send(&mut s, &json!({"track-mempool-block": 0}));
+    let first = tokio::time::timeout(WAIT, c.rx.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    // The reference's frontend, lost: thousands of the same request. None is answered within
+    // the interval, and after it one is, with the frames already encoded: the same bytes.
+    let l = WsLimits {
+        mempool_interval: Duration::from_millis(500),
+        ..limits()
+    };
+    let ask = r#"{"track-mempool-block":0}"#;
+    for _ in 0..10_000 {
+        assert_eq!(s.handle(ask, &l), Ok(()));
+    }
+    assert!(c.rx.try_recv().is_err());
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    for _ in 0..10_000 {
+        assert_eq!(s.handle(ask, &l), Ok(()));
+    }
+    let again: Vec<Frame> = std::iter::from_fn(|| c.rx.try_recv().ok()).collect();
+    assert_eq!(again.len(), 1);
+    assert_eq!(again[0].as_bytes().as_ptr(), first.as_bytes().as_ptr());
+}
+
+#[tokio::test]
+async fn nothing_is_encoded_for_a_block_nobody_draws() {
+    let mock = Mock::new();
+    let server = Server::start(&mock, |_| {});
+    mock.send(&[coin(1)], 1, 2_000, 200);
+    server.settle().await;
+    // What the topic stores, read by a socket that joins the hub directly and leaves at once.
+    let stored = || {
+        let (tx, mut rx) = mpsc::channel(64);
+        let conn = Arc::new(Conn::test(4_000_000, tx));
+        server.ctx.hub.subscribe(Topic::V1ProjectedTxs(0), &conn);
+        server
+            .ctx
+            .hub
+            .unsubscribe(Topic::V1ProjectedTxs(0), conn.id);
+        std::iter::from_fn(|| rx.try_recv().ok()).count()
+    };
+    assert_eq!(stored(), 0);
+    let mut c = Client::new();
+    let c_conn = Arc::clone(&c.conn);
+    let mut s = Session::new(&server.ctx, &c_conn);
+    send(&mut s, &json!({"track-mempool-block": 0}));
+    c.next(DRAWING).await;
+    assert_eq!(stored(), 1);
+    // Stopped: the next projection forgets it, and changes are not encoded.
+    send(&mut s, &json!({"track-mempool-block": -1}));
+    mock.send(&[coin(2)], 1, 2_000, 200);
+    server.settle().await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert_eq!(stored(), 0);
+    assert_eq!(c.all(), Vec::<Value>::new());
+}
+
+#[tokio::test]
+async fn a_drawing_on_another_block_than_the_last_one_sent_waits_for_it() {
+    let mock = Mock::new();
+    let server = Server::start(&mock, |_| {});
+    mock.send(&[coin(1)], 1, 2_000, 200);
+    server.settle().await;
+    let ctx = &server.ctx;
+    // The last `block` sent is not the one the projection is on.
+    let other = BlockHash::from_byte_array([7; 32]);
+    from_table(ctx, vec![json!({"id": other, "height": 1})]);
+    let mut c = Client::new();
+    let c_conn = Arc::clone(&c.conn);
+    let mut s = Session::new(ctx, &c_conn);
+    send(&mut s, &json!({"track-mempool-block": 0}));
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(c.all(), Vec::<Value>::new());
+    // Its `block` goes out: the drawing follows it at once.
+    let tip = mock.tip().hash;
+    from_table(ctx, vec![json!({"id": tip, "height": 2})]);
+    tokio::time::timeout(Duration::from_millis(500), c.next(DRAWING))
+        .await
+        .unwrap();
 }
