@@ -441,8 +441,7 @@ Address  (Silent payments)
 sp1qqgste 7k9hx0qf tg6qmwlk qtwuy6cy …   [copy]
 ✓ Valid  Silent payments address for Mainnet
 ┌ Pay this address ──────────────────────────────────┐
-│ Copy the address into a wallet that supports them. │
-│ Why there is no balance or history.                │
+│ Copy it into a wallet that supports silent payments│
 │ ▸ How silent payments work                         │
 └────────────────────────────────────────────────────┘
 ┌ What the address holds ────────────────────────────┐

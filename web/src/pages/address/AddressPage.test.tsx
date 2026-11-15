@@ -659,7 +659,7 @@ describe("address page", () => {
     it("points a test network address on mainnet to the networks that serve it", async () => {
       serve({ "/app/config": { networks: ["mainnet", "regtest"], version: "0" } });
       const el = open(`/address/${TSP}`);
-      expect(text(el)).toContain("This is a Signet, Testnet4 or Regtest address");
+      expect(text(el)).toContain("This is a Signet, Testnet4, Testnet5 or Regtest address");
       await until(() => expect(el.querySelector(".address-elsewhere a")).not.toBeNull());
       expect(el.querySelector(".address-elsewhere a")?.getAttribute("href")).toBe(
         `/regtest/address/${TSP}`,

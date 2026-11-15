@@ -10,12 +10,9 @@ import { Notice } from "./parts";
 import { decodeSilentPayment, type SilentPaymentProblem } from "./silent-payment";
 
 const PROBLEMS: Record<SilentPaymentProblem, string> = {
-  checksum:
-    "Its checksum does not match, so a character is wrong, missing or out of place. Copy it again from where you found it.",
-  version:
-    "It is version 31, which is kept for a future format that cannot be read as this one. No wallet pays it today.",
-  length:
-    "It holds the wrong amount of data for its version, so a character is missing or one too many.",
+  checksum: "Its checksum does not match: a character is wrong, missing or out of place.",
+  version: "Version 31 is kept for a future format, and no wallet pays it.",
+  length: "It holds the wrong amount of data for its version.",
   key: "One of its two keys is not a valid public key, so no wallet can pay it.",
 };
 
@@ -53,23 +50,17 @@ export function SilentPaymentAddress(props: { address: string; network: Network 
             </p>
             <Show when={sp().version > 0}>
               <Notice title={`A newer version: ${sp().version}`} tone="caution">
-                This page reads its two keys, as every version must allow, but a wallet made for
-                version 0 may not pay it. Check that the sending wallet supports this version.
+                A wallet made for version 0 may not pay it.
               </Notice>
             </Show>
             <section class="address-sp" aria-labelledby="address-sp-pay">
               <SectionHeader title="Pay this address" id="address-sp-pay" />
-              <div class="address-sp__text">
-                <p>
-                  Copy the address above into a wallet that supports silent payments. The wallet
-                  works out a new taproot output from it for every payment.
-                </p>
+              <p class="address-sp__text">Copy it into a wallet that supports silent payments.</p>
+              <More label="How silent payments work">
                 <p>
                   There is no balance or history to show: no payment names this address on chain,
                   and only its owner can find the payments made to it.
                 </p>
-              </div>
-              <More label="How silent payments work">
                 <p>
                   The address holds two public keys. A sending wallet combines the scan key with the
                   private keys of the coins it spends, and uses the result to tweak the spend key
@@ -79,7 +70,8 @@ export function SilentPaymentAddress(props: { address: string; network: Network 
                 <p>
                   The receiver finds its payments by checking each block's transactions with the
                   private half of its scan key. An explorer has neither private key, so it cannot
-                  list them. The format is defined in BIP352.
+                  list them. A version above 0 is read by its first 66 bytes, as BIP352 asks. The
+                  format is defined in BIP352.
                 </p>
               </More>
             </section>
