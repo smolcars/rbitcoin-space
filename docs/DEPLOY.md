@@ -391,6 +391,8 @@ Every later command needs both `-f` flags. Use this file or `compose.proxy.yml`,
 
 **Check the addresses** as the deployment did: with `LOG_CLIENT_ADDR=true`, load the site and compare the `client` of your request in the server's log with the `ip=` line of `https://explorer.example.com/cdn-cgi/trace`, Cloudflare's own view of you, from the same browser. An IPv4 address must be equal; an IPv6 one is logged as its `/64` ([`CONFIG.md`](CONFIG.md#logging)), so the first four groups must match. Then remove `LOG_CLIENT_ADDR`.
 
+**Web Analytics.** If you switch on Cloudflare's Web Analytics for the site, Cloudflare injects its beacon into each page and the Content-Security-Policy refuses it until you set `CLOUDFLARE_WEB_ANALYTICS=true` ([`CONFIG.md`](CONFIG.md#cloudflare-web-analytics)).
+
 Observed in the deployment on 2026-11-14, free plan, with nothing configured in Cloudflare but the tunnel, its DNS records and Always Use HTTPS:
 
 | | Observed |

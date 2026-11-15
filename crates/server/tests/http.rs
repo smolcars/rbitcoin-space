@@ -17,7 +17,9 @@ use axum::extract::{ConnectInfo, State};
 use axum::http::Request;
 use axum::routing::{get, post};
 use rbitcoin_space::config::{IpNet, TrustedProxy};
-use rbitcoin_space::{App, Config, IMMUTABLE, Limits, NetworkContext, SECURITY_HEADERS};
+use rbitcoin_space::{
+    App, CLOUDFLARE_CSP, Config, IMMUTABLE, Limits, NetworkContext, SECURITY_HEADERS,
+};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tower::ServiceExt;
@@ -800,6 +802,29 @@ async fn security_headers_on_every_response() {
     let csp = SECURITY_HEADERS[0].1;
     assert!(csp.starts_with("default-src 'self';"));
     assert!(!csp.contains("unsafe"));
+    assert!(
+        !csp.contains("http"),
+        "no third-party origin unless the setting is on"
+    );
+
+    // CLOUDFLARE_WEB_ANALYTICS adds the beacon's two origins, and the rest stays.
+    let mut on = config(limits());
+    on.cloudflare_web_analytics = true;
+    let addr = start_with(on).await;
+    for path in ["/", "/no/such/page", "/api/nope"] {
+        let r = get_path(&addr, path).await;
+        assert_eq!(
+            r.header("content-security-policy"),
+            Some(CLOUDFLARE_CSP),
+            "{path}"
+        );
+    }
+    for directive in csp.split("; ") {
+        assert!(CLOUDFLARE_CSP.contains(directive), "{directive}");
+    }
+    assert!(CLOUDFLARE_CSP.contains("script-src 'self' https://static.cloudflareinsights.com;"));
+    assert!(CLOUDFLARE_CSP.contains("connect-src 'self' https://cloudflareinsights.com;"));
+    assert!(!CLOUDFLARE_CSP.contains("unsafe"));
 }
 
 #[tokio::test]

@@ -43,7 +43,7 @@ The server sits between the public internet and a Bitcoin node. A client must ne
 12. **SQL is always parameterized.** Request handlers get read-only connections.
 13. **Responses are serialized, never string-built.** The one exception is a page's head ([`FRONTEND.md`](FRONTEND.md#link-previews)): the server writes it into the shell's HTML from parsed identifiers, numbers and its own words, and HTML-escapes the one piece of text it did not write, a Lightning alias (`crates/server/src/pages.rs`).
 14. **The frontend renders chain and gossip data as text.** No `innerHTML`, no building markup from data, no data-derived URLs in `href` or `src` without a scheme allow-list.
-15. **A strict Content-Security-Policy is always sent:** `default-src 'self'`, no inline scripts, no third-party origins. Fonts and assets are self-hosted.
+15. **A strict Content-Security-Policy is always sent:** `default-src 'self'`, no inline scripts, no third-party origins. Fonts and assets are self-hosted. **One exception, off by default:** `CLOUDFLARE_WEB_ANALYTICS=true` ([`CONFIG.md`](CONFIG.md#cloudflare-web-analytics)) allows the Web Analytics beacon Cloudflare injects, a script from `https://static.cloudflareinsights.com` reporting to `https://cloudflareinsights.com`, and nothing else. The owner approved it for aggregate page-load analytics; a site served through Cloudflare already sends every request through Cloudflare, so the beacon adds no new party. Still no inline scripts.
 16. **Static files are served from one fixed directory** with no path traversal.
 17. **Errors tell the client what was wrong with its request and nothing about the server:** no stack traces, upstream URLs, file paths or SQL.
 

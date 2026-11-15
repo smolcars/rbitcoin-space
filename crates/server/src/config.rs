@@ -397,6 +397,8 @@ pub struct Config {
     pub log_requests: RequestLog,
     /// Whether request events carry the client address (`LOG_CLIENT_ADDR`).
     pub log_client_addr: bool,
+    /// Whether the CSP allows Cloudflare's Web Analytics beacon (`CLOUDFLARE_WEB_ANALYTICS`).
+    pub cloudflare_web_analytics: bool,
 }
 
 impl Config {
@@ -609,6 +611,11 @@ impl Config {
             Some("true") => true,
             Some(_) => return Err("LOG_CLIENT_ADDR must be true or false".into()),
         };
+        let cloudflare_web_analytics = match var("CLOUDFLARE_WEB_ANALYTICS").as_deref() {
+            None | Some("false") => false,
+            Some("true") => true,
+            Some(_) => return Err("CLOUDFLARE_WEB_ANALYTICS must be true or false".into()),
+        };
 
         Ok(Self {
             listen,
@@ -622,6 +629,7 @@ impl Config {
             broadcast,
             log_requests,
             log_client_addr,
+            cloudflare_web_analytics,
         })
     }
 }
@@ -1101,6 +1109,13 @@ mod tests {
         );
         assert!(parse(&[("LOG_REQUESTS", "some")]).is_err());
         assert!(parse(&[("LOG_CLIENT_ADDR", "yes")]).is_err());
+        assert!(!parse(&[]).unwrap().cloudflare_web_analytics);
+        assert!(
+            parse(&[("CLOUDFLARE_WEB_ANALYTICS", "true")])
+                .unwrap()
+                .cloudflare_web_analytics
+        );
+        assert!(parse(&[("CLOUDFLARE_WEB_ANALYTICS", "yes")]).is_err());
         assert!(parse(&[("MAX_CONNECTIONS", "99999999")]).is_err());
         assert_eq!(parse(&[]).unwrap().ws, WsLimits::default());
         let c = parse(&[("WS_SEND_QUEUE", "3"), ("WS_IDLE_TIMEOUT_SECS", "2")]).unwrap();

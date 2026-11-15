@@ -54,6 +54,12 @@ The gossip-only Lightning peer ([`LIGHTNING.md`](LIGHTNING.md#in-the-server)), p
 |---|---|---|
 | `BROADCAST_ENABLED` | `true` | `false` turns off `POST /api/tx` on every network (it answers `403`). Broadcast is the only write the server makes to the node; its size cap and per-client rate limit are fixed ([`API.md`](API.md#broadcast)) |
 
+## Cloudflare Web Analytics
+
+| Variable | Default | What it does |
+|---|---|---|
+| `CLOUDFLARE_WEB_ANALYTICS` | `false` | `true` lets the Content-Security-Policy load the beacon Cloudflare injects when Web Analytics is on for the site, and send its reports: `script-src` and `connect-src` gain Cloudflare's two origins. The only exception to [`SECURITY.md`](SECURITY.md) rule 15; leave it off unless the site is served through Cloudflare with Web Analytics on |
+
 ## Logging
 
 What each setting changes, and the event catalogue, are in [`LOGGING.md`](LOGGING.md).

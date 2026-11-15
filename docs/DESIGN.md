@@ -39,7 +39,7 @@ The visual identity: logo, colour, type, spacing, motion, the fee ramp, the tile
 
 | Constraint | Why |
 |---|---|
-| No third-party requests: fonts, icons and scripts are self-hosted | Privacy, and the Content-Security-Policy is `default-src 'self'` |
+| No third-party requests: fonts, icons and scripts are self-hosted | Privacy, and the Content-Security-Policy is `default-src 'self'` (its one opt-in exception, Cloudflare's beacon, is [`SECURITY.md`](SECURITY.md) rule 15) |
 | Light and dark themes | Both are first-class |
 | Works at phone width | No horizontal page scroll |
 | WCAG AA contrast | Text 4.5:1, fee colours and controls 3:1, on every surface in both themes |

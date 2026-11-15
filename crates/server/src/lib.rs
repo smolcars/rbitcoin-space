@@ -70,6 +70,10 @@ pub const SECURITY_HEADERS: [(HeaderName, &str); 4] = [
     (X_FRAME_OPTIONS, "DENY"),
 ];
 
+/// Rule 15's one exception, sent instead of the CSP above when `CLOUDFLARE_WEB_ANALYTICS` is on:
+/// the beacon script Cloudflare injects and the endpoint it reports to.
+pub const CLOUDFLARE_CSP: &str = "default-src 'self'; script-src 'self' https://static.cloudflareinsights.com; connect-src 'self' https://cloudflareinsights.com; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'";
+
 /// The commit this binary was built from, or `unknown` (`build.rs`).
 pub const REVISION: &str = env!("SOURCE_REVISION");
 
@@ -422,6 +426,11 @@ impl App {
         let cache =
             |v| SetResponseHeaderLayer::overriding(CACHE_CONTROL, HeaderValue::from_static(v));
 
+        let csp = if config.cloudflare_web_analytics {
+            CLOUDFLARE_CSP
+        } else {
+            SECURITY_HEADERS[0].1
+        };
         let limiter = Limiter::new(&config.limits, config.log_client_addr);
         let refusals = Arc::clone(&sockets.refusals);
         if tokio::runtime::Handle::try_current().is_ok() {
@@ -440,7 +449,7 @@ impl App {
                 Arc::new(limiter.clone()),
                 limits::limit,
             ))
-            .layer(middleware::map_response(finish))
+            .layer(middleware::map_response(move |res| finish(res, csp)))
             .layer(middleware::from_fn(cors))
             .layer(middleware::from_fn_with_state(
                 request_log::RequestLogger::new(config, Arc::clone(&refusals)),
@@ -584,7 +593,7 @@ fn api_headers(h: &mut HeaderMap, preflight: bool) {
 /// A request the limits refused before routing gets the response the router would have sent
 /// (`finish`, `cors`, the request id), built without routing it.
 fn refused_early(path: &str, refused: limits::Refused) -> Response {
-    let mut res = finished(refused.into_response());
+    let mut res = finished(refused.into_response(), SECURITY_HEADERS[0].1);
     if is_api(path) {
         api_headers(res.headers_mut(), false);
     }
@@ -596,17 +605,18 @@ fn refused_early(path: &str, refused: limits::Refused) -> Response {
 
 /// Last step for every response: errors through the error model, then the security headers.
 /// An error is `no-store` unless its route said otherwise: the same URL can succeed a moment later.
-async fn finish(res: Response) -> Response {
-    finished(res)
+async fn finish(res: Response, csp: &'static str) -> Response {
+    finished(res, csp)
 }
 
-fn finished(res: Response) -> Response {
+fn finished(res: Response, csp: &'static str) -> Response {
     let mut res = error::sanitize(res);
     let failed = res.status().is_client_error() || res.status().is_server_error();
     let headers = res.headers_mut();
     for (name, value) in SECURITY_HEADERS {
         headers.insert(name, HeaderValue::from_static(value));
     }
+    headers.insert(CONTENT_SECURITY_POLICY, HeaderValue::from_static(csp));
     if failed && !headers.contains_key(CACHE_CONTROL) {
         headers.insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
     }
