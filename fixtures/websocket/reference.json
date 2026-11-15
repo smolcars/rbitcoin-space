@@ -1,5 +1,5 @@
 {
- "observed": "mempool.space /api/v1/ws, 2026-11-12, mainnet; lists cut to their first element",
+ "observed": "mempool.space /api/v1/ws, 2026-11-12 (init: 2026-11-15), mainnet; lists cut to their first element",
  "pong": {
   "pong": true
  },
@@ -335,6 +335,162 @@
    "vsizes": [
     32885295
    ]
+  }
+ },
+ "init": {
+  "mempoolInfo": {
+   "loaded": true,
+   "size": 79810,
+   "bytes": 32479620,
+   "usage": 181566976,
+   "total_fee": 0.03970067,
+   "maxmempool": 300000000,
+   "mempoolminfee": 1e-06,
+   "minrelaytxfee": 1e-06,
+   "incrementalrelayfee": 1e-06,
+   "unbroadcastcount": 0,
+   "permitbaremultisig": true,
+   "maxdatacarriersize": 100000,
+   "limitclustercount": 64,
+   "limitclustersize": 101000,
+   "optimal": true
+  },
+  "vBytesPerSecond": 3293,
+  "mempool-blocks": [
+   {
+    "blockSize": 1641394,
+    "blockVSize": 997714.75,
+    "nTx": 7123,
+    "totalFees": 369327,
+    "medianFee": 0.12296623248036774,
+    "feeRange": [
+     0.12231331708397962
+    ]
+   }
+  ],
+  "transactions": [
+   {
+    "txid": "1748eca5e4aa078a7ff4086eefc4e9d5707dfd55c095eb27e8dede1ac90d8525",
+    "fee": 426,
+    "vsize": 142,
+    "value": 1191398,
+    "rate": 3,
+    "time": 1794753512
+   }
+  ],
+  "loadingIndicators": {},
+  "fees": {
+   "fastestFee": 1,
+   "halfHourFee": 0.5,
+   "hourFee": 0.123,
+   "economyFee": 0.123,
+   "minimumFee": 0.1
+  },
+  "rbfSummary": [
+   {
+    "txid": "5dccd0946604245ec4a4f77fea6ab6949ac6de943308208d4a41a22b25937c5d",
+    "mined": false,
+    "fullRbf": false,
+    "oldFee": 30,
+    "oldVsize": 139,
+    "newFee": 116,
+    "newVsize": 139.25
+   }
+  ],
+  "conversions": {
+   "time": 1794753303,
+   "USD": 64914,
+   "EUR": 59048,
+   "GBP": 49265,
+   "CAD": 93100,
+   "CHF": 54648,
+   "AUD": 96332,
+   "JPY": 10334561
+  },
+  "da": {
+   "progressPercent": 11.30952380952381,
+   "difficultyChange": -1.748974456796848,
+   "estimatedRetargetDate": 1795847578472,
+   "remainingBlocks": 1788,
+   "remainingTime": 1094066472,
+   "previousRetarget": -9.126656385443539,
+   "previousTime": 1794632570,
+   "nextRetargetHeight": 977760,
+   "timeAvg": 530447,
+   "adjustedTimeAvg": 611894,
+   "timeOffset": 0,
+   "expectedBlocks": 201.57
+  },
+  "backend": "esplora",
+  "blocks": [
+   {
+    "id": "0000000000000000000099cca271b67c1cc0dac401b40740429763a74283d097",
+    "height": 975965,
+    "version": 536903680,
+    "timestamp": 1794747991,
+    "bits": 386012787,
+    "nonce": 2675697762,
+    "difficulty": 134823837323272.7,
+    "merkle_root": "10fc5cc2d55b4a22210134ff46a17023ea8058f086151c7bd5c61f78a0a0f894",
+    "tx_count": 5217,
+    "size": 1651478,
+    "weight": 3993890,
+    "previousblockhash": "0000000000000000000023f6811ca695fb540c64a70e14a6b8b5efd0ac0d5859",
+    "mediantime": 1794744383,
+    "stale": false,
+    "extras": {
+     "reward": 314040159,
+     "coinbaseRaw": "035de40e184d696e656420627920416e74506f6f6ce6000d033ba681fffabe6d6dadcaa34482cb013314fc8c9104552312d21ffc4d0b24cf8ee5cf3bc93dcea04110000000000000000000e1d38b2e020000000000",
+     "orphans": [],
+     "medianFee": 1.0021095396044635,
+     "feeRange": [
+      0.12142857142857143
+     ],
+     "totalFees": 1540159,
+     "avgFee": 295,
+     "avgFeeRate": 1,
+     "utxoSetChange": 4420,
+     "avgTxSize": 316.45,
+     "totalInputs": 7634,
+     "totalOutputs": 12054,
+     "totalOutputAmt": 712538799827,
+     "segwitTotalTxs": 5072,
+     "segwitTotalSize": 1597449,
+     "segwitTotalWeight": 3777882,
+     "feePercentiles": null,
+     "virtualSize": 998472.5,
+     "coinbaseAddress": "37jKPSmbEGwgfacCr2nayn1wTaqMAbA94Z",
+     "coinbaseAddresses": [
+      "37jKPSmbEGwgfacCr2nayn1wTaqMAbA94Z"
+     ],
+     "coinbaseSignature": "OP_HASH160 OP_PUSHBYTES_20 42402a28dd61f2718a4b27ae72a4791d5bbdade7 OP_EQUAL",
+     "coinbaseSignatureAscii": "\u0003]\u00e4\u000e\u0018Mined by AntPool\u00e6\u0000\r\u0003;\u00a6\u0081\u00ff\u00fa\u00bemm\u00ad\u00ca\u00a3D\u0082\u00cb\u00013\u0014\u00fc\u008c\u0091\u0004U#\u0012\u00d2\u001f\u00fcM\u000b$\u00cf\u008e\u00e5\u00cf;\u00c9=\u00ce\u00a0A\u0010\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u00e1\u00d3\u008b.\u0002\u0000\u0000\u0000\u0000\u0000",
+     "header": "0080002059580dacd0efb5b8a6140ea7640c54fb95a61c81f6230000000000000000000094f8a0a0781fc6d57b1c1586f05880ea2370a146ff340121224a5bd5c25cfc1057aef96a7316021762e87b9f",
+     "utxoSetSize": null,
+     "totalInputAmt": null,
+     "pool": {
+      "id": 44,
+      "name": "AntPool",
+      "slug": "antpool",
+      "minerNames": null
+     },
+     "matchRate": 99.81,
+     "expectedFees": 1633741,
+     "expectedWeight": 3989987,
+     "firstSeen": null,
+     "coinbaseBip54": false,
+     "similarity": 0.8829626237455718
+    }
+   }
+  ],
+  "backendInfo": {
+   "hostname": "(the reference's own value, not kept)",
+   "version": "(the reference's own value, not kept)",
+   "gitCommit": "(the reference's own value, not kept)",
+   "lightning": false,
+   "backend": "esplora",
+   "coreVersion": "(the reference's own value, not kept)",
+   "osVersion": "(the reference's own value, not kept)"
   }
  }
 }

@@ -102,7 +102,7 @@ Solid with TypeScript, built by Vite into static files. No server rendering and 
 | What | Budget |
 |---|---|
 | First load, JavaScript | 100 KB gzipped for the app shell and home page |
-| New block, from the node's Electrum announcement to the `block` message on the WebSocket | 50 ms on a node with rbitcoin PR 1577 (measured 11–43 ms on mainnet and signet). rbitcoin v0.9.2 can hold a new block for a second or more after announcing it ([`RBITCOIN.md`](RBITCOIN.md)): there the budget runs from when the node can serve the block, plus at most an eighth of the hold, the hub's retry spacing |
+| New block, from the node's Electrum announcement to the `block` message on `/app/ws` (the compatible socket's waits for the block's extras, [`WS.md`](WS.md#blocks-and-their-extras)) | 50 ms on a node with rbitcoin PR 1577 (measured 11–43 ms on mainnet and signet). rbitcoin v0.9.2 can hold a new block for a second or more after announcing it ([`RBITCOIN.md`](RBITCOIN.md)): there the budget runs from when the node can serve the block, plus at most an eighth of the hold, the hub's retry spacing |
 | Cached or immutable API response, server time | 10 ms at p99 |
 | Frame rate during block and mempool animations | 60 fps on a mid-range laptop |
 

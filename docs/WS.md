@@ -356,6 +356,7 @@ Text frames with one JSON object. An object may hold several of these keys; each
 | Message | Does |
 |---|---|
 | `{"action":"ping"}` | Answered `{"pong":true}` |
+| `{"action":"init"}` | Answered `{"loadingIndicators":{},"backend":"esplora","backendInfo":{…}}`: what no part carries. `backendInfo` is `GET /api/v1/backend-info`'s answer; `loadingIndicators` is always empty. The parts' state comes with `want`, not here |
 | `{"action":"want","data":["blocks","stats","mempool-blocks","live-2h-chart"]}` | Replaces the set of parts wanted; other names are ignored. Each newly wanted part first sends its current state, then every change; `live-2h-chart` has no state and sends each new sample, as on the reference. `"data":[]` stops them all |
 | `{"track-tx":"<txid>"}` | Follows one transaction, 64 hex digits in lower case. A new one replaces the last; `{"track-tx":"stop"}` ends it |
 | `{"track-address":"<address>"}` | Follows one address of this network (bech32 in either case). A new one replaces the last; `"stop"` ends it |
@@ -368,7 +369,7 @@ What else happens, as on the reference unless it says otherwise:
 | Text that is not JSON | Close `4000` (the reference closes too, without a status) |
 | JSON it does not understand: another type, an unknown key or `action`, a value of the wrong type, a txid or address that does not parse for this network | Nothing; the socket stays |
 | `track-mempool`, `track-mempool-txids`, `track-mempool-block`, `track-rbf`, `track-rbf-summary`, `track-txs`, `track-scripthashes`, `track-accelerations` | `{"<key>-error":"not served by this server"}`, and the socket stays. Ours: the reference serves them |
-| `{"action":"init"}`, `refresh-blocks` and the reference's other keys | Nothing |
+| `refresh-blocks` and the reference's other keys | Nothing |
 
 ### What the server sends
 
@@ -376,8 +377,8 @@ Every message is one JSON object in its own frame, with the key named here.
 
 | Message | When | What |
 |---|---|---|
-| `{"blocks":[…]}` | On `want` | The last 8 blocks, oldest first, each the node's Esplora JSON exactly as `GET /api/block/:hash` serves it |
-| `{"block":{…}}` | Each new block | The same JSON, at the same moment as `/app/ws`'s `block` |
+| `{"blocks":[…]}` | On `want` | The last 8 blocks, oldest first, each as `GET /api/v1/blocks` lists it, with `extras` ([below](#blocks-and-their-extras)) |
+| `{"block":{…}}` | Each new block, once its row is in the block table | The same JSON |
 | `{"mempoolInfo":{…},"vBytesPerSecond":1422,"fees":{…},"da":{…},"transactions":[…]}` | On `want` of `stats`, then every `WS_MEMPOOL_INTERVAL_MS` (2 s) | Whatever of these the server has: `mempoolInfo` is the node's `getmempoolinfo` as the mempool tracker last read it, amounts in BTC; `vBytesPerSecond` is the mempool's inflow ([below](#the-inflow-rate)); `fees` is `GET /api/v1/fees/precise`'s answer and `da` `GET /api/v1/difficulty-adjustment`'s ([`API.md`](API.md#mempoolspace-shaped-routes-apiv1)); `transactions` is the newest `WS_LATEST_TXS` transactions seen, `{txid, fee, vsize, value, rate, time}` with `rate` in sat/vB |
 | `{"mempool-blocks":[…]}` | On `want`, then when the projected blocks change | `GET /api/v1/fees/mempool-blocks`' answer. After a `block`, the next one is on that block: right behind it when the projected blocks on it are ready first, or as soon as they are. One on another block than the last `block` waits for it for at most 3 s, as on `/app/ws` |
 | `{"live-2h-chart":{"added":…,"count":…,"vbytes_per_second":…,"mempool_byte_weight":…,"total_fee":…,"min_fee":…,"vsizes":[…]}}` | Each minute's mempool history sample, as it is stored | The point `GET /api/v1/statistics/2h` lists first from then on, written by the same function ([`API.md`](API.md#mempool-statistics)). Nothing on `want`: a client reads the series over HTTP and appends these. Needs a data directory and the mempool engine; without them the part is accepted and sends nothing |
@@ -390,6 +391,25 @@ Every message is one JSON object in its own frame, with the key named here.
 | `{"<key>-error":"…"}` | `track-tx`, `track-address` or `track-addresses` over a limit below | The socket stays. What the message asked to stop is stopped: a refused `track-tx` or `track-address` has still ended the previous one, and a `track-addresses` set keeps the addresses the server could take |
 
 A part wanted, or a transaction followed, gets its current message at once (a transaction gets none while no message applies: not seen yet, evicted). `live-2h-chart` and an address get nothing until the next sample or change, as on the reference. After a reconnect, send everything again.
+
+#### Blocks and their extras
+
+The blocks come from the block table, by the code that writes `GET /api/v1/blocks` ([`API.md`](API.md#blocks)), read again each time the table follows the chain. A new block's row is written after its summary and audit, so its `block` follows `/app/ws`'s:
+
+| Network | `block` after `/app/ws`'s |
+|---|---|
+| regtest, empty blocks | under 3 ms (3 blocks) |
+| mainnet, 2026-11-15, 975,974 to 975,977 | 1.1 to 3.5 s: the summary's `getblock`, then the audit |
+
+| Case | Sent |
+|---|---|
+| The row is not written yet (the node's Esplora late, the table behind) | Nothing until it is: a block is never sent without its extras |
+| Rows for several new blocks at once | Each as a `block`, oldest first |
+| 8 or more new rows at once, or a reorg | One `blocks` with the new list |
+| A row rated later | Nothing; the next `want` gets the new extras |
+| No data directory (no block table) | The node's Esplora JSON as `GET /api/block/:hash` serves it, no `extras` or `stale`, at the same moment as `/app/ws`'s `block`. Without extras, mempool.space's frontend cannot draw a block page |
+
+No block is sent twice. The table is read once per follow for every socket, and a new block's header costs the node one request, shared with `GET /api/v1/blocks`.
 
 #### The inflow rate
 
@@ -421,7 +441,8 @@ Per socket, the parts wanted (four at most) count inside `WS_MAX_SUBSCRIPTIONS`;
 | What | Here | Why |
 |---|---|---|
 | Frames | One part per message | The reference puts several in one frame (a block with `mempool-blocks`, `fees`, `da`, `txConfirmed`, …). Each of ours is encoded once and shared by every subscriber; bundling would mean a frame per combination. A client reads every key of every message |
-| `blocks`, `block` | The node's Esplora JSON: no `extras`, no `stale` | The extras come from our block table after the block arrives; waiting for them would break the block budget ([`ARCHITECTURE.md`](ARCHITECTURE.md#performance-budgets)). Who mined a block and its fees are in [`API.md`](API.md#mining), its audit in [Block audits](API.md#block-audits). Only best-chain blocks are sent |
+| `blocks`, `block` | `GET /api/v1/blocks`' JSON: its `extras` lack `orphans`, `utxoSetChange`, `avgTxSize`, `totalInputs`, `totalOutputs`, `totalOutputAmt`, `segwitTotalTxs`, `segwitTotalSize`, `segwitTotalWeight`, `coinbaseBip54`, `similarity`. Sent once the block's row is written ([above](#blocks-and-their-extras)); without a data directory, the node's Esplora JSON | The extras are what our block table holds. Only best-chain blocks are sent |
+| `init` | `loadingIndicators`, `backend`, `backendInfo` only | The rest is each part's state, sent on `want` |
 | `vBytesPerSecond` | The last sampled minute's inflow, once a minute; absent without a recent sample | From the stored samples rather than a second, faster count ([above](#the-inflow-rate)) |
 | `live-2h-chart` | Once a minute, stamped with the minute (`added` a multiple of 60); none after a block | The sample as stored. The reference stamps the second it sampled, and sent one more sample, off the minute, when a block arrived |
 | `mempoolInfo` | rbitcoin's `getmempoolinfo`: has `fullrbf`, `limitclustercount`, `limitclustersize`; no `permitbaremultisig`, `maxdatacarriersize` or `optimal` | The node's own answer |
@@ -432,11 +453,11 @@ Per socket, the parts wanted (four at most) count inside `WS_MAX_SUBSCRIPTIONS`;
 | Transactions in address messages | The node's Esplora JSON, without the reference's own fields (`order`, `vsize`, `adjustedVsize`, `feePerVsize`, `adjustedFeePerVsize`, `effectiveFeePerVsize`, `firstSeen`, `cpfpDirty`, `clusterId`, `chunkIndex`, `cpfpChecked`, …) | Passed through from the node, never rebuilt |
 | `track-addresses` | 2 addresses per socket by default | Each address is a node subscription; raise `WS_MAX_TRACKED_ADDRESSES` to allow more |
 | `multi-address-transactions` | One address per message; `removed` always empty | Each address's message is encoded once for every socket following it |
-| Not served | `init`, `refresh-blocks`, `conversions`, `loadingIndicators`, `backend`, the replacement feeds (`rbfLatest`, `rbfSummary`, …), `track-txs`, `track-mempool*`, `track-mempool-block`, `utxoSpent`, `address-removed-transactions`, `rbfTransaction`, `rbfInfo` | Status and reason per message in [`compat/websocket.md`](compat/websocket.md) |
+| Not served | `refresh-blocks`, `conversions`, the replacement feeds (`rbfLatest`, `rbfSummary`, …), `track-txs`, `track-mempool*`, `track-mempool-block`, `utxoSpent`, `address-removed-transactions`, `rbfTransaction`, `rbfInfo` | Status and reason per message in [`compat/websocket.md`](compat/websocket.md) |
 
 ### Cost of a compatible socket
 
-A compatible socket costs what an `/app/ws` socket costs: every message is encoded once per network and each socket's queue holds references to the same bytes. `live-2h-chart` is encoded once per sample, in the sampler's own report of the write, and `vBytesPerSecond` is read from that sample in memory: neither reads the store or the node. Nothing it sends reaches the node except following an address, which reads one history page per change of the address, shared by every socket following it.
+A compatible socket costs what an `/app/ws` socket costs: every message is encoded once per network and each socket's queue holds references to the same bytes. `live-2h-chart` is encoded once per sample, in the sampler's own report of the write, and `vBytesPerSecond` is read from that sample in memory: neither reads the store or the node. The blocks are one read of the block table per change of it, for every socket. Nothing it sends reaches the node except a new block's header, once and shared with `GET /api/v1/blocks`, and following an address, which reads one history page per change of the address, shared by every socket following it.
 
 Measured locally on the release build against the regtest node (Apple M4 shared with other work, clients in Bun on the same machine), every socket wanting `blocks`, `stats` and `mempool-blocks` and following the same transaction and address, under the same activity in each step (a payment to the address every 15 s, a block a minute), 60 s a step:
 

@@ -24,6 +24,7 @@ use engine::store::{self, Store};
 use node::esplora::Route;
 use node::esplora::model::BlockStatus;
 use serde::Serialize;
+use serde_json::Value;
 
 use crate::NetworkContext;
 use crate::difficulty::chain;
@@ -135,15 +136,7 @@ async fn from_height(ctx: &NetworkContext, start: Option<u32>) -> Response {
             res.extensions_mut().insert(crate::answers::Unkept);
             return Ok(res);
         }
-        let rows = blocks::page(store, Some(start.saturating_add(1)), LIST)
-            .await
-            .map_err(read)?;
-        let rows: Vec<Row> = rows
-            .into_iter()
-            .zip((0..=start).rev())
-            .take_while(|(r, h)| r.height == *h)
-            .map(|(r, _)| r)
-            .collect();
+        let rows = run(store, Some(start), LIST).await?;
         let Some(last) = rows.last() else {
             return Err(NOT_INDEXED);
         };
@@ -169,6 +162,32 @@ async fn from_height(ctx: &NetworkContext, start: Option<u32>) -> Response {
         ))
     };
     run.await.unwrap_or_else(IntoResponse::into_response)
+}
+
+/// Up to `n` rows from `start` (the table's top without it) down, newest first, cut at the first
+/// height missing.
+async fn run(store: &Store, start: Option<u32>, n: u32) -> Result<Vec<Row>, ApiError> {
+    let below = start.map(|s| s.saturating_add(1));
+    let rows = blocks::page(store, below, n).await.map_err(read)?;
+    let start = start.or(rows.first().map(|r| r.height)).unwrap_or(0);
+    Ok(rows
+        .into_iter()
+        .zip((0..=start).rev())
+        .take_while(|(r, h)| r.height == *h)
+        .map(|(r, _)| r)
+        .collect())
+}
+
+/// The table's newest `n` blocks, newest first, each the JSON `GET /api/v1/blocks` lists it as:
+/// the compatible socket's blocks (`crate::ws::v1`).
+pub(crate) async fn newest(ctx: &NetworkContext, n: u32) -> Result<Vec<Value>, ApiError> {
+    let store = table(ctx)?;
+    let rows = run(store, None, n).await?;
+    let (body, _) = with_extras(ctx, store, rows).await?;
+    body.iter()
+        .map(serde_json::to_value)
+        .collect::<Result<_, _>>()
+        .map_err(|_| ApiError::INTERNAL)
 }
 
 async fn block(State(ctx): Ctx, Path(hash): Path<String>) -> Response {
@@ -471,4 +490,65 @@ fn header_hex(h: &Header) -> Option<String> {
         nonce: h.nonce,
     };
     (header.block_hash() == h.id).then(|| bitcoin::consensus::encode::serialize_hex(&header))
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    #![allow(clippy::unwrap_used)]
+
+    use super::*;
+
+    /// Block 800,000 as the compatible socket sends it: the recorded Esplora header, a rated row
+    /// paying one address, and an audit.
+    pub(crate) fn sample() -> Value {
+        let h: Header =
+            serde_json::from_str(include_str!("../../../fixtures/esplora/mainnet/block.json"))
+                .unwrap();
+        let rate = engine::blocks::Rates {
+            min: 1.0,
+            p10: 2.0,
+            p25: 3.0,
+            median: 4.0,
+            p75: 5.0,
+            p90: 6.0,
+            max: 7.0,
+        };
+        let row = Row {
+            height: h.height,
+            hash: h.id,
+            time: h.timestamp,
+            tx_count: h.tx_count,
+            size: h.size,
+            weight: h.weight,
+            paying_weight: h.weight - 800,
+            fees: 2_000_000,
+            subsidy: 625_000_000,
+            reward: 627_000_000,
+            difficulty: h.difficulty,
+            coinbase: engine::blocks::Coinbase {
+                tag: b"\x03\x00\x35\x0c/pool/".to_vec(),
+                payouts: vec![bitcoin::ScriptBuf::new_p2pkh(
+                    &bitcoin::PubkeyHash::all_zeros(),
+                )],
+            },
+            rates: Some(engine::blocks::Rated {
+                fee_rate: Some(rate),
+                fee_bands: Default::default(),
+            }),
+        };
+        let audit = engine::audit::Totals {
+            match_rate: 99.5,
+            expected: Default::default(),
+            actual: Default::default(),
+            matched: Default::default(),
+            missing: Default::default(),
+            displaced: Default::default(),
+            fresh: Default::default(),
+            conflicted: Default::default(),
+            added: Default::default(),
+            unseen: Default::default(),
+        };
+        let b = BlockJson::new(&row, h, Some(audit), bitcoin::Network::Bitcoin);
+        serde_json::to_value(b).unwrap()
+    }
 }

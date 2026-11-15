@@ -37,11 +37,11 @@ One table per group, each on its own page:
 |---|---|---|---|---|---|---|---|
 | Esplora REST (`/api`) | [`compat/esplora.md`](compat/esplora.md) | 56 | 44 | 0 | 0 | 12 | 48 |
 | mempool.space REST (`/api/v1`) | [`compat/api-v1.md`](compat/api-v1.md) | 73 | 52 | 4 | 2 | 15 | 72 |
-| WebSocket | [`compat/websocket.md`](compat/websocket.md) | 48 | 21 | 1 | 4 | 22 | 43 |
+| WebSocket | [`compat/websocket.md`](compat/websocket.md) | 48 | 22 | 1 | 4 | 21 | 43 |
 | Pages and visible features | [`compat/pages.md`](compat/pages.md) | 55 | 33 | 9 | 5 | 8 | 31 |
-| **Total** | | **232** | **150** | **14** | **11** | **57** | **194** |
+| **Total** | | **232** | **151** | **14** | **11** | **56** | **194** |
 
-Every row's status was checked against `master` on 2026-11-12 (task C1), and the rows of `vBytesPerSecond`, `live-2h-chart` and `backend-info` again when they were built (task G1), the Lightning node's fee histogram and history when they were (task G3), the three mining rows of the pages when they were (task G2), the two replacements rows of the pages when they were (task G4), and the five rows of broadcast, test-accept and package submission when the owner decided on them (2026-11-13): routes by request to a server on regtest and, read-only, on mainnet, signet and testnet4; pages by loading them in headless Chromium on each network. A page is `served` only when it shows everything its row names; a part it lacks has a row of its own.
+Every row's status was checked against `master` on 2026-11-12 (task C1), and the rows of `vBytesPerSecond`, `live-2h-chart` and `backend-info` again when they were built (task G1), the Lightning node's fee histogram and history when they were (task G3), the three mining rows of the pages when they were (task G2), the two replacements rows of the pages when they were (task G4), the five rows of broadcast, test-accept and package submission when the owner decided on them (2026-11-13), and the socket's `init`, `backend` and block rows when they were built (task WS3, 2026-11-15): routes by request to a server on regtest and, read-only, on mainnet, signet and testnet4; pages by loading them in headless Chromium on each network. A page is `served` only when it shows everything its row names; a part it lacks has a row of its own.
 
 Each row gives the feature, what it returns, where our answer comes from (an rbitcoin Esplora route or RPC method, our engine, our store, or Lightning), its status, its milestone from [`PLAN.md`](PLAN.md) and how it was checked.
 
@@ -87,6 +87,30 @@ Every `planned` row, as of the count above, and the rows the owner has decided. 
 | Broadcast page `/tx/push` | Pages: broadcast | No broadcast page for now (2026-11-13). `POST /api/tx` stays served under its rules ([`SECURITY.md`](SECURITY.md) rule 5). Skipped |
 | Package submission | `POST /api/txs/package`, `POST /api/v1/txs/package`, packages on `/tx/push` | Not served, with no broadcast page to use it (2026-11-13). Skipped |
 | Test-accept | `POST /api/txs/test`, `/tx/test` | Not served, for the same reason (2026-11-13). Skipped |
+
+## mempool.space's frontend on this server
+
+mempool.space's public frontend in headless Chromium, its API and socket answered by this server, 2026-11-15, mainnet. The server was fresh: its own data directory, mempool engine on, backfill and Lightning off. Rerun (only GET requests are forwarded; `--control` uses mempool.space's own backend):
+
+```bash
+cd web && node ../dev/compat/probe.mjs http://127.0.0.1:<port> <out dir>
+```
+
+| Page | Works | Missing |
+|---|---|---|
+| Home `/` | Fee panel, projected and mined blocks with fees and pools, difficulty, mempool figures and chart | Goggles drawing (`track-mempool-block`), replacement list (`track-rbf-summary`) |
+| Block `/block/:hash` | Everything, drawing included | Audit of a block the server did not watch |
+| Transaction, confirmed | Everything | Per-transaction audit of an unwatched block |
+| Transaction, unconfirmed | Everything, with its position | |
+| Address | Everything | |
+| Next block `/mempool-block/0` | Figures | Drawing (`track-mempool-block`) |
+| Blocks `/blocks` | Everything; health where audited | |
+| Mining `/mining` | Rewards, pools, difficulty | Charts wait on a backfilled table |
+| Mempool graph `/graphs/mempool` | The live chart | History before the server started |
+| RBF `/rbf` | Replacement trees. "Full RBF" asks `/api/v1/fullrbf/replacements/`, served since this run | Live updates (`track-rbf`) |
+| Lightning `/lightning` | Not checked: Lightning off | |
+
+Every page asks `/api/v1/services/version` (404, mempool.space's own service) and logs one error for it. Prices (parked, [above](#decided-by-the-owner)) and accelerations (out of scope) answer 404.
 
 ## Reference backend against rbitcoin's Esplora
 

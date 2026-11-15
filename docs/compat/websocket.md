@@ -26,7 +26,7 @@ A third connection the same day (about three minutes, `want ["stats","live-2h-ch
 
 | Message | Effect | Source | Status | M | Live | Note |
 |---|---|---|---|---|---|---|
-| `{"action":"init"}` | One snapshot: the same keys as `GET /api/v1/init-data` | Engine | skipped | — | ref | No answer. The `want` snapshots carry the same parts |
+| `{"action":"init"}` | One snapshot: the same keys as `GET /api/v1/init-data` | Engine | different | WS3 | ref | Answered with only `loadingIndicators`, `backend` and `backendInfo`; the `want` snapshots carry the other parts. Seen on mempool.space 2026-11-15: `mempoolInfo`, `vBytesPerSecond`, `mempool-blocks`, `transactions`, `loadingIndicators`, `fees`, `rbfSummary`, `conversions`, `da`, `backend`, `blocks`, `backendInfo` |
 | `{"action":"want","data":[…]}` | Subscribes to topics: `blocks`, `stats`, `mempool-blocks`, `live-2h-chart`, `watch-mempool` | Hub topics | served | M2 | ref | `blocks`, `stats`, `mempool-blocks`, `live-2h-chart`; other names are ignored ([`WS.md`](../WS.md#the-mempoolspace-shaped-socket-apiv1ws)) |
 | `{"action":"ping"}` | Answered with `pong` | Hub | served | M2 | ref |  |
 | `{"refresh-blocks":true}` | Resends the recent block list | Esplora `/blocks`, store for extras | skipped | — | ref | No answer. Want `blocks` again |
@@ -49,8 +49,8 @@ A third connection the same day (about three minutes, `want ["stats","live-2h-ch
 
 | Message | Carries | Source | Status | M | Live | Note |
 |---|---|---|---|---|---|---|
-| `blocks` | The last 8 blocks with `extras` | Esplora; store for extras | served | M2 | ref | The node's Esplora JSON for the last 8, oldest first; no `extras` or `stale` |
-| `block` | A new block with `extras` | Electrum header push; store | served | M2 | ref | The node's Esplora JSON, at the same moment as `/app/ws`; no `extras` or `stale` |
+| `blocks` | The last 8 blocks with `extras` | Block table and Esplora headers | served | M2 | ref | As `GET /api/v1/blocks` lists them, oldest first; 11 `extras` fields missing. Without a data directory, the node's Esplora JSON |
+| `block` | A new block with `extras` | Block table, after the block's summary and audit | served | M2 | ref | As above, once the block's row is written ([`WS.md`](../WS.md#blocks-and-their-extras)) |
 | `mempoolInfo` | The node's `getmempoolinfo` | rbitcoin RPC `getmempoolinfo` | served | M2 | ref | The node's `getmempoolinfo` as the tracker last read it |
 | `vBytesPerSecond` | Mempool inflow rate | Mempool history sampler | served | M3 | ref | In `stats`: the last sampled minute's inflow, whole vB/s, changing once a minute; left out without a sample from the last two minutes, so not without a data directory ([`WS.md`](../WS.md#the-inflow-rate)) |
 | `mempool-blocks` | Projected block summaries | Engine | served | M2 | ref | `/api/v1/fees/mempool-blocks`' answer |
@@ -58,10 +58,10 @@ A third connection the same day (about three minutes, `want ["stats","live-2h-ch
 | `fees` | Recommended fees | Engine | served | M2 | ref | `/api/v1/fees/precise`' answer: the reference's socket also sends decimals |
 | `da` | Difficulty adjustment progress | Engine | served | M2 | ref | `/api/v1/difficulty-adjustment`' answer |
 | `conversions` | Fiat prices | Store | planned | M3 | ref | Not sent; waits on the price feed, which the owner has parked |
-| `rbfSummary` | Recent replacements, in `init` | Engine | skipped | — | ref | `init` is not served |
+| `rbfSummary` | Recent replacements, in `init` | Engine | skipped | — | ref | Not in our answer to `init` |
 | `live-2h-chart` | One mempool statistics sample a minute | Mempool history sampler | served | M3 | ref | Each sample as stored, by the serializer of `GET /api/v1/statistics/2h`; nothing on `want`, as on the reference. Stamped with the minute, and none extra after a block. Needs a data directory |
-| `loadingIndicators` | Progress of backend indexing jobs | Store backfill progress | different | M3 | ref | Not sent on either socket. A history route says how far its data reaches in its `X-Data-*` headers instead ([`API.md`](../API.md#coverage)) |
-| `backend`, `backendInfo` | Backend kind and build | Server build info | different | M5 | ref | Not sent on either socket. The version is in `/app/config`; no host name or OS |
+| `loadingIndicators` | Progress of backend indexing jobs | Store backfill progress | different | M3 | ref | Always `{}`, in the answer to `init`. A history route says how far its data reaches in its `X-Data-*` headers instead ([`API.md`](../API.md#coverage)) |
+| `backend`, `backendInfo` | Backend kind and build | Server build info | served | WS3 | ref | In the answer to `init`: `"esplora"` and `GET /api/v1/backend-info`'s object, with no host name, OS or node version |
 | `txPosition` | A tracked transaction's projected block, position and CPFP data | Engine | served | M2 | ref | `position.block` and `position.vsize` (inside the block); no `cpfp` |
 | `txConfirmed` | The txid of a tracked transaction that confirmed | Engine; Electrum | served | M2 | ref | The txid, as on the reference, in its own message |
 | `tracked-txs` | Updates for several tracked transactions | Engine | skipped | — | ref | `track-txs` is not served |

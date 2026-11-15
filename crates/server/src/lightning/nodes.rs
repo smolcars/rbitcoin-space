@@ -83,6 +83,8 @@ pub fn routes() -> Router<Arc<NetworkContext>> {
         .route("/api/v1/lightning/nodes/{key}/fees/histogram", get(v1_fees))
         .route("/api/v1/lightning/channels", get(v1_node_channels))
         .route("/api/v1/lightning/channels/txids", get(v1_txids))
+        // As the reference's frontend asks it: a listed path, not a rule for every slash.
+        .route("/api/v1/lightning/channels/txids/", get(v1_txids))
         .route("/api/v1/lightning/channels/{id}", get(v1_channel))
 }
 

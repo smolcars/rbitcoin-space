@@ -38,6 +38,8 @@ const FETCHES: usize = 2;
 const MAX_PAGE: usize = 8 << 20;
 /// Longest `mempool-blocks` on another tip waits for the block just sent, as on `/app/ws`.
 const HOLD: Duration = super::mempool::HOLD;
+/// Wait before reading the block table again after a failed read.
+const RETRY: Duration = Duration::from_secs(1);
 /// The answer to a follow past the client's budget for new addresses.
 const TOO_FAST: &str = "too many new addresses from this client; retry in a moment";
 /// Messages the reference has that this server does not serve, answered with `<key>-error` so a
@@ -68,6 +70,8 @@ pub struct Compat {
     blocks: Mutex<VecDeque<Value>>,
     /// A read of the node's recent blocks is in flight.
     filling: AtomicBool,
+    /// Bumped when the last block sent changes: the `mempool-blocks` held for it may go.
+    sent: watch::Sender<()>,
     /// The newest transactions, in the reference's shape, for the next `stats` message.
     latest: Mutex<Option<Value>>,
     /// Addresses some compatible socket follows.
@@ -125,6 +129,7 @@ impl Compat {
         Self {
             blocks: Mutex::default(),
             filling: AtomicBool::new(false),
+            sent: watch::Sender::new(()),
             latest: Mutex::default(),
             addresses: Mutex::default(),
             fetches: Semaphore::new(FETCHES),
@@ -253,6 +258,12 @@ impl<'a> Session<'a> {
         };
         match m.get("action").and_then(Value::as_str) {
             Some("ping") => self.send(&json!({ "pong": true })),
+            // What no `want` part carries; the parts' state comes with `want`.
+            Some("init") => self.send(&json!({
+                "loadingIndicators": {},
+                "backend": "esplora",
+                "backendInfo": api_v1::backend_info(self.ctx),
+            })),
             Some("want") => {
                 if let Some(names) = strings(m.get("data")) {
                     self.want(&names, limits)?;
@@ -475,9 +486,12 @@ pub(crate) fn tx_message(txid: &Txid, state: &TxState, starts: &[u64]) -> Option
 }
 
 /// A new block joined the best chain: `block` to every subscriber, and the `blocks` state for
-/// new ones. Called by the hub's block feed in the same step as `/app/ws`'s `block`, so the two
-/// keep the same order against everything else.
+/// new ones. Called by the hub's block feed in the same step as `/app/ws`'s `block`. With a block
+/// table the blocks come from the table instead ([`follow_table`]).
 pub(crate) fn block(ctx: &NetworkContext, block: &Value) {
+    if ctx.blocks.is_some() {
+        return;
+    }
     let c = &ctx.v1;
     let mut ring = lock(&c.blocks);
     let follows = ring.back().and_then(|b| b.get("id")).is_some()
@@ -499,16 +513,72 @@ pub(crate) fn block(ctx: &NetworkContext, block: &Value) {
         .set_snapshot(Topic::V1Blocks, text(&json!({ "blocks": &*ring })));
     let full = ring.len() == BLOCKS;
     drop(ring);
+    c.sent.send_replace(());
     if !full {
         fill(ctx);
     }
 }
 
-/// Blocks left the best chain: the list is read again from the node.
+/// Blocks left the best chain: the list is read again from the node. With a block table, the
+/// table's next follow replaces it ([`follow_table`]).
 pub(crate) fn reorg(ctx: &NetworkContext) {
+    if ctx.blocks.is_some() {
+        return;
+    }
     lock(&ctx.v1.blocks).clear();
     ctx.hub.clear(Topic::V1Blocks);
+    ctx.v1.sent.send_replace(());
     fill(ctx);
+}
+
+/// With a block table, the blocks are the table's, each the JSON `GET /api/v1/blocks` lists it
+/// as: read again each time the table follows the chain, so a new block goes out once its row,
+/// and the audit written before it, are there. A failed read is tried again after [`RETRY`].
+async fn follow_table(ctx: Arc<NetworkContext>) {
+    let Some(table) = &ctx.blocks else { return };
+    let mut followed = table.followed.subscribe();
+    loop {
+        let read = crate::v1_blocks::newest(&ctx, BLOCKS as u32).await;
+        let failed = read.is_err();
+        if let Ok(mut list) = read {
+            list.reverse();
+            from_table(&ctx, list);
+        }
+        tokio::select! {
+            r = followed.changed() => if r.is_err() { return },
+            () = tokio::time::sleep(RETRY), if failed => {}
+        }
+    }
+}
+
+/// The table's newest blocks, oldest first. Each block after the last one sent goes out as
+/// `block`, in order; a list that does not reach back to it (a reorg, or more new blocks than the
+/// list holds) is sent whole as `blocks`. So no block is sent twice.
+fn from_table(ctx: &NetworkContext, list: Vec<Value>) {
+    if list.is_empty() {
+        return;
+    }
+    let mut ring = lock(&ctx.v1.blocks);
+    let last = ring.back().and_then(|b| b.get("id"));
+    match last.and_then(|l| list.iter().position(|b| b.get("id") == Some(l))) {
+        Some(i) => {
+            for b in list.iter().skip(i + 1) {
+                let msg = text(&json!({ "block": b }));
+                ctx.hub.publish(Topic::V1Blocks, &msg, Snapshot::Append);
+            }
+            *ring = list.into();
+            // Also when no block is new: a row rated since changes its extras.
+            ctx.hub
+                .set_snapshot(Topic::V1Blocks, text(&json!({ "blocks": &*ring })));
+        }
+        None => {
+            *ring = list.into();
+            let msg = text(&json!({ "blocks": &*ring }));
+            ctx.hub.publish(Topic::V1Blocks, &msg, Snapshot::Replace);
+        }
+    }
+    drop(ring);
+    ctx.v1.sent.send_replace(());
 }
 
 /// Reads the node's recent blocks for the `blocks` state, once at a time. Taken only when they
@@ -541,6 +611,8 @@ fn fill(ctx: &NetworkContext) {
                 &text(&json!({ "blocks": &*ring })),
                 Snapshot::Replace,
             );
+            drop(ring);
+            v1.sent.send_replace(());
         }
     });
 }
@@ -629,16 +701,19 @@ fn mempool_blocks(ctx: &NetworkContext, out: &mut Published) {
         return;
     }
     let msg = json!({ "mempool-blocks": api_v1::mempool_blocks(&b) });
-    ctx.hub.in_block_order(|sent: Option<BlockHash>| {
-        let agrees = sent.is_none_or(|h| b.tip.is_some_and(|t| t.hash == h));
-        if !agrees && out.held.get_or_insert_with(Instant::now).elapsed() < HOLD {
-            return;
-        }
-        out.held = None;
-        out.at = Some(b.at);
-        ctx.hub
-            .publish(Topic::V1MempoolBlocks, &text(&msg), Snapshot::Replace);
-    });
+    // Under the blocks' lock, so no `block` goes out between the check and the publish.
+    let ring = lock(&ctx.v1.blocks);
+    let sent = ring
+        .back()
+        .and_then(|v| v.get("id")?.as_str()?.parse::<BlockHash>().ok());
+    let agrees = sent.is_none_or(|h| b.tip.is_some_and(|t| t.hash == h));
+    if !agrees && out.held.get_or_insert_with(Instant::now).elapsed() < HOLD {
+        return;
+    }
+    out.held = None;
+    out.at = Some(b.at);
+    ctx.hub
+        .publish(Topic::V1MempoolBlocks, &text(&msg), Snapshot::Replace);
 }
 
 /// Keeps one network's compatible topics current: `stats` and `mempool-blocks` once per
@@ -647,7 +722,8 @@ pub async fn run(ctx: Arc<NetworkContext>) {
     let mut events = ctx.electrum.events();
     let mut tick = tokio::time::interval(ctx.sockets.limits.mempool_interval);
     let mut published = Published::default();
-    let mut sent = ctx.hub.announced();
+    let mut sent = ctx.v1.sent.subscribe();
+    tokio::spawn(follow_table(Arc::clone(&ctx)));
     let mut blocks = ctx.fees.blocks_changed();
     loop {
         tokio::select! {

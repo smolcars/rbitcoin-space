@@ -122,7 +122,6 @@ async fn client_messages_are_parsed_strictly() {
         json!({}),
         json!({"bogus": 1}),
         json!({"action": 5}),
-        json!({"action": "init"}),
         json!({"action": "want"}),
         json!({"action": "want", "data": "blocks"}),
         json!({"action": "want", "data": ["blocks", 1]}),
@@ -153,6 +152,13 @@ async fn client_messages_are_parsed_strictly() {
 
     send(&mut s, &json!({"action": "ping"}));
     assert_eq!(c.all(), [json!({"pong": true})]);
+    // `init`: what no part carries, the backend as `/api/v1/backend-info` describes it.
+    send(&mut s, &json!({"action": "init"}));
+    let info = serde_json::to_value(api_v1::backend_info(&ctx)).unwrap();
+    assert_eq!(
+        c.all(),
+        [json!({"loadingIndicators": {}, "backend": "esplora", "backendInfo": info})]
+    );
 
     // `want` replaces the set; unknown names are ignored.
     send(
@@ -534,10 +540,13 @@ async fn addresses_say_their_new_and_confirmed_transactions_once_for_every_socke
 // Shapes against the reference, as recorded in `fixtures/websocket/reference.json`.
 
 /// Checks that `ours` has the reference's shape: each of our keys is one of its keys with a value
-/// of the same JSON type, and each of its keys we leave out is named in `omitted` (as
-/// `path.key`). A reference `null` matches any type: it says nothing about the type. Arrays are
-/// compared by their first element.
+/// of the same JSON type, and each of its keys we leave out, or send otherwise, is named in
+/// `omitted` (as `path.key`). A reference `null` matches any type: it says nothing about the
+/// type. Arrays are compared by their first element.
 fn conforms(ours: &Value, reference: &Value, path: &str, omitted: &[&str], out: &mut Vec<String>) {
+    if omitted.contains(&path) {
+        return;
+    }
     let kind = |v: &Value| match v {
         Value::Null => "null",
         Value::Bool(_) => "bool",
@@ -585,12 +594,11 @@ fn reference() -> Value {
     .unwrap()
 }
 
-fn esplora(name: &str) -> Value {
-    let text = match name {
-        "block" => include_str!("../../../../../fixtures/esplora/mainnet/block.json"),
-        _ => include_str!("../../../../../fixtures/esplora/mainnet/tx-segwit-opreturn.json"),
-    };
-    serde_json::from_str(text).unwrap()
+fn esplora_tx() -> Value {
+    serde_json::from_str(include_str!(
+        "../../../../../fixtures/esplora/mainnet/tx-segwit-opreturn.json"
+    ))
+    .unwrap()
 }
 
 /// What the reference sends that we do not, by message: each is listed in `docs/WS.md`.
@@ -601,11 +609,31 @@ const OMITTED: &[&str] = &[
     ".mempoolInfo.optimal",
     // rbitcoin's node reports it; the reference's node did not.
     ".mempoolInfo.fullrbf",
-    // The block is the node's Esplora JSON: no extras, and only best-chain blocks are sent.
-    ".blocks[].stale",
-    ".blocks[].extras",
-    ".block.stale",
-    ".block.extras",
+    // Block extras we do not compute yet: the same blocks as `GET /api/v1/blocks`.
+    ".blocks[].extras.orphans",
+    ".blocks[].extras.utxoSetChange",
+    ".blocks[].extras.avgTxSize",
+    ".blocks[].extras.totalInputs",
+    ".blocks[].extras.totalOutputs",
+    ".blocks[].extras.totalOutputAmt",
+    ".blocks[].extras.segwitTotalTxs",
+    ".blocks[].extras.segwitTotalSize",
+    ".blocks[].extras.segwitTotalWeight",
+    ".blocks[].extras.coinbaseBip54",
+    ".blocks[].extras.similarity",
+    ".block.extras.orphans",
+    ".block.extras.utxoSetChange",
+    ".block.extras.avgTxSize",
+    ".block.extras.totalInputs",
+    ".block.extras.totalOutputs",
+    ".block.extras.totalOutputAmt",
+    ".block.extras.segwitTotalTxs",
+    ".block.extras.segwitTotalSize",
+    ".block.extras.segwitTotalWeight",
+    ".block.extras.coinbaseBip54",
+    ".block.extras.similarity",
+    // `null`, as on `GET /api/v1/blocks`: we keep no miner names.
+    ".blocks[].extras.pool.minerNames",
     // CPFP details of a tracked transaction.
     ".txPosition.cpfp",
     // The reference's own fields on a transaction; ours is the node's Esplora JSON.
@@ -625,6 +653,24 @@ const OMITTED: &[&str] = &[
     ".block-transactions[].vin[].inner_redeemscript_asm",
     ".block-transactions[].vin[].inner_witnessscript_asm",
     ".block-transactions[].vout[].scriptpubkey_address",
+];
+
+/// What the reference's answer to `init` carries that ours leaves to the `want` parts' state, or
+/// does not send at all (`rbfSummary`, `conversions`).
+const INIT_OMITTED: &[&str] = &[
+    ".mempoolInfo",
+    ".vBytesPerSecond",
+    ".mempool-blocks",
+    ".transactions",
+    ".fees",
+    ".rbfSummary",
+    ".conversions",
+    ".da",
+    ".blocks",
+    // `null`, as `/api/v1/backend-info` serves them: private, or a node call.
+    ".backendInfo.hostname",
+    ".backendInfo.coreVersion",
+    ".backendInfo.osVersion",
 ];
 
 #[tokio::test]
@@ -704,31 +750,41 @@ async fn every_message_has_the_reference_shape() {
     let c_conn = Arc::clone(&c.conn);
     let mut s = Session::new(ctx, &c_conn);
     send(&mut s, &json!({"action": "ping"}));
+    send(&mut s, &json!({"action": "init"}));
     let flood: Vec<String> = (0..3).map(|i| format!("x{i}")).collect();
     send(&mut s, &json!({"track-addresses": flood}));
     let replies = c.all();
 
     let ours = [
         ("pong", replies[0].clone()),
+        ("init", replies[1].clone()),
         ("stats", stats),
         (
             "mempool-blocks",
             json!({"mempool-blocks": api_v1::mempool_blocks(&blocks)}),
         ),
-        ("blocks", json!({"blocks": [esplora("block")]})),
-        ("block", json!({"block": esplora("block")})),
+        (
+            "blocks",
+            json!({"blocks": [crate::v1_blocks::tests::sample()]}),
+        ),
+        ("block", json!({"block": crate::v1_blocks::tests::sample()})),
         ("txPosition", tx_message(&id, &tx_state, &[0]).unwrap()),
         ("txConfirmed", tx_message(&id, &confirmed, &[0]).unwrap()),
         (
             "block-transactions",
-            json!({"block-transactions": [esplora("tx")]}),
+            json!({"block-transactions": [esplora_tx()]}),
         ),
-        ("track-addresses-error", replies[1].clone()),
+        ("track-addresses-error", replies[2].clone()),
         ("live-2h-chart", live_chart(&sample)),
     ];
     let mut wrong = Vec::new();
     for (name, msg) in &ours {
-        conforms(msg, &r[name], "", OMITTED, &mut wrong);
+        let omitted = if *name == "init" {
+            INIT_OMITTED
+        } else {
+            OMITTED
+        };
+        conforms(msg, &r[name], "", omitted, &mut wrong);
     }
     assert_eq!(wrong, Vec::<String>::new());
     // Every recorded reference message is checked.
@@ -944,4 +1000,50 @@ async fn an_address_history_the_node_will_not_finish_is_not_read_again() {
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert_eq!(history.reads.load(Ordering::Relaxed), 1);
     assert_eq!(ctx.v1.followed(), 2);
+}
+
+#[tokio::test]
+async fn table_blocks_go_out_once_each_in_order_and_a_reorg_sends_the_list() {
+    let ctx = context("127.0.0.1:1", true, |_| {});
+    let blk = |h: u32, fork: &str| json!({"id": format!("{fork}{h}"), "height": h, "extras": {}});
+    let list = |hs: std::ops::RangeInclusive<u32>, fork: &str| -> Vec<Value> {
+        hs.map(|h| blk(h, fork)).collect()
+    };
+    let want = json!({"action": "want", "data": ["blocks"]});
+    from_table(&ctx, list(1..=8, "a"));
+    let mut c = Client::new();
+    let c_conn = Arc::clone(&c.conn);
+    let mut cs = Session::new(&ctx, &c_conn);
+    send(&mut cs, &want);
+    assert_eq!(c.all(), [json!({"blocks": list(1..=8, "a")})]);
+
+    // Two rows written at once: each block once, oldest first.
+    from_table(&ctx, list(3..=10, "a"));
+    assert_eq!(
+        c.all(),
+        [
+            json!({"block": blk(9, "a")}),
+            json!({"block": blk(10, "a")})
+        ]
+    );
+    // The same blocks again, the tip rated since: nothing is sent, a new socket gets the rates.
+    let mut rated = list(3..=10, "a");
+    rated[7]["extras"]["medianFee"] = json!(1.5);
+    from_table(&ctx, rated.clone());
+    assert_eq!(c.all(), Vec::<Value>::new());
+    let mut d = Client::new();
+    let d_conn = Arc::clone(&d.conn);
+    let mut ds = Session::new(&ctx, &d_conn);
+    send(&mut ds, &want);
+    assert_eq!(d.all(), [json!({"blocks": rated})]);
+
+    // The last two replaced: the list goes out whole, never a block of the old branch again.
+    let mut fork = list(3..=8, "a");
+    fork.extend(list(9..=10, "b"));
+    from_table(&ctx, fork.clone());
+    assert_eq!(c.all(), [json!({"blocks": fork.clone()})]);
+    // An empty table changes nothing.
+    from_table(&ctx, Vec::new());
+    assert_eq!(c.all(), Vec::<Value>::new());
+    assert_eq!(lock(&ctx.v1.blocks).back(), fork.last());
 }

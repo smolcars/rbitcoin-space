@@ -811,6 +811,11 @@ async fn nodes_channels_search_and_rankings_answer_exactly_in_both_shapes() {
             name,
         );
     }
+    // The reference's frontend asks the txids route with a trailing slash: the same answer.
+    let txids = format!("/regtest/api/v1/lightning/channels/txids?txId[]={f1}&txId[]={x4}");
+    let plain = get(&addr, &txids).await;
+    let slash = get(&addr, &txids.replace("txids?", "txids/?")).await;
+    assert_eq!((slash.status, slash.body), (plain.status, plain.body));
 
     // A node's past: a point per UTC midnight from our first statistics row, a point at each
     // open or close between, then now.

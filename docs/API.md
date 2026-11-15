@@ -676,8 +676,8 @@ What wallets ask about unconfirmed transactions: was it replaced and by what, wh
 |---|---|---|---|
 | `GET /api/v1/validate-address/:address` | `{address, isscript, isvalid, iswitness, scriptPubKey[, witness_program, witness_version]}`, or `{"isvalid": false}` | none | 1 day |
 | `GET /api/v1/transaction-times?txId[]=…` | First-seen time per txid, Unix seconds, in request order; `0` when unknown | none | 1 s |
-| `GET /api/v1/replacements` | The 25 newest replacement trees, newest first | none | 1 s |
-| `GET /api/v1/fullrbf/replacements` | The 25 newest trees in which something was replaced without signalling | none | 1 s |
+| `GET /api/v1/replacements`, and with a trailing slash as mempool.space's frontend asks | The 25 newest replacement trees, newest first | none | 1 s |
+| `GET /api/v1/fullrbf/replacements`, and with a trailing slash | The 25 newest trees in which something was replaced without signalling | none | 1 s |
 | `GET /api/v1/tx/:txid/rbf` | `{replacements, replaces}`: the tree holding `txid`, and what `txid` itself replaced; each `null` when there is none | none | 1 s |
 | `GET /api/v1/cpfp/:txid` | `{ancestors, bestDescendant, descendants, effectiveFeePerVsize, fee, adjustedVsize}`, or `{"ancestors": []}` | none | 1 s |
 | `POST /api/v1/prevouts` | For each `{txid, vout}` asked, `{prevout, unconfirmed}` or `null` | one or two Esplora reads per distinct outpoint, under the batch routes' cost limit | `no-store` |
@@ -941,7 +941,7 @@ In the reference's shapes: field names, order and JSON types as recorded from me
 | `GET /nodes/:key/fees/histogram` | `{incoming: [{bucket, count, capacity}], outgoing: […]}`; `bucket` a string such as `"400.0"` or `null`, `capacity` a string |
 | `GET /channels?public_key=&status=&index=` | 10 channels from offset `index`: `[{status, closing_reason, closing_date, capacity, short_id, id, fee_rate, node: {alias, public_key, channels, capacity}}]`, open ones largest first, closed ones newest close first; `X-Total-Count` the node's total |
 | `GET /channels/:id` | `{id, short_id, capacity, transaction_id, transaction_vout, closing_transaction_id, closing_fee, closing_reason, closing_date, updated_at, created, status, funding_ratio, closed_by, node_left, node_right}`, each end `{alias, public_key, channels, capacity, base_fee_mtokens, cltv_delta, fee_rate, is_disabled, max_htlc_mtokens, min_htlc_mtokens, updated_at, longitude, latitude}` |
-| `GET /channels/txids?txId[]=` | One `{inputs, outputs}` per txid asked, in order: `outputs` maps the output index to the channel it funded, `inputs` maps `"0"` to the channel it closed; each channel as above without the ends' `channels`, `capacity`, `longitude` and `latitude`, as there |
+| `GET /channels/txids?txId[]=`, and `/channels/txids/?txId[]=` as mempool.space's frontend asks | One `{inputs, outputs}` per txid asked, in order: `outputs` maps the output index to the channel it funded, `inputs` maps `"0"` to the channel it closed; each channel as above without the ends' `channels`, `capacity`, `longitude` and `latitude`, as there |
 
 Values and their differences from the reference:
 
