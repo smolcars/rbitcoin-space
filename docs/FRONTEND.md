@@ -188,7 +188,7 @@ What the public API cannot give cheaply: a mined block's fee facts and every tra
 | 8 + 28·i | `u32` | Virtual size of transaction `i` |
 | 12 + 28·i | `u64` | Fee in sats; 0 for the coinbase |
 | 20 + 28·i | `u64` | Total output value in sats |
-| 28 + 28·i | `u64` | The transaction's flags ([`API.md`](API.md#transaction-flags)); the frontend does not read them yet |
+| 28 + 28·i | `u64` | The transaction's flags ([`API.md`](API.md#transaction-flags)), with CPFP (bits 16, 17) from its relatives in the block and replacement (bit 18) from the server's record; the frontend does not read them yet |
 
 Read it with a `DataView`; a `u64` here is below 2^53 (the highest flag is bit 44), so `Number(view.getBigUint64(o, true))` is exact. A record has no txid: when a square is hovered or clicked, ask `/api/block/:hash/txid/:index`, which is cached for good. Mainnet block 976,000, 4,003 transactions, is 112,092 bytes (80,068 in format 1, without flags); the proxy in front may compress it (the server itself does not). The facts are about 400 bytes. Check the version before reading; a different one means a newer server and a page that needs a reload.
 
@@ -196,7 +196,7 @@ Read it with a `DataView`; a `u64` here is below 2^53 (the highest flag is bit 4
 
 **In the frontend.** `lib/summary.ts` has the type, `isSummary`, and `fetchSummaries(network, hashes, signal)`, which asks for up to ten at a time with `withRetry` and keeps every summary it sees, fetched or pushed, for the life of the page (`knownSummary`). The home page asks for its ten tiles in one batch on first paint and then takes each new block's from the WebSocket, asking over HTTP only if the push has not come within 4 s. Older tiles, as the strip scrolls into the past, are asked for once it stops ([The block strip's past](#the-block-strips-past)). The blocks list (25 a page, from three of the API's ten-block answers) asks per row, two at a time, so an old page fills in row by row. Draw the bands with `Strata`, and the records with the transaction grid below. The home strip's and the mining page's tiles put `miner.name` on the line under each tile (`aria-hidden`, its space always kept) and in the tile link's text; the block page links it to the pool's page.
 
-**Caching.** A summary is fixed by its hash, so success is `Cache-Control: public, max-age=31536000, immutable`, and `api.ts`-style in-memory caching is right. Errors are `no-store`.
+**Caching.** A summary is fixed by its hash (all but bit 18 of its flags, which is the replacement record when it was computed), so success is `Cache-Control: public, max-age=31536000, immutable`, and `api.ts`-style in-memory caching is right. Errors are `no-store`.
 
 **Cost and limits.** A block in the block table with its fee rates ([`STORE.md`](STORE.md#blocks)) costs nothing: once backfilled, the facts of the last year's blocks come from there. `/txs` always needs the node. An uncached block costs the node a block listing: about 60 ms and 0.3 MB on mainnet where the node has the listing route, a heavy call (about 0.7 s and 10 MB) where it does not ([`RBITCOIN.md`](RBITCOIN.md#listing-a-blocks-transactions)), and beside it the raw block for the flags (up to 4 MB, [`RBITCOIN.md`](RBITCOIN.md#listing-a-blocks-transactions)), so:
 

@@ -92,11 +92,6 @@ impl serde::Serialize for Bands {
     }
 }
 
-/// How far, in percent, a chunk's rate must be above a member's own for paid for by a child, or
-/// below it for pays for a parent. Mainnet chains of 0.12 sat/vB lifted by 2% by one member would
-/// otherwise flag 82 to 90% of a block (`docs/API.md`).
-const CPFP_MARGIN_PERCENT: u128 = 10;
-
 /// The node's chunk rate: sat per 1,000 vB, rounded down, on sigop-adjusted vbytes.
 fn chunk_rate(fee: u64, adjusted_weight: u64) -> u64 {
     match adjusted_weight.div_ceil(4) {
@@ -117,7 +112,8 @@ pub struct Placed {
     /// Its own base fee, in satoshis.
     pub fee: u64,
     /// Its feature bits ([`crate::flags`]): the tracker's, and paid for by a child or pays for
-    /// a parent from its chunk in this projection (more than [`CPFP_MARGIN_PERCENT`] apart).
+    /// a parent from its chunk in this projection (more than
+    /// [`crate::flags::CPFP_MARGIN_PERCENT`] apart).
     pub flags: u64,
 }
 
@@ -553,7 +549,7 @@ impl Model {
                     };
                     // Its own rate and the chunk's, on one denominator: fee × the other's vsize.
                     let (own, all) = (u128::from(tx.fee) * vsizes, fees * u128::from(tx.vsize));
-                    let (low, high) = (100, 100 + CPFP_MARGIN_PERCENT);
+                    let (low, high) = (100, 100 + u128::from(crate::flags::CPFP_MARGIN_PERCENT));
                     let cpfp = match c.txs.len() > 1 {
                         true if all * low > own * high => crate::flags::PAID_BY_CHILD,
                         true if own * low > all * high => crate::flags::PAYS_FOR_PARENT,

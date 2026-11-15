@@ -817,11 +817,11 @@ Every route but `prevouts` asks the node nothing: a request is a parse and a few
 - **First-seen.** Equal to the node's `getmempoolentry` time; 1 to 2 s before the reference's, as above. Transactions that left the mempool as replaced: ours from the record, `0` on the reference.
 ### Transaction flags
 
-The reference's per-transaction `flags` (in block summaries and the like) is a bit field of features; bit N is the value `1 << N`. We keep its layout, so the field can be passed through. Served in mined blocks' summaries: `/api/v1/block/:hash/summary` and `/tx/:txid/summary` rows, and the `/app/block/:hash/txs` records ([`FRONTEND.md`](FRONTEND.md#block-summaries)), from the block's raw bytes ([`RBITCOIN.md`](RBITCOIN.md#listing-a-blocks-transactions)). Code: `crates/engine/src/flags.rs`, one pure function of the transaction's own bytes, with a constant per bit.
+The reference's per-transaction `flags` (in block summaries and the like) is a bit field of features; bit N is the value `1 << N`. We keep its layout, so the field can be passed through. Served in mined blocks' summaries: `/api/v1/block/:hash/summary` and `/tx/:txid/summary` rows, and the `/app/block/:hash/txs` records ([`FRONTEND.md`](FRONTEND.md#block-summaries)), from the block's raw bytes ([`RBITCOIN.md`](RBITCOIN.md#listing-a-blocks-transactions)). Code: `crates/engine/src/flags.rs`, one pure function of the transaction's own bytes, with a constant per bit; bits 16 to 18 need more than the bytes, and a mined block's are set beside them (`crates/engine/src/blocks/stats.rs`, `flags` and `mark_replacements`).
 
 **Input types are inferred,** with no previous outputs: from the scriptSig and the witness alone ([below](#how-an-input-is-placed)). A spend the rules cannot place sets no type bit rather than a guess.
 
-**Agreement** is with the reference's `/api/v1/block/:hash/summary` over 23 mainnet blocks, heights 170 to 976,000: 47,243 transactions, 47,241 equal on every bit below (`cargo run --release -p engine --example flags_compare -- <dir>`). `fixtures/flags/mainnet.json` holds 68 of those transactions with the reference's answer, and a test holds every one equal.
+**Agreement** is with the reference's `/api/v1/block/:hash/summary` over 23 mainnet blocks, heights 170 to 976,000: 47,243 transactions, 47,241 equal on every bit below but 16 to 18 (`cargo run --release -p engine --example flags_compare -- <dir>`). `fixtures/flags/mainnet.json` holds 68 of those transactions with the reference's answer, and a test holds every one equal.
 
 | Bit | Meaning | Our rule | Agreement |
 |---|---|---|---|
@@ -851,15 +851,15 @@ The two transactions that differ:
 - `d2f4b28e…` has two 1-of-3 bare multisig outputs carrying data in their keys. Every key is a point on the curve, but the reference marks it fake (bit 25) by a rule we did not find.
 - `f8ac0f8d…` spends a Taproot key path (one 64-byte signature) and a P2WSH script with an empty signature (a Lightning anchor after its delay). The reference sets neither P2WSH nor `SIGHASH_DEFAULT` for it, though it does set Taproot.
 
-**Set from the mempool's context,** not by `flags::of`: `KNOWN` leaves them out, so the fixture test and `flags_compare` mask them in the reference's answer.
+**Set from context,** not by `flags::of`: `KNOWN` leaves them out, so the fixture test and `flags_compare` mask them in the reference's answer.
 
-| Bit | Meaning | Our rule |
-|---|---|---|
-| 16 | Paid for by a child | In a projected block: mined in a chunk of two or more transactions whose rate is more than 10% above its own. The chunk's rate is its members' base fees over their vsizes, summed; compared in integers, `chunk_fee × own_vsize × 10 > own_fee × chunk_vsize × 11`. A zero-fee member of a paying chunk has it. Set by the projector, so it changes as the chunk does |
-| 17 | Pays for a parent | The same, its own rate more than 10% above the chunk's. Never set with 16 |
-| 18 | Replacement | The tracker saw it replace a transaction in the mempool. A restart of our server forgets it for transactions already in the mempool: the stored replacement record is not read back into the flags |
+| Bit | Meaning | In a projected block | In a mined block |
+|---|---|---|---|
+| 16 | Paid for by a child | Mined in a chunk of two or more transactions whose rate is more than 10% above its own. The chunk's rate is its members' base fees over their vsizes, summed; compared in integers, `chunk_fee × own_vsize × 10 > own_fee × chunk_vsize × 11`. A zero-fee member of a paying chunk has it. Set by the projector, so it changes as the chunk does | A child in the same block pays a fee rate more than 10% above its own (fee over weight, compared exactly). Direct children only; never the coinbase. Not the reference's rule ([below](#cpfp-in-a-mined-block)) |
+| 17 | Pays for a parent | The same, its own rate more than 10% above the chunk's. Never set with 16 | Its own fee rate is more than 10% above a parent's in the same block. Direct parents only |
+| 18 | Replacement | The tracker saw it replace a transaction in the mempool. A restart of our server forgets it for transactions already in the mempool: the stored replacement record is not read back into the flags | It replaced another transaction while the server watched the mempool, by its [replacement record](FRONTEND.md#a-transactions-relatives-and-replacements). Not compared with the reference: each server's record is its own |
 
-Our 16 and 17 are our own rule. The margin is there because, compared exactly, 16 marked 82 to 89% of block 0 and 90% of blocks 0 to 6 on mainnet (2026-11-15, 75,000 transactions, measured): chains of about 20 transactions at 0.12 sat/vB that one member at 0.2 lifts by 2%. With it, measured the same day: 16 on 2.6 to 3.7% of block 0 and 1.6% of blocks 0 to 6, 17 on 3.8 to 4.3% and 4.1%. The reference follows its own effective-rate clusters: about a fifth of a mined block, most flagged transactions carrying both bits.
+Our 16 and 17 are our own rules, with one margin (`CPFP_MARGIN_PERCENT`). It is there because, compared exactly, 16 marked 82 to 89% of block 0 and 90% of blocks 0 to 6 on mainnet (2026-11-15, 75,000 transactions, measured): chains of about 20 transactions at 0.12 sat/vB that one member at 0.2 lifts by 2%. With it, measured the same day: 16 on 2.6 to 3.7% of block 0 and 1.6% of blocks 0 to 6, 17 on 3.8 to 4.3% and 4.1%. The reference follows its own effective-rate clusters: about a fifth of a mined block, most flagged transactions carrying both bits.
 
 **Left unset:**
 
@@ -870,6 +870,19 @@ Our 16 and 17 are our own rule. The margin is there because, compared exactly, 1
 | 32 (coinjoin) | Seen 16 times; no simple rule matched ("5+ inputs and 5+ equal outputs" found 14 with 25 false positives), and a noisy bit is worse than none |
 
 A pay-to-anchor output (`51 02 4e73`) sets no type bit on the reference, and neither does spending one; the same here.
+
+#### CPFP in a mined block
+
+Ours is the plain rule: a child that pays more than its parent marks both. The reference's is wider: it follows its own effective-rate clusters, which a block alone does not give. "More" means more than 10% (`CPFP_MARGIN_PERCENT`), because tiny differences otherwise flag most of a block. Over the 23 blocks above (`flags_compare` prints each):
+
+| Bit | Both | Only ours | Only the reference's |
+|---|---|---|---|
+| 16 | 1,284 | 1,261 | 8,460 |
+| 17 | 1,330 | 1,438 | 8,514 |
+
+In 13 of those blocks the reference sets neither bit on any transaction. The rule adds 0.1 to 0.3 ms to a full block's flags.
+
+Bit 18 is the record as it stood when the summary was computed: a server that lost its record (no `DATA_DIR`, or more than `REPLACEMENTS_KEPT` replacements since) answers an older block without it.
 
 #### How an input is placed
 

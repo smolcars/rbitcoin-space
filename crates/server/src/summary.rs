@@ -5,8 +5,9 @@
 //! `/block/:hash/txs/summary`, about 0.2 MB and a few tens of milliseconds for a full mainnet
 //! block, three small Esplora calls; without it, a `getblock` at verbosity 2, about 10 MB and
 //! most of a second. Beside it, the raw block from Esplora (at most 4 MB) for each transaction's
-//! flags. Nothing else reads a block's raw bytes for flags: the backfill lists blocks without
-//! them. So (SECURITY.md rules 6–8):
+//! flags, and one hash lookup per transaction in the replacement record, in memory. Nothing else
+//! reads a block's raw bytes for flags: the backfill lists blocks without them.
+//! So (SECURITY.md rules 6–8):
 //! - a computation runs in its own task, and every request for that block meanwhile joins it;
 //! - results are kept in a cache bounded in bytes (`BLOCK_SUMMARY_CACHE_MB`), least recently
 //!   used out first, and the newest [`WARM_BLOCKS`] are computed as blocks arrive;
@@ -127,7 +128,8 @@ impl Summary {
 /// One transaction as the reference's block summary lists it. `vsize` is weight / 4, unrounded,
 /// as the reference gives it; `rate` is the fee over the node's vsize (whole vbytes), as the
 /// reference's is for every transaction it does not rate as part of a package. `flags` is
-/// [`engine::flags::of`], a number below 2^53 (`docs/API.md`, "Transaction flags").
+/// [`stats::flags`] with [`stats::mark_replacements`], a number below 2^53 (`docs/API.md`,
+/// "Transaction flags").
 #[derive(Debug, Serialize)]
 struct TxRow {
     txid: Txid,
@@ -391,7 +393,10 @@ async fn compute(
         (Err(e), _) => Err(Failure::from_rpc(&e)),
     };
     let outcome = match outcome {
-        Ok((b, flags)) => {
+        Ok((b, mut flags)) => {
+            // As the record stands now: a restart that lost it answers an older block without.
+            ctx.track
+                .with_replacements(|r| stats::mark_replacements(&b, r, &mut flags));
             let txs: Bytes = stats::encode_txs(&b, &flags).into();
             logging::emit(&BlockSummaryComputed {
                 network,

@@ -25,14 +25,19 @@ pub const P2SH: u64 = 1 << 11;
 pub const P2WPKH: u64 = 1 << 12;
 pub const P2WSH: u64 = 1 << 13;
 pub const P2TR: u64 = 1 << 14;
-/// Mined in a chunk of several transactions whose rate is above its own: a child pays for it.
-/// Set by the projector, for its projected blocks only.
+/// A child pays for it: its chunk's rate in a projected block, or a child's in the same mined
+/// block, is more than [`CPFP_MARGIN_PERCENT`] above its own. Set by the projector and by a mined
+/// block's summary, never by [`of`].
 pub const PAID_BY_CHILD: u64 = 1 << 16;
-/// Mined in a chunk of several transactions whose rate is below its own: it pays for a parent.
-/// Set by the projector, for its projected blocks only.
+/// It pays for a parent: its own rate is more than [`CPFP_MARGIN_PERCENT`] above its chunk's in a
+/// projected block, or above a parent's in the same mined block. Set as [`PAID_BY_CHILD`] is.
 pub const PAYS_FOR_PARENT: u64 = 1 << 17;
-/// It replaced another transaction in the mempool. Set by the tracker when it sees the replacement.
+/// It replaced another transaction in the mempool. Set by the tracker when it sees the
+/// replacement, and by a mined block's summary from the record of replacements.
 pub const REPLACEMENT: u64 = 1 << 18;
+/// How far apart, in percent, two fee rates must be for bits 16 and 17. Compared exactly, mainnet
+/// chains of 0.12 sat/vB lifted 2% by one member flagged 82 to 90% of a block (`docs/API.md`).
+pub const CPFP_MARGIN_PERCENT: u64 = 10;
 pub const OP_RETURN: u64 = 1 << 24;
 /// A bare multisig output holds a key that is not a point on the curve.
 pub const FAKE_PUBKEY: u64 = 1 << 25;

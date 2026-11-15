@@ -1,11 +1,14 @@
 //! Fee facts and the per-transaction records of one block, as [`super::Lister`] lists it. Pure.
 
-use bitcoin::BlockHash;
+use std::collections::HashMap;
+
+use bitcoin::{BlockHash, Txid};
 use node::rpc::model::{Block, BlockTx};
 use serde::Serialize;
 
 use super::Coinbase;
 use crate::mining::pools;
+use crate::replacements::Replacements;
 
 use crate::projected::{BAND_EDGES, BANDS, Bands};
 
@@ -153,18 +156,69 @@ fn rates(paying: &[BlockTx]) -> Option<Rates> {
     })
 }
 
-/// Each transaction's [`crate::flags::of`], in block order, read from the block's raw bytes.
-/// `None` unless `raw` holds the listed transactions in the listed order: a different block
-/// under the same hash, or a short one, must not lend its flags.
+/// Each transaction's [`crate::flags::of`], in block order, read from the block's raw bytes,
+/// with [`crate::flags::PAID_BY_CHILD`] and [`crate::flags::PAYS_FOR_PARENT`] from its direct
+/// relatives in the block: a child paying a rate more than [`crate::flags::CPFP_MARGIN_PERCENT`]
+/// above its parent's. `None` unless `raw` holds the listed transactions in the listed order: a
+/// different block under the same hash, or a short one, must not lend its flags.
 pub fn flags(block: &Block, raw: &bitcoin::Block) -> Option<Vec<u64>> {
+    use crate::flags::{PAID_BY_CHILD, PAYS_FOR_PARENT};
     if raw.txdata.len() != block.tx.len() {
         return None;
     }
-    raw.txdata
+    let mut out = raw
+        .txdata
         .iter()
         .zip(&block.tx)
         .map(|(t, listed)| (t.compute_txid() == listed.txid).then(|| crate::flags::of(t)))
-        .collect()
+        .collect::<Option<Vec<_>>>()?;
+    let index: HashMap<Txid, usize> = block
+        .tx
+        .iter()
+        .enumerate()
+        .map(|(i, t)| (t.txid, i))
+        .collect();
+    // The coinbase is neither: it spends nothing in the block, and nothing may spend it there.
+    for (c, (t, child)) in raw.txdata.iter().zip(&block.tx).enumerate().skip(1) {
+        for input in &t.input {
+            let Some(&p) = index.get(&input.previous_output.txid) else {
+                continue;
+            };
+            if p != 0
+                && block
+                    .tx
+                    .get(p)
+                    .is_some_and(|parent| pays_more(child, parent))
+            {
+                // `out` is as long as `block.tx`, so both are there.
+                if let Some(f) = out.get_mut(p) {
+                    *f |= PAID_BY_CHILD;
+                }
+                if let Some(f) = out.get_mut(c) {
+                    *f |= PAYS_FOR_PARENT;
+                }
+            }
+        }
+    }
+    Some(out)
+}
+
+/// `a`'s fee rate is more than [`crate::flags::CPFP_MARGIN_PERCENT`] above `b`'s, exactly: fee
+/// over weight, cross-multiplied, never rounded.
+fn pays_more(a: &BlockTx, b: &BlockTx) -> bool {
+    use crate::flags::CPFP_MARGIN_PERCENT as M;
+    let fee = |t: &BlockTx| u128::from(t.fee.map_or(0, |f| f.to_sat()));
+    fee(a) * u128::from(b.weight) * 100 > fee(b) * u128::from(a.weight) * u128::from(100 + M)
+}
+
+/// Sets [`crate::flags::REPLACEMENT`] on each transaction the record holds as having replaced
+/// another. One hash lookup per transaction; an empty record sets none.
+pub fn mark_replacements(block: &Block, record: &Replacements, flags: &mut [u64]) {
+    for (t, f) in block.tx.iter().zip(flags) {
+        if !record.replaced_by(&t.txid).is_empty() {
+            *f |= crate::flags::REPLACEMENT;
+        }
+    }
 }
 
 /// Every transaction in block order, coinbase first (its fee is 0), as fixed-width records
@@ -410,6 +464,163 @@ mod tests {
             None,
             "another transaction"
         );
+    }
+
+    /// A block of `txs`, each `(fee, weight, parents)`: the coinbase first, then one transaction
+    /// per entry spending output 0 of each parent, an index into the block or `None` for a
+    /// transaction outside it. Returns its listing and its raw bytes.
+    fn family(txs: &[(u64, u32, &[Option<usize>])]) -> (Block, bitcoin::Block) {
+        use bitcoin::{OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Witness};
+        let make = |n: u8, prevs: Vec<OutPoint>| Transaction {
+            version: bitcoin::transaction::Version::TWO,
+            lock_time: bitcoin::absolute::LockTime::ZERO,
+            input: prevs
+                .into_iter()
+                .map(|previous_output| TxIn {
+                    previous_output,
+                    script_sig: ScriptBuf::new(),
+                    sequence: Sequence::MAX,
+                    witness: Witness::new(),
+                })
+                .collect(),
+            output: vec![TxOut {
+                value: Amount::from_sat(1),
+                script_pubkey: ScriptBuf::new_op_return([n]),
+            }],
+        };
+        let mut raw = vec![make(0, vec![OutPoint::null()])];
+        for (n, (_, _, parents)) in (1u8..).zip(txs) {
+            let prevs = parents
+                .iter()
+                .map(|p| OutPoint {
+                    txid: p.map_or(Txid::from_byte_array([0xee; 32]), |i| raw[i].compute_txid()),
+                    vout: 0,
+                })
+                .collect();
+            raw.push(make(n, prevs));
+        }
+        let mut b = block(&[]);
+        b.tx[0].txid = raw[0].compute_txid();
+        for ((fee, weight, _), t) in txs.iter().zip(&raw[1..]) {
+            b.tx.push(BlockTx {
+                txid: t.compute_txid(),
+                weight: *weight,
+                ..tx(Some(*fee), weight.div_ceil(4))
+            });
+        }
+        let raw = bitcoin::Block {
+            header: bitcoin::constants::genesis_block(bitcoin::Network::Regtest).header,
+            txdata: raw,
+        };
+        (b, raw)
+    }
+
+    /// Bits 16 and 17 of each transaction after the coinbase, as `(paid for, pays for)`.
+    fn cpfp(txs: &[(u64, u32, &[Option<usize>])]) -> Vec<(bool, bool)> {
+        use crate::flags::{PAID_BY_CHILD, PAYS_FOR_PARENT};
+        let (b, raw) = family(txs);
+        let f = flags(&b, &raw).unwrap();
+        assert_eq!(
+            f[0] & (PAID_BY_CHILD | PAYS_FOR_PARENT),
+            0,
+            "the coinbase is neither"
+        );
+        f[1..]
+            .iter()
+            .map(|f| (f & PAID_BY_CHILD != 0, f & PAYS_FOR_PARENT != 0))
+            .collect()
+    }
+
+    #[test]
+    fn a_child_paying_more_marks_both() {
+        const NONE: (bool, bool) = (false, false);
+        // 1 sat/WU parent, 2 sat/WU child.
+        assert_eq!(
+            cpfp(&[(400, 400, &[]), (1600, 800, &[Some(1)])]),
+            [(true, false), (false, true)]
+        );
+        // The same rate, though not the same fee: neither.
+        assert_eq!(
+            cpfp(&[(400, 400, &[]), (800, 800, &[Some(1)])]),
+            [NONE, NONE]
+        );
+        // The margin, exactly: 10% more is not enough, one sat past it is, never rounded.
+        let child = |fee| cpfp(&[(100_000, 400_000, &[]), (fee, 400_000, &[Some(1)])]);
+        assert_eq!(child(109_999), [NONE, NONE], "under");
+        assert_eq!(child(110_000), [NONE, NONE], "at");
+        assert_eq!(child(110_001), [(true, false), (false, true)], "over");
+        // A zero-fee parent with a paying child qualifies; with a zero-fee child it does not.
+        assert_eq!(
+            cpfp(&[(0, 400, &[]), (1, 400, &[Some(1)])]),
+            [(true, false), (false, true)]
+        );
+        assert_eq!(cpfp(&[(0, 400, &[]), (0, 400, &[Some(1)])]), [NONE, NONE]);
+        // A child paying less than its parent: neither.
+        assert_eq!(
+            cpfp(&[(800, 400, &[]), (400, 400, &[Some(1)])]),
+            [NONE, NONE]
+        );
+        // A chain of three, each paying more: the middle one is both.
+        assert_eq!(
+            cpfp(&[
+                (400, 400, &[]),
+                (800, 400, &[Some(1)]),
+                (1200, 400, &[Some(2)])
+            ]),
+            [(true, false), (true, true), (false, true)]
+        );
+        // Only direct relatives: the grandparent is marked by its own child alone.
+        assert_eq!(
+            cpfp(&[
+                (800, 400, &[]),
+                (400, 400, &[Some(1)]),
+                (1200, 400, &[Some(2)])
+            ]),
+            [NONE, (true, false), (false, true)]
+        );
+        // A child spending two parents pays for the cheaper one only.
+        assert_eq!(
+            cpfp(&[
+                (400, 400, &[]),
+                (2000, 400, &[]),
+                (1200, 400, &[Some(1), Some(2)])
+            ]),
+            [(true, false), NONE, (false, true)]
+        );
+        // A parent outside the block: neither.
+        assert_eq!(cpfp(&[(1600, 400, &[None])]), [NONE]);
+        // Spending the coinbase's txid marks nothing: the coinbase is never a parent.
+        assert_eq!(cpfp(&[(1600, 400, &[Some(0)])]), [NONE]);
+    }
+
+    #[test]
+    fn replacements_mark_what_replaced_something() {
+        use crate::replacements::{Facts, Link, Mined, Replacements};
+        let (b, raw) = family(&[(400, 400, &[]), (400, 400, &[])]);
+        let (x, y) = (b.tx[1].txid, b.tx[2].txid);
+        let base = flags(&b, &raw).unwrap();
+        let marked = |r: &Replacements| {
+            let mut f = base.clone();
+            mark_replacements(&b, r, &mut f);
+            f.iter()
+                .map(|f| f & crate::flags::REPLACEMENT != 0)
+                .collect::<Vec<_>>()
+        };
+        // An empty record, as after a start with no data directory: none.
+        let mut r = Replacements::new(10);
+        assert_eq!(marked(&r), [false, false, false]);
+        // `y` replaced a transaction outside the block; `x` was itself replaced, and came back.
+        let link = |txid, by| Link {
+            txid,
+            by,
+            seen: 0,
+            tx: Facts::default(),
+            by_tx: None,
+            mined: Mined::No,
+        };
+        r.insert(link(Txid::from_byte_array([1; 32]), y));
+        r.insert(link(x, Txid::from_byte_array([2; 32])));
+        assert_eq!(marked(&r), [false, false, true]);
     }
 
     #[test]
