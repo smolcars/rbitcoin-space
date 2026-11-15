@@ -596,7 +596,28 @@ Decided while building it, with the owner:
 - **Badges, not sentences,** in the order a reader needs them: "Signatures OK" only when the server rebuilt the whole chain, found the anchor on the node, found the expiry bound to it and verified every signature ("Not all signed" or "Not verified" otherwise); "Not settled yet" when the chain has arkoor transfers; "Expires soon" within three days of blocks; "Exiting" once an exit transaction is in the mempool or a block. Never "unspent": that cannot be known ([`ARK.md`](ARK.md#where-the-vtxo-comes-from)).
 - **The Bitcoin line is the VTXO's life:** the anchor's block at the anchor, "now" with the blocks left, the expiry at the far end, to scale. The tree's transactions rise from the anchor; transfers run sideways as low arcs and wrap into rows, each above the last, as many to a row as the width holds; other outputs are dashed stubs with their amount where there is room. The VTXO is a ring at the end with its amount; its words go above it near the right edge, so they never fall on the tree.
 - **Play exit** lights the transactions in broadcast order, one per `--dur-slow`, then shows the wait the exit delta imposes. Every node is a button with a 44 px target that selects its transaction; its facts show under the picture.
-- **Two exceptions to the principles, approved by the owner for this picture alone.** (a) Quiet idle motion: the VTXO's ring breathes, opacity only, slowly (principle 6 otherwise forbids ambient motion). Reduced motion stops it, and Play exit then shows its end at once, so the picture is still. (b) The accent marks the VTXO's own path, its transactions and its ring (principle 3 otherwise keeps it for interaction); everything else in the picture stays neutral.
+- **Two exceptions to the principles, approved by the owner for the Ark exit pictures alone.** (a) Quiet idle motion: the VTXO's ring breathes, opacity only, slowly (principle 6 otherwise forbids ambient motion). Reduced motion stops it, and Play exit then shows its end at once, so the picture is still. (b) The accent marks the VTXO's own path, its transactions and its ring (principle 3 otherwise keeps it for interaction); everything else in the picture stays neutral.
+
+The Arkade VTXO page, `/ark/arkade/vtxo/<txid>:<vout>`, shares the entry, the back link, the figures and Play exit; its picture is the whole batch tree:
+
+```text
+VTXO  Arkade  (✓ Unspent) (◌ Not settled yet)
+d922b2c3 811ec22a …  e79773fc:0  [copy]
+┌ Amount ─────────┬ Expires ───────────┬ Exit ─────────────────────┐
+│ 0.00001000 BTC  │ 21 days left       │ 10 transactions           │
+│ 1 000 sats      │ 7 Dec 2026 ▬▬──    │ 8 tree, 1 checkpoint, …   │
+└─────────────────┴────────────────────┴───────────────────────────┘
+┌ Exit path ─────────────────────────────────────────── [Play exit] ┐
+│                         ◎ This VTXO                               │
+│ ⋮⋮⋮⋮⋮⋮⋮⋮⋮⋮⋮⋮⋮⋮ the batch's leaves ⋮⋮⋮⋮⋮ ● checkpoint             │
+│      quiet ink, this VTXO's branch in the accent                  │
+│ ·····■ Commitment ·········▾ 21 days left ··········| Expiry ····· │
+└───────────────────────────────────────────────────────────────────┘
+Details (folded) · Transactions, in broadcast order
+```
+
+- **Arkade's badges are arkd's own words:** Unspent, Spent or Swept, and Not settled yet (dashed) while it is preconfirmed; Exiting when its exit is on our chain; Expires soon inside a week. Nothing on the page says arkd's claims were checked: they were not ([`ARK.md`](ARK.md#arkade)).
+- **The tree in quiet ink, this VTXO's branch in the accent,** its checkpoints and transfer above the leaves; the line under it is the Bitcoin chain and the VTXO's lifetime, commitment to expiry. A swept VTXO's path is dashed in the muted ink, not the accent. A transaction already on chain turns the positive green, in the picture and the table alike. The halo is the breathing exception above.
 
 ## Plain CSS or a utility framework
 

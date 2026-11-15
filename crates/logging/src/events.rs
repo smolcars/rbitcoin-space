@@ -1731,6 +1731,27 @@ pub struct LightningLdkRecord<'a> {
 }
 event!(LightningLdkRecord<'a>, "lightning_ldk_record", Debug);
 
+// Arkade (the VTXO page's upstream). Never an outpoint or a txid: the log must not record what
+// people look at.
+
+/// Asking the network's Arkade server failed. Written at the 1st, 2nd, 4th, 8th… failure in a row.
+#[derive(Debug, Serialize)]
+pub struct ArkadeFailed {
+    pub network: &'static str,
+    /// `timeout`, `unavailable`, `response_too_big`, `status`, `decode`, `wrong_network` or `busy`.
+    pub error: &'static str,
+    pub failures: u32,
+}
+event!(ArkadeFailed, "arkade_failed", Warn);
+
+/// A lookup worked again after `failures` in a row had failed.
+#[derive(Debug, Serialize)]
+pub struct ArkadeRecovered {
+    pub network: &'static str,
+    pub failures: u32,
+}
+event!(ArkadeRecovered, "arkade_recovered", Info, keep);
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::indexing_slicing)]
 mod tests {
@@ -2597,6 +2618,15 @@ mod tests {
                 line: 1200,
                 peer: Some("02aa".into()),
                 message: "alias=\"x\"\nlevel=error event=\"forged\" \u{2028}\u{1b}[31m",
+            }),
+            both(&ArkadeFailed {
+                network: n,
+                error: "timeout",
+                failures: 1,
+            }),
+            both(&ArkadeRecovered {
+                network: n,
+                failures: 2,
             }),
         ]
     }

@@ -10,6 +10,7 @@ license = "MIT"
 publish = false
 
 [workspace.dependencies]
+arkade = { path = "crates/arkade" }
 bark = { path = "crates/bark" }
 engine = { path = "crates/engine" }
 ln = { path = "crates/ln" }
@@ -30,8 +31,8 @@ lightning-net-tokio = "0.2.0"
 # Bundled: a pinned SQLite compiled in, so neither CI nor the distroless image needs libsqlite3.
 # hooks: the progress handler that enforces the read time limit. Adds no crates.
 rusqlite = { version = "0.42.0", default-features = false, features = ["bundled", "hooks"] }
-# Outbound TLS, for the Bark server (docs/ARK.md). ring rather than aws-lc-rs: no C toolchain or
-# cmake, and a smaller build. TLS 1.3 only: no tls12 feature.
+# Outbound TLS, for the Bark and Arkade servers (docs/ARK.md). ring rather than aws-lc-rs: no C
+# toolchain or cmake, and a smaller build. TLS 1.3 only: no tls12 feature.
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"

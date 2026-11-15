@@ -5,6 +5,7 @@ Pages for Ark VTXOs: a visitor opens `/ark`, pastes a VTXO's id, and gets its am
 | Implementation | Crate | Pages | Private API | Configured by |
 |---|---|---|---|---|
 | Bark, by Second | `crates/bark` | `web/src/pages/ark/bark/` | `/app/ark/bark/vtxo/<txid>:<vout>` | `{NET}_BARK_URL` |
+| Arkade, by Ark Labs | `crates/arkade` | `web/src/pages/ark/arkade/` | `/app/ark/arkade/vtxo/<txid>/<vout>` | `{NET}_ARKADE_URL` |
 
 The entry page's list of implementations is `web/src/pages/ark/implementations.ts`; an implementation adds one entry there, one route list in `web/src/pages/ark/routes.ts`, and its name in `ark()` in `crates/server/src/app_config.rs`.
 
@@ -81,3 +82,33 @@ Amounts in sats, keys and txids as hex. `kind` is `branch`, `leaf` or `transfer`
 ### The page
 
 `/ark/bark/vtxo/<txid>:<vout>` on any network. The design is in [`DESIGN.md`](DESIGN.md#ark). It asks the tip and, in broadcast order, each transaction's status from the public API, stopping at the first the node does not know (a later one spends it), again on every block and every 30 s.
+
+## Arkade
+
+### Where the VTXO comes from
+
+The server, never the browser, asks the network's Arkade server (`arkd`) through its public REST indexer. `crates/arkade` is a typed client with five named routes and no pass-through: `/v1/info`, `/v1/indexer/vtxos?outpoints=`, `/v1/indexer/vtxo/{txid}/{vout}/chain`, `/v1/indexer/commitmentTx/{txid}` and `/v1/indexer/batch/{txid}/{vout}/tree`. Every call is a GET and needs no proof of ownership.
+
+**Nothing arkd says is checked.** Its amounts, its states (unspent, spent, swept, preconfirmed) and its signatures are shown as it reported them, and no wording on the page suggests otherwise. Only "on chain" is ours: each exit transaction's status comes from our node. The server checks one thing: arkd's own network (`/v1/info`) must be the one it is configured for, or the lookup fails (`wrong_network`).
+
+### The route
+
+`GET /app/ark/arkade/vtxo/<txid>/<vout>` answers the VTXO, the server's info, its chain, its batches and their trees as arkd gave them, strictly re-typed, plus `onchain`: per chain transaction, where our node has it, or `null`. Recorded answers are in [`fixtures/arkade/`](../fixtures/arkade/).
+
+| Status | Body | When |
+|---|---|---|
+| 400 | `invalid txid`, `invalid output index`, `unexpected query parameter` | Not 64 hex digits; not a decimal `u32` without sign or padding; any query string |
+| 404 | `arkade is not available here` | No `{NET}_ARKADE_URL` |
+| 404 | `vtxo not found` | arkd does not know it |
+| 502 | `arkade is not answering` | No connection, a body over its cap, a decode failure, or the wrong network |
+| 504 | `arkade did not answer in time` | The lookup took over 8 s |
+| 503 | `server busy` | 16 lookups already running on the network |
+| 429 | `too many requests` | This client asked ten at once, then one every 2 s |
+
+**Bounds.** One lookup is at most 9 calls: the VTXO, the server's info (kept 10 minutes), its chain, then for at most 2 commitments its batches and at most 2 trees. An unknown outpoint costs 1 call. Each call times out at 4 s, the lookup at 8 s. Bodies are capped per route, 16 to 256 KiB; results at 128 chain transactions, 512 tree nodes (a larger tree falls back to this VTXO's own branch and a count), 2 trees and 64 inputs a transaction. Identical lookups in flight share one, answers are kept 30 s and failures not at all, at most 1,024 kept (an unanswered one is let go after 2 minutes). Then at most 128 status reads on our node, 8 at a time, shared by requests that arrive together and kept 10 s or until the next block. Each client has its own `route_rate` table. Answers carry `Cache-Control: no-store`.
+
+**Logs.** The request event names the route template, never the outpoint. `arkade_failed` and `arkade_recovered` carry a fixed label and a count, at the 1st, 2nd, 4th, 8th… failure; arkd's error text is never logged ([`LOGGING.md`](LOGGING.md)).
+
+### The page
+
+`/ark/arkade/vtxo/<txid>:<vout>` on any network. The design is in [`DESIGN.md`](DESIGN.md#ark). It asks the route again on every block and every 30 s while in view.

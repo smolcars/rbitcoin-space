@@ -7,6 +7,7 @@
 pub mod answers;
 mod api_v1;
 mod app_config;
+pub mod ark_arkade;
 pub mod ark_bark;
 mod audits;
 pub mod blocks;
@@ -140,6 +141,8 @@ pub struct NetworkContext {
     pub guard: Arc<ledger::Guard>,
     /// Bark VTXO lookups, when `{NET}_BARK_URL` is set (`ark_bark`).
     pub bark: Option<ark_bark::Bark>,
+    /// The Arkade server the VTXO page asks, when `{NET}_ARKADE_URL` is set (`ark_arkade`).
+    pub arkade: Option<ark_arkade::Arkade>,
 }
 
 impl std::fmt::Debug for NetworkContext {
@@ -254,6 +257,9 @@ impl NetworkContext {
                 .as_ref()
                 .zip(all.data_dir.as_deref())
                 .map(|(l, dir)| Arc::new(lightning::Lightning::new(l, dir, config.network))),
+            arkade: config.arkade.as_ref().and_then(|e| {
+                ark_arkade::Arkade::new(e, config.network, all.limits.max_tracked_clients)
+            }),
         })
     }
 }
@@ -279,6 +285,7 @@ pub fn network_routes() -> Router<Arc<NetworkContext>> {
         .merge(audits::routes())
         .merge(transactions::routes())
         .merge(lightning::routes())
+        .merge(ark_arkade::routes())
 }
 
 /// The whole application, ready to serve.

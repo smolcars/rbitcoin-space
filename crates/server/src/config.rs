@@ -131,6 +131,8 @@ pub struct NetworkConfig {
     pub lightning: Option<LightningConfig>,
     /// The Bark server VTXOs are looked up on (`{NET}_BARK_URL`, docs/ARK.md); unset is off.
     pub bark: Option<bark::Endpoint>,
+    /// The Arkade server whose indexer the VTXO page asks, when `{NET}_ARKADE_URL` is set.
+    pub arkade: Option<arkade::Endpoint>,
 }
 
 /// The network's Lightning gossip peer (docs/LIGHTNING.md). Its files live in
@@ -771,6 +773,10 @@ fn network_config(
     let bark = var(&format!("{p}_BARK_URL"))
         .map(|u| bark::Endpoint::parse(&u).map_err(|e| format!("{p}_BARK_URL {e}")))
         .transpose()?;
+    let arkade = var(&format!("{p}_ARKADE_URL"))
+        .map(|url| arkade::Endpoint::parse(&url))
+        .transpose()
+        .map_err(|e| format!("{p}_ARKADE_URL must be an http:// or https:// URL: {e}"))?;
 
     Ok(Some(NetworkConfig {
         network,
@@ -785,6 +791,7 @@ fn network_config(
         mempool,
         lightning,
         bark,
+        arkade,
     }))
 }
 
@@ -940,6 +947,22 @@ mod tests {
         v.pop();
         v.push(("SIGNET_MEMPOOL_ENABLED", "off"));
         assert!(parse(&v).unwrap_err().contains("SIGNET_MEMPOOL_ENABLED"));
+    }
+
+    #[test]
+    fn arkade_is_off_unless_its_url_is_set() {
+        assert!(parse(&signet()).unwrap().networks[0].arkade.is_none());
+        let mut v = signet();
+        v.push(("SIGNET_ARKADE_URL", "https://signet.arkade.sh"));
+        let a = parse(&v).unwrap().networks[0].arkade.clone().unwrap();
+        assert!(a.is_https());
+        v.pop();
+        v.push(("SIGNET_ARKADE_URL", "https://user:hunter2@signet.arkade.sh"));
+        let e = parse(&v).unwrap_err();
+        assert!(
+            e.contains("SIGNET_ARKADE_URL") && !e.contains("hunter2"),
+            "{e}"
+        );
     }
 
     /// `signet()` moved to another network's prefix, plus `extra`.

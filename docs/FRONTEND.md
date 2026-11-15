@@ -70,6 +70,7 @@ The network comes from the path. `useNetwork()` returns it; never keep it anywhe
 | Mempool history | `/mempool`, `/mempool?interval=2h\|24h\|1w\|1m\|3m\|6m\|1y\|2y\|3y\|4y\|all` | `pages/mempool` | FE9 |
 | Replacements | `/rbf`, `/rbf?view=full-rbf` | `pages/mempool` | G4 |
 | Ark VTXO lookup | `/ark` | `pages/ark` | Ark |
+| Arkade VTXO | `/ark/arkade/vtxo/:outpoint` (`<txid>:<vout>`) | `pages/ark/arkade` | Ark |
 | Bark VTXO | `/ark/bark/vtxo/:id` (`<txid>:<vout>`) | `pages/ark/bark` | Ark |
 | Not found | anything else | `pages/not-found` | shell |
 
@@ -335,6 +336,16 @@ A mainnet server 18 minutes after its first sample (keys are sent in another ord
 - **The transaction page's note** (`TxLightning.tsx`, the one import the transaction page takes from here) asks for a confirmed transaction only: the status, then `/app/lightning/tx/:txid` when it is `synced`. A network whose status said `off` is not asked again in that tab. The part that draws the note (`TxChannels.tsx`) is a lazy chunk loaded only when the answer lists a channel, and it sits after everything else on the page, so its arrival moves nothing.
 - **Names are attacker-controlled text** ([`SECURITY.md`](SECURITY.md) rule 14). `cleanAlias` turns control characters and invisible format characters (bidi overrides and isolates, zero-width spaces; not the joiner emoji are built with) into U+FFFD, so a reader sees something is there, and thins stacked combining marks to two. `Alias` isolates the name in `<bdi>`, cuts it to 32 characters in lists (64 as a node page's title, with "Show the whole name"), counted as a reader counts them (`Intl.Segmenter`), and puts at most 512 in its `title`. The public key is always beside the name, and the node page says the key is the identity. Addresses are text chips, never links.
 - **A node's colour is shown once,** in its Identity section: a swatch beside the `#rrggbb` it announced (anything else shows as none), set through the `style` object as a custom property, which the Content-Security-Policy allows. Nothing else on the site takes a node's colour.
+
+#### Arkade VTXO
+
+`pages/ark/arkade/` reads `GET /app/ark/arkade/vtxo/:txid/:vout` (`crates/server/src/ark_arkade.rs`). The answer is what the network's Arkade server says, with one field of ours: `vtxo` (amount, script, times, `preconfirmed`, `swept`, `unrolled`, `spent`, the txids it names), `server` (`signer_pubkey`, `exit_delay_secs`), `chain` (the transactions that take it on chain, as arkd lists them, each `txid`, `kind` `commitment`, `tree`, `checkpoint`, `ark` or `other`, and `spends`), `chain_complete` (false when the chain passed 128 and was cut), `batches` (at most two, each with its tree root first, or `null` when it is larger than 512 nodes), `batches_omitted`, and `onchain`, per chain transaction where our node has it (`off`, `mempool`, `confirmed` with `height`, or `null` when the node did not say). `404` is `vtxo not found` or, on a network without `{NET}_ARKADE_URL`, `arkade is not available here`; `502` and `504` are the Arkade server failing.
+
+- **Read strictly** (`readAnswer` in `vtxo.ts`): txids 64 hex digits, counts safe integers, the server's caps held, `onchain` as long as `chain`; anything else is "could not be read". Nothing in it is ever markup.
+- **The exit** (`exitSteps`): commitments first, then each transaction after what it spends; a tree transaction is a Leaf when it ends a branch, a Branch otherwise; `ark` reads Transfer. The page names them in its words, Arkade's beside them in muted text.
+- **The picture** (`layout.ts`, drawn by `Tree.tsx` in SVG): the batch trees in quiet ink grown up from their commitments on the Bitcoin line, which runs from the commitment through now to the expiry, this VTXO's branches in the accent, its checkpoints and transfers above the leaves. Without a tree, only the chain's own branch, and the batch's VTXOs as a count. Laid out again on a resize and each minute, never each second. "Play exit" lights the steps at `--dur-slow` each and ends on the wait after an exit; under reduced motion it shows the end at once. The transaction table is its text alternative.
+- **Kept current**: asked again on each new block or reorg, and every 30 s while in view (`POLL_MS`); the server keeps the Arkade answer 30 s, so a block mostly costs a node lookup.
+- **For the Ark entry page**: `entry.ts` exports `arkadeEntry` (label, placeholder, `parse`, `href`) and `arkadeVtxoPath`. The path is built from a parsed outpoint only, hex and digits, so it needs no encoding.
 
 ### Live data
 

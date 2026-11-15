@@ -1,0 +1,431 @@
+@layer pages {
+  .arkade-page {
+    display: grid;
+    align-content: start;
+    gap: var(--space-5);
+    /* Keeps the footer below the fold, so it never jumps when the answer arrives. */
+    min-height: 100dvh;
+    padding-top: var(--space-6);
+    padding-bottom: var(--space-7);
+  }
+
+  /* ---- Head: the title, the badges and the outpoint ---- */
+  .arkade-head {
+    display: grid;
+    gap: var(--space-3);
+    min-width: 0;
+  }
+  .arkade-head__row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-4);
+  }
+  .arkade-head__row h1 {
+    margin: 0;
+  }
+  .arkade-impl {
+    font-weight: var(--weight-medium);
+  }
+  .arkade-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: 28px;
+    padding: 2px var(--space-3) 2px var(--space-2);
+    border: 1.5px solid currentColor;
+    border-radius: var(--radius-pill);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-bold);
+    white-space: nowrap;
+  }
+  .arkade-badge--caution {
+    color: var(--color-caution);
+  }
+  .arkade-badge--negative {
+    color: var(--color-negative);
+  }
+  /* Provisional, as a projected tile is: not settled yet. */
+  .arkade-badge--provisional {
+    border-style: dashed;
+  }
+  .arkade-icon {
+    width: 16px;
+    height: 16px;
+    flex: none;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .arkade-outpoint .hash__group {
+    white-space: nowrap;
+  }
+
+  /* ---- Three figures ---- */
+  .arkade-figures {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(min-content, 1fr));
+    gap: var(--space-5);
+  }
+  .arkade-fig {
+    display: grid;
+    align-content: start;
+    gap: var(--space-1);
+    min-width: 0;
+  }
+  .arkade-fig__label {
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+  .arkade-fig__value {
+    font-size: var(--text-lg);
+    font-weight: var(--weight-bold);
+    line-height: var(--leading-tight);
+    white-space: nowrap;
+  }
+  .arkade-fig__value .unit {
+    font-size: var(--text-sm);
+  }
+  .arkade-fig__value--negative {
+    color: var(--color-negative);
+  }
+  .arkade-fig__sub {
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+  /* The lifetime to scale: how much of it has gone. */
+  .arkade-life {
+    display: block;
+    width: min(100%, 14rem);
+    height: 4px;
+    margin-top: var(--space-2);
+    overflow: hidden;
+    border-radius: var(--radius-pill);
+    background: var(--color-line);
+  }
+  .arkade-life__used {
+    display: block;
+    height: 100%;
+    background: var(--color-text-muted);
+    transform: scaleX(var(--share, 0));
+    transform-origin: left;
+  }
+  .arkade-life--near .arkade-life__used {
+    background: var(--color-caution);
+  }
+  .arkade-life--over .arkade-life__used {
+    background: var(--color-negative);
+  }
+
+  /* ---- The exit picture ---- */
+  .arkade-exit .section__meta .btn {
+    white-space: nowrap;
+  }
+  .arkade-scene {
+    min-height: 440px;
+    overflow: hidden;
+    border-radius: var(--radius-m);
+    background: var(--color-surface-sunken);
+  }
+  .arkade-svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    font-size: var(--text-xs);
+  }
+  .arkade-svg text {
+    fill: var(--color-text-muted);
+  }
+  .arkade-svg__count {
+    font-variant-numeric: tabular-nums;
+  }
+  .arkade-svg__chain {
+    stroke: var(--color-line-strong);
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-dasharray: 0 10;
+  }
+  .arkade-link {
+    fill: none;
+    stroke: var(--color-line-strong);
+    stroke-width: 1;
+    stroke-opacity: 0.55;
+    transition: stroke-opacity var(--dur-quick) var(--ease-out);
+  }
+  .arkade-link--mine {
+    stroke: var(--color-accent);
+    stroke-width: 1.8;
+    stroke-opacity: 1;
+  }
+  .arkade-link--confirmed {
+    stroke: var(--color-positive);
+    stroke-width: 2.2;
+  }
+  .arkade-link.is-dim {
+    stroke-opacity: 0.2;
+  }
+  .is-swept .arkade-link--mine {
+    stroke: var(--color-text-muted);
+    stroke-dasharray: 3 3;
+  }
+  .arkade-dot {
+    fill: var(--color-line-strong);
+    fill-opacity: 0.8;
+  }
+  .arkade-node {
+    cursor: pointer;
+    outline: none;
+  }
+  .arkade-node__hit {
+    fill: transparent;
+  }
+  .arkade-node:focus-visible .arkade-node__hit {
+    stroke: var(--color-focus);
+    stroke-width: 2;
+  }
+  .arkade-node__dot {
+    fill: var(--color-accent);
+    transition: fill-opacity var(--dur-quick) var(--ease-out);
+  }
+  .arkade-node--anchor .arkade-node__dot {
+    fill: var(--color-text);
+  }
+  .arkade-node--confirmed .arkade-node__dot {
+    fill: var(--color-positive);
+  }
+  .arkade-node--mempool .arkade-node__dot {
+    fill: var(--color-surface-sunken);
+    stroke: var(--color-caution);
+    stroke-width: 1.5;
+    stroke-dasharray: 2 1.5;
+  }
+  .arkade-node--expired:not(.arkade-node--anchor) .arkade-node__dot {
+    fill: var(--color-surface-sunken);
+    stroke: var(--color-text-muted);
+    stroke-width: 1.4;
+  }
+  .arkade-node.is-dim .arkade-node__dot {
+    fill-opacity: 0.25;
+  }
+  .arkade-node__halo {
+    fill: none;
+    stroke: var(--color-accent);
+    stroke-width: 1.5;
+    animation: arkade-breathe 3.2s var(--ease-in-out) infinite alternate;
+  }
+  .is-swept .arkade-node__halo {
+    stroke: var(--color-text-muted);
+  }
+  .arkade-node__ring {
+    fill: none;
+    stroke: var(--color-text);
+    stroke-width: 1.5;
+  }
+  /* The one idle motion (an owner-approved exception): the VTXO breathes, opacity only. */
+  @keyframes arkade-breathe {
+    from {
+      stroke-opacity: 0.95;
+    }
+    to {
+      stroke-opacity: 0.3;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .arkade-node__halo {
+      animation: none;
+    }
+  }
+  .arkade-labels__me {
+    fill: var(--color-accent);
+    font-weight: var(--weight-bold);
+  }
+  .arkade-svg text.arkade-labels__me {
+    fill: var(--color-accent);
+  }
+  .arkade-svg text.arkade-labels__wait {
+    fill: var(--color-text);
+    font-weight: var(--weight-bold);
+  }
+  .arkade-axis__tick {
+    stroke: var(--color-text);
+    stroke-width: 1.5;
+  }
+  .arkade-svg text.arkade-axis__over {
+    fill: var(--color-negative);
+  }
+  .arkade-axis__now {
+    fill: var(--color-text);
+  }
+
+  .arkade-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-5);
+    margin: var(--space-3) 0 0;
+    padding: 0;
+    list-style: none;
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+  .arkade-legend li {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  .arkade-legend svg {
+    width: 24px;
+    height: 8px;
+  }
+  .arkade-legend__mine {
+    stroke: var(--color-accent);
+    stroke-width: 1.8;
+  }
+  .arkade-legend__dot {
+    fill: var(--color-accent);
+  }
+  .is-swept .arkade-legend__mine {
+    stroke: var(--color-text-muted);
+    stroke-dasharray: 3 3;
+  }
+  .is-swept .arkade-legend__dot {
+    fill: var(--color-surface);
+    stroke: var(--color-text-muted);
+    stroke-width: 1.4;
+  }
+  .arkade-legend__confirmed {
+    stroke: var(--color-positive);
+    stroke-width: 2.2;
+  }
+  .arkade-legend__other {
+    fill: var(--color-line-strong);
+  }
+
+  /* ---- A selected transaction ---- */
+  .arkade-pick {
+    display: grid;
+    gap: var(--space-3);
+    margin-top: var(--space-4);
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--color-line);
+  }
+  .arkade-pick__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+  }
+  .arkade-pick__head h3 {
+    margin: 0;
+    font-size: var(--text-md);
+  }
+  .arkade-pick__nav {
+    display: flex;
+    gap: var(--space-2);
+  }
+  .arkade-pick__btn {
+    min-width: var(--touch);
+    padding-inline: 0;
+  }
+  .arkade-pick__facts,
+  .arkade-facts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+    gap: var(--space-3) var(--space-5);
+    margin: 0;
+  }
+  .arkade-pick__facts dt,
+  .arkade-facts dt {
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+  .arkade-pick__facts dd,
+  .arkade-facts dd {
+    min-width: 0;
+    margin: 0;
+  }
+  .arkade-pick__list,
+  .arkade-facts__list {
+    display: grid;
+    gap: var(--space-1);
+  }
+
+  /* ---- Details, folded ---- */
+  .arkade-details__summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: var(--touch);
+    cursor: pointer;
+    list-style: none;
+  }
+  .arkade-details__summary::-webkit-details-marker {
+    display: none;
+  }
+  .arkade-details__summary h2 {
+    margin: 0;
+  }
+  .arkade-details__summary::after {
+    content: "";
+    width: 7px;
+    height: 7px;
+    margin-right: var(--space-2);
+    border-right: 1.5px solid var(--color-text-muted);
+    border-bottom: 1.5px solid var(--color-text-muted);
+    transform: rotate(-45deg);
+    transition: transform var(--dur-quick) var(--ease-out);
+  }
+  .arkade-details[open] .arkade-details__summary::after {
+    transform: rotate(45deg);
+  }
+  .arkade-details[open] .arkade-facts {
+    margin-top: var(--space-4);
+  }
+
+  /* ---- Transactions ---- */
+  .arkade-state {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    white-space: nowrap;
+  }
+  .arkade-state .arkade-icon {
+    width: 14px;
+    height: 14px;
+  }
+  .arkade-state--confirmed {
+    color: var(--color-positive);
+  }
+  .arkade-state--mempool {
+    color: var(--color-caution);
+  }
+  .arkade-kind {
+    white-space: nowrap;
+  }
+  .arkade-row--mine td:first-child {
+    color: var(--color-accent);
+    font-weight: var(--weight-bold);
+  }
+  .arkade-row--selected td {
+    background: var(--color-accent-soft);
+  }
+
+  @media (max-width: 40em) {
+    .arkade-scene {
+      min-height: 380px;
+    }
+    .arkade-figures {
+      grid-template-columns: repeat(2, minmax(min-content, 1fr));
+    }
+    .arkade-figures > :first-child {
+      grid-column: 1 / -1;
+    }
+  }
+  @media (max-width: 18.75em) {
+    .arkade-figures {
+      grid-template-columns: 1fr;
+    }
+  }
+}

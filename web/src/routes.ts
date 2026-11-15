@@ -1,6 +1,7 @@
 // The route table. Each page declares its own routes in pages/<page>/routes.ts; add new pages here once.
 import type { RouteDefinition } from "@solidjs/router";
 import { routes as address } from "./pages/address/routes";
+import { routes as arkade } from "./pages/ark/arkade/routes";
 import { routes as ark } from "./pages/ark/routes";
 import { routes as block } from "./pages/block/routes";
 import { routes as blocks } from "./pages/blocks/routes";
@@ -27,6 +28,7 @@ export const routes: RouteDefinition[] = [
       ...lightning,
       ...ark,
       ...mempool,
+      ...arkade,
       ...notFound,
     ],
   },

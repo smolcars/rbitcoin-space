@@ -64,6 +64,7 @@ Who can cause each event that is not on a fixed schedule, and how often. Per-cli
 | `block_summary_computed` (debug) | A client asking for an uncached block summary | One per computation, bounded by `route_rate` per client and the queue; debug |
 | `mining_failed`, `mempool_history_failed` (`task` `request`) | A client asking while the store fails | At the 1st, 2nd, 4th, 8th… failure in a row |
 | `store_read_failed`, `store_read_recovered` | A client asking while the store fails | Per kind of read: at the 1st, 2nd, 4th, 8th… failure in a row, then once when one works |
+| `arkade_failed`, `arkade_recovered` | A client asking for VTXOs while the Arkade server fails | At the 1st, 2nd, 4th, 8th… failure in a row, then once when one works |
 | `panic` | A bug a client can reach | One per panic. Kept, because each is a bug to fix ([`SECURITY.md`](SECURITY.md) rule 18 says it cannot happen on untrusted input) |
 | Broadcast refusals | A client posting transactions | `http_request` lines like any other request: `route_rate` refusals are summarised |
 | Anything else | Not a client: the node, the chain, the schedule | Lifecycle once, summaries once a minute, block facts once a block, failures by rule 3 |
@@ -333,3 +334,12 @@ The peer and what it stores are in [`LIGHTNING.md`](LIGHTNING.md#in-the-server).
 | `lightning_stats_stored` | info | `network`, `time`, `channels`, `nodes`, `capacity`, `skipped`, `rolled_minutes`, `rolled_hours`, `duration_ms` | A ten-minute statistics snapshot was stored, with the slots missed before it and the rows the same write rolled up |
 | `lightning_stats_skipped` | info | `network`, `reason`, `skipped` | Snapshots not taken, at the 1st, 2nd, 4th… in a row: `syncing` (the graph is not synced), `late` (the server woke more than a minute after the slot), `store_busy` or `store_failed` |
 | `lightning_ldk_record` | debug | `network`, `ldk_level`, `module`, `line`, `peer`, `message` | A line from LDK's own logger, at most 20 a second ([`LIGHTNING.md`](LIGHTNING.md#interface)) |
+
+### Arkade
+
+The VTXO page's Arkade server ([`CONFIG.md`](CONFIG.md#arkade)). No event names an outpoint or a txid; a request's line carries the route template, as every request's does.
+
+| Event | Level | Fields | When |
+|---|---|---|---|
+| `arkade_failed` | warn | `network`, `error`, `failures` | A VTXO lookup failed: `timeout` (a call, or the whole lookup's 8 s), `unavailable` (no connection), `response_too_big`, `status` (an answer other than `200`), `decode` (an answer that does not decode or breaks a cap), `wrong_network` (the server says it runs on another chain) or `busy` (too many different lookups at once). At the 1st, 2nd, 4th, 8th… failure in a row; never the server's own text |
+| `arkade_recovered` | info | `network`, `failures` | A lookup worked again after failures |

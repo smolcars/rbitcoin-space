@@ -3,6 +3,24 @@
 version = 4
 
 [[package]]
+name = "arkade"
+version = "0.1.0"
+dependencies = [
+ "bitcoin",
+ "bytes",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "rustls",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-rustls",
+ "tower-service",
+ "webpki-roots",
+]
+
+[[package]]
 name = "arrayvec"
 version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -679,6 +697,7 @@ dependencies = [
 name = "rbitcoin-space"
 version = "0.1.0"
 dependencies = [
+ "arkade",
  "axum",
  "bark",
  "bitcoin",

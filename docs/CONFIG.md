@@ -54,9 +54,12 @@ VTXO pages for Ark implementations, per network ([`ARK.md`](ARK.md)). Off unless
 
 | Variable | Default | What it does |
 |---|---|---|
+| `{NET}_ARKADE_URL` | unset | The Arkade server (`arkd`) whose public indexer the network's Arkade pages ask: an `https://` URL, or `http://` for a test or a server of your own. A base path is kept; credentials, a query or a fragment stop the server at startup. Public servers: mainnet `https://arkade.computer`, signet `https://signet.arkade.sh`. One that names another network is refused (`arkade_failed`, `wrong_network`) |
 | `{NET}_BARK_URL` | unset | The Bark server whose VTXOs the network's Bark pages look up: `https://host[:port]`, or `http://` for a test or a server of your own. No credentials and no path. Public servers: mainnet `https://ark.second.tech`, signet `https://ark.signet.2nd.dev` |
 
 **It connects out to the Bark server,** one HTTP/2 connection per lookup the server does not already hold (TCP 443 for the public servers), at most four at once per network and each within 6 s. Browsers never reach it: the Content-Security-Policy is unchanged. Behind a firewall that blocks outbound traffic, allow that host, or leave it unset.
+
+**It connects out to the Arkade server** over HTTPS (TLS 1.3, Mozilla's roots compiled in), TCP 443 for the public servers: at most 9 calls a page view, 16 lookups at once per network ([`ARK.md`](ARK.md#arkade)). Allow that host too, or leave it unset.
 
 ## Broadcast
 
