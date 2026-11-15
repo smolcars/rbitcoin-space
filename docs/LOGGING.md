@@ -337,7 +337,7 @@ The peer and what it stores are in [`LIGHTNING.md`](LIGHTNING.md#in-the-server).
 
 ### Arkade
 
-The VTXO page's Arkade server ([`CONFIG.md`](CONFIG.md#arkade)). No event names an outpoint or a txid; a request's line carries the route template, as every request's does.
+The VTXO page's Arkade server ([`CONFIG.md`](CONFIG.md#ark)). No event names an outpoint or a txid; a request's line carries the route template, as every request's does.
 
 | Event | Level | Fields | When |
 |---|---|---|---|

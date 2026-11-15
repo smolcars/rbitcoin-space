@@ -116,7 +116,7 @@ A header is only as trustworthy as the peer that sent it, so the server reads `T
 - The list is walked from the right, the end the nearest proxy wrote. Entries that are themselves in `TRUSTED_PROXIES` are skipped; the first other address is the client. Anything to its left was written by the client and is never read. This is what makes a chain of proxies work (a CDN in front of nginx: list both) and a client's own `X-Forwarded-For` harmless, as long as each proxy appends to the header or overwrites it.
 - If every entry is a trusted proxy, the leftmost is the client. If the header is missing, or the walk meets an entry that is not an address, the client is the last trusted address reached: the proxy itself. A misconfigured proxy then shares one allowance among all its clients, which is noticed quickly, and no client can choose another's.
 
-The proxy must overwrite the header or append to it; a proxy that passes the client's own header through unchanged lets clients choose their address. [`DEPLOY.md`](DEPLOY.md#tls-and-the-reverse-proxy) has examples. `RFC 7239` `Forwarded` headers are not parsed.
+The proxy must overwrite the header or append to it; a proxy that passes the client's own header through unchanged lets clients choose their address. [`DEPLOY.md`](DEPLOY.md#behind-a-reverse-proxy-with-tls) has examples. `RFC 7239` `Forwarded` headers are not parsed.
 
 ### Per-client defaults
 

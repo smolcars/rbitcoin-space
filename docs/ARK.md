@@ -81,7 +81,7 @@ Amounts in sats, keys and txids as hex. `kind` is `branch`, `leaf` or `transfer`
 
 ### The page
 
-`/ark/bark/vtxo/<txid>:<vout>` on any network. The design is in [`DESIGN.md`](DESIGN.md#ark). It asks the tip and, in broadcast order, each transaction's status from the public API, stopping at the first the node does not know (a later one spends it), again on every block and every 30 s.
+`/ark/bark/vtxo/<txid>:<vout>` on any network. The design is in [`DESIGN.md`](DESIGN.md#ark-not-in-the-prototype). It asks the tip and, in broadcast order, each transaction's status from the public API, stopping at the first the node does not know (a later one spends it), again on every block and every 30 s.
 
 ## Arkade
 
@@ -111,4 +111,4 @@ The server, never the browser, asks the network's Arkade server (`arkd`) through
 
 ### The page
 
-`/ark/arkade/vtxo/<txid>:<vout>` on any network. The design is in [`DESIGN.md`](DESIGN.md#ark). It asks the route again on every block and every 30 s while in view.
+`/ark/arkade/vtxo/<txid>:<vout>` on any network. The design is in [`DESIGN.md`](DESIGN.md#ark-not-in-the-prototype). It asks the route again on every block and every 30 s while in view.

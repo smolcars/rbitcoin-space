@@ -80,7 +80,7 @@ A failure here means a page broke in an engine Chromium hides, or a test assumed
 
 ## Releases
 
-`release.yml` builds the server's image ([`DEPLOY.md`](DEPLOY.md#reference-the-image)) for linux/amd64 and linux/arm64, each natively on a runner of its architecture, and joins them into one multi-architecture image. Never on a pull request.
+`release.yml` builds the server's image ([`DEPLOY.md`](DEPLOY.md#the-image)) for linux/amd64 and linux/arm64, each natively on a runner of its architecture, and joins them into one multi-architecture image. Never on a pull request.
 
 | Trigger | Does |
 |---|---|
