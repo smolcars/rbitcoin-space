@@ -7,6 +7,7 @@
 pub mod answers;
 mod api_v1;
 mod app_config;
+pub mod ark_bark;
 mod audits;
 pub mod blocks;
 pub mod config;
@@ -69,6 +70,10 @@ pub const SECURITY_HEADERS: [(HeaderName, &str); 4] = [
     (REFERRER_POLICY, "no-referrer"),
     (X_FRAME_OPTIONS, "DENY"),
 ];
+
+/// Rule 15's one exception, sent instead of the CSP above when `CLOUDFLARE_WEB_ANALYTICS` is on:
+/// the beacon script Cloudflare injects and the endpoint it reports to.
+pub const CLOUDFLARE_CSP: &str = "default-src 'self'; script-src 'self' https://static.cloudflareinsights.com; connect-src 'self' https://cloudflareinsights.com; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'";
 
 /// The commit this binary was built from, or `unknown` (`build.rs`).
 pub const REVISION: &str = env!("SOURCE_REVISION");
@@ -133,6 +138,8 @@ pub struct NetworkContext {
     pub lightning: Option<Arc<lightning::Lightning>>,
     /// The guard on large-address joins, and the ledger when there is a store (`ledger`).
     pub guard: Arc<ledger::Guard>,
+    /// Bark VTXO lookups, when `{NET}_BARK_URL` is set (`ark_bark`).
+    pub bark: Option<ark_bark::Bark>,
 }
 
 impl std::fmt::Debug for NetworkContext {
@@ -212,6 +219,10 @@ impl NetworkContext {
             ledger,
         )?);
         Some(Self {
+            bark: config
+                .bark
+                .clone()
+                .map(|e| ark_bark::Bark::new(e, all.limits.max_tracked_clients)),
             guard,
             blocks: table,
             data_dir: all.data_dir.is_some(),
@@ -248,7 +259,8 @@ impl NetworkContext {
 }
 
 /// Routes every enabled network serves, written with paths starting `/api` or `/app`. They are
-/// mounted at the root for mainnet and under `/signet`, `/testnet4` and `/regtest` for the others.
+/// mounted at the root for mainnet and under `/signet`, `/testnet4`, `/testnet5` and `/regtest`
+/// for the others.
 pub fn network_routes() -> Router<Arc<NetworkContext>> {
     Router::new()
         .route("/app/ws", get(ws::handle))
@@ -261,6 +273,7 @@ pub fn network_routes() -> Router<Arc<NetworkContext>> {
         .route("/app/fees/score", get(ws::fees::score::route))
         .route("/app/address/{address}/size", get(verdicts::size_route))
         .route("/app/address/{address}/ledger", get(ledger::route))
+        .route("/app/ark/bark/vtxo/{id}", get(ark_bark::route))
         .merge(statistics::app_routes())
         .merge(api_v1::routes())
         .merge(audits::routes())
@@ -369,7 +382,10 @@ impl App {
                 app.nest(prefix, scope)
             };
         }
-        let pages = Arc::new(pages::Pages::new(&config.web_dir, enabled_networks.clone()));
+        let pages = Arc::new(pages::Pages::new(
+            config.web_dir.as_deref(),
+            enabled_networks.clone(),
+        ));
         let contexts = enabled_networks.clone();
         let networks = Arc::new(enabled_networks);
         app = app.route(
@@ -384,43 +400,58 @@ impl App {
             app = app.route(&format!("/{{network}}{path}"), any(not_found));
         }
 
-        let dir = &config.web_dir;
-        let assets_dir = dir.join("assets");
-        let assets = ServeDir::new(&assets_dir)
-            .precompressed_br()
-            .precompressed_gzip();
-        // A non-JSON 404, so `finish` replaces it whole and it loses the `immutable` header.
-        let assets = tower::service_fn(move |req: Request| {
-            let (assets, unservable) = (assets.clone(), too_long(&assets_dir, req.uri().path()));
-            async move {
-                if unservable {
-                    return Ok(axum::http::StatusCode::NOT_FOUND.into_response());
-                }
-                assets.oneshot(req).await.map(IntoResponse::into_response)
-            }
-        });
-        // ServeDir rejects `..` and absolute components, so nothing outside web_dir is reachable.
-        // A path that is no file, `/` included, is a page: the shell with its head ([`pages`]).
-        let page = axum::handler::Handler::with_state(pages::page, pages);
-        let files = ServeDir::new(dir)
-            .precompressed_br()
-            .precompressed_gzip()
-            .append_index_html_on_directories(false)
-            .fallback(page.clone());
-        let web_dir = dir.clone();
-        let pages = tower::service_fn(move |req: Request| {
-            let (files, page) = (files.clone(), page.clone());
-            let unservable = too_long(&web_dir, req.uri().path());
-            async move {
-                if unservable {
-                    return page.oneshot(req).await;
-                }
-                files.oneshot(req).await.map(IntoResponse::into_response)
-            }
-        });
         let cache =
             |v| SetResponseHeaderLayer::overriding(CACHE_CONTROL, HeaderValue::from_static(v));
+        let page = axum::handler::Handler::with_state(pages::page, pages);
+        // Pages and unhashed files are revalidated on every load, so a deploy shows at once.
+        // A page's head varies by its URL alone, which every cache keys on.
+        app = match &config.web_dir {
+            // No frontend: every path that is no API is the page handler's 404.
+            None => app.fallback_service(cache("no-cache").layer(page)),
+            Some(dir) => {
+                let assets_dir = dir.join("assets");
+                let assets = ServeDir::new(&assets_dir)
+                    .precompressed_br()
+                    .precompressed_gzip();
+                // A non-JSON 404, so `finish` replaces it whole and it loses the `immutable` header.
+                let assets = tower::service_fn(move |req: Request| {
+                    let (assets, unservable) =
+                        (assets.clone(), too_long(&assets_dir, req.uri().path()));
+                    async move {
+                        if unservable {
+                            return Ok(axum::http::StatusCode::NOT_FOUND.into_response());
+                        }
+                        assets.oneshot(req).await.map(IntoResponse::into_response)
+                    }
+                });
+                // ServeDir rejects `..` and absolute components, so nothing outside web_dir is reachable.
+                // A path that is no file, `/` included, is a page: the shell with its head ([`pages`]).
+                let files = ServeDir::new(dir)
+                    .precompressed_br()
+                    .precompressed_gzip()
+                    .append_index_html_on_directories(false)
+                    .fallback(page.clone());
+                let web_dir = dir.clone();
+                let pages = tower::service_fn(move |req: Request| {
+                    let (files, page) = (files.clone(), page.clone());
+                    let unservable = too_long(&web_dir, req.uri().path());
+                    async move {
+                        if unservable {
+                            return page.oneshot(req).await;
+                        }
+                        files.oneshot(req).await.map(IntoResponse::into_response)
+                    }
+                });
+                app.nest_service("/assets", cache(IMMUTABLE).layer(assets))
+                    .fallback_service(cache("no-cache").layer(pages))
+            }
+        };
 
+        let csp = if config.cloudflare_web_analytics {
+            CLOUDFLARE_CSP
+        } else {
+            SECURITY_HEADERS[0].1
+        };
         let limiter = Limiter::new(&config.limits, config.log_client_addr);
         let refusals = Arc::clone(&sockets.refusals);
         if tokio::runtime::Handle::try_current().is_ok() {
@@ -430,16 +461,12 @@ impl App {
             ));
         }
         let router = app
-            .nest_service("/assets", cache(IMMUTABLE).layer(assets))
-            // Pages and unhashed files are revalidated on every load, so a deploy shows at once.
-            // A page's head varies by its URL alone, which every cache keys on.
-            .fallback_service(cache("no-cache").layer(pages))
             .layer(DefaultBodyLimit::max(config.limits.max_body_bytes))
             .layer(middleware::from_fn_with_state(
                 Arc::new(limiter.clone()),
                 limits::limit,
             ))
-            .layer(middleware::map_response(finish))
+            .layer(middleware::map_response(move |res| finish(res, csp)))
             .layer(middleware::from_fn(cors))
             .layer(middleware::from_fn_with_state(
                 request_log::RequestLogger::new(config, Arc::clone(&refusals)),
@@ -583,7 +610,7 @@ fn api_headers(h: &mut HeaderMap, preflight: bool) {
 /// A request the limits refused before routing gets the response the router would have sent
 /// (`finish`, `cors`, the request id), built without routing it.
 fn refused_early(path: &str, refused: limits::Refused) -> Response {
-    let mut res = finished(refused.into_response());
+    let mut res = finished(refused.into_response(), SECURITY_HEADERS[0].1);
     if is_api(path) {
         api_headers(res.headers_mut(), false);
     }
@@ -595,17 +622,18 @@ fn refused_early(path: &str, refused: limits::Refused) -> Response {
 
 /// Last step for every response: errors through the error model, then the security headers.
 /// An error is `no-store` unless its route said otherwise: the same URL can succeed a moment later.
-async fn finish(res: Response) -> Response {
-    finished(res)
+async fn finish(res: Response, csp: &'static str) -> Response {
+    finished(res, csp)
 }
 
-fn finished(res: Response) -> Response {
+fn finished(res: Response, csp: &'static str) -> Response {
     let mut res = error::sanitize(res);
     let failed = res.status().is_client_error() || res.status().is_server_error();
     let headers = res.headers_mut();
     for (name, value) in SECURITY_HEADERS {
         headers.insert(name, HeaderValue::from_static(value));
     }
+    headers.insert(CONTENT_SECURITY_POLICY, HeaderValue::from_static(csp));
     if failed && !headers.contains_key(CACHE_CONTROL) {
         headers.insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
     }

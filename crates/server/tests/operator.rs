@@ -99,7 +99,7 @@ async fn mock(node: &Arc<Node>) -> (HashMap<String, String>, TcpListener) {
 async fn serve(vars: &HashMap<String, String>) -> String {
     capture();
     let mut config = Config::from_vars(|k| vars.get(k).cloned()).unwrap();
-    config.web_dir = std::env::temp_dir().join("rbitcoin-space-no-web-dir");
+    config.web_dir = Some(std::env::temp_dir().join("rbitcoin-space-no-web-dir"));
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap().to_string();
     tokio::spawn(App::new(&config).serve(listener, std::future::pending()));

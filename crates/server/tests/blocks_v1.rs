@@ -685,6 +685,7 @@ async fn setup(name: &str) -> Setup {
     fill(&dir.0, &chain).await;
     let (port, node) = mock(&chain).await;
     let (addr, store) = start_app(port, Some(&dir.0), &[]).await;
+    socket_read(&addr).await;
     Setup {
         addr,
         node,
@@ -861,7 +862,8 @@ async fn hostile_parameters_are_refused_before_any_work() {
             s.node.calls("block"),
             s.node.calls("getblock")
         ),
-        (0, 0, 0)
+        (1, 0, 0),
+        "only the socket's page at start"
     );
     // Beyond the tip: an empty list, as on the reference.
     let r = get(&s.addr, &format!("{V1}/blocks/4294967295")).await;
@@ -995,6 +997,7 @@ async fn a_table_behind_the_node_reads_its_own_blocks_by_hash() {
     let new = mine(chain[TIP as usize - 1].block_hash(), TIP, 1);
     node.set_best(TIP, esplora(&new, TIP));
     let addr = start(port, Some(&dir.0)).await;
+    socket_read(&addr).await;
     let r = get(&addr, &format!("{V1}/blocks")).await;
     assert_eq!(r.status, 200, "{}", r.text());
     assert_eq!(r.json()[0], expected(&chain, TIP, true));
@@ -1307,5 +1310,126 @@ async fn kept_answers_follow_every_write_and_match_an_uncached_server() {
     let r = get(&addr, &targets[0]).await;
     assert_eq!(r.json()[0]["id"], other.block_hash().to_string());
     same_as_fresh(&addr, port, &dir.0, &targets, "after a reorg").await;
+    drop(dir);
+}
+
+// The compatible socket's blocks are the same JSON as the list's.
+
+/// A client of `/api/v1/ws`, as little of RFC 6455 as this needs: short masked text frames out,
+/// unmasked frames in.
+struct Ws(TcpStream);
+
+impl Ws {
+    async fn open(addr: &str) -> Self {
+        let mut s = TcpStream::connect(addr).await.unwrap();
+        let req = format!(
+            "GET {V1}/ws HTTP/1.1\r\nHost: t\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\
+             Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n"
+        );
+        s.write_all(req.as_bytes()).await.unwrap();
+        let mut head = Vec::new();
+        while !head.ends_with(b"\r\n\r\n") {
+            head.push(s.read_u8().await.unwrap());
+        }
+        assert!(head.starts_with(b"HTTP/1.1 101"), "{head:?}");
+        Self(s)
+    }
+
+    async fn send(&mut self, text: &str) {
+        let p = text.as_bytes();
+        // A zero mask leaves the payload as it is.
+        let mut f = vec![0x81, 0x80 | u8::try_from(p.len()).unwrap(), 0, 0, 0, 0];
+        f.extend_from_slice(p);
+        self.0.write_all(&f).await.unwrap();
+    }
+
+    /// The next text message, or `None` after `wait` without one.
+    async fn next(&mut self, wait: std::time::Duration) -> Option<Value> {
+        loop {
+            let mut h = [0u8; 2];
+            tokio::time::timeout(wait, self.0.read_exact(&mut h))
+                .await
+                .ok()?
+                .unwrap();
+            let len = match h[1] & 0x7F {
+                126 => u64::from(self.0.read_u16().await.unwrap()),
+                127 => self.0.read_u64().await.unwrap(),
+                n => u64::from(n),
+            };
+            let mut p = vec![0u8; usize::try_from(len).unwrap()];
+            self.0.read_exact(&mut p).await.unwrap();
+            if h[0] & 0x0F == 1 {
+                return Some(serde_json::from_slice(&p).unwrap());
+            }
+        }
+    }
+}
+
+/// Waits for the compatible socket's first read of the table, which asks the node for a page of
+/// headers, so that the tests counting node calls do not race it.
+async fn socket_read(addr: &str) {
+    let mut ws = Ws::open(addr).await;
+    ws.send(r#"{"action":"want","data":["blocks"]}"#).await;
+    let first = ws.next(std::time::Duration::from_secs(10)).await;
+    assert!(first.is_some_and(|m| m.get("blocks").is_some()));
+}
+
+/// The list's eight newest blocks, oldest first: the socket's `blocks`.
+async fn eight(addr: &str) -> Value {
+    let mut list = get(addr, &format!("{V1}/blocks")).await.json();
+    let list = list.as_array_mut().unwrap();
+    list.truncate(8);
+    list.reverse();
+    Value::Array(list.clone())
+}
+
+#[tokio::test]
+async fn socket_blocks_are_the_list_s_and_a_new_one_goes_out_once_its_row_is_there() {
+    let chain = chain();
+    let dir = dir("socket");
+    fill(&dir.0, &chain).await;
+    let (port, node) = mock(&chain).await;
+    node.follows
+        .store(true, std::sync::atomic::Ordering::Relaxed);
+    let tip = chain[TIP as usize];
+    let (electrum_addr, push) = electrum((TIP, tip)).await;
+    let server = start_with(
+        port,
+        Some(&dir.0),
+        &[("REGTEST_ELECTRUM_ADDR", electrum_addr)],
+    )
+    .await;
+    let wait = std::time::Duration::from_secs(10);
+
+    let mut ws = Ws::open(&server).await;
+    ws.send(r#"{"action":"want","data":["blocks"]}"#).await;
+    let first = ws.next(wait).await.unwrap();
+    assert_eq!(first, json!({"blocks": eight(&server).await}));
+    assert_eq!(first["blocks"][7]["extras"]["matchRate"], json!(99.5));
+
+    // A new block, served at once: one `block`, the list's newest once its row is written.
+    let new = mine(tip.block_hash(), TIP + 1, 9);
+    let b = esplora(&new, TIP + 1);
+    node.best.lock().unwrap().push(b.clone());
+    node.known
+        .lock()
+        .unwrap()
+        .insert(new.block_hash().to_string(), b);
+    push.send((TIP + 1, new)).unwrap();
+    let msg = ws.next(wait).await.unwrap();
+    let list = get(&server, &format!("{V1}/blocks")).await.json();
+    assert_eq!(list[0]["id"], new.block_hash().to_string());
+    assert_eq!(msg, json!({"block": list[0]}));
+    assert_eq!(msg["block"]["extras"]["totalFees"], json!(10_000));
+    let more = ws.next(std::time::Duration::from_secs(2)).await;
+    assert_eq!(more, None, "sent once");
+
+    // A client that starts now gets the list with it.
+    let mut again = Ws::open(&server).await;
+    again.send(r#"{"action":"want","data":["blocks"]}"#).await;
+    assert_eq!(
+        again.next(wait).await.unwrap(),
+        json!({"blocks": eight(&server).await})
+    );
     drop(dir);
 }

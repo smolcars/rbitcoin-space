@@ -8,6 +8,7 @@ describe("parseConfig", () => {
     ).toStrictEqual({
       networks: ["mainnet", "signet"],
       version: "0.1.0",
+      ark: {},
     });
   });
 
@@ -15,6 +16,13 @@ describe("parseConfig", () => {
     for (const body of [null, "x", [], {}, { networks: "mainnet" }]) {
       expect(parseConfig(body)).toBeNull();
     }
-    expect(parseConfig({ networks: [] })).toStrictEqual({ networks: [], version: "" });
+    expect(parseConfig({ networks: [] })).toStrictEqual({ networks: [], version: "", ark: {} });
+  });
+
+  it("keeps each network's Ark implementations", () => {
+    const ark = { signet: ["bark", "<b>", 3], liquid: ["bark"], mainnet: [], regtest: "bark" };
+    expect(parseConfig({ networks: ["signet"], version: "1", ark })?.ark).toStrictEqual({
+      signet: ["bark"],
+    });
   });
 });

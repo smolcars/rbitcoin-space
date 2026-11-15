@@ -17,18 +17,23 @@
   }
   /* Cut in the middle only when the column is narrower than the value: the head gives way, the
      last eight characters stay. */
-  /* A grid, not a flex row: a grid's narrowest width counts its text track as nothing, so a table
-     column holding a cut ID can be as narrow as its other columns need, in any table. */
+  /* A grid, not a flex row: a grid's narrowest width counts its text track as only the text's
+     min-width, not the whole ID, so a table column holding a cut ID can be as narrow as two of its
+     head's characters, its "…" and its tail. */
   .hash--fit {
     display: grid;
     grid-auto-flow: column;
-    grid-template-columns: minmax(0, max-content);
+    grid-template-columns: minmax(auto, max-content);
     justify-content: start;
   }
   .hash--fit .hash__text,
   .hash--ends .hash__text {
     display: flex;
     min-width: 0;
+  }
+  /* The head's narrowest (3ch) and the eight-character tail. */
+  .hash--fit .hash__text {
+    min-width: 11ch;
   }
   /* One underline under a cut ID, not one under each half with the head's spare room between. */
   .hash--fit a.hash__text,
@@ -45,19 +50,16 @@
       background-image: linear-gradient(currentColor 0 0);
     }
   }
+  /* Where even its two ends are wider than the room, the head gives way, the "…" at its end, down
+     to two characters; the tail never loses one. */
   .hash__head {
-    min-width: 8ch;
+    min-width: 3ch;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   .hash__tail {
     flex: none;
-  }
-  /* Shortened to its two ends ("mwLW3XD…UAuat"): where even that is wider than the room, its head
-     gives way, the "…" at its end, down to two characters; the tail never loses one. */
-  .hash--ends .hash__head {
-    min-width: 3ch;
   }
   /* Broken at any character, the lines balanced: never a last line of two characters. */
   .hash--whole .hash__text {

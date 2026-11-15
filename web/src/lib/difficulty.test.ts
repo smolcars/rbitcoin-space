@@ -34,6 +34,7 @@ describe("difficulty wording", () => {
     expect(retargets("mainnet")).toBe(true);
     expect(retargets("signet")).toBe(true);
     expect(retargets("testnet4")).toBe(true);
+    expect(retargets("testnet5")).toBe(true);
   });
 
   it("counts the period and compares it with the target pace", () => {

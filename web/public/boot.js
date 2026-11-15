@@ -10,5 +10,7 @@
   }
   const first = location.pathname.split("/")[1];
   root.dataset["network"] =
-    first !== undefined && ["signet", "testnet4", "regtest"].includes(first) ? first : "mainnet";
+    first !== undefined && ["signet", "testnet4", "testnet5", "regtest"].includes(first)
+      ? first
+      : "mainnet";
 }

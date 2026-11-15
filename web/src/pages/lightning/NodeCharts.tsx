@@ -1,6 +1,7 @@
 // A node's past (its channels and capacity since this server's record began, stepping at each
 // open and close) and how it prices its channels, out and in (docs/DESIGN.md "Lightning").
 import { createSignal, For, lazy, Loading as Pending, onSettled, Show } from "solid-js";
+import type { ApiResource } from "../../lib/api";
 import { Amount } from "../../components/Amount";
 import { formatDay, formatMoment } from "../../components/chart/scale";
 import "../../components/chart/Chart.css";
@@ -8,31 +9,27 @@ import { type Column, DataTable } from "../../components/DataTable";
 import { More } from "../../components/More";
 import { SectionHeader } from "../../components/SectionHeader";
 import { Empty, ErrorState, Loading } from "../../components/States";
-import { createRequest } from "../../lib/api";
-import { formatBtc, groupDigits } from "../../lib/format";
-import type { Network } from "../../lib/network";
+import { formatBtcShort, groupDigits } from "../../lib/format";
+import { Link } from "../../components/Link";
+import { paths } from "../../lib/network";
 import {
   btcAxis,
   count,
   feeRows,
-  feeSentence,
+  type FeeFigures as Figures,
   type FeeRow,
-  isNodeHistory,
   type NodeDetail,
+  type NodeHistory as HistoryAnswer,
 } from "./lightning";
-import { ask } from "./parts";
 
 const Chart = lazy(() => import("../../components/chart/Chart"));
 
 const DAY = 86_400;
 
-export function NodeHistory(props: { network: Network; id: string }) {
-  const [history, { refetch }] = createRequest(
-    () => props.id,
-    (id, signal) => ask(props.network, `/nodes/${id}/history`, isNodeHistory, signal),
-  );
+/** Its past, from the page's one request for it (the glance reads its week from it too). */
+export function NodeHistory(props: { history: ApiResource<HistoryAnswer>; retry: () => void }) {
   onSettled(() => void Chart.preload());
-  const points = () => history.latest?.points ?? [];
+  const points = () => props.history.latest?.points ?? [];
   // From zero, so a node's size reads at a glance; whole numbers for a node with a few channels.
   const channelAxis = () =>
     Math.max(...points().map((p) => p.channels)) <= 4
@@ -46,13 +43,17 @@ export function NodeHistory(props: { network: Network; id: string }) {
         Each change and midnight UTC
       </SectionHeader>
       <Show
-        when={history.state !== "errored"}
+        when={props.history.state !== "errored"}
         fallback={
-          <ErrorState title="Could not load its history" error={history.error} retry={refetch} />
+          <ErrorState
+            title="Could not load its history"
+            error={props.history.error}
+            retry={() => props.retry()}
+          />
         }
       >
         <Show
-          when={history.latest}
+          when={props.history.latest}
           fallback={
             <div class="ln-chart ln-chart--node">
               <Loading label="Loading its history" />
@@ -96,7 +97,8 @@ export function NodeHistory(props: { network: Network; id: string }) {
                         draw: "step",
                         axis: "right",
                         tone: 2,
-                        format: formatBtc,
+                        // In magnitude, as the glance and header read it: whole at any size.
+                        format: formatBtcShort,
                         unit: "BTC",
                       },
                     ]}
@@ -133,33 +135,46 @@ export function NodeFees(props: { node: NodeDetail }) {
   return (
     <section aria-labelledby="ln-node-fees-title">
       <SectionHeader title="Fee rates" id="ln-node-fees-title">
-        {count(props.node.channels.open, "open channel")}
+        Channels by rate, ppm
       </SectionHeader>
       <Show
         when={rows().length > 0}
         fallback={<Empty title="No fee to show">It has no open channel this server knows.</Empty>}
       >
-        <p class="ln-fees__answer">{feeSentence(rows())}</p>
         <figure class="ln-fees">
-          {/* The table under "Show the figures" says the same to a screen reader. */}
-          <div class="ln-fees__plot" aria-hidden="true">
-            <span class="ln-fees__unit">ppm</span>
+          <div class="ln-fees__plot">
+            <span class="ln-fees__unit" aria-hidden="true">
+              ppm
+            </span>
             {/* The key heads the bars, in their order: stacked on a phone, side by side if wide. */}
-            <span class="ln-fees__bars ln-fees__key">
+            <span class="ln-fees__bars ln-fees__key" aria-hidden="true">
               <span class="ln-fees__way ln-fees__way--out">It charges</span>
               <span class="ln-fees__way ln-fees__way--in">Its peers charge</span>
             </span>
             <For each={rows()}>
               {(r) => (
                 <>
-                  <span class="ln-fees__label num">{r.label}</span>
+                  <span class="ln-fees__label num" aria-hidden="true">
+                    {r.label}
+                  </span>
                   <span class="ln-fees__bars">
-                    <span class="ln-fees__bar ln-fees__bar--out">
-                      <Count n={r.outgoing.count} most={most()} />
-                    </span>
-                    <span class="ln-fees__bar ln-fees__bar--in">
-                      <Count n={r.incoming.count} most={most()} />
-                    </span>
+                    <For each={WAYS}>
+                      {(w) => (
+                        <Show
+                          when={r[w.key].count > 0}
+                          fallback={<span class={`ln-fees__bar ln-fees__bar--${w.way}`} />}
+                        >
+                          {/* A bar lists its channels: the Channels view, filtered to it. */}
+                          <Link
+                            class={`ln-fees__bar ln-fees__bar--${w.way} ln-fees__go`}
+                            href={`${paths.lightningNode(props.node.id)}?fee=${w.way}:${r.from ?? "none"}`}
+                            aria-label={barName(w.way, r, r[w.key].count)}
+                          >
+                            <Count n={r[w.key].count} most={most()} />
+                          </Link>
+                        </Show>
+                      )}
+                    </For>
                   </span>
                 </>
               )}
@@ -207,6 +222,67 @@ export function NodeFees(props: { node: NodeDetail }) {
             is not included.
           </p>
         </More>
+      </Show>
+    </section>
+  );
+}
+
+const WAYS = [
+  { way: "out", key: "outgoing" },
+  { way: "in", key: "incoming" },
+] as const;
+
+/** A bar's name as a link: what it counts and which way. */
+function barName(way: "out" | "in", r: FeeRow, n: number): string {
+  const channels = count(n, "channel");
+  if (r.from === null)
+    return way === "out"
+      ? `${channels} where it has set no fee`
+      : `${channels} where its peer has set no fee`;
+  return `${channels} where ${way === "out" ? "it charges" : "its peer charges"} ${r.label} ppm`;
+}
+
+const RATE_ROWS = [
+  { label: "Median", get: (f: Figures) => f.median },
+  { label: "Average, by capacity", get: (f: Figures) => f.weighted },
+  { label: "Lowest", get: (f: Figures) => f.lowest },
+  { label: "Highest", get: (f: Figures) => f.highest },
+] as const;
+
+/** Its fee rates in four figures each way, and how what it charges compares with its peers. */
+export function FeeFigures(props: { node: NodeDetail }) {
+  const out = () => props.node.figures.fee_rates.outgoing;
+  const inn = () => props.node.figures.fee_rates.incoming;
+  const figure = (f: Figures | null, get: (f: Figures) => number | null) => {
+    const v = f === null ? null : get(f);
+    return v === null ? "–" : groupDigits(v);
+  };
+  const ratio = () => {
+    const o = out()?.median ?? null;
+    const i = inn()?.median ?? null;
+    return o === null || i === null || i === 0 ? null : o / i;
+  };
+  return (
+    <section aria-labelledby="ln-node-figures-title">
+      <SectionHeader title="In figures" id="ln-node-figures-title">
+        ppm
+      </SectionHeader>
+      <DataTable
+        caption="Its fee rates, what it charges and what its peers charge, ppm"
+        columns={[
+          { header: "Fee rate, ppm", cell: (r) => r.label },
+          { header: "It charges", numeric: true, cell: (r) => figure(out(), r.get) },
+          { header: "Its peers charge", numeric: true, cell: (r) => figure(inn(), r.get) },
+        ]}
+        rows={RATE_ROWS}
+      />
+      <Show when={ratio()}>
+        {(x) => (
+          <p class="ln-node-ratio">
+            Charges <strong class="num">{x() >= 10 ? groupDigits(x()) : x().toFixed(1)}×</strong>{" "}
+            its peers, by median
+          </p>
+        )}
       </Show>
     </section>
   );

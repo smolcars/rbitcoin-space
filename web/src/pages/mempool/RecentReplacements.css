@@ -17,13 +17,6 @@
     display: flex;
     min-width: 0;
   }
-  /* Cut at its end with an ellipsis, never through a character: the id's head is what tells
-     rows apart. */
-  .rbf-recent .hash__text {
-    display: block;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
   .rbf-recent__rate {
     white-space: nowrap;
   }

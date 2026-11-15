@@ -12,7 +12,7 @@ import {
 import { Empty, ErrorState, Loading } from "../components/States";
 import { createRequest } from "../lib/api";
 import { CHUNK_ATTEMPTS, chunkDelay, isChunkError, reloadOnce, retryFiles } from "../lib/chunks";
-import { fetchConfig } from "../lib/config";
+import { fetchConfig, readConfig } from "../lib/config";
 import { NETWORK_NAMES, type Network, onNetwork, stripNetwork } from "../lib/network";
 import { useNetwork } from "../lib/page";
 import { Footer } from "./Footer";
@@ -24,7 +24,7 @@ export function Shell(props: { children?: JSX.Element }) {
   const network = useNetwork();
   const location = useLocation();
   const navigate = useNavigate();
-  const [config] = createRequest(() => true, fetchConfig);
+  const [config] = createRequest(() => true, readConfig);
   // Undefined until the server answers, so the switch keeps its full shape meanwhile.
   const networks = (): readonly Network[] | undefined => {
     if (config.loading) return undefined;
@@ -80,7 +80,7 @@ export function Shell(props: { children?: JSX.Element }) {
           </p>
         </div>
       </Show>
-      <Header networks={networks} />
+      <Header networks={networks} ark={() => config()?.ark} />
       <main id="main" class="site-main" tabindex="-1" ref={main}>
         <Errored
           fallback={(error, reset) => {

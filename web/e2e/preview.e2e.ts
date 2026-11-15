@@ -46,6 +46,8 @@ const PAGES = [
   "/regtest/lightning/rankings?by=age",
   "/regtest/lightning/rankings?%62y=%61ge",
   "/regtest/lightning/rankings?by&by=age",
+  "/regtest/ark",
+  `/regtest/ark/bark/vtxo/${"ab".repeat(32)}:0`,
 ];
 
 for (const path of PAGES) {

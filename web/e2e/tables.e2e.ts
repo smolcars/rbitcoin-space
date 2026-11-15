@@ -169,19 +169,29 @@ test.describe("a tap anywhere on any list's row", () => {
   });
 });
 
-// A test to a width: each is its own client, so no reader's allowance is spent on 24 page loads.
+// A test to a width and kind of list: each is its own client, so no reader's allowance is spent on
+// 24 page loads. All eleven in one outran 30 s in WebKit at a phone's pixel density on CI's runner,
+// where a page's first frames after loading take up to a second each.
 for (const width of [320, 390, 720]) {
-  test(`every table fits its panel or shows that it scrolls, at ${width} px`, async ({ page }) => {
-    await page.setViewportSize({ width, height: 900 });
-    for (const { path, table, stub } of LISTS) {
-      await stub?.(page);
-      await page.goto(path);
-      await expect(
-        page.getByRole("table", { name: table }).locator("tbody tr").first(),
-      ).toBeVisible({ timeout: 30_000 });
-      await tablesFit(page, `${path} at ${width} px`);
-    }
-  });
+  for (const [kind, lists] of [
+    ["the chain's", LISTS.slice(0, 4)],
+    ["an address's", LISTS.slice(4, 8)],
+    ["mining's", LISTS.slice(8)],
+  ] as const) {
+    test(`every table fits its panel or shows that it scrolls, at ${width} px: ${kind} lists`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      for (const { path, table, stub } of lists) {
+        await stub?.(page);
+        await page.goto(path);
+        await expect(
+          page.getByRole("table", { name: table }).locator("tbody tr").first(),
+        ).toBeVisible({ timeout: 30_000 });
+        await tablesFit(page, `${path} at ${width} px`);
+      }
+    });
+  }
 }
 
 // Only a row's small link text was a target once: on a phone the whole row opens its item.
@@ -234,10 +244,10 @@ test("a table that grows after it is drawn drops another column to fit", async (
 
 // Tables that appear only on a tap were outside the rule once: the audit's list on a phone put the
 // fee rate it is sorted by off-screen. Every table shown on interaction is held to it too.
-// The narrowest phone and where a desktop drops columns: 390 lies between them. A test a width:
-// both in one outran its time in WebKit at a phone's pixel density on a slow runner.
+// The narrowest phone and where a desktop drops columns: 390 lies between them. A test a width and
+// page: more in one outran 30 s in WebKit at a phone's pixel density on CI's runner.
 for (const width of [320, 720]) {
-  test(`tables that open on a tap fit their panel or show that they scroll, at ${width} px`, async ({
+  test(`the audit's list, opened on a tap, fits its panel or shows that it scrolls, at ${width} px`, async ({
     page,
   }) => {
     const block = chain.blocks[106];
@@ -282,20 +292,26 @@ for (const width of [320, 720]) {
       return header.getBoundingClientRect().right <= scroller.getBoundingClientRect().right + 1;
     });
     expect(inSight, `the audit's fee rate at ${width} px`).toBe(true);
-    // The figures behind each chart.
-    for (const path of [
-      "/regtest/mempool?interval=2h",
-      "/regtest/mining?period=all",
-      `/regtest/address/${chain.addresses.p2tr}`,
-    ]) {
+  });
+
+  // The figures behind each chart.
+  for (const path of [
+    "/regtest/mempool?interval=2h",
+    "/regtest/mining?period=all",
+    `/regtest/address/${chain.addresses.p2tr}`,
+  ]) {
+    test(`the figures behind ${path}'s charts, opened on a tap, fit their panel or show that they scroll, at ${width} px`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
       await page.goto(path);
       const figures = page.locator(".chart__figures > summary");
       await expect(figures.first()).toBeVisible({ timeout: 30_000 });
       for (const f of await figures.all()) if (await f.isVisible()) await f.click();
       await expect(page.locator(".chart__figures table").first()).toBeVisible();
       await tablesFit(page, `${path}'s figures at ${width} px`);
-    }
-  });
+    });
+  }
 }
 
 // A chart's figures are its precise text alternative, read whole at every width the page takes,
@@ -389,10 +405,17 @@ for (const width of FIGURES_WIDTHS) {
   }) => {
     const { open, bothFaces } = await figuresAt(page, width);
     for (const node of [ACINQ, ONE]) {
-      await page.goto(`/regtest/lightning/node/${node}`);
+      // Each in its own view: the past, then its fees by the view's tab, with no reload.
+      await page.goto(`/regtest/lightning/node/${node}?view=history`);
       await expect(page.getByRole("slider")).toBeVisible();
-      await open(["Over time", "Fee rates"]);
-      await bothFaces(["Over time", "Fee rates"], `${node.slice(0, 8)} at ${width} px`);
+      await open(["Over time"]);
+      await bothFaces(["Over time"], `${node.slice(0, 8)}'s past at ${width} px`);
+      await page
+        .getByRole("navigation", { name: "Node views" })
+        .getByRole("link", { name: "Fees" })
+        .click();
+      await open(["Fee rates"]);
+      await bothFaces(["Fee rates"], `${node.slice(0, 8)}'s fees at ${width} px`);
     }
   });
 

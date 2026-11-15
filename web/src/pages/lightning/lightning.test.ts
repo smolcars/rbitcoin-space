@@ -3,12 +3,10 @@ import {
   btcAxis,
   cleanAlias,
   msat,
-  msatShort,
   plainMsat,
   coverageSentence,
   cut,
   feeRows,
-  feeSentence,
   dataFrom,
   isChannelDetail,
   isChannelId,
@@ -18,8 +16,42 @@ import {
   parseInterval,
   parseRanking,
   searchProblem,
+  channelTag,
+  msatAsBtc,
+  hopFee,
+  htlcLimit,
+  lifeSteps,
+  msatAsSats,
+  parseSats,
+  type Policy,
+  TERMS,
+  ageShort,
+  changeWords,
+  cleanFilter,
+  isOpenPage,
+  listRequest,
+  ordinal,
+  readList,
+  readView,
+  rowBuckets,
+  rowState,
+  shownDir,
+  sortName,
+  viewHref,
+  weekAgo,
 } from "./lightning";
-import { acinq, channel, closedOf, overview, series, T0 } from "./testdata";
+import {
+  acinq,
+  channel,
+  closedChannel,
+  closedOf,
+  EARLIER,
+  NEXT,
+  openChannel,
+  overview,
+  series,
+  T0,
+} from "./testdata";
 
 describe("cleanAlias", () => {
   it("keeps an ordinary name as it is", () => {
@@ -65,6 +97,8 @@ describe("shape checks", () => {
     expect(isNodeDetail(acinq())).toBe(true);
     expect(isChannelDetail(channel())).toBe(true);
     expect(isChannelDetail(channel({ closed: closedOf("penalty").closed }))).toBe(true);
+    expect(isChannelDetail(channel({ continued_as: NEXT, continued_from: EARLIER }))).toBe(true);
+    expect(isChannelDetail(channel({ continued_as: null, continued_from: null }))).toBe(true);
     expect(isSeries(series())).toBe(true);
   });
 
@@ -79,6 +113,7 @@ describe("shape checks", () => {
     );
     expect(isNodeDetail({ ...acinq(), features: [{ bit: "0" }] })).toBe(false);
     expect(isChannelDetail({ ...channel(), funding: null })).toBe(false);
+    expect(isChannelDetail({ ...channel(), continued_as: { id: "1x1x1" } })).toBe(false);
     expect(isSeries({ ...series(), step: 0 })).toBe(false);
   });
 });
@@ -125,17 +160,6 @@ describe("coverage", () => {
     expect(coverageSentence(s, T0)).toBe("89% recorded, with gaps while this server was off.");
     expect(dataFrom(s)).toBeUndefined();
     expect(coverageSentence({ ...s, complete: true }, T0)).toBeUndefined();
-  });
-});
-
-describe("msatShort", () => {
-  it("reads millisatoshis in magnitude: msat, then sats, then BTC", () => {
-    expect(msatShort(900)).toBe("900 msat");
-    expect(msatShort(1000)).toBe("1 sat");
-    expect(msatShort(1500)).toBe("1.5 sats");
-    expect(msatShort(958_366_000)).toBe("958\u202F366 sats");
-    expect(msatShort(18_958_366_000)).toBe("0.190 BTC");
-    expect(msatShort(2_100_000_000_000_000_000)).toBe("21\u202F000\u202F000 BTC");
   });
 });
 
@@ -193,21 +217,12 @@ describe("a node's fee rates", () => {
     expect(rows[0]?.outgoing.count).toBe(1);
   });
 
-  it("says what the node charges and is charged, by the median channel", () => {
-    expect(feeSentence(feeRows(fees)).replaceAll("\u202F", " ")).toBe(
-      "It charges a median of 2 000–4 999 ppm to forward; its peers charge a median of 2 000–4 999 ppm towards it.",
-    );
-  });
-
-  it("drops the median for one channel, and says when a way has no fee set", () => {
+  it("keeps a one-channel node's two rows, its policy and its peer's none", () => {
     const one = feeRows({
       outgoing: [{ bucket: 100, count: 1, capacity: 10 }],
       incoming: [{ bucket: null, count: 1, capacity: 10 }],
     });
     expect(one.map((r) => r.label)).toStrictEqual(["100–199", "No policy"]);
-    expect(feeSentence(one)).toBe(
-      "It charges 100–199 ppm to forward; its peer has set none towards it.",
-    );
   });
 });
 
@@ -219,5 +234,382 @@ describe("btcAxis", () => {
     expect(btcAxis(37_200)).toBe("0.000372");
     expect(btcAxis(5_500_000)).toBe("0.055");
     expect(btcAxis(28_500_000_000).replaceAll("\u202F", " ")).toBe("285");
+  });
+});
+
+// The tests write grouped figures with a plain space; the page groups with a narrow no-break one.
+const plain = (s: string) => s.replaceAll(" ", " ");
+
+describe("msatAsSats", () => {
+  it("writes msat as sats, exact to the msat, under a sat in msat", () => {
+    expect(msatAsSats(0)).toBe("0 sats");
+    expect(msatAsSats(1)).toBe("1 msat");
+    expect(msatAsSats(999)).toBe("999 msat");
+    expect(msatAsSats(1000)).toBe("1 sat");
+    expect(msatAsSats(1100)).toBe("1.1 sats");
+    expect(msatAsSats(1001)).toBe("1.001 sats");
+    expect(plain(msatAsSats(20_000_000_000))).toBe("20 000 000 sats");
+    expect(msatAsSats(-1000)).toBe("−1 sat");
+    expect(plain(msatAsSats(99_999_999_999))).toBe("99 999 999.999 sats");
+    expect(msatAsSats(Number.NaN)).toBe("–");
+  });
+
+  it("reads a bitcoin and more in magnitude, so the longest still fits a phone", () => {
+    expect(msatAsSats(100_000_000_000)).toBe("1.00 BTC");
+    expect(msatAsSats(523_456_789_000)).toBe("5.23 BTC");
+    expect(plain(msatAsSats(2_100_000_000_000_000_000))).toBe("21 000 000 BTC");
+    expect(plain(msatAsSats(-150_000_000_000_000))).toBe("−1 500 BTC");
+    // The magnitude a long figure carries for the narrowest room.
+    expect(msatAsBtc(99_999_999_999)).toBe("1.00 BTC");
+    expect(msatAsBtc(999_999_999)).toBe("0.01000 BTC");
+    expect(msatAsBtc(4_294_967_295)).toBe("0.0429 BTC");
+    expect(msatAsBtc(999)).toBe("999 msat");
+    // A fee past 2⁵³, as a bigint.
+    expect(plain(msatAsSats(8_400_000_000_000_000_000_123n))).toBe("84 000 000 000 BTC");
+  });
+
+  it("never lets a figure break inside its digits", () => {
+    // Groups are joined by a narrow no-break space; the only breakable space is before the unit.
+    expect(msatAsSats(2_000_000_000).split(" ")).toStrictEqual(["2 000 000", "sats"]);
+  });
+});
+
+describe("parseSats", () => {
+  it("reads whole sats, grouped or not", () => {
+    expect(parseSats("100000")).toStrictEqual({ sats: 100_000 });
+    expect(parseSats(" 100 000 ")).toStrictEqual({ sats: 100_000 });
+    expect(parseSats("100 000")).toStrictEqual({ sats: 100_000 });
+    expect(parseSats("1,000,000")).toStrictEqual({ sats: 1_000_000 });
+    expect(parseSats("2100000000000000")).toStrictEqual({ sats: 2_100_000_000_000_000 });
+  });
+
+  it("says why anything else is not an amount", () => {
+    expect(parseSats("")).toStrictEqual({ error: "Type an amount in sats." });
+    expect(parseSats("-5")).toStrictEqual({ error: "Not negative: whole sats only." });
+    expect(parseSats("1.5")).toStrictEqual({ error: "Whole sats only." });
+    expect(parseSats("abc")).toStrictEqual({ error: "Not an amount: whole sats only." });
+    expect(parseSats("1e6")).toStrictEqual({ error: "Not an amount: whole sats only." });
+    expect(parseSats("0")).toStrictEqual({ error: "Above zero." });
+    expect(parseSats("2100000000000001")).toStrictEqual({ error: "More than all bitcoin." });
+  });
+});
+
+const policy = (p: Partial<Policy> = {}): Policy => ({
+  fee_rate: 2499,
+  base_fee_msat: 1000,
+  cltv_delta: 144,
+  min_htlc_msat: 1,
+  max_htlc_msat: 20_000_000_000,
+  enabled: true,
+  last_update: T0,
+  ...p,
+});
+
+describe("hopFee", () => {
+  it("adds the base fee to the proportional part, rounded down to the msat", () => {
+    // 100 000 sats at 2 499 ppm: 249 900 msat, exactly.
+    expect(hopFee(policy(), 100_000)).toStrictEqual({ msat: 250_900n, exact: true });
+    // 1 sat at 2 499 ppm: 2.499 msat, rounded down to 2.
+    expect(hopFee(policy(), 1)).toStrictEqual({ msat: 1002n, exact: false });
+    expect(hopFee(policy({ fee_rate: 0, base_fee_msat: 0 }), 5)).toStrictEqual({
+      msat: 0n,
+      exact: true,
+    });
+  });
+
+  it("stays exact past 2⁵³", () => {
+    const all = 2_100_000_000_000_000;
+    expect(hopFee(policy({ fee_rate: 4_000_000_000, base_fee_msat: 0 }), all).msat).toBe(
+      8_400_000_000_000_000_000_000n,
+    );
+  });
+
+  it("knows an amount past what the policy forwards", () => {
+    expect(htlcLimit(policy(), 100_000)).toBeNull();
+    expect(htlcLimit(policy(), 20_000_001)).toBe("over");
+    expect(htlcLimit(policy({ min_htlc_msat: 1_000_000 }), 999)).toBe("under");
+    expect(htlcLimit(policy({ min_htlc_msat: 1_000_000 }), 1000)).toBeNull();
+  });
+});
+
+describe("the policies' differences", () => {
+  const diff = (key: string, a: Policy, b: Policy) => TERMS.find((t) => t.key === key)?.diff(a, b);
+  it("names the higher end and by how much, or says they are the same", () => {
+    const one = policy({ fee_rate: 1, min_htlc_msat: 1000, last_update: T0 - 60 });
+    const two = policy();
+    expect(diff("fee_rate", one, two)).toStrictEqual({ side: "two", text: "+2 498 ppm" });
+    expect(diff("base_fee_msat", one, two)).toStrictEqual({ side: null, text: "Same" });
+    expect(diff("min_htlc_msat", one, two)).toStrictEqual({
+      side: "one",
+      text: "+999 msat",
+      msat: 999,
+    });
+    expect(diff("cltv_delta", policy({ cltv_delta: 80 }), two)).toStrictEqual({
+      side: "two",
+      text: "+64 blocks",
+    });
+    expect(diff("last_update", one, two)).toStrictEqual({ side: "two", text: "newer" });
+  });
+
+  it("says which ways forward", () => {
+    const off = policy({ enabled: false });
+    expect(diff("enabled", policy(), policy())?.text).toBe("Both");
+    expect(diff("enabled", off, off)?.text).toBe("Neither");
+    expect(diff("enabled", policy(), off)?.text).toBe("One way only");
+  });
+});
+
+describe("channelTag", () => {
+  const ends = (one: Policy | null, two: Policy | null) =>
+    channel({
+      node_one: { ...channel().node_one, policy: one },
+      node_two: { ...channel().node_two, policy: two },
+    });
+  it("says what the ends of an open channel advertise, missing apart from disabled", () => {
+    expect(channelTag(channel()).word).toBe("Enabled");
+    expect(channelTag(channel()).tone).toBe("positive");
+    expect(channelTag(ends(policy(), policy({ enabled: false }))).word).toBe("Enabled one way");
+    expect(channelTag(ends(policy(), null)).word).toBe("Enabled one way");
+    expect(channelTag(ends(policy({ enabled: false }), null)).word).toBe("Disabled");
+    expect(channelTag(ends(null, null)).word).toBe("No policy");
+  });
+
+  it("says what was seen of a closed channel", () => {
+    expect(channelTag(closedChannel("cooperative")).word).toBe("Closed: cooperative close");
+    expect(channelTag(closedChannel("force")).word).toBe("Closed: force close");
+    expect(channelTag(closedChannel("other")).word).toBe("Closed: other close");
+    expect(channelTag(closedChannel("penalty")).word).toBe("Closed: revoked state swept");
+    expect(channelTag(closedChannel("other", { continued_as: NEXT })).word).toBe(
+      "Closed: continued as a new channel",
+    );
+  });
+});
+
+describe("lifeSteps", () => {
+  const keys = (c: Parameters<typeof lifeSteps>[0]) => lifeSteps(c).map((s) => s.key);
+  it("runs from funding to open now, or to the close and what followed", () => {
+    expect(keys(channel())).toStrictEqual(["funded", "open"]);
+    expect(keys(closedChannel("force"))).toStrictEqual(["funded", "closed"]);
+    expect(keys(closedChannel("penalty"))).toStrictEqual(["funded", "closed", "swept"]);
+    expect(keys(closedChannel("cooperative", { continued_as: NEXT }))).toStrictEqual([
+      "funded",
+      "closed",
+      "continued",
+    ]);
+    expect(keys(channel({ continued_from: EARLIER }))).toStrictEqual(["from", "funded", "open"]);
+  });
+
+  it("shows a penalty's close as the force close it was, and times each step from its block", () => {
+    const steps = lifeSteps(closedChannel("penalty"));
+    expect(steps[1]).toMatchObject({ key: "closed", kind: "force", time: T0 + 600 });
+    expect(steps[2]).toMatchObject({ key: "swept", time: T0 + 1800 });
+    expect(lifeSteps(channel({ funding: { txid: null, vout: 0, block: null } }))[0]).toStrictEqual({
+      key: "funded",
+      time: null,
+    });
+  });
+});
+
+// The node page for its operator.
+
+const KEY = "03864ef025fde8fb587d989186ce6a4a186895ee44a926bfc370e2c366597a3f8f";
+const PEER = "033d8656219478701227199cbd6f670335c8d408a92ae88b962c49d4dc0e83e025";
+
+describe("a node's list in the address and as a request", () => {
+  const ask = (search: Record<string, string>, closed = false) =>
+    listRequest(KEY, readList(search, closed), closed).replace(`/nodes/${KEY}/channels`, "");
+
+  it("asks the server's defaults with nothing at all", () => {
+    expect(ask({})).toBe("");
+    expect(ask({}, true)).toBe("?status=closed");
+    expect(readList({}, false)).toMatchObject({ sort: "capacity", dir: "desc", page: 0 });
+    expect(readList({ sort: "out" }, false).dir).toBe("asc");
+  });
+
+  it("carries every parameter the server takes, the page from 1 in the address, 0 to the server", () => {
+    expect(
+      ask({
+        sort: "cltv",
+        dir: "desc",
+        q: " bfx ",
+        peer: PEER.toUpperCase(),
+        state: "here",
+        page: "3",
+      }),
+    ).toBe(`?sort=cltv&dir=desc&q=bfx&peer=${PEER}&state=here&page=2`);
+    expect(ask({ sort: "lived", dir: "asc", kind: "penalty", page: "2" }, true)).toBe(
+      "?status=closed&sort=lived&dir=asc&kind=penalty&page=1",
+    );
+  });
+
+  it("asks for a fee row as its run of the server's buckets", () => {
+    expect(ask({ fee: "out:10" })).toBe("?fee=out%3A10-40");
+    expect(ask({ fee: "in:1" })).toBe("?fee=in%3A1-9");
+    expect(ask({ fee: "out:0" })).toBe("?fee=out%3A0");
+    expect(ask({ fee: "out:100" })).toBe("?fee=out%3A100");
+    expect(ask({ fee: "out:200" })).toBe("?fee=out%3A200-400");
+    expect(ask({ fee: "in:none" })).toBe("?fee=in%3Anone");
+    expect(ask({ fee: "out:10000" })).toBe("?fee=out%3A10000-4294967000");
+    expect(rowBuckets(5000)).toBe("5000-9000");
+  });
+
+  it("reads what the server would refuse as unset, so an edited link still shows a list", () => {
+    const bad = [
+      { sort: "fee" },
+      { dir: "up" },
+      { state: "Active" },
+      { fee: "out:15" },
+      { fee: "up:10" },
+      { peer: "03" },
+      { page: "0" },
+      { page: "4002" },
+      { page: "2.5" },
+      { kind: "force" },
+      { q: "x".repeat(67) },
+      { q: "\u0007" },
+    ];
+    expect(bad.map((b) => ask(b))).toStrictEqual(bad.map(() => ""));
+    // A closed list takes no state or fee, an open one no kind.
+    expect(ask({ state: "here", fee: "out:0", sort: "out" }, true)).toBe("?status=closed");
+  });
+
+  it("strips control characters from the filter and counts code points as the server does", () => {
+    expect(cleanFilter(" a\u0000b ")).toBe("ab");
+    expect(cleanFilter("⚡".repeat(66))).toBe("⚡".repeat(66));
+    expect(cleanFilter("⚡".repeat(67))).toBe("");
+  });
+
+  it("reads the view, Channels by default", () => {
+    expect(readView({})).toBe("channels");
+    expect(readView({ view: "fees" })).toBe("fees");
+    expect(readView({ view: ["closed", "fees"] })).toBe("closed");
+    expect(readView({ view: "map" })).toBe("channels");
+  });
+
+  it("writes a view's address with a change, leaving out what is unset", () => {
+    expect(viewHref("/n", { sort: "out", page: "3" }, { peer: PEER, page: undefined })).toBe(
+      `/n?sort=out&peer=${PEER}`,
+    );
+    expect(viewHref("/n", { state: "here" }, { state: undefined })).toBe("/n");
+  });
+});
+
+describe("a node's week", () => {
+  const now = 1_800_000_000;
+  const h = (from: number | null, times: number[]) => ({
+    from,
+    points: times.map((t, i) => ({ time: t, channels: 10 + i, capacity: 1000 + i })),
+  });
+
+  it("takes the last point a week before now", () => {
+    expect(
+      weekAgo(h(now - 30 * 86_400, [now - 9 * 86_400, now - 7 * 86_400, now - 86_400]), now),
+    ).toStrictEqual({
+      time: now - 7 * 86_400,
+      channels: 11,
+      capacity: 1001,
+    });
+  });
+
+  it("gives nothing where the record is younger than a week, rather than a wrong change", () => {
+    expect(weekAgo(h(now - 6 * 86_400, [now - 5 * 86_400]), now)).toBeNull();
+    expect(weekAgo(h(null, [now]), now)).toBeNull();
+    // The record began in time, but its first point came after the week's start.
+    expect(weekAgo(h(now - 7.5 * 86_400, [now - 6 * 86_400]), now)).toBeNull();
+  });
+
+  it("says a change in words and by how much, never by colour", () => {
+    expect(changeWords(110, 100, String)).toBe("↑ Up 10 (10.0%)");
+    expect(changeWords(99, 100, String)).toBe("↓ Down 1 (1.0%)");
+    expect(changeWords(100, 100, String)).toBe("No change");
+    expect(changeWords(10_001, 10_000, String)).toBe("↑ Up 1 (<0.1%)");
+    expect(changeWords(5, 0, String)).toBe("↑ Up 5");
+  });
+});
+
+describe("a node's words", () => {
+  it("words each sort for what it sorts, and says how its column runs on screen", () => {
+    expect(sortName("capacity", "desc")).toBe("Capacity, largest first");
+    expect(sortName("age", "desc")).toBe("Age, oldest first");
+    expect(sortName("age", "asc")).toBe("Age, youngest first");
+    expect(sortName("cltv", "asc")).toBe("CLTV delta, this node, lowest first");
+    expect(sortName("update", "desc")).toBe("Last policy update, newest first");
+    expect(sortName("closed", "desc")).toBe("Closed, newest first");
+    expect(sortName("fee", "asc")).toBe("Closing fee, lowest first");
+    expect(sortName("lived", "desc")).toBe("Lived, longest first");
+    // The update column shows how long ago: newest first is its smallest first.
+    expect(shownDir("update", "desc")).toBe("asc");
+    expect(shownDir("age", "desc")).toBe("desc");
+  });
+
+  it("writes ranks as ordinals", () => {
+    expect([1, 2, 3, 4, 11, 12, 13, 21, 22, 101, 111, 1234].map((n) => ordinal(n))).toStrictEqual([
+      "1st",
+      "2nd",
+      "3rd",
+      "4th",
+      "11th",
+      "12th",
+      "13th",
+      "21st",
+      "22nd",
+      "101st",
+      "111th",
+      "1\u202F234th",
+    ]);
+  });
+
+  it("writes an age in hours up to two days, then in days", () => {
+    expect(ageShort(5 * 3600 + 59)).toBe("5 h");
+    expect(ageShort(48 * 3600)).toBe("48 h");
+    expect(ageShort(49 * 3600)).toBe("2 d");
+    expect(ageShort(-10)).toBe("0 h");
+  });
+
+  it("names a row's state from its policies: a missing one says whose, never disabled", () => {
+    const p = openChannel(0).own_policy as Policy;
+    const off = { ...p, enabled: false };
+    const word = (own: Policy | null, peer: Policy | null) =>
+      rowState({ own_policy: own, peer_policy: peer }).word;
+    expect(word(p, p)).toBe("Enabled");
+    expect(word(off, p)).toBe("Disabled by this node");
+    expect(word(p, off)).toBe("Disabled by the peer");
+    expect(word(off, off)).toBe("Disabled both ways");
+    expect(word(p, null)).toBe("Peer policy missing");
+    expect(word(null, p)).toBe("Own policy missing");
+    expect(word(off, null)).toBe("Peer policy missing");
+    expect(word(null, null)).toBe("No policy");
+    expect(rowState({ own_policy: p, peer_policy: null }).tone).toBe("muted");
+    expect(rowState({ own_policy: off, peer_policy: p }).short).toBe("Off here");
+  });
+
+  it("reads a node with no policy one way, and one whose every rate refuses to route", () => {
+    const none = { median: null, weighted: null, lowest: null, highest: null, policies: 0 };
+    const node = acinq();
+    const out = node.figures.fee_rates.outgoing;
+    const figures = (outgoing: unknown, incoming: unknown) => ({
+      ...node,
+      figures: { ...node.figures, fee_rates: { outgoing, incoming } },
+    });
+    // The server's own answer for a way with no policy (crates/server lightning tests).
+    expect(isNodeDetail(figures(none, none))).toBe(true);
+    expect(isNodeDetail(figures({ ...out, weighted: null }, none))).toBe(true);
+    expect(isNodeDetail(figures({ ...out, median: "1" }, none))).toBe(false);
+    // When its policies last changed: a time, or none with no policy.
+    const updated = (t: unknown) => ({
+      ...node,
+      figures: { ...node.figures, last_policy_update: t },
+    });
+    expect(isNodeDetail(updated(null))).toBe(true);
+    expect(isNodeDetail(updated("1794715678"))).toBe(false);
+  });
+
+  it("reads a page of open channels, and refuses one whose rows are not its shape", () => {
+    const page = acinq().open_channels;
+    expect(isOpenPage(page)).toBe(true);
+    expect(isOpenPage({ ...page, channels: [{ ...page.channels[0], op_state: "on" }] })).toBe(
+      false,
+    );
+    expect(isOpenPage({ ...page, per_page: 0 })).toBe(false);
   });
 });

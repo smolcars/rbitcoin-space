@@ -36,6 +36,7 @@ describe("subsidy", () => {
   it("uses each network's interval", () => {
     expect(HALVING_INTERVAL.signet).toBe(210_000);
     expect(HALVING_INTERVAL.testnet4).toBe(210_000);
+    expect(HALVING_INTERVAL.testnet5).toBe(210_000);
     expect(subsidy(149, HALVING_INTERVAL.regtest)).toBe(5_000_000_000);
     expect(subsidy(150, HALVING_INTERVAL.regtest)).toBe(2_500_000_000);
     expect(subsidy(301, HALVING_INTERVAL.regtest)).toBe(1_250_000_000);

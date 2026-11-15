@@ -364,24 +364,6 @@
   .ln-close__title {
     font-weight: var(--weight-bold);
   }
-  .ln-sure {
-    font-size: var(--text-sm);
-    font-weight: var(--weight-medium);
-  }
-
-  .ln-badge {
-    display: inline-flex;
-    align-items: center;
-    padding: 0 var(--space-3);
-    border: 1px solid var(--color-line-strong);
-    border-radius: var(--radius-pill);
-    font-size: var(--text-sm);
-    font-weight: var(--weight-medium);
-    vertical-align: middle;
-  }
-  .ln-badge--closed {
-    border-style: dashed;
-  }
   .ln-tabs {
     display: flex;
     flex-wrap: wrap;
@@ -403,10 +385,6 @@
 
   /* A node's fee rates: a row per range of rates, the cheapest first, two bars in each on one
      scale, what it charges over what its peers charge, each with its count. */
-  .ln-fees__answer {
-    max-width: 72ch;
-    margin: 0 0 var(--space-3);
-  }
   .ln-fees {
     margin: 0;
     container-type: inline-size;
@@ -565,8 +543,7 @@
 }
 
 @layer pages {
-  /* A channel's two ends side by side under its capacity. */
-  /* A term in magnitude, a button that shows the exact msat in place: drawn as the figure. */
+  /* A term, a button that shows the exact msat in place: drawn as the figure. */
   .ln-msat {
     padding: 0;
     border: 0;
@@ -580,83 +557,11 @@
     text-decoration-thickness: 1px;
     text-underline-offset: 0.2em;
   }
-  .ln-range {
-    display: flex;
-    flex-wrap: wrap;
-    column-gap: var(--space-2);
-  }
-  /* On a phone a range takes two lines, a line apart: the first figure's target reaches up and the
-     last's down, so each is a thumb high and neither covers the other. */
   @media (pointer: coarse) {
     /* A term starts its cell, where the table's edge would cut a target round it: it reaches on. */
     .ln-msat::before {
       inset-inline: 0 min(0px, 100% - var(--touch));
     }
-    .ln-range > .ln-msat:first-of-type::before {
-      inset-block: calc(1lh - var(--touch)) 0;
-    }
-    .ln-range > .ln-msat:last-of-type::before {
-      inset-block: 0 calc(1lh - var(--touch));
-    }
-  }
-  .ln-range__to {
-    color: var(--color-text-muted);
-  }
-  .ln-between {
-    display: grid;
-    gap: var(--space-1);
-    font-size: var(--text-md);
-    font-weight: var(--weight-regular);
-  }
-  /* Two nodes, each a name over its key: room for each name's target (above). */
-  @media (pointer: coarse) {
-    .ln-between {
-      row-gap: var(--space-2);
-    }
-  }
-  /* The two ends' terms in one table, read across: fixed columns whose text wraps, so two long
-     names never widen it past a phone. */
-  .ln-policies {
-    table-layout: fixed;
-  }
-  .ln-policies :is(th, td) {
-    overflow-wrap: anywhere;
-    overflow: hidden;
-  }
-  /* A name and its key in a column narrower than they are: both cut, the whole in their titles. */
-  .ln-policies thead :is(.ln-node, .ln-node *, .hash, .hash__text) {
-    min-width: 0;
-    max-width: 100%;
-  }
-  .ln-policies thead .hash__text {
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  /* Each term's name, a row of its own above its two figures. */
-  .ln-policies__term th {
-    padding: var(--space-3) 0 0;
-    border-top: 1px solid var(--color-line);
-    color: var(--color-text-muted);
-    font-weight: var(--weight-regular);
-    white-space: normal;
-  }
-  .ln-policies__term + tr td {
-    padding-top: var(--space-1);
-    border-top: 0;
-  }
-  .ln-policies td {
-    white-space: normal;
-    vertical-align: top;
-    /* The exact msat opens above its figure, over the cells beside it. */
-    overflow: visible;
-  }
-  /* A figure and its unit stay one: "999 999 ppm", "2 016 blocks". */
-  .ln-policies td .num {
-    white-space: nowrap;
-  }
-  .ln-policies thead th {
-    vertical-align: bottom;
-    white-space: normal;
   }
 }
 
@@ -699,5 +604,1211 @@
   .ln-nav__item:is([aria-current="page"], [aria-current="location"]) {
     color: var(--color-text);
     box-shadow: inset 0 -2px 0 var(--color-accent);
+  }
+}
+
+/* The channel page: its tags, the two lanes, the fee for a hop, the policies and its life. */
+@layer pages {
+  /* As tall as its text, so it grows with a reader's text size: 14 px beside a tag's 14 px words. */
+  .ln-icon {
+    flex: none;
+    width: 1em;
+    height: 1em;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .ln-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    min-width: 0;
+    max-width: 100%;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-regular);
+    color: var(--color-text);
+  }
+  /* A long word may break, hyphenated, where nothing else fits; a figure never does. */
+  .ln-tag > span {
+    min-width: 0;
+    hyphens: auto;
+  }
+  .ln-tag--positive .ln-icon {
+    color: var(--color-positive);
+  }
+  .ln-tag--caution .ln-icon {
+    color: var(--ln-caution);
+  }
+  .ln-tag--negative .ln-icon {
+    color: var(--color-negative);
+  }
+  .ln-tag--muted .ln-icon {
+    color: var(--color-text-muted);
+  }
+  /* A closed channel's state: a dashed pill, as a projected block is provisional. */
+  .ln-tag--pill {
+    padding: 0 var(--space-3);
+    border: 1px dashed var(--color-line-strong);
+    border-radius: var(--radius-pill);
+    font-weight: var(--weight-medium);
+  }
+
+  /* A figure is one piece, its unit with it, at any text size: a line breaks between figures
+     ("1 ppm" + "1 sat"), never inside one. Its digit groups are joined by no-break spaces. */
+  :is(.ln-chan, .ln-lanes, .ln-hop, .ln-outcome, .ln-life, .ln-terms) .num:not(time) {
+    white-space: nowrap;
+  }
+  /* A long msat figure's magnitude, shown in its place only where the room is narrowest (below). */
+  .ln-fig__short {
+    display: none;
+  }
+  /* A fee's well narrower than its longest exact figure needs at its size (19 characters at
+     --text-xl, about 18em with padding), with a fifth to spare: its long figures in magnitude. */
+  @container (max-width: 22em) {
+    .ln-hop__way .ln-fig--long > .ln-fig__exact {
+      display: none;
+    }
+    .ln-hop__way .ln-fig--long > .ln-fig__short {
+      display: inline;
+    }
+  }
+  /* Names are the one thing here that may break anywhere: a figure never does. */
+  .ln bdi {
+    overflow-wrap: anywhere;
+  }
+
+  .ln-chan {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-3);
+  }
+  /* A name and key never wider than their room, at any text size: the name cut, whole in its title. */
+  .ln-chan :is(.ln-node, .ln-node__name),
+  .ln-end :is(.ln-node, .ln-node__name) {
+    max-width: 100%;
+  }
+  .ln-chan__title {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-4);
+  }
+  .ln-chan__title h1 {
+    margin: 0;
+    min-width: 0;
+  }
+  /* Tabular like a figure, but free to wrap after each "x" (ChannelId). */
+  .ln-chan__id {
+    font-variant-numeric: tabular-nums slashed-zero;
+  }
+  .ln-identity .ln-chan__line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-1) var(--space-5);
+    color: var(--color-text);
+  }
+  .ln-chan__line strong {
+    font-size: var(--text-lg);
+  }
+  .ln-chan__between {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-1) var(--space-2);
+    min-width: 0;
+  }
+  .ln-chan__ids {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-5);
+    /* Room for the copy button's "Copied" above it, clear of the figures. */
+    margin: var(--space-5) 0 0;
+    font-size: var(--text-xs);
+  }
+  .ln-chan__ids > div {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    column-gap: var(--space-2);
+    min-width: 0;
+  }
+  .ln-chan__ids dt {
+    color: var(--color-text-muted);
+  }
+  .ln-chan__ids dd {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    margin: 0;
+    min-width: 0;
+  }
+
+  /* How it ended: an item a close, a sweep or what came next. */
+  .ln-outcome {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-4);
+  }
+  .ln-outcome__item {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-1);
+    min-width: 0;
+    max-width: 80ch;
+    padding-left: var(--space-4);
+    border-left: 2px solid var(--color-line);
+  }
+  .ln-outcome__item p {
+    margin: 0;
+  }
+  .ln-outcome__what {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1) var(--space-4);
+    font-weight: var(--weight-medium);
+  }
+  .ln-outcome__what .ln-tag {
+    flex-wrap: wrap;
+  }
+  .ln-outcome__tx {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--text-sm);
+  }
+
+  /* Who charges what: the two ends at the sides, a lane each way between them. */
+  .ln-lanes {
+    display: grid;
+    grid-template-columns: minmax(8rem, 13rem) minmax(0, 1fr) minmax(8rem, 13rem);
+    grid-template-areas: "one lanes two";
+    align-items: center;
+    gap: var(--space-4);
+  }
+  .ln-end {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-1);
+    min-width: 0;
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-m);
+    background: var(--color-surface-sunken);
+  }
+  .ln-end > * {
+    min-width: 0;
+  }
+  .ln-end--one {
+    grid-area: one;
+  }
+  .ln-end--two {
+    grid-area: two;
+    text-align: right;
+  }
+  .ln-end--two .ln-node {
+    align-items: flex-end;
+  }
+  .ln-end__tag {
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+  }
+  .ln-lanes__list {
+    grid-area: lanes;
+    display: grid;
+    gap: var(--space-5);
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .ln-lane {
+    --lane: var(--series-1);
+    display: grid;
+    justify-items: center;
+    gap: 2px;
+    min-width: 0;
+    text-align: center;
+  }
+  .ln-lane--1 {
+    --lane: var(--series-1);
+  }
+  .ln-lane--2 {
+    --lane: var(--series-2);
+  }
+  .ln-lane p {
+    max-width: 100%;
+    margin: 0;
+  }
+  .ln-lane__track {
+    position: relative;
+    width: 100%;
+    height: 14px;
+    order: 2;
+  }
+  .ln-lane__line {
+    position: absolute;
+    top: 6px;
+    left: 0;
+    right: 10px;
+    border-top: 3px solid var(--lane);
+  }
+  .ln-lane__head {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 14px;
+    height: 14px;
+    background: var(--lane);
+    clip-path: polygon(0 0, 100% 50%, 0 100%);
+  }
+  .ln-lane--2 .ln-lane__line {
+    left: 10px;
+    right: 0;
+  }
+  .ln-lane--2 .ln-lane__head {
+    left: 0;
+    right: auto;
+    clip-path: polygon(100% 0, 0 50%, 100% 100%);
+  }
+  /* Not advertised as enabled: the lane dashed and grey. */
+  .ln-lane--shut .ln-lane__line {
+    border-top-style: dashed;
+    border-top-color: var(--color-line-strong);
+  }
+  .ln-lane--shut .ln-lane__head {
+    background: var(--color-line-strong);
+  }
+  .ln-lane__gate {
+    position: absolute;
+    top: -5px;
+    left: 50%;
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    margin-left: -12px;
+    border-radius: 50%;
+    background: var(--color-surface);
+    color: var(--ln-caution);
+  }
+  .ln-lane__gate .ln-icon {
+    width: 18px;
+    height: 18px;
+  }
+  .ln-lane__who {
+    order: 1;
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+  .ln-lane__who strong {
+    color: var(--color-text);
+    font-weight: var(--weight-bold);
+  }
+  .ln-lane__fee {
+    order: 3;
+    font-size: var(--text-xl);
+    font-weight: var(--weight-bold);
+    letter-spacing: var(--tracking-tight);
+  }
+  .ln-lane__plus {
+    color: var(--color-text-muted);
+    font-weight: var(--weight-regular);
+  }
+  .ln-lane__note {
+    order: 4;
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+  }
+  .ln-lane--shut .ln-lane__fee {
+    color: var(--color-text-muted);
+  }
+
+  /* The fee for one hop. */
+  .ln-hop {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-3);
+  }
+  .ln-hop > * {
+    min-width: 0;
+  }
+  .ln-hop__field {
+    display: grid;
+    gap: var(--space-1);
+    max-width: min(100%, 16rem);
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+  .ln-input {
+    width: 100%;
+    min-height: 36px;
+    padding: var(--space-1) var(--space-3);
+    border: 1px solid var(--color-line-strong);
+    border-radius: var(--radius-m);
+    background: var(--color-surface-sunken);
+    color: var(--color-text);
+    font: inherit;
+    font-size: var(--text-lg);
+    text-align: right;
+  }
+  @media (pointer: coarse) {
+    .ln-input {
+      min-height: var(--touch);
+    }
+  }
+  .ln-hop__error {
+    min-height: 1.5em;
+    margin: 0;
+    font-size: var(--text-sm);
+    color: var(--color-negative);
+  }
+  .ln-hop__error:empty {
+    min-height: 0;
+  }
+  .ln-hop__ways {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+    gap: var(--space-3);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .ln-hop__way {
+    /* Its long figures follow its own width (below), whatever the text size or fonts. */
+    container-type: inline-size;
+    display: grid;
+    justify-items: start;
+    gap: var(--space-1);
+    min-width: 0;
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-m);
+    background: var(--color-surface-sunken);
+    box-shadow: inset 3px 0 0 var(--lane);
+  }
+  .ln-hop__dir {
+    max-width: 100%;
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+  .ln-hop__fee {
+    font-size: var(--text-xl);
+  }
+  .ln-hop__none {
+    font-weight: var(--weight-medium);
+  }
+  .ln-hop__work {
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+  }
+  .ln-hop__limit {
+    align-items: flex-start;
+    font-weight: var(--weight-medium);
+  }
+  .ln-hop__limit .ln-icon {
+    margin-top: 0.2em;
+  }
+
+  /* The policies side by side, with their difference. */
+  .ln-terms thead th {
+    color: var(--color-text);
+  }
+  .ln-terms th[scope="row"] {
+    padding: var(--space-2) var(--space-2) var(--space-2) 0;
+    border-top: 1px solid var(--color-line);
+    font-weight: var(--weight-regular);
+    color: var(--color-text-muted);
+  }
+  .ln-terms__diff {
+    color: var(--color-text-muted);
+  }
+  .ln-terms__under {
+    display: none;
+  }
+
+  /* The channel's life: numbered steps down a rule; the step it is at ringed in the accent. */
+  .ln-life {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    counter-reset: step;
+  }
+  .ln-step {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-1);
+    /* The number's circle is drawn in px, so its indent does not grow with the text. */
+    padding: 0 0 var(--space-5) 48px;
+    counter-increment: step;
+  }
+  .ln-step::before {
+    content: counter(step);
+    position: absolute;
+    top: -1px;
+    left: 0;
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    border: 1.5px solid var(--color-line-strong);
+    border-radius: 50%;
+    background: var(--color-surface);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+  }
+  .ln-step::after {
+    content: "";
+    position: absolute;
+    top: 30px;
+    bottom: 2px;
+    left: 14px;
+    border-left: 1.5px solid var(--color-line);
+  }
+  .ln-step--last::after {
+    display: none;
+  }
+  .ln-step--current::before {
+    border-color: var(--color-accent);
+    border-style: dashed;
+  }
+  .ln-step--last {
+    padding-bottom: 0;
+  }
+  .ln-step__title {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 var(--space-3);
+    margin: 0;
+  }
+  .ln-step__time {
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+  .ln-step__body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: start;
+    gap: var(--space-1);
+    min-width: 0;
+    font-size: var(--text-sm);
+  }
+
+  /* The ends side by side over the lanes, which then have the panel's width for their figures. */
+  @media (max-width: 65em) {
+    .ln-lanes {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      grid-template-areas:
+        "one two"
+        "lanes lanes";
+      gap: var(--space-3);
+    }
+  }
+  @media (max-width: 40em) {
+    .ln-end {
+      padding: var(--space-2) var(--space-3);
+    }
+    .ln-lane__fee {
+      font-size: var(--text-lg);
+    }
+    /* No room for the fourth column: the difference sits under its term. */
+    .ln-terms__under {
+      display: block;
+      font-size: var(--text-xs);
+      white-space: normal;
+    }
+    .ln-terms th[scope="row"] {
+      white-space: normal;
+    }
+    /* Each term a row of its own over its two values, under the two ends' names: a term column
+       beside them left the values too little room for their longest figures in a wide font. */
+    .ln-terms thead tr,
+    .ln-terms tbody tr {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    }
+    .ln-terms thead th:first-child {
+      display: none;
+    }
+    .ln-terms tbody th {
+      grid-column: 1 / -1;
+      border-top: 1px solid var(--color-line);
+    }
+    .ln-terms td {
+      border-top: 0;
+      padding-block: var(--space-1);
+    }
+  }
+
+  /* A narrow phone, or a large text size: the ends stack, and each term is a row of its own over
+     its two values. */
+  @media (max-width: 22.5em) {
+    .ln-lanes {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas:
+        "one"
+        "two"
+        "lanes";
+    }
+    .ln-end--two {
+      text-align: left;
+    }
+    .ln-end--two .ln-node {
+      align-items: flex-start;
+    }
+    /* Narrower still, the two values one a line, each named for its node: two columns cannot
+       hold the longest exact limits (99 999 999.999 sats). */
+    .ln-terms thead {
+      display: none;
+    }
+    .ln-terms tbody tr {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .ln-terms td {
+      text-align: left;
+      white-space: normal;
+    }
+    .ln-terms td[data-end] {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0 var(--space-2);
+    }
+    .ln-terms td[data-end]::before {
+      content: attr(data-end);
+      max-width: 100%;
+      overflow-wrap: anywhere;
+      unicode-bidi: isolate;
+      color: var(--color-text-muted);
+      font-family: var(--font-sans);
+    }
+    /* A value a thumb high, so its exact amount's target never reaches over the next. */
+    @media (pointer: coarse) {
+      .ln-terms td[data-end] {
+        align-items: center;
+        min-height: var(--touch);
+        padding-block: 0;
+      }
+    }
+  }
+
+  /* Larger text still (a phone at 200%). */
+  @media (max-width: 15em) {
+    /* At 320 px with 200% text the page is 10em wide, and gutters and panel padding of 1rem a side
+       took 4em of it: half of each, so a figure has room whatever the reader's fonts. */
+    :is(.ln-channel, .ln-node-page) {
+      --gutter: var(--space-2);
+      --panel-pad: var(--space-2);
+    }
+    .ln-input {
+      padding-inline: var(--space-2);
+      font-size: var(--text-md);
+    }
+    /* Each step's number beside its title, and what it says the whole width beneath. */
+    .ln-step {
+      padding-left: 0;
+    }
+    .ln-step::after {
+      display: none;
+    }
+    .ln-step__title {
+      min-height: 28px;
+      padding-left: 40px;
+    }
+    .ln-step__body .hash {
+      flex-wrap: wrap;
+    }
+    /* The display figures (capacity, a lane's fee, a hop's fee) at the size of the text round
+       them, not above it, and the fee's well with less padding, so a whole "500 000 000 sats",
+       "1 000 000 ppm" or "100 001 sats" fits the narrow room. */
+    .ln-chan__line strong,
+    .ln-lane__fee,
+    .ln-hop__fee {
+      font-size: var(--text-sm);
+    }
+    .ln-hop__way {
+      padding-inline: var(--space-1);
+    }
+    /* No room for a long figure whole: its magnitude instead, the exact msat a press away. */
+    .ln-fig--long > .ln-fig__exact {
+      display: none;
+    }
+    .ln-fig--long > .ln-fig__short {
+      display: inline;
+    }
+  }
+}
+
+/* The node page, for its operator: the header, the views and their lists, the glance and what it
+   announces. A figure is one piece at every text size, as on the channel page: never broken inside
+   its digits (grouped with no-break spaces) nor parted from its unit; where its room is too narrow
+   it reads in magnitude (`Fig`). */
+@layer pages {
+  /* A chart's time is a phrase, free to wrap; a channel id wraps after an "x" (ChannelId). */
+  .ln-node-page .num:not(time, .ln-id, .chart__when) {
+    white-space: nowrap;
+  }
+  /* A card and the glance switch their longest figures (`ln-fig--longer`, past 16 characters) to
+     magnitude by their own width, so an ordinary long one ("500 000 000 sats") stays exact. */
+  .ln-node-card,
+  .ln-node-glance {
+    container-type: inline-size;
+  }
+  @container (max-width: 22em) {
+    :is(.ln-node-card, .ln-node-glance) .ln-fig--longer > .ln-fig__exact {
+      display: none;
+    }
+    :is(.ln-node-card, .ln-node-glance) .ln-fig--longer > .ln-fig__short {
+      display: inline;
+    }
+  }
+  .ln-node-head {
+    display: grid;
+    gap: var(--space-1);
+  }
+  .ln-node-head h1 {
+    margin: 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .ln-node-head__title {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 var(--space-3);
+  }
+  .ln-node-head__line {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 var(--space-5);
+    margin: 0;
+    font-size: var(--text-sm);
+  }
+  .ln-node-head__line strong {
+    font-size: var(--text-md);
+  }
+
+  /* One view at a time, chosen by tabs that are links, the choice in the address. */
+  .ln-node-views {
+    display: grid;
+    gap: var(--space-4);
+  }
+  .ln-node-views > * {
+    min-width: 0;
+  }
+  .ln-node-tabs ul {
+    width: max-content;
+    max-width: 100%;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+  .ln-node-tabs__n {
+    margin-left: var(--space-2);
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+  }
+
+  /* The list's controls: the text filter, the state or kind chips, a phone's sort. */
+  .ln-node-lead {
+    margin: 0 0 var(--space-2);
+  }
+  .ln-node-filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
+    margin-bottom: var(--space-3);
+  }
+  .ln-node-filter {
+    flex: 1 1 14rem;
+    min-width: 0;
+    max-width: 22rem;
+  }
+  .ln-node-input {
+    width: 100%;
+    min-height: 36px;
+    padding: var(--space-1) var(--space-3);
+    border: 1px solid var(--color-line-strong);
+    border-radius: var(--radius-m);
+    background: var(--color-surface-sunken);
+    color: var(--color-text);
+    font: inherit;
+    font-size: var(--text-sm);
+    text-overflow: ellipsis;
+  }
+  .ln-node-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+  .ln-node-chip {
+    border-radius: var(--radius-pill);
+    color: var(--color-text);
+    text-decoration: none;
+  }
+  .ln-node-chip[aria-current="true"] {
+    background: var(--color-accent-soft);
+    border-color: var(--color-accent);
+  }
+  .ln-node-chip .ln-tag {
+    font-weight: var(--weight-medium);
+  }
+  .ln-node-sortpick {
+    display: none;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+    max-width: 100%;
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+  .ln-node-sortpick select {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .ln-node-total {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-4);
+    min-height: 1.75rem;
+    margin: 0 0 var(--space-2);
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+  .ln-node-total strong {
+    color: var(--color-text);
+  }
+  .ln-node-active {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0 var(--space-3);
+    max-width: 100%;
+    padding: 0 var(--space-1) 0 var(--space-3);
+    border-radius: var(--radius-m);
+    background: var(--color-accent-soft);
+    color: var(--color-text);
+    overflow-wrap: anywhere;
+  }
+  .ln-node-active__clear {
+    display: inline-flex;
+    align-items: center;
+    min-height: 28px;
+    padding: 0 var(--space-2);
+  }
+  .ln-node-peerbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-4);
+    margin: 0 0 var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-m);
+    background: var(--color-accent-soft);
+    font-size: var(--text-sm);
+    overflow-wrap: anywhere;
+  }
+
+  /* A row in two lines, about 48 px, so a screen holds fourteen and more. */
+  .ln-node-list .table td {
+    padding-block: var(--space-1);
+    line-height: 1.3;
+    vertical-align: middle;
+  }
+  .ln-node-row2 {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
+  }
+  .ln-node-row2--end {
+    align-items: flex-end;
+  }
+  /* Each of a row's links at least 24 px tall, so two lines of them are two targets. */
+  .ln-node-row2 a {
+    display: inline-block;
+    line-height: 24px;
+  }
+  .ln-node-row2__line {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0 var(--space-2);
+    white-space: nowrap;
+  }
+  .ln-node-peer {
+    display: inline-block;
+    max-width: 14rem;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    vertical-align: bottom;
+    font-weight: var(--weight-medium);
+  }
+  .ln-node-together {
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+    white-space: nowrap;
+  }
+  .ln-node-continued {
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+  }
+  /* A rate ends on one vertical line; its base fee has a slot of its own after it. */
+  .ln-node-fee {
+    display: inline-grid;
+    grid-template-columns: auto 5em;
+    justify-items: end;
+    column-gap: var(--space-1);
+  }
+  .ln-node-fee__base {
+    justify-self: start;
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+  }
+
+  /* A phone's channels: cards that fit the width, three short lines, nothing to swipe. */
+  .ln-node-cards {
+    display: grid;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    border-top: 1px solid var(--color-line);
+  }
+  .ln-node-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+    min-width: 0;
+    padding: var(--space-2) 0;
+    border-bottom: 1px solid var(--color-line);
+  }
+  .ln-node-card p {
+    margin: 0;
+  }
+  /* One line: a long name gives way to the channel's id, cut with its whole in its title. */
+  .ln-node-card__id {
+    display: flex;
+    align-items: baseline;
+    gap: 0 var(--space-2);
+    min-width: 0;
+  }
+  .ln-node-card__id .ln-node-peer {
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+  .ln-node-card__id .ln-node-together {
+    flex: none;
+  }
+  .ln-node-card__chan {
+    flex: none;
+    margin-left: auto;
+    font-size: var(--text-sm);
+  }
+  /* Out and in side by side in two equal halves, so they line up down the list. */
+  .ln-node-card__fees {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0 var(--space-2);
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+  }
+  /* A card's capacity reads as the mockup set it: its unit small and quiet, the figure whole. */
+  .ln-node-card .ln-fig__unit,
+  .ln-node-card__k {
+    font-family: var(--font-sans);
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+  }
+  .ln-node-card__state {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0 var(--space-2);
+    font-size: var(--text-sm);
+  }
+  .ln-node-card__state .num {
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+  }
+  /* Grows with the text, so the chevron stays inside its outline; a thumb's target on a phone
+     (`.tap`) without growing the card. */
+  .ln-node-card__toggle {
+    display: inline-grid;
+    place-items: center;
+    margin-left: auto;
+    min-width: 1.75em;
+    min-height: 1.5em;
+    padding: 0 0.3em;
+    line-height: 1;
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-m);
+    background: none;
+    color: var(--color-text-muted);
+    font: inherit;
+    cursor: pointer;
+  }
+  .ln-node-card__list {
+    display: grid;
+    gap: var(--space-1);
+    margin: var(--space-2) 0 0;
+    font-size: var(--text-sm);
+  }
+  .ln-node-card__list > div {
+    display: grid;
+    grid-template-columns: minmax(0, 9rem) minmax(0, 1fr);
+    gap: var(--space-2);
+  }
+  .ln-node-card__list dt {
+    color: var(--color-text-muted);
+  }
+  .ln-node-card__list dd {
+    margin: 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .ln-node-card__go {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 var(--space-5);
+  }
+  /* In a narrow card each term goes over its value, and a key breaks where it must. */
+  @container (max-width: 26em) {
+    .ln-node-card__list > div {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 0;
+    }
+  }
+  .ln-node-card__list .ln-key {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .ln-node-card__list .hash {
+    flex-wrap: wrap;
+    max-width: 100%;
+  }
+
+  /* Fees: the figures beside the histogram, whose bars open the channels they count. */
+  .ln-node-fees {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+    align-items: start;
+    gap: var(--space-6);
+  }
+  .ln-node-fees > * {
+    min-width: 0;
+  }
+  .ln-node-ratio {
+    margin: var(--space-3) 0 0;
+    font-size: var(--text-sm);
+  }
+  .ln-fees__go {
+    border-radius: var(--radius-s);
+    color: inherit;
+    text-decoration: none;
+  }
+  @media (hover: hover) {
+    .ln-fees__go:hover {
+      background: var(--color-surface-sunken);
+    }
+    .ln-fees__go:hover .ln-fees__n {
+      color: var(--color-text);
+    }
+  }
+  /* Out and in stacked: a way with no channels takes no line beside one that has some. */
+  @container not (min-width: 30rem) {
+    .ln-fees__bars:has(.ln-fees__go) .ln-fees__bar:not(.ln-fees__go) {
+      display: none;
+    }
+  }
+
+  /* At a glance and what it announces. */
+  .ln-node-glance > * {
+    flex-basis: 9.5rem;
+  }
+  .ln-node-change {
+    display: block;
+  }
+  .ln-node-kinds {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 var(--space-3);
+  }
+  .ln-node-kinds .ln-tag {
+    color: var(--color-text-muted);
+  }
+  .ln-node-identity {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+  }
+  /* As a page subject's hash: the copy button beside the text's first line, so its "Copied" never
+     covers the string; under it only where nothing else fits. */
+  .ln-node-connect {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+    max-width: 100%;
+  }
+  .ln-node-connect__text {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    font-size: 0.8125rem;
+  }
+  .ln-node-colour {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 2px var(--space-3) 2px var(--space-1);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-pill);
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+  }
+  .ln-node-colour__swatch {
+    width: 1em;
+    height: 1em;
+    border-radius: 50%;
+    background: var(--chip);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-text) 25%, transparent);
+  }
+
+  @media (pointer: coarse) {
+    .ln-node-input,
+    .ln-node-tabs .ln-picker__item {
+      min-height: var(--touch);
+    }
+  }
+  @media (max-width: 65em) {
+    .ln-node-fees {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+  @media (max-width: 40em) {
+    .ln-node-sortpick {
+      display: inline-flex;
+    }
+    .ln-node-filter {
+      max-width: none;
+    }
+    /* One row of chips that scrolls, its far edge faded, rather than three rows of them. */
+    .ln-node-chips {
+      flex-wrap: nowrap;
+      overflow-x: auto;
+    }
+    .ln-node-chip {
+      flex: none;
+    }
+  }
+  /* A narrow phone: the card keeps to four lines, so its freshness steps aside (it is under the
+     chevron, and a sort of its own). */
+  @media (max-width: 22.5em) {
+    .ln-node-card__upd {
+      display: none;
+    }
+  }
+
+  /* Text at 200% on a phone: every box takes the width whole; names, keys and tags wrap in their
+     own space, a unit may take the next line, and tables become labelled lists. */
+  @media (max-width: 15em) {
+    .ln-node-views :is(.ln-node-peer, .ln-key, .ln-tag, .ln-picker__item),
+    .ln-node-head .ln-key {
+      white-space: normal;
+    }
+    /* A key breaks anywhere, as a name does; a figure never does. */
+    .ln-node-page .ln-key {
+      overflow-wrap: anywhere;
+    }
+    /* The glance's display figures at the size of the text round them, as the channel page's. */
+    .ln-node-glance .ln-stat__value,
+    .ln-node-glance .ln-stat__value .amount {
+      font-size: var(--text-sm);
+    }
+    .ln-node-peer {
+      overflow-wrap: anywhere;
+    }
+    .ln-node-tabs ul {
+      flex-wrap: wrap;
+      width: auto;
+    }
+    .ln-node-chips {
+      flex-wrap: wrap;
+    }
+    /* A chip's count goes under its word rather than over it. */
+    .ln-node-chip {
+      flex: 0 1 auto;
+      flex-wrap: wrap;
+      max-width: 100%;
+    }
+    /* The whole hint in sight: "Peer or channel id". On a touch screen a field's own text stays
+       the page's size (global.css, so the browser never zooms into it); the hint takes a size of
+       its own. */
+    .ln-node-input {
+      padding-inline: var(--space-1);
+      font-size: var(--text-xs);
+    }
+    .ln-node-input::placeholder {
+      font-size: 0.7em;
+    }
+    .ln-node-connect {
+      flex-wrap: wrap;
+    }
+    .ln-node-card__fees,
+    .ln-node-card__list > div {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 0;
+    }
+    .ln-node-card__id {
+      flex-wrap: wrap;
+    }
+    .ln-node-card__chan {
+      flex: 0 1 auto;
+      margin-left: 0;
+    }
+    .ln-node-glance > * {
+      flex-basis: 100%;
+      min-width: 0;
+    }
+    .ln-node-fees .ln-fees__plot {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .ln-node-fees .ln-fees__label {
+      text-align: left;
+    }
+    .ln-node-views .table thead {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+    }
+    .ln-node-views :is(.table, .table tbody, .table tr) {
+      display: block;
+      width: 100%;
+    }
+    .ln-node-views .table tr {
+      position: relative;
+      padding: var(--space-2) 0;
+      border-bottom: 1px solid var(--color-line);
+    }
+    .ln-node-views .table :is(td, th):not(.table__gone) {
+      display: block;
+      padding: 0;
+      border: 0;
+      text-align: left;
+      white-space: normal;
+    }
+    /* Each figure after its column's name; the space lets a long one go under it. */
+    .ln-node-views .table td[data-label]:not(:first-child)::before {
+      content: attr(data-label) " ";
+      font-family: var(--font-sans);
+      font-size: var(--text-sm);
+      color: var(--color-text-muted);
+    }
   }
 }

@@ -204,6 +204,18 @@ function labelWidth(labels: readonly string[], el: Element | undefined): number 
   return widest;
 }
 
+/** How tall a tick label's line is, in px, measured as `labelWidth` measures. */
+function labelHeight(el: Element | undefined): number {
+  if (!el) return 0;
+  const ruler = document.createElement("span");
+  ruler.className = "chart__label chart__ruler";
+  ruler.textContent = "0";
+  el.append(ruler);
+  const h = ruler.getBoundingClientRect().height;
+  ruler.remove();
+  return Math.ceil(h);
+}
+
 interface AxisFrame {
   scale: Scale;
   ticks: number[];
@@ -325,12 +337,21 @@ export default function Chart(props: ChartProps) {
     const time = timeTicks(domain[0], domain[1], Math.max(2, Math.floor((right - left) / 84)));
     // Too narrow for ticks a reader can place (a phone): the axis names its two ends instead.
     const ends = right - left < 420 ? endLabels(domain[0], domain[1], right - left) : undefined;
+    // At a large text size the two may not fit side by side: each takes a line of its own, the
+    // first from the drawing's left edge and the last to its right, both under the axes' zeros,
+    // and the drawing grows by two lines.
+    const under =
+      ends === undefined ||
+      labelWidth([ends[0]], box) + labelWidth([ends[1]], box) + 8 <= right - left
+        ? 0
+        : labelHeight(box);
     const covered = props.dataFrom;
     // The median step on screen: samples far apart are few, and each is marked.
     const spread = (maxGap(xs) / 3) * ((right - left) / Math.max(1, domain[1] - domain[0]));
     return {
       w,
-      h,
+      h: h + 2 * under,
+      under,
       left,
       right,
       bottom,
@@ -642,7 +663,7 @@ export default function Chart(props: ChartProps) {
       <div
         class={["chart__plot", { "chart__plot--links": props.href !== undefined }]}
         ref={box}
-        style={{ "--h": `${height()}px` }}
+        style={{ "--h": `${frame()?.h ?? height()}px` }}
         tabindex="0"
         role="slider"
         aria-label={props.label}
@@ -816,10 +837,20 @@ export default function Chart(props: ChartProps) {
               >
                 {(ends) => (
                   <>
-                    <text class="chart__label" x={f().left} y={f().bottom + 18} text-anchor="start">
+                    <text
+                      class="chart__label"
+                      x={f().under > 0 ? 0 : f().left}
+                      y={f().under > 0 ? f().bottom + 1.2 * f().under : f().bottom + 18}
+                      text-anchor="start"
+                    >
                       {ends()[0]}
                     </text>
-                    <text class="chart__label" x={f().right} y={f().bottom + 18} text-anchor="end">
+                    <text
+                      class="chart__label"
+                      x={f().under > 0 ? f().w : f().right}
+                      y={f().under > 0 ? f().bottom + 2.2 * f().under : f().bottom + 18}
+                      text-anchor="end"
+                    >
                       {ends()[1]}
                     </text>
                   </>

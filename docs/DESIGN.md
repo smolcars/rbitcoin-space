@@ -39,7 +39,7 @@ The visual identity: logo, colour, type, spacing, motion, the fee ramp, the tile
 
 | Constraint | Why |
 |---|---|
-| No third-party requests: fonts, icons and scripts are self-hosted | Privacy, and the Content-Security-Policy is `default-src 'self'` |
+| No third-party requests: fonts, icons and scripts are self-hosted | Privacy, and the Content-Security-Policy is `default-src 'self'` (its one opt-in exception, Cloudflare's beacon, is [`SECURITY.md`](SECURITY.md) rule 15) |
 | Light and dark themes | Both are first-class |
 | Works at phone width | No horizontal page scroll |
 | WCAG AA contrast | Text 4.5:1, fee colours and controls 3:1, on every surface in both themes |
@@ -114,18 +114,28 @@ Series that are not fees take their own two colours, never a fee or status colou
 
 **Mining pools** are the one small set of categories on the site, and only in the pool-share charts, always named beside their colour. A colour belongs to a pool by name, not by rank, so a pool has one colour at every period and in the share bar, the weekly chart and their keys alike. Twelve pools have one (`COLOURED_POOLS` in `web/src/pages/mining/mining.ts`): the twelve that reach a period's top six over the last year and all of history, as of November 2026; revise the list when another one does. A period draws its own six largest of them, so the graphic agrees with the top of the table beside it, and counts every other pool as "Other pools" in `--pool-other`, a neutral grey; the table names them all. `--pool-1` to `--pool-12`, in the list's order (Foundry USA, AntPool, F2Pool, ViaBTC, SpiderPool, MARA Pool, Luxor, SecPool, Ocean.xyz, Poolin, BTC.com, Binance Pool): light `#2f6f9c`, `#9a6412`, `#7d4e8f`, `#3a7a5a`, `#a24f2e`, `#5563a8`, `#6b6e1f`, `#10787a`, `#9f495c`, `#673b1e`, `#205564`, `#967f0e`; dark `#6cb0dc`, `#d9a24c`, `#c193d6`, `#74bb94`, `#e0906d`, `#97a3e6`, `#acb165`, `#63bcbd`, `#e38a9a`, `#ad7859`, `#5290a3`, `#e2ca6a`. Muted, in hues around the wheel, each at least 3.9:1 on its panel (the least, the mustard of Binance Pool on white); the closest pairs differ by 0.054 to 0.07 in OKLab, as the blue and indigo of the first six always did, and the pools that rank together most often (the first six and Luxor) are the farthest apart. Neighbours in the bar have a seam of the panel between them.
 
+### Lightning
+
+`--ln-caution` (light `#c2410c`, dark `#fb923c`), an orange, marks caution on the Lightning pages: a direction disabled, a force close, an amount past what a channel forwards. It is not `--color-caution`, whose amber sits too close to the ochre of a channel's second direction (`--series-2`). Like the status tokens, it colours an icon beside a word, never the word alone; it reaches 3:1 on every surface (`contrast.test.ts`). "Enabled" takes the green of `--color-positive`, as confirmed does.
+
+Two ramps of Lightning's own, for drawings that colour channels (none yet; a node's map is to come), never for text and never the fee ramp's sat/vB colours:
+
+- **Forwarding rate**, ppm, quiet to strong: `--ln-ppm-1` to `-6`, light `#9399a0`, `#6c90a9`, `#4d82b3`, `#466eb8`, `#5255b6`, `#5c3bab`; dark `#646a70`, `#597f9b`, `#5b90c7`, `#7a9ce9`, `#a9a5ff`, `#d8aeff`. A grey through blue to violet that also steps in lightness, darker each step on a light page and lighter on a dark one, so neighbours part without hue: each step at least 1.15:1 from the last, the strongest 3:1 on every surface (`contrast.test.ts`).
+- **Age**, one teal, `--ln-age` (light `#0f766e`, dark `#26b3a1`, 3:1 on every surface), mixed into the panel in five steps, `--ln-age-1` (the youngest, the teal itself) to `-5` (20%), each at least 1.15:1 from the next against the panel.
+
 ### Network
 
-`<html data-network="mainnet|signet|testnet4|regtest">` sets `--color-network`.
+`<html data-network="mainnet|signet|testnet4|testnet5|regtest">` sets `--color-network`.
 
 | Token | Light | Dark |
 |---|---|---|
 | `--network-mainnet` | `#161b1e` | `#e6eaed` |
 | `--network-signet` | `#0b7285` | `#4fc3d9` |
 | `--network-testnet4` | `#8a5a00` | `#f0b43c` |
+| `--network-testnet5` | `#4f6d10` | `#a8d05a` |
 | `--network-regtest` | `#56616a` | `#9aa4ab` |
 
-Mainnet shows its name in the network switch and nothing else. Test networks add three signals: a slim band above the header, tinted with the network colour and underlined in it, whose words carry the warning ("Signet is a test network. Coins here have no value.") after a short hatched mark; the logo's crab and settled layers in the network colour; and the network switch outlined in the network colour. The page title is prefixed with the network name. Signet is teal so it never reads as a fee: the fee ramp ends in violet.
+Mainnet shows its name in the network switch and nothing else. Test networks add three signals: a slim band above the header, tinted with the network colour and underlined in it, whose words carry the warning ("Signet is a test network. Coins here have no value.") after a short hatched mark; the logo's crab and settled layers in the network colour; and the network switch outlined in the network colour. The page title is prefixed with the network name. Signet is teal so it never reads as a fee: the fee ramp ends in violet. Testnet 5 is moss green, a yellow-green well apart from testnet4's amber and signet's teal, and kept off violet for the same reason.
 
 ## Type
 
@@ -169,7 +179,7 @@ Weights: `--weight-regular` 400 for text, `--weight-medium` 500 for labels that 
 | Any figure | `font-variant-numeric: tabular-nums slashed-zero` (class `num`) | |
 | Grouping | Narrow no-break space (U+202F) every three digits, so numbers never wrap | `975 411`, `3 341 tx` |
 | BTC, exact | Eight decimals where accounting needs them (a transaction, an address, a block's fees). Trailing zeros in the muted colour at the same weight, so the number reads as one. Hover shows sats | `0.03500000`, with `00000` dimmed |
-| BTC, summary | Magnitude first (`formatBtcShort`, `Amount short`): whole bitcoins from 1 000, two decimals from 1, three significant digits below. The exact amount and sats in the title. An address's balance, received and sent are summaries too: each figure is a button whose title is the exact amount, and a tap or key opens it with a copy button that copies it to the satoshi. Every exact amount on the site (these, and a channel's msat terms) opens the same way: in a pop-up over the page, above its figure (below it where the room above is under the sticky header) and wholly on screen whatever column it opens from, moving nothing; one at a time, closed by Escape, a scroll, or a tap elsewhere, which only closes it, as with the network menu (a tap on another amount opens that one at once). A channel's msat terms copy as plain digits, their unit named in the button's label | `2 793 BTC`, `3.15 BTC`, `0.0225 BTC` |
+| BTC, summary | Magnitude first (`formatBtcShort`, `Amount short`): whole bitcoins from 1 000, two decimals from 1, three significant digits below. The exact amount and sats in the title. An address's balance, received and sent are summaries too: each figure is a button whose title is the exact amount, and a tap or key opens it with a copy button that copies it to the satoshi. Every exact amount on the site (these, and a channel's msat terms, which read as sats to the msat under a bitcoin and in magnitude above, and open in msat) opens the same way: in a pop-up over the page, above its figure (below it where the room above is under the sticky header) and wholly on screen whatever column it opens from, moving nothing; one at a time, closed by Escape, a scroll, or a tap elsewhere, which only closes it, as with the network menu (a tap on another amount opens that one at once). A channel's msat terms copy as plain digits, their unit named in the button's label | `2 793 BTC`, `3.15 BTC`, `0.0225 BTC` |
 | sats | Grouped integer | `167 sats` |
 | Fee rate | Two decimals under 10, one under 100, none above. A recommendation is rounded up at the same precision (`formatFeeRateUp`), never shown with more | `0.80 sat/vB` |
 | Size | One quantity, one unit family, everywhere: serialized size in B, kB, MB; virtual size in vB, kvB, MvB; weight in WU, kWU, MWU. The base unit under 10 000, then k or M (powers of 1 000) with two decimals (`formatSize`). A block's **size** is its serialized size; its virtual size is always written in vB units or labelled "virtual". The same block reads the same string on every page | `209 vB`, `1.69 MB`, `998.52 kvB`, `3.99 MWU` |
@@ -200,7 +210,7 @@ Relative time ("13 min ago", "1 day 23 h ago", "9 days ago": days lead from a da
 - **Radius follows hierarchy:** `--radius-s` 2 px for map rectangles and swatches, `--radius-m` 6 px for controls, tiles and wells, `--radius-l` 10 px for panels, `--radius-pill` for chips. Do not use one radius for everything.
 - **Sections are panels.** A `section` whose first child is a `SectionHeader` is a panel: `--color-surface`, a 1 px `--color-line` border, `--radius-l`, `--panel-pad` inside (`global.css`). A panel inside a panel is a group, not another card. Things that are not sections but read as one group take the class `panel` (the block's facts, its map). Headings sit at the top of the panel with no rule under them.
 - **Shadow:** `--shadow-panel`, a hairline in light and none in dark, under panels; `--shadow-pop` on floating things.
-- **Touch:** every control a thumb uses has a target of at least `--touch` (44 px) each way that no neighbour's covers. Small drawn buttons (copy, expand, theme) keep their size and get the target from an invisible margin on touch screens; so do links and figures in a line of text (`.tap` round a control, `.tap-line` on a line that cuts itself with an ellipsis, in `global.css`), so the target grows and the look does not. Two exceptions, both meant: a link inside a sentence, which the words around it place; and a phone's flow card, three short lines with a control on each, whose address and spending links are also in the inspector its details button opens: they keep their line's height, so no target in the card reaches over another. `targets.e2e.ts` holds the rule on every page type.
+- **Touch:** every control a thumb uses has a target of at least `--touch` (44 px) each way that no neighbour's covers. Small drawn buttons (copy, expand, theme) keep their size and get the target from an invisible margin on touch screens; so do links and figures in a line of text (`.tap` round a control, `.tap-line` on a line that cuts itself with an ellipsis, in `global.css`), so the target grows and the look does not. Exceptions, each meant: a link inside a sentence, which the words around it place; and a phone's flow card, three short lines with a control on each, whose address and spending links are also in the inspector its details button opens: they keep their line's height, so no target in the card reaches over another; and a node's channel card, whose first line's peer and channel are also under its chevron, a thumb's target there. `targets.e2e.ts` holds the rule on every page type.
 - **Tiles:** `--tile-w` 8.25rem, `--tile-h` 9.5rem, `--tile-gap` 0.75rem. Phones override them on the strip element.
 - **Breakpoints:** 65em (single column, the header's two rows) and 40em (phone): 1040 and 640 px at the default text size. They are in `em`, so a reader's larger text size moves the layout to the narrower form, as zoom does; below 18.75em (300 px, reached only by zoom or a large text size) the last two-column groups stack.
 
@@ -311,7 +321,7 @@ Decided while building it, where the rest of this document left it open. The pag
 
 | Component | What it is |
 |---|---|
-| Header | Logo and wordmark, network switch, search, navigation (Blocks, Mempool, Mining, Lightning), theme toggle. Sticky, except on a screen under 30em tall (a phone on its side, a page zoomed in or set in a large text size), where it scrolls away with the page. Focus and in-page links stop clear of it. One row on wide screens. Between 640 and 1040 px (tablets, a desktop at 200% zoom) two rows: the brand, the search and the theme toggle, then the network switch and the sections. On a phone two rows of about 100 px in all: the mark, the network, the search (its hint one word, "Search") and the theme, then the four sections sharing the row evenly, every one in sight at 320 px. A focused search takes the whole first row, the mark, network and theme stepping aside, so it and its answer are the phone's width. The network and theme are 44 px targets around a smaller drawn pill and square |
+| Header | Logo and wordmark, network switch, search, navigation (Blocks, Mempool, Mining, Lightning, and Ark on a network that has an Ark server), theme toggle. Sticky, except on a screen under 30em tall (a phone on its side, a page zoomed in or set in a large text size), where it scrolls away with the page. Focus and in-page links stop clear of it. One row on wide screens. Between 640 and 1040 px (tablets, a desktop at 200% zoom) two rows: the brand, the search and the theme toggle, then the network switch and the sections. On a phone two rows of about 100 px in all: the mark, the network, the search (its hint one word, "Search") and the theme, then the sections sharing the row, every one in sight at 320 px: four evenly, five (with Ark) each as wide as its name. A focused search takes the whole first row, the mark, network and theme stepping aside, so it and its answer are the phone's width. The network and theme are 44 px targets around a smaller drawn pill and square |
 | Network band | A slim band tinted with the network colour, a short hatched mark and the warning in words. Test networks only |
 | Logo | `design/logo.svg`, also the favicon: a crab, a nod to Rust and to rbitcoin's own crab, lifting a block of three strata, the top layer shorter, offset and in the accent, still settling. In the header it is inline SVG, 32 px: the crab and the two settled layers in `--color-network`, the top layer in `--color-accent` on every network. The wordmark is live text, so a new name is one string |
 | Block tile | Projected (dashed) or mined (solid). Height or label, median fee, fee range, total fees (in magnitude), its fee layers, transaction count and age. Mined tiles link to the block and show the pool below |
@@ -483,7 +493,7 @@ Decided while building it, where the layout above left it open:
 - **Block health is what was watched.** Only blocks this server saw arrive have an audit, so the chart counts them in its caption, says what share of the period's blocks they are and since when, hatches the time before the first and breaks wherever a block has none. The area stands on an axis from zero, so a bad block is a notch down from the top and an ordinary period a full band; past 1,000 blocks a point is the lowest of its run, so a bad block is never averaged away. A point opens its block: a click, a second tap, or Enter.
 - **Past adjustments are a list, not a period's.** The latest ten, newest first, each opening the block that began its period, with all of them a press away, under the next one's expected change; ups and downs read as an arrow and a word, never a colour. They sit after the block charts, so the page still opens on the network now.
 - **Unknown is a pool.** It is ranked like any other, its page exists, and its row says it is the blocks no tag or address on the list names.
-- **Test networks say what their figures mean.** Signet's blocks come from a few signers the list does not name; testnet4's minimum-difficulty rule makes its hashrate swing; regtest has no pools, a meaningless hashrate and no retargets. A note under the title says so, and figures that mean nothing there say "Not meaningful on regtest".
+- **Test networks say what their figures mean.** Signet's blocks come from a few signers the list does not name; testnet4's minimum-difficulty rule makes its hashrate swing; regtest has no pools, a meaningless hashrate and no retargets; Testnet 5's figures read as mainnet's, so it has no note. A note under the title says so, and figures that mean nothing there say "Not meaningful on regtest".
 - **A pool's page** has its name as the title (dataset text), its site as a plain link only when it is `http` or `https`, its blocks and shares, its weekly share and hashrate, and its blocks 25 at a time.
 - **Nothing moves as it loads.** Each section holds the height its content will take; the coverage notes on a pool's page sit below its figures.
 
@@ -544,7 +554,10 @@ channel and ends, capacity, block  │ channel, kind and ends, capacity, block
 Largest nodes ════════════════════ │ Most connected nodes ══════════════
 Node page: name (text, cut), key grouped with copy, "the key is the identity";
   figures; its past │ its fee rates (two bars a row: it charges, its peers charge); addresses and features as chips; channels, open | closed, 25 a page
-Channel page: id and state badge; funding; close (kind · how sure, why); its two ends' policies
+Channel page: id, its state as an icon and a word, the two nodes, capacity, age, the id in three forms;
+  closed: how it ended (kind, block, closing transaction and fee; penalty sweep; "Continued as");
+  open: who charges what (a lane each way) │ fee for this hop (an amount, the fee each way) │
+        policies side by side, with their difference; then the life of the channel
 ```
 
 Decided while building it:
@@ -553,9 +566,38 @@ Decided while building it:
 - **What is ours is said, not hidden.** Under the figures, one line says only channels checked against the chain are counted; how, and what the fee figures leave out, is behind "How these figures are made". History starts when this server's peer first synced: with no interval in the address the chart starts there and says so; a chosen interval hatches the time before it. The closed lists say they hold closes seen since then.
 - **A close says how sure it is,** beside its kind: "Force close · Certain", "Cooperative close · Likely" (a splice that only takes funds out looks the same), "Penalty · Certain", "Other · Certain it is not a plain close". Lists give the kind in one word; the channel page gives the reason.
 - **Charts are drawn in the series colours,** as the mining charts are: the main series an area, the second a dashed line on its own scale. Capacity in the figures reads in magnitude (`3 199 BTC`).
-- **Names are claims.** A node's name is text, cut short in lists and titles with the rest one press away, and isolated so its direction cannot run into the text beside it; its public key is always next to it. Node colors are not shown: color carries fee and nothing else, and an operator's chosen color would only add a second way to imitate another node.
+- **Names are claims.** A node's name is text, cut short in lists and titles with the rest one press away, and isolated so its direction cannot run into the text beside it; its public key is always next to it. A node's announced colour appears once, in its Identity section, as a small swatch beside its `#rrggbb` value, a claim like its name; nowhere else does it colour anything.
+- **The node page is for its operator.** Its name and short key, its capacity and open channels each with its rank, and when a policy on its channels last changed; then one view at a time, chosen by tabs in the address: Channels (a table on a wide screen, sortable by every figure; on a phone three-line cards, with a sort picker), Closed, Fees ("In figures", then the histogram, whose bars open the channels they count) and History. Under the views, the node at a glance (each figure's change over 7 days once the record is that old), then its Identity. While the reader sorts, filters or pages, the list holds its rows until the new ones arrive. A row's state says what gossip says: "Enabled" (both ends), "Disabled by this node", "Disabled by the peer", or, where a policy is missing, whose ("Peer policy missing"), never "Disabled"; the state chips count the server's four states, an end "off" when its policy is disabled or missing.
 - **Tables fit a 320 px phone,** and every column keeps a gutter at every width. A chart's figures do too, with no sideways scroll: a time takes two lines (the day, then the time of day, with "UTC" in the header), and a node's fee figures are one table each way, headed with the chart's own words, side by side only where the panel holds both whole and one over the other otherwise. Long headers take two lines and fee-rate ranges break before their upper end wherever room runs short, at any width. A channel row puts its id, kind, time and both ends in one cell; a node list drops, on a phone, the figure it is not ranked by.
+- **The channel page is for the operators at its ends.** Each direction is drawn as a lane, coloured `--series-1` and `--series-2` across the lanes, the calculator and nothing else, saying in words which end charges what. What gossip says is said as advertised: "Enabled" is not "routable", and a missing policy reads "No policy", never "Disabled", which is only an advertised disabled flag. A closed channel has no policy to show, so it shows how it ended and its life, not empty drawings; one with no policy either way shows its lanes and no calculator or table. "Continued as" a new channel is inferred from the closing transaction, and said so. A figure is one piece at every text size: never broken inside its digits (its groups are joined by no-break spaces) nor parted from its unit, the line breaking between figures ("1 ppm" + "1 sat"); at the largest sizes (below 15em: 320 or 390 px at 200% text) the page's gutters and panel padding halve, the display figures stop growing past the text round them, and a figure longer than 12 characters (an msat term, the capacity) reads in magnitude (`0.200 BTC`); so does one in a hop fee's well narrower than 22em of its own text, at any size; so each fits whole in any reader's fonts. A name breaks anywhere, or is cut with its whole in the title. On a phone each policy term is a row over its two values, under the two ends' names; below 22.5em (a 320 px phone, or larger text) the values go one a line, each named for its node.
 - **Switched off is a sentence,** not an empty chart: a network without Lightning says so, and a peer still syncing shows how far it has come and fills the page when done.
+
+### Ark (not in the prototype)
+
+```text
+Ark VTXO                         (the entry: one field, a tab per implementation where there are two)
+[Bark VTXO ID: txid:vout] [Open]
+
+← Another VTXO
+VTXO Bark  (Signatures OK) (Not settled yet) (Expires soon) (Exiting)
+125985e9 e2bfa047 … 594b7567:0  [copy]
+Amount 0.00010000 BTC / 10 000 sats │ Expires 1 210 blocks left / Block 101 010 / ▬▬▬── │ Exit 5 transactions / 3 tree, 2 transfers
+Exit path ════════════════════════════════════════════════════════════════ [Play exit]
+   ◦ 20 000 sats ╲ 2 ─ 3 ⌒ 4 ⌒ ◎ This VTXO 10 000 sats (then wait 2 016 blocks)
+                  1
+  ···■ Anchor 96 970 ··········· ▾ 1 210 blocks left ··········· | Expiry 101 010   (the Bitcoin line)
+  key: exit transaction, other output, transfer;  a selected node's facts under it
+Details (closed): server key, user key, policy, wait after exit, encoding, anchor
+Transactions: # · Kind (Bark's word muted) · On chain · Signature · Other outputs · Fee · Txid
+```
+
+Decided while building it, with the owner:
+
+- **Very little text.** The picture, the layout and short labels carry it: no helper paragraphs, nothing decorative. States are a short sentence each: not a VTXO ID, Bark does not know this VTXO, the Bark server did not answer, its answer did not check out.
+- **Badges, not sentences,** in the order a reader needs them: "Signatures OK" only when the server rebuilt the whole chain, found the anchor on the node, found the expiry bound to it and verified every signature ("Not all signed" or "Not verified" otherwise); "Not settled yet" when the chain has arkoor transfers; "Expires soon" within three days of blocks; "Exiting" once an exit transaction is in the mempool or a block. Never "unspent": that cannot be known ([`ARK.md`](ARK.md#where-the-vtxo-comes-from)).
+- **The Bitcoin line is the VTXO's life:** the anchor's block at the anchor, "now" with the blocks left, the expiry at the far end, to scale. The tree's transactions rise from the anchor; transfers run sideways as low arcs and wrap into rows, each above the last, as many to a row as the width holds; other outputs are dashed stubs with their amount where there is room. The VTXO is a ring at the end with its amount; its words go above it near the right edge, so they never fall on the tree.
+- **Play exit** lights the transactions in broadcast order, one per `--dur-slow`, then shows the wait the exit delta imposes. Every node is a button with a 44 px target that selects its transaction; its facts show under the picture.
+- **Two exceptions to the principles, approved by the owner for this picture alone.** (a) Quiet idle motion: the VTXO's ring breathes, opacity only, slowly (principle 6 otherwise forbids ambient motion). Reduced motion stops it, and Play exit then shows its end at once, so the picture is still. (b) The accent marks the VTXO's own path, its transactions and its ring (principle 3 otherwise keeps it for interaction); everything else in the picture stays neutral.
 
 ## Plain CSS or a utility framework
 

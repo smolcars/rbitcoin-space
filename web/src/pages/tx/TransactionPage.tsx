@@ -914,23 +914,23 @@ function Body(props: {
         </Match>
       </Switch>
       <ol class={["tx-timeline", { "tx-timeline--line": settled() }]} aria-label="Status">
-        <For each={steps()}>
+        {/* By position: each change of status updates the three steps in place, never remakes them. */}
+        <For keyed={false} each={steps()}>
           {(step, i) => (
             <li
               class={[
-                `tx-step tx-step--${step.state}${step.tone ? ` tx-step--${step.tone}` : ""}`,
+                `tx-step tx-step--${step().state}${step().tone ? ` tx-step--${step().tone}` : ""}`,
                 {
-                  "tx-step--landed": props.justConfirmed && i() === 1 && step.tone === "positive",
+                  "tx-step--landed": props.justConfirmed && i === 1 && step().tone === "positive",
                 },
               ]}
-
-              aria-current={step.state === "current" ? "step" : undefined}
+              aria-current={step().state === "current" ? "step" : undefined}
             >
               <span class="tx-step__marker num" aria-hidden="true">
-                {i() + 1}
+                {i + 1}
               </span>
-              <span class="tx-step__title">{step.title}</span>
-              <span class="tx-step__detail">{step.detail}</span>
+              <span class="tx-step__title">{step().title}</span>
+              <span class="tx-step__detail">{step().detail}</span>
             </li>
           )}
         </For>

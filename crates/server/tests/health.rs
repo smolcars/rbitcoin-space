@@ -108,7 +108,7 @@ async fn start(rpc_port: u16) -> String {
     .into_iter()
     .collect();
     let mut config = Config::from_vars(|k| vars.get(k).cloned()).unwrap();
-    config.web_dir = std::env::temp_dir().join("rbitcoin-space-no-web-dir");
+    config.web_dir = Some(std::env::temp_dir().join("rbitcoin-space-no-web-dir"));
     let app = App::new(&config);
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap().to_string();
@@ -223,7 +223,7 @@ async fn start_stored(rpc_port: u16, dir: &std::path::Path) -> (String, Arc<engi
     .into_iter()
     .collect();
     let mut config = Config::from_vars(|k| vars.get(k).cloned()).unwrap();
-    config.web_dir = std::env::temp_dir().join("rbitcoin-space-no-web-dir");
+    config.web_dir = Some(std::env::temp_dir().join("rbitcoin-space-no-web-dir"));
     let app = App::new(&config);
     let store = app
         .network(rbitcoin_space::Network::Regtest)

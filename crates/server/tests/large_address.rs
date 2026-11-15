@@ -538,7 +538,7 @@ async fn start_via(
         vars.insert("DATA_DIR".into(), d.0.display().to_string());
     }
     let mut c = Config::from_vars(|k| vars.get(k).cloned()).unwrap();
-    c.web_dir = std::env::temp_dir().join("rbitcoin-space-no-web-dir");
+    c.web_dir = Some(std::env::temp_dir().join("rbitcoin-space-no-web-dir"));
     c.limits = Limits {
         client_burst: 10_000,
         client_rate_per_sec: 10_000,

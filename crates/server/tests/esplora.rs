@@ -202,7 +202,7 @@ fn config(esplora: &str, broadcast: bool) -> Config {
         if broadcast { "true" } else { "false" }.into(),
     );
     let mut c = Config::from_vars(|k| vars.get(k).cloned()).unwrap();
-    c.web_dir = std::env::temp_dir().join("rbitcoin-space-no-web-dir");
+    c.web_dir = Some(std::env::temp_dir().join("rbitcoin-space-no-web-dir"));
     c.limits = Limits {
         client_burst: 10_000,
         client_rate_per_sec: 10_000,

@@ -30,6 +30,7 @@
 mod chain;
 mod closes;
 mod gossip;
+mod inbound;
 mod log;
 mod pace;
 mod peer;
@@ -59,6 +60,7 @@ pub use closes::{
     BlockRef, CloseKind, Closed, Closes, History, Opened, Record, classify, funding_program,
     revoked,
 };
+pub use inbound::inbound_fee;
 pub use log::LdkRecord;
 pub use peer::Peer;
 pub use store::GraphLoad;

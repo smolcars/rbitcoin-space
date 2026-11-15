@@ -49,6 +49,15 @@ fn policy(u: &ln::ChannelUpdateInfo) -> store_ln::Policy {
         max_htlc_msat: u.htlc_maximum_msat,
         enabled: u.enabled,
         last_update: u.last_update,
+        // LDK keeps the signed update, extra data and all, when that data is at most 1,024 bytes.
+        inbound: u
+            .last_update_message
+            .as_ref()
+            .and_then(|m| ln::inbound_fee(&m.contents.excess_data))
+            .map(|(base_fee_msat, fee_rate)| store_ln::Inbound {
+                base_fee_msat,
+                fee_rate,
+            }),
     }
 }
 
@@ -132,9 +141,12 @@ pub(crate) async fn keep(
 ) {
     let status = peer.status();
     let mut past = None;
+    let mut run = None;
     loop {
         if status.borrow().synced {
             round(&*peer, &store, &l, network, &mut past, Index::build).await;
+            // After the build, never inside it: the fee history's writes do not delay an index.
+            super::fees::round(&l, &store, &mut run).await;
         }
         let wait = if l.index().is_some() {
             EVERY

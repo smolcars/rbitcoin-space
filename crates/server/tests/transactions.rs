@@ -103,7 +103,7 @@ fn config(esplora: &str) -> Config {
         vars.insert(format!("MAINNET_{k}"), v.to_owned());
     }
     let mut c = Config::from_vars(|k| vars.get(k).cloned()).unwrap();
-    c.web_dir = std::env::temp_dir().join("rbitcoin-space-no-web-dir");
+    c.web_dir = Some(std::env::temp_dir().join("rbitcoin-space-no-web-dir"));
     c.limits = Limits {
         client_burst: 10_000,
         client_rate_per_sec: 10_000,
@@ -367,4 +367,21 @@ async fn the_other_routes_parse_before_anything_and_ask_the_node_nothing() {
     let r = get(format!("/api/v1/transaction-times?{huge}")).await;
     assert_eq!(r.status, 431);
     assert!(hits(&node).is_empty());
+}
+
+#[tokio::test]
+async fn the_replacement_lists_answer_with_a_trailing_slash_as_without() {
+    // The reference's frontend asks both with a trailing slash; only these paths are added.
+    let (addr, _) = start(Duration::ZERO).await;
+    for path in ["/api/v1/replacements", "/api/v1/fullrbf/replacements"] {
+        let plain = send(&addr, &format!("GET {path}"), b"").await;
+        let slash = send(&addr, &format!("GET {path}/"), b"").await;
+        assert_eq!(
+            (slash.status, slash.body),
+            (plain.status, plain.body),
+            "{path}"
+        );
+        let doubled = send(&addr, &format!("GET {path}//"), b"").await;
+        assert_eq!(doubled.status, 404, "{path}");
+    }
 }

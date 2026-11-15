@@ -1,0 +1,394 @@
+@layer pages {
+  .bark-page {
+    display: grid;
+    gap: var(--space-5);
+    padding-block: var(--space-5) var(--space-8);
+  }
+
+  .bark-page > * {
+    min-width: 0;
+  }
+
+  /* A figure never breaks inside itself or from its unit; the line breaks between figures. */
+  .bark-figure-piece {
+    white-space: nowrap;
+  }
+
+  .bark-page__back {
+    justify-self: start;
+    color: var(--color-text-muted);
+    font-size: var(--text-sm);
+  }
+
+  .bark-page h1 {
+    margin: 0;
+  }
+
+  .bark-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-4);
+    align-items: center;
+    margin-block-end: calc(-1 * var(--space-3));
+  }
+
+  .bark-head__title {
+    display: flex;
+    gap: var(--space-3);
+    align-items: baseline;
+  }
+
+  .bark-head__impl {
+    font-size: var(--text-md);
+    font-weight: var(--weight-medium);
+  }
+
+  .bark-head__badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .bark-badge {
+    display: inline-flex;
+    gap: var(--space-1);
+    align-items: center;
+    padding: 2px var(--space-3) 2px var(--space-2);
+    border: 1px solid currentcolor;
+    border-radius: var(--radius-pill);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+  }
+
+  .bark-badge--positive {
+    color: var(--color-positive);
+  }
+
+  .bark-badge--caution {
+    color: var(--color-caution);
+    border-style: dashed;
+  }
+
+  .bark-badge--negative {
+    color: var(--color-negative);
+  }
+
+  .bark-badge--plain {
+    color: var(--color-text);
+  }
+
+  .bark-icon {
+    width: 1em;
+    height: 1em;
+    fill: none;
+    stroke: currentcolor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  /* The three figures. */
+  .bark-figures {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+    gap: var(--space-5);
+  }
+
+  .bark-figure {
+    display: grid;
+    gap: var(--space-1);
+    align-content: start;
+  }
+
+  .bark-figure__label {
+    color: var(--color-text-muted);
+    font-size: var(--text-sm);
+  }
+
+  .bark-figure__value {
+    font-size: var(--text-lg);
+    font-weight: var(--weight-bold);
+    line-height: var(--leading-tight);
+  }
+
+  .bark-figure__value .unit {
+    font-size: var(--text-sm);
+    font-weight: var(--weight-regular);
+  }
+
+  .bark-figure__sub {
+    color: var(--color-text-muted);
+    font-size: var(--text-sm);
+  }
+
+  .bark-life {
+    display: block;
+    overflow: hidden;
+    max-width: 15rem;
+    height: 4px;
+    margin-block-start: var(--space-1);
+    border-radius: var(--radius-pill);
+    background: var(--color-line);
+  }
+
+  .bark-life__used {
+    display: block;
+    height: 100%;
+    background: var(--color-line-strong);
+    transform: scaleX(var(--used, 0));
+    transform-origin: left;
+  }
+
+  /* The exit path. */
+  .bark-exit__well {
+    border-radius: var(--radius-m);
+    background: var(--color-surface-sunken);
+  }
+
+  .bark-path {
+    width: 100%;
+  }
+
+  .bark-path__svg {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    font-size: var(--text-xs);
+    overflow: visible;
+  }
+
+  .bark-path text {
+    fill: var(--color-text-muted);
+    font-family: var(--font-sans);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .bark-path__chain line {
+    stroke: var(--color-line-strong);
+    stroke-width: 1;
+    stroke-dasharray: 2 6;
+  }
+
+  .bark-path__chain .bark-path__expiry {
+    stroke-dasharray: none;
+    stroke-width: 2;
+    stroke: var(--color-text);
+  }
+
+  .bark-path__anchor {
+    fill: var(--color-text);
+  }
+
+  .bark-path__now {
+    fill: var(--color-text);
+  }
+
+  .bark-path__edge {
+    fill: none;
+    stroke: var(--color-accent);
+    stroke-width: 2;
+    stroke-linecap: round;
+    transition: opacity var(--dur-base) var(--ease-out);
+  }
+
+  .bark-path__edge--dim,
+  .bark-path__node--dim {
+    opacity: 0.25;
+  }
+
+  .bark-path__node {
+    cursor: pointer;
+    outline: none;
+    transition: opacity var(--dur-base) var(--ease-out);
+  }
+
+  .bark-path__hit {
+    fill: transparent;
+  }
+
+  .bark-path__dot {
+    fill: var(--color-accent);
+    transform-box: fill-box;
+    transform-origin: center;
+    transition: transform var(--dur-quick) var(--ease-settle);
+  }
+
+  .bark-path__node:hover .bark-path__dot,
+  .bark-path__node--selected .bark-path__dot,
+  .bark-path__node--now .bark-path__dot {
+    transform: scale(1.5);
+  }
+
+  .bark-path__node:focus-visible .bark-path__hit {
+    stroke: var(--color-focus);
+    stroke-width: 2;
+  }
+
+  .bark-path__node--selected .bark-path__number {
+    fill: var(--color-accent);
+    font-weight: var(--weight-bold);
+  }
+
+  .bark-path__sibling path {
+    fill: none;
+    stroke: var(--color-line-strong);
+    stroke-dasharray: 3 3;
+  }
+
+  .bark-path__sibling circle {
+    fill: var(--color-surface-sunken);
+    stroke: var(--color-line-strong);
+  }
+
+  .bark-path__ring {
+    fill: none;
+    stroke: var(--color-accent);
+    stroke-width: 2;
+    /* The one quiet idle motion the owner approved: the VTXO breathes. Reduced motion stops it. */
+    animation: bark-breathe 3.2s var(--ease-in-out) infinite alternate;
+  }
+
+  .bark-path__vtxo .bark-path__vtxo-name,
+  .bark-path__vtxo .bark-path__wait {
+    fill: var(--color-accent);
+    font-weight: var(--weight-bold);
+  }
+
+  @keyframes bark-breathe {
+    from {
+      opacity: 1;
+    }
+
+    to {
+      opacity: 0.35;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .bark-path__ring {
+      animation: none;
+    }
+  }
+
+  .bark-key {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-5);
+    margin: var(--space-3) 0 0;
+    padding: 0;
+    color: var(--color-text-muted);
+    font-size: var(--text-xs);
+    list-style: none;
+  }
+
+  .bark-key li {
+    display: inline-flex;
+    gap: var(--space-2);
+    align-items: center;
+  }
+
+  .bark-key svg {
+    width: 28px;
+    height: 10px;
+    overflow: visible;
+  }
+
+  .bark-key__edge {
+    fill: none;
+    stroke: var(--color-accent);
+    stroke-width: 2;
+  }
+
+  .bark-key__dot {
+    fill: var(--color-accent);
+  }
+
+  .bark-key__sibling {
+    fill: none;
+    stroke: var(--color-line-strong);
+    stroke-dasharray: 3 3;
+  }
+
+  .bark-key__open {
+    fill: none;
+    stroke: var(--color-line-strong);
+  }
+
+  .bark-pick,
+  .bark-facts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 8.5rem), 1fr));
+    gap: var(--space-3) var(--space-5);
+    margin: var(--space-4) 0 0;
+  }
+
+  .bark-pick dt,
+  .bark-facts dt {
+    color: var(--color-text-muted);
+    font-size: var(--text-sm);
+  }
+
+  .bark-pick dd,
+  .bark-facts dd {
+    margin: 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .bark-pick__wide,
+  .bark-facts > div:has(.hash--whole) {
+    grid-column: 1 / -1;
+  }
+
+  .bark-details summary {
+    min-height: var(--touch);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: calc(-1 * var(--space-3)) 0;
+    font-size: var(--text-lg);
+    font-weight: var(--weight-bold);
+    cursor: pointer;
+    list-style: none;
+  }
+
+  .bark-details summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .bark-details summary::after {
+    content: "";
+    width: 0.5rem;
+    height: 0.5rem;
+    margin-inline-end: var(--space-1);
+    border-block-end: 1.5px solid var(--color-text-muted);
+    border-inline-end: 1.5px solid var(--color-text-muted);
+    transform: rotate(-45deg);
+    transition: transform var(--dur-base) var(--ease-out);
+  }
+
+  .bark-details[open] summary::after {
+    transform: rotate(45deg);
+  }
+
+  .bark-place--confirmed {
+    color: var(--color-positive);
+  }
+
+  .bark-table__bark {
+    font-size: var(--text-sm);
+  }
+
+  .bark-table__row--picked {
+    background: var(--color-accent-soft);
+  }
+
+  @media (width < 40em) {
+    .bark-table__bark {
+      display: none;
+    }
+  }
+}

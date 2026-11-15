@@ -360,6 +360,7 @@ mod tests {
         assert_eq!(class("/app/config"), "app");
         assert_eq!(class("/app/ws"), "ws");
         assert_eq!(class("/testnet4/app/ws"), "ws");
+        assert_eq!(class("/testnet5/app/ws"), "ws");
         assert_eq!(class("/api/v1/ws"), "ws");
         assert_eq!(class("/signet/api/v1/ws"), "ws");
         assert_eq!(class("/healthz"), "health");

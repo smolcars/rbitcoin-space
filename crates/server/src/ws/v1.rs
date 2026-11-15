@@ -4,7 +4,8 @@
 //!
 //! Every message is produced once per network and fanned out like any topic: `blocks` from the
 //! hub's own block feed, `stats` and `mempool-blocks` from the answers the `/api/v1` routes serve,
-//! tracked transactions from the same pass that writes the `tx:` topics. Only an address costs the
+//! tracked transactions from the same pass that writes the `tx:` topics, and a projected block's
+//! transactions only while some socket draws it ([`drawings`]). Only an address costs the
 //! node anything: one page of its history per change of its Electrum status, shared by every
 //! socket following it.
 
@@ -17,13 +18,16 @@ use axum::Extension;
 use axum::extract::{Request, State};
 use axum::response::Response;
 use bitcoin::{BlockHash, Txid};
+use engine::mempool::{Mempool, Tracker};
+use engine::projected::{Placed, ProjectedBlock, Projection, Projector};
 use node::electrum::{self, ScriptHash};
 use node::esplora::{Esplora, Route, ScriptRef};
 use serde_json::{Map, Value, json};
 use tokio::sync::broadcast::error::RecvError;
-use tokio::sync::{Semaphore, watch};
+use tokio::sync::{Notify, Semaphore, watch};
 use tokio::time::Instant;
 
+use super::mempool::{MAX_APPENDED, TXS_TOPICS};
 use super::track::{self, TxState};
 use super::{Api, Close, Conn, Frame, Hub, Snapshot, Subscriptions, Topic};
 use crate::config::WsLimits;
@@ -38,14 +42,15 @@ const FETCHES: usize = 2;
 const MAX_PAGE: usize = 8 << 20;
 /// Longest `mempool-blocks` on another tip waits for the block just sent, as on `/app/ws`.
 const HOLD: Duration = super::mempool::HOLD;
+/// Wait before reading the block table again after a failed read.
+const RETRY: Duration = Duration::from_secs(1);
 /// The answer to a follow past the client's budget for new addresses.
 const TOO_FAST: &str = "too many new addresses from this client; retry in a moment";
 /// Messages the reference has that this server does not serve, answered with `<key>-error` so a
 /// person reading the traffic sees why nothing comes.
-const UNSERVED: [&str; 8] = [
+const UNSERVED: [&str; 7] = [
     "track-mempool",
     "track-mempool-txids",
-    "track-mempool-block",
     "track-rbf",
     "track-rbf-summary",
     "track-txs",
@@ -68,6 +73,8 @@ pub struct Compat {
     blocks: Mutex<VecDeque<Value>>,
     /// A read of the node's recent blocks is in flight.
     filling: AtomicBool,
+    /// Bumped when the last block sent changes: the `mempool-blocks` held for it may go.
+    sent: watch::Sender<()>,
     /// The newest transactions, in the reference's shape, for the next `stats` message.
     latest: Mutex<Option<Value>>,
     /// Addresses some compatible socket follows.
@@ -75,6 +82,8 @@ pub struct Compat {
     fetches: Semaphore,
     /// Its own client, so an address page has its own size cap.
     esplora: Option<Esplora>,
+    /// A socket started drawing a projected block: [`drawings`] sends it the block.
+    drawings: Notify,
 }
 
 impl std::fmt::Debug for Compat {
@@ -125,12 +134,14 @@ impl Compat {
         Self {
             blocks: Mutex::default(),
             filling: AtomicBool::new(false),
+            sent: watch::Sender::new(()),
             latest: Mutex::default(),
             addresses: Mutex::default(),
             fetches: Semaphore::new(FETCHES),
             esplora: esplora.and_then(|u| {
                 Esplora::with_limits(u, crate::esplora::HEAVY_CEILING, MAX_PAGE).ok()
             }),
+            drawings: Notify::new(),
         }
     }
 
@@ -219,6 +230,9 @@ pub(crate) struct Session<'a> {
     address: Option<ScriptHash>,
     /// `track-addresses`.
     addresses: Vec<ScriptHash>,
+    /// `track-mempool-block`, and when its state was last sent.
+    drawing: Option<u8>,
+    sent: Option<Instant>,
 }
 
 impl<'a> Session<'a> {
@@ -229,6 +243,8 @@ impl<'a> Session<'a> {
             tx: None,
             address: None,
             addresses: Vec::new(),
+            drawing: None,
+            sent: None,
         }
     }
 
@@ -253,6 +269,12 @@ impl<'a> Session<'a> {
         };
         match m.get("action").and_then(Value::as_str) {
             Some("ping") => self.send(&json!({ "pong": true })),
+            // What no `want` part carries; the parts' state comes with `want`.
+            Some("init") => self.send(&json!({
+                "loadingIndicators": {},
+                "backend": "esplora",
+                "backendInfo": api_v1::backend_info(self.ctx),
+            })),
             Some("want") => {
                 if let Some(names) = strings(m.get("data")) {
                     self.want(&names, limits)?;
@@ -268,6 +290,9 @@ impl<'a> Session<'a> {
         }
         if let Some(names) = strings(m.get("track-addresses")) {
             self.track_addresses(&names, limits);
+        }
+        if let Some(n) = m.get("track-mempool-block").and_then(Value::as_i64) {
+            self.track_mempool_block(n, limits);
         }
         for key in UNSERVED {
             if m.contains_key(key) {
@@ -380,6 +405,54 @@ impl<'a> Session<'a> {
         }
     }
 
+    /// Draws projected block `n`, replacing the last; a negative `n` stops it. The block already
+    /// drawn is sent again at most once per `WS_MEMPOOL_INTERVAL_MS`: the reference's frontend asks
+    /// again, up to hundreds of times a second, when it loses its place.
+    fn track_mempool_block(&mut self, n: i64, limits: &WsLimits) {
+        let index = u8::try_from(n)
+            .ok()
+            .filter(|i| usize::from(*i) < TXS_TOPICS);
+        if let Some(i) = index
+            && self.drawing == Some(i)
+        {
+            if self
+                .sent
+                .is_none_or(|t| t.elapsed() >= limits.mempool_interval)
+            {
+                self.sent = Some(Instant::now());
+                // The topic's stored state again: frames already encoded, queued by reference.
+                self.ctx
+                    .hub
+                    .subscribe(Topic::V1ProjectedTxs(i), self.subs.conn());
+            }
+            return;
+        }
+        if let Some(old) = self.drawing.take() {
+            self.subs.part(Topic::V1ProjectedTxs(old));
+        }
+        let Some(i) = index else {
+            if n >= 0 {
+                let last = TXS_TOPICS - 1;
+                self.error(
+                    "track-mempool-block",
+                    &format!("projected blocks 0 to {last} are served"),
+                );
+            }
+            return;
+        };
+        match self.subs.join(Topic::V1ProjectedTxs(i), "", limits) {
+            Ok(_) => {
+                self.drawing = Some(i);
+                self.sent = Some(Instant::now());
+                self.ctx.v1.drawings.notify_one();
+            }
+            Err(_) => self.error(
+                "track-mempool-block",
+                "too many subscriptions on this connection",
+            ),
+        }
+    }
+
     /// Follows an address on `topic`; says why not under `key` when it cannot.
     fn join_address(
         &mut self,
@@ -475,9 +548,12 @@ pub(crate) fn tx_message(txid: &Txid, state: &TxState, starts: &[u64]) -> Option
 }
 
 /// A new block joined the best chain: `block` to every subscriber, and the `blocks` state for
-/// new ones. Called by the hub's block feed in the same step as `/app/ws`'s `block`, so the two
-/// keep the same order against everything else.
+/// new ones. Called by the hub's block feed in the same step as `/app/ws`'s `block`. With a block
+/// table the blocks come from the table instead ([`follow_table`]).
 pub(crate) fn block(ctx: &NetworkContext, block: &Value) {
+    if ctx.blocks.is_some() {
+        return;
+    }
     let c = &ctx.v1;
     let mut ring = lock(&c.blocks);
     let follows = ring.back().and_then(|b| b.get("id")).is_some()
@@ -499,16 +575,72 @@ pub(crate) fn block(ctx: &NetworkContext, block: &Value) {
         .set_snapshot(Topic::V1Blocks, text(&json!({ "blocks": &*ring })));
     let full = ring.len() == BLOCKS;
     drop(ring);
+    c.sent.send_replace(());
     if !full {
         fill(ctx);
     }
 }
 
-/// Blocks left the best chain: the list is read again from the node.
+/// Blocks left the best chain: the list is read again from the node. With a block table, the
+/// table's next follow replaces it ([`follow_table`]).
 pub(crate) fn reorg(ctx: &NetworkContext) {
+    if ctx.blocks.is_some() {
+        return;
+    }
     lock(&ctx.v1.blocks).clear();
     ctx.hub.clear(Topic::V1Blocks);
+    ctx.v1.sent.send_replace(());
     fill(ctx);
+}
+
+/// With a block table, the blocks are the table's, each the JSON `GET /api/v1/blocks` lists it
+/// as: read again each time the table follows the chain, so a new block goes out once its row,
+/// and the audit written before it, are there. A failed read is tried again after [`RETRY`].
+async fn follow_table(ctx: Arc<NetworkContext>) {
+    let Some(table) = &ctx.blocks else { return };
+    let mut followed = table.followed.subscribe();
+    loop {
+        let read = crate::v1_blocks::newest(&ctx, BLOCKS as u32).await;
+        let failed = read.is_err();
+        if let Ok(mut list) = read {
+            list.reverse();
+            from_table(&ctx, list);
+        }
+        tokio::select! {
+            r = followed.changed() => if r.is_err() { return },
+            () = tokio::time::sleep(RETRY), if failed => {}
+        }
+    }
+}
+
+/// The table's newest blocks, oldest first. Each block after the last one sent goes out as
+/// `block`, in order; a list that does not reach back to it (a reorg, or more new blocks than the
+/// list holds) is sent whole as `blocks`. So no block is sent twice.
+fn from_table(ctx: &NetworkContext, list: Vec<Value>) {
+    if list.is_empty() {
+        return;
+    }
+    let mut ring = lock(&ctx.v1.blocks);
+    let last = ring.back().and_then(|b| b.get("id"));
+    match last.and_then(|l| list.iter().position(|b| b.get("id") == Some(l))) {
+        Some(i) => {
+            for b in list.iter().skip(i + 1) {
+                let msg = text(&json!({ "block": b }));
+                ctx.hub.publish(Topic::V1Blocks, &msg, Snapshot::Append);
+            }
+            *ring = list.into();
+            // Also when no block is new: a row rated since changes its extras.
+            ctx.hub
+                .set_snapshot(Topic::V1Blocks, text(&json!({ "blocks": &*ring })));
+        }
+        None => {
+            *ring = list.into();
+            let msg = text(&json!({ "blocks": &*ring }));
+            ctx.hub.publish(Topic::V1Blocks, &msg, Snapshot::Replace);
+        }
+    }
+    drop(ring);
+    ctx.v1.sent.send_replace(());
 }
 
 /// Reads the node's recent blocks for the `blocks` state, once at a time. Taken only when they
@@ -541,6 +673,8 @@ fn fill(ctx: &NetworkContext) {
                 &text(&json!({ "blocks": &*ring })),
                 Snapshot::Replace,
             );
+            drop(ring);
+            v1.sent.send_replace(());
         }
     });
 }
@@ -629,16 +763,221 @@ fn mempool_blocks(ctx: &NetworkContext, out: &mut Published) {
         return;
     }
     let msg = json!({ "mempool-blocks": api_v1::mempool_blocks(&b) });
-    ctx.hub.in_block_order(|sent: Option<BlockHash>| {
-        let agrees = sent.is_none_or(|h| b.tip.is_some_and(|t| t.hash == h));
-        if !agrees && out.held.get_or_insert_with(Instant::now).elapsed() < HOLD {
-            return;
+    // Under the blocks' lock, so no `block` goes out between the check and the publish.
+    let ring = lock(&ctx.v1.blocks);
+    let sent = ring
+        .back()
+        .and_then(|v| v.get("id")?.as_str()?.parse::<BlockHash>().ok());
+    let agrees = sent.is_none_or(|h| b.tip.is_some_and(|t| t.hash == h));
+    if !agrees && out.held.get_or_insert_with(Instant::now).elapsed() < HOLD {
+        return;
+    }
+    out.held = None;
+    out.at = Some(b.at);
+    ctx.hub
+        .publish(Topic::V1MempoolBlocks, &text(&msg), Snapshot::Replace);
+}
+
+/// What [`drawings`] last sent of each projected block, and when it may send changes next.
+#[derive(Default)]
+struct Drawings {
+    /// What each drawn topic's sockets hold; `None` while no socket draws it.
+    drawn: [Option<Drawn>; TXS_TOPICS],
+    /// Each block's last `sequence`: one more for every message, never reset, so whatever a
+    /// socket joins or leaves, the messages it gets rise by exactly one.
+    sequence: [u64; TXS_TOPICS],
+    /// The projection, and its tip, that the last changes came from.
+    seq: Option<u64>,
+    tip: Option<node::esplora::ChainTip>,
+    next: Option<Instant>,
+    /// Since when the projection has been on another tip than the last `block` sent.
+    held: Option<Instant>,
+}
+
+/// One drawn block: the block its sockets hold, and the messages and transactions appended to
+/// its stored state since the last whole list.
+struct Drawn {
+    block: Arc<ProjectedBlock>,
+    appended: usize,
+    changes: usize,
+}
+
+/// Feeds `projected-block-transactions` for each projected block a compatible socket draws: its
+/// transactions when the first socket asks, then its changes, at most once per
+/// `WS_MEMPOOL_INTERVAL_MS` but at once on a new tip. Each message is encoded once for every
+/// socket drawing that block, and a block nobody draws is not encoded at all. Held against
+/// `block` as [`mempool_blocks`] is.
+pub(crate) async fn drawings(ctx: Arc<NetworkContext>, tracker: Tracker, projector: Projector) {
+    let mut d = Drawings::default();
+    let mut sent = ctx.v1.sent.subscribe();
+    loop {
+        let (p, mut sub) = projector.subscribe();
+        let wake = d.step(&ctx, &tracker, &p, Instant::now());
+        tokio::select! {
+            r = sub.recv() => if let Err(RecvError::Closed) = r {
+                return;
+            },
+            r = sent.changed() => if r.is_err() {
+                return;
+            },
+            () = ctx.v1.drawings.notified() => {}
+            () = super::mempool::sleep_until(wake) => {}
         }
-        out.held = None;
-        out.at = Some(b.at);
-        ctx.hub
-            .publish(Topic::V1MempoolBlocks, &text(&msg), Snapshot::Replace);
+    }
+}
+
+impl Drawings {
+    /// Sends what is due; returns when to look again, if before the next projection.
+    fn step(
+        &mut self,
+        ctx: &NetworkContext,
+        tracker: &Tracker,
+        p: &Projection,
+        now: Instant,
+    ) -> Option<Instant> {
+        let topic = |i: usize| Topic::V1ProjectedTxs(u8::try_from(i).unwrap_or(u8::MAX));
+        let mut watched = false;
+        for (i, drawn) in self.drawn.iter_mut().enumerate() {
+            if ctx.hub.subscribers(topic(i)) > 0 {
+                watched = true;
+            } else if drawn.take().is_some() {
+                ctx.hub.clear(topic(i));
+            }
+        }
+        // Before the tracker's first cycle the projection is empty, not the mempool.
+        if !watched || p.tip.is_none() {
+            self.held = None;
+            return None;
+        }
+        // Under the blocks' lock, so no `block` goes out between the check and the publish.
+        let ring = lock(&ctx.v1.blocks);
+        let sent = ring
+            .back()
+            .and_then(|v| v.get("id")?.as_str()?.parse::<BlockHash>().ok());
+        if sent.is_none_or(|h| p.tip.is_some_and(|t| t.hash == h)) {
+            self.held = None;
+        } else {
+            let until = *self.held.get_or_insert(now) + HOLD;
+            if now < until {
+                return Some(until);
+            }
+        }
+        let changed = self.seq != Some(p.seq);
+        let due = changed && (p.tip != self.tip || self.next.is_none_or(|n| now >= n));
+        let empty = Arc::new(ProjectedBlock::default());
+        let all = self.drawn.iter_mut().zip(self.sequence.iter_mut());
+        for (i, (drawn, sequence)) in all.enumerate() {
+            let t = topic(i);
+            let block = p.blocks.get(i).unwrap_or(&empty);
+            let index = u8::try_from(i).unwrap_or(u8::MAX);
+            // A block drawn above keeps up even if its last socket just left: a socket joining
+            // now gets its stored state, which must not fall behind `self.seq`.
+            let Some(d) = drawn else {
+                if ctx.hub.subscribers(t) == 0 {
+                    continue;
+                }
+                *sequence += 1;
+                let msg = whole(tracker, index, *sequence, block);
+                ctx.hub.publish(t, &text(&msg), Snapshot::Replace);
+                *drawn = Some(Drawn {
+                    block: Arc::clone(block),
+                    appended: 0,
+                    changes: 0,
+                });
+                continue;
+            };
+            if !due {
+                continue;
+            }
+            let Some((msg, size)) = changes(tracker, index, *sequence + 1, &d.block, block) else {
+                continue;
+            };
+            *sequence += 1;
+            d.block = Arc::clone(block);
+            // A block found changes most of it: the whole list is smaller, as the reference sends.
+            if size >= block.txs.len() {
+                let msg = whole(tracker, index, *sequence, block);
+                ctx.hub.publish(t, &text(&msg), Snapshot::Replace);
+                (d.appended, d.changes) = (0, 0);
+                continue;
+            }
+            ctx.hub.publish(t, &text(&msg), Snapshot::Append);
+            d.appended += 1;
+            d.changes += size;
+            // A new socket gets the state and every change since: keep that short.
+            if d.appended >= MAX_APPENDED || d.changes >= block.txs.len() {
+                let msg = whole(tracker, index, *sequence, block);
+                ctx.hub.set_snapshot(t, text(&msg));
+                (d.appended, d.changes) = (0, 0);
+            }
+        }
+        drop(ring);
+        if due {
+            self.seq = Some(p.seq);
+            self.tip = p.tip;
+            self.next = Some(now + ctx.sockets.limits.mempool_interval);
+            return None;
+        }
+        changed.then_some(self.next).flatten()
+    }
+}
+
+/// A transaction as the reference draws it: txid, fee, vsize, total output value, effective rate
+/// in sat/vB, flags (not computed: always 0) and when the node accepted it.
+fn row(m: &Mempool, (txid, p): &(Txid, Placed)) -> Value {
+    // Gone from the tracker since this projection: its value and time are no longer known.
+    let (value, time) = m.get(txid).map_or((0, 0), |i| (i.value.to_sat(), i.time));
+    json!([txid, p.fee, p.vsize, value, rate(p.rate), 0, time])
+}
+
+/// Sat per 1,000 vB to sat/vB.
+fn rate(r: u32) -> f64 {
+    f64::from(r) / 1000.0
+}
+
+/// The block's whole list, in mining order.
+fn whole(tracker: &Tracker, index: u8, sequence: u64, b: &ProjectedBlock) -> Value {
+    let txs: Vec<Value> = tracker.read(|m| b.txs.iter().map(|t| row(m, t)).collect());
+    json!({ "projected-block-transactions": {
+        "index": index, "sequence": sequence, "blockTransactions": txs,
+    }})
+}
+
+/// The changes from `old` to `new`, and how many there are; `None` when there are none.
+fn changes(
+    tracker: &Tracker,
+    index: u8,
+    sequence: u64,
+    old: &ProjectedBlock,
+    new: &ProjectedBlock,
+) -> Option<(Value, usize)> {
+    let before: HashMap<&Txid, &Placed> = old.txs.iter().map(|(t, p)| (t, p)).collect();
+    let now: HashSet<&Txid> = new.txs.iter().map(|(t, _)| t).collect();
+    let removed: Vec<&Txid> = old
+        .txs
+        .iter()
+        .map(|(t, _)| t)
+        .filter(|t| !now.contains(t))
+        .collect();
+    let (mut added, mut changed) = (Vec::new(), Vec::new());
+    tracker.read(|m| {
+        for t in &new.txs {
+            match before.get(&t.0) {
+                None => added.push(row(m, t)),
+                // A transaction's fee and size are its own: only its rate can change.
+                Some(b) if b.rate != t.1.rate => changed.push(json!([t.0, rate(t.1.rate), 0, 0])),
+                Some(_) => {}
+            }
+        }
     });
+    let size = removed.len() + added.len() + changed.len();
+    (size > 0).then(|| {
+        let delta = json!({ "added": added, "removed": removed, "changed": changed });
+        let msg = json!({ "projected-block-transactions": {
+            "index": index, "sequence": sequence, "delta": delta,
+        }});
+        (msg, size)
+    })
 }
 
 /// Keeps one network's compatible topics current: `stats` and `mempool-blocks` once per
@@ -647,7 +986,8 @@ pub async fn run(ctx: Arc<NetworkContext>) {
     let mut events = ctx.electrum.events();
     let mut tick = tokio::time::interval(ctx.sockets.limits.mempool_interval);
     let mut published = Published::default();
-    let mut sent = ctx.hub.announced();
+    let mut sent = ctx.v1.sent.subscribe();
+    tokio::spawn(follow_table(Arc::clone(&ctx)));
     let mut blocks = ctx.fees.blocks_changed();
     loop {
         tokio::select! {

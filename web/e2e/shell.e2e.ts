@@ -1,6 +1,7 @@
 import type { Page } from "@playwright/test";
 import { groupDigits } from "../src/lib/format";
 import { chain, expect, test } from "./fixtures";
+import { layoutFaults } from "./layout";
 
 test("the app shell loads on /regtest/ with the regtest network shown", async ({ page }) => {
   await page.goto("/regtest/");
@@ -372,4 +373,54 @@ test("the header keeps a usable search and apart sections down to a zoomed phone
       width,
     );
   }
+});
+
+// At 320 px and 32 px text the four sections ran into each other: "BlocksMempoolMiningLightning".
+test.describe("on a phone at a large text size", () => {
+  test.use({ hasTouch: true, viewport: { width: 320, height: 800 } });
+  test("the header's sections stay whole and apart, and the header fits", async ({
+    page,
+    browserName,
+  }) => {
+    test.skip(browserName !== "chromium", "only Chromium lets a test set the browser's text size");
+    const cdp = await page.context().newCDPSession(page);
+    for (const text of [16, 20, 24, 32]) {
+      await cdp.send("Page.setFontSizes", {
+        fontSizes: { standard: text, fixed: Math.round((text * 13) / 16) },
+      });
+      await page.goto("/regtest/blocks");
+      await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+      // The header alone: what the page under it does at this size is its own test's.
+      await page.locator("main, footer").evaluateAll((all) => {
+        for (const el of all) (el as HTMLElement).style.display = "none";
+      });
+      const label = `${text} px text`;
+      const parts = await page.getByRole("banner").evaluate((header) => {
+        const box = (el: Element | null) => el?.getBoundingClientRect() ?? new DOMRect();
+        return {
+          root: Number.parseFloat(getComputedStyle(document.documentElement).fontSize),
+          search: box(header.querySelector(".search__field")),
+          links: [...header.querySelectorAll("nav a")].map((a) => {
+            const name = document.createRange();
+            name.selectNodeContents(a);
+            return { box: box(a), name: name.getBoundingClientRect() };
+          }),
+        };
+      });
+      expect(parts.root, label).toBe(text);
+      expect(parts.links, label).toHaveLength(4);
+      for (const [i, { box, name }] of parts.links.entries()) {
+        // Its name inside its own target, and the target a thumb's.
+        expect(name.left >= box.left && name.right <= box.right, `${label}: link ${i} whole`).toBe(
+          true,
+        );
+        expect(Math.min(box.width, box.height), `${label}: link ${i}`).toBeGreaterThanOrEqual(43.5);
+        expect(overlaps(box, parts.search), `${label}: link ${i} over the search`).toBe(false);
+        for (const other of parts.links.slice(i + 1))
+          expect(overlaps(box, other.box), `${label}: links ${i} apart`).toBe(false);
+      }
+      // No text over other text or cut, no label wrapped, and the page no wider than the window.
+      expect(await layoutFaults(page), label).toStrictEqual([]);
+    }
+  });
 });

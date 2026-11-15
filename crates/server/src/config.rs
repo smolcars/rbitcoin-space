@@ -13,17 +13,26 @@ pub enum Network {
     Mainnet,
     Signet,
     Testnet4,
+    /// BIP 95. rust-bitcoin and LDK have no such network: it takes testnet4's address forms.
+    Testnet5,
     Regtest,
 }
 
 impl Network {
-    pub const ALL: [Self; 4] = [Self::Mainnet, Self::Signet, Self::Testnet4, Self::Regtest];
+    pub const ALL: [Self; 5] = [
+        Self::Mainnet,
+        Self::Signet,
+        Self::Testnet4,
+        Self::Testnet5,
+        Self::Regtest,
+    ];
 
     pub fn name(self) -> &'static str {
         match self {
             Self::Mainnet => "mainnet",
             Self::Signet => "signet",
             Self::Testnet4 => "testnet4",
+            Self::Testnet5 => "testnet5",
             Self::Regtest => "regtest",
         }
     }
@@ -34,6 +43,7 @@ impl Network {
             Self::Mainnet => "main",
             Self::Signet => "signet",
             Self::Testnet4 => "testnet4",
+            Self::Testnet5 => "testnet5",
             Self::Regtest => "regtest",
         }
     }
@@ -44,6 +54,7 @@ impl Network {
             Self::Mainnet => "",
             Self::Signet => "/signet",
             Self::Testnet4 => "/testnet4",
+            Self::Testnet5 => "/testnet5",
             Self::Regtest => "/regtest",
         }
     }
@@ -53,17 +64,19 @@ impl Network {
             Self::Mainnet => "MAINNET",
             Self::Signet => "SIGNET",
             Self::Testnet4 => "TESTNET4",
+            Self::Testnet5 => "TESTNET5",
             Self::Regtest => "REGTEST",
         }
     }
 
-    /// The network as LDK names it.
-    pub fn ln(self) -> ln::Network {
+    /// The network as LDK names it; `None` where LDK has no such network.
+    pub fn ln(self) -> Option<ln::Network> {
         match self {
-            Self::Mainnet => ln::Network::Bitcoin,
-            Self::Signet => ln::Network::Signet,
-            Self::Testnet4 => ln::Network::Testnet4,
-            Self::Regtest => ln::Network::Regtest,
+            Self::Mainnet => Some(ln::Network::Bitcoin),
+            Self::Signet => Some(ln::Network::Signet),
+            Self::Testnet4 => Some(ln::Network::Testnet4),
+            Self::Testnet5 => None,
+            Self::Regtest => Some(ln::Network::Regtest),
         }
     }
 }
@@ -116,6 +129,8 @@ pub struct NetworkConfig {
     pub mempool: bool,
     /// The Lightning gossip peer, when `{NET}_LIGHTNING_ENABLED` is `true`.
     pub lightning: Option<LightningConfig>,
+    /// The Bark server VTXOs are looked up on (`{NET}_BARK_URL`, docs/ARK.md); unset is off.
+    pub bark: Option<bark::Endpoint>,
 }
 
 /// The network's Lightning gossip peer (docs/LIGHTNING.md). Its files live in
@@ -370,7 +385,8 @@ impl Default for Backfill {
 #[derive(Debug, Clone)]
 pub struct Config {
     pub listen: SocketAddr,
-    pub web_dir: PathBuf,
+    /// `WEB_DIR`: the built frontend. `None` (set to the empty string) serves no frontend.
+    pub web_dir: Option<PathBuf>,
     /// `DATA_DIR`: where each network's SQLite file lives. `None` runs without a store.
     pub data_dir: Option<PathBuf>,
     pub backfill: Backfill,
@@ -384,6 +400,8 @@ pub struct Config {
     pub log_requests: RequestLog,
     /// Whether request events carry the client address (`LOG_CLIENT_ADDR`).
     pub log_client_addr: bool,
+    /// Whether the CSP allows Cloudflare's Web Analytics beacon (`CLOUDFLARE_WEB_ANALYTICS`).
+    pub cloudflare_web_analytics: bool,
 }
 
 impl Config {
@@ -391,7 +409,7 @@ impl Config {
         Self::from_vars(|name| std::env::var(name).ok())
     }
 
-    /// Parses configuration from a variable lookup. An empty value counts as unset.
+    /// Parses configuration from a variable lookup. An empty value counts as unset, except `WEB_DIR`.
     pub fn from_vars(get: impl Fn(&str) -> Option<String>) -> Result<Self, String> {
         let var = |name: &str| get(name).filter(|v| !v.is_empty());
 
@@ -424,7 +442,11 @@ impl Config {
                     .ok_or("LEDGER_MAX_HISTORY_ROWS must be a whole number from 0 to 1000000000")?,
             },
         };
-        let web_dir = var("WEB_DIR").map_or_else(|| "web/dist".into(), PathBuf::from);
+        // Unlike every other variable, an empty `WEB_DIR` is not unset: it turns the frontend off.
+        let web_dir = match get("WEB_DIR") {
+            None => Some("web/dist".into()),
+            Some(v) => (!v.is_empty()).then(|| PathBuf::from(v)),
+        };
         let data_dir = var("DATA_DIR").map(PathBuf::from);
         let b = Backfill::default();
         let backfill = Backfill {
@@ -596,6 +618,11 @@ impl Config {
             Some("true") => true,
             Some(_) => return Err("LOG_CLIENT_ADDR must be true or false".into()),
         };
+        let cloudflare_web_analytics = match var("CLOUDFLARE_WEB_ANALYTICS").as_deref() {
+            None | Some("false") => false,
+            Some("true") => true,
+            Some(_) => return Err("CLOUDFLARE_WEB_ANALYTICS must be true or false".into()),
+        };
 
         Ok(Self {
             listen,
@@ -609,6 +636,7 @@ impl Config {
             broadcast,
             log_requests,
             log_client_addr,
+            cloudflare_web_analytics,
         })
     }
 }
@@ -687,6 +715,12 @@ fn network_config(
         .map(|(n, _)| n.as_str())
         .collect();
     if missing.len() == names.len() {
+        if var(&format!("{p}_BARK_URL")).is_some() {
+            return Err(format!(
+                "{p}_BARK_URL is set but {} is not configured",
+                network.name()
+            ));
+        }
         return Ok(None);
     }
     if !missing.is_empty() {
@@ -734,6 +768,10 @@ fn network_config(
         Some(_) => return Err(format!("{p}_LIGHTNING_ENABLED must be true or false")),
     };
 
+    let bark = var(&format!("{p}_BARK_URL"))
+        .map(|u| bark::Endpoint::parse(&u).map_err(|e| format!("{p}_BARK_URL {e}")))
+        .transpose()?;
+
     Ok(Some(NetworkConfig {
         network,
         rpc: RpcEndpoint {
@@ -746,6 +784,7 @@ fn network_config(
         electrum,
         mempool,
         lightning,
+        bark,
     }))
 }
 
@@ -754,7 +793,13 @@ fn lightning_config(
     var: &dyn Fn(&str) -> Option<String>,
 ) -> Result<LightningConfig, String> {
     let p = network.env_prefix();
-    let d = ln::Config::new(network.ln(), PathBuf::new());
+    let Some(chain) = network.ln() else {
+        return Err(format!(
+            "{p}_LIGHTNING_ENABLED cannot be true: LDK, the Lightning library, does not know {}",
+            network.name()
+        ));
+    };
+    let d = ln::Config::new(chain, PathBuf::new());
     let peers = match var(&format!("{p}_LIGHTNING_PEERS")) {
         None => d.peers,
         Some(list) => list
@@ -871,6 +916,7 @@ mod tests {
     fn defaults_with_nothing_set() {
         let c = parse(&[]).unwrap();
         assert_eq!(c.listen.to_string(), "127.0.0.1:8080");
+        assert_eq!(c.web_dir, Some("web/dist".into()));
         assert!(c.networks.is_empty());
         assert_eq!(c.limits, Limits::default());
     }
@@ -967,6 +1013,21 @@ mod tests {
                 "{e}"
             );
         }
+        // LDK has no Testnet 5: refused whatever peers are named.
+        let mut t5 = renamed("TESTNET5", &on);
+        t5.push((
+            "TESTNET5_LIGHTNING_PEERS".into(),
+            format!("{peer}@203.0.113.1:9735"),
+        ));
+        let e = parse_owned(&t5).unwrap_err();
+        assert!(
+            e.contains("TESTNET5_LIGHTNING_ENABLED cannot be true") && e.contains("testnet5"),
+            "{e}"
+        );
+        // Without Lightning it is a network like the others.
+        let c = parse_owned(&renamed("TESTNET5", &[])).unwrap();
+        assert_eq!(c.networks[0].network, Network::Testnet5);
+        assert_eq!(c.networks[0].network.path_prefix(), "/testnet5");
     }
 
     #[test]
@@ -1067,6 +1128,13 @@ mod tests {
         );
         assert!(parse(&[("LOG_REQUESTS", "some")]).is_err());
         assert!(parse(&[("LOG_CLIENT_ADDR", "yes")]).is_err());
+        assert!(!parse(&[]).unwrap().cloudflare_web_analytics);
+        assert!(
+            parse(&[("CLOUDFLARE_WEB_ANALYTICS", "true")])
+                .unwrap()
+                .cloudflare_web_analytics
+        );
+        assert!(parse(&[("CLOUDFLARE_WEB_ANALYTICS", "yes")]).is_err());
         assert!(parse(&[("MAX_CONNECTIONS", "99999999")]).is_err());
         assert_eq!(parse(&[]).unwrap().ws, WsLimits::default());
         let c = parse(&[("WS_SEND_QUEUE", "3"), ("WS_IDLE_TIMEOUT_SECS", "2")]).unwrap();
@@ -1251,5 +1319,27 @@ mod tests {
         let s = format!("{c:?} {:#?}", c.networks);
         assert!(!s.contains("hunter2"), "{s}");
         assert!(s.contains("redacted"));
+    }
+
+    #[test]
+    fn bark_url() {
+        let c = parse(&signet()).unwrap();
+        assert_eq!(c.networks[0].bark, None);
+        let mut v = signet();
+        v.push(("SIGNET_BARK_URL", "https://ark.signet.2nd.dev"));
+        let c = parse(&v).unwrap();
+        assert!(c.networks[0].bark.is_some());
+        for bad in [
+            "ark.signet.2nd.dev",
+            "https://u:p@ark.example",
+            "https://ark.example/x",
+        ] {
+            let mut v = signet();
+            v.push(("SIGNET_BARK_URL", bad));
+            let e = parse(&v).unwrap_err();
+            assert!(e.contains("SIGNET_BARK_URL") && !e.contains(bad), "{e}");
+        }
+        let e = parse(&[("MAINNET_BARK_URL", "https://ark.second.tech")]).unwrap_err();
+        assert!(e.contains("MAINNET_BARK_URL is set but"), "{e}");
     }
 }
