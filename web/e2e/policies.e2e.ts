@@ -83,7 +83,10 @@ const channelFaults = (page: Page) =>
       for (let p = e.parentElement; p && !clipped; p = p.parentElement) {
         clipped = getComputedStyle(p).overflowX !== "visible";
       }
-      if (!clipped) out.push(`past the edge: ${e.tagName.toLowerCase()}.${e.className}`);
+      if (!clipped) {
+        const what = `${e.tagName.toLowerCase()}.${e.className} "${(e.textContent ?? "").slice(0, 40)}"`;
+        out.push(`past the edge: ${what} to ${Math.round(box.right)}`);
+      }
     }
     // Names, ids and keys may break; a figure never breaks inside its digits.
     const walk = document.createTreeWalker(document.querySelector("main") as Node, 4);
@@ -97,6 +100,29 @@ const channelFaults = (page: Page) =>
           [...range.getClientRects()].filter((r) => r.width > 0).map((r) => Math.round(r.top)),
         );
         if (tops.size > 1) out.push(`split: ${m[0]}`);
+      }
+    }
+    // A figure is one piece with its unit ("1 sat", never "1" then "sat"); a time is a phrase.
+    for (const el of document.querySelectorAll<HTMLElement>("main :is(.num, .ln-msat)")) {
+      // A channel id wraps after an "x" by design (ChannelId).
+      if (el.querySelector(".num") || el.closest("time, .visually-hidden, .ln-id")) continue;
+      if (!/\d/.test(el.textContent ?? "") || el.getClientRects().length === 0) continue;
+      // Its visible text only: a figure's words for a screen reader are drawn nowhere.
+      const tops = new Set<number>();
+      const texts = document.createTreeWalker(el, 4);
+      for (let t = texts.nextNode(); t; t = texts.nextNode()) {
+        if (t.parentElement?.closest(".visually-hidden")) continue;
+        const range = document.createRange();
+        range.selectNodeContents(t);
+        for (const r of range.getClientRects()) if (r.width > 0) tops.add(Math.round(r.top));
+      }
+      if (tops.size > 1) out.push(`unit apart: ${el.textContent ?? ""}`);
+      // Nor out of the box a reader sees round it: a fee's well, an end's box, the panel.
+      const box = el.closest(".ln-hop__way, .ln-end, section, header")?.getBoundingClientRect();
+      const r = el.getBoundingClientRect();
+      if (box && (r.left < box.left - 1 || r.right > box.right + 1)) {
+        const at = `${Math.round(r.left)}–${Math.round(r.right)} in ${Math.round(box.left)}–${Math.round(box.right)}`;
+        out.push(`out of its box: ${el.textContent ?? ""} (${at})`);
       }
     }
     if (document.documentElement.scrollWidth > width) out.push("the page scrolls sideways");

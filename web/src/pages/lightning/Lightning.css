@@ -659,9 +659,9 @@
     font-weight: var(--weight-medium);
   }
 
-  /* A figure stays with its unit; only at the largest text sizes (below) may the unit take the
-     next line. Its digits never part: they are grouped with no-break spaces. */
-  :is(.ln-chan, .ln-lanes, .ln-hop, .ln-outcome, .ln-life) .num {
+  /* A figure is one piece, its unit with it, at any text size: a line breaks between figures
+     ("1 ppm" + "1 sat"), never inside one. Its digit groups are joined by no-break spaces. */
+  :is(.ln-chan, .ln-lanes, .ln-hop, .ln-outcome, .ln-life, .ln-terms) .num:not(time) {
     white-space: nowrap;
   }
   /* Names are the one thing here that may break anywhere: a figure never does. */
@@ -1190,8 +1190,16 @@
     .ln-step__body .hash {
       flex-wrap: wrap;
     }
-    :is(.ln-chan, .ln-lanes, .ln-hop, .ln-outcome, .ln-life) .num {
-      white-space: normal;
+    /* The capacity at its line's size and a hop's fee at the reader's own, not above them, and
+       the fee's well with less padding, so a whole "500 000 000 sats" or "250.9 sats" fits. */
+    .ln-chan__line strong {
+      font-size: inherit;
+    }
+    .ln-hop__fee {
+      font-size: var(--text-md);
+    }
+    .ln-hop__way {
+      padding-inline: var(--space-2);
     }
   }
 }

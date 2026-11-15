@@ -500,7 +500,7 @@ function Policies(props: { channel: ChannelDetail }) {
     if (d.side === null) return d.text;
     return (
       <>
-        <bdi>{shortName(d.side === "one" ? one() : two())}</bdi> {d.text}
+        <bdi>{shortName(d.side === "one" ? one() : two())}</bdi> <span class="num">{d.text}</span>
       </>
     );
   };
@@ -616,7 +616,11 @@ function stepBody(s: Step, c: ChannelDetail, now: () => number): JSX.Element {
     return (
       <span>
         <Show when={c.funding.block}>
-          {(b) => <span class="num">{days(now() - b().time)} old; </span>}
+          {(b) => (
+            <>
+              <span class="num">{days(now() - b().time)}</span> old;{" "}
+            </>
+          )}
         </Show>
         {channelTag(c).word.toLowerCase()}
       </span>
