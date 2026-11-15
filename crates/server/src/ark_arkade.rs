@@ -25,7 +25,7 @@ use axum::routing::get;
 use axum::{Extension, Json, Router};
 use bitcoin::{BlockHash, Txid};
 use serde::Serialize;
-use tokio::sync::{OnceCell, Semaphore};
+use tokio::sync::{OnceCell, Semaphore, SemaphorePermit};
 
 use crate::config::Network;
 use crate::limits::{Client, Clients, Refused};
@@ -218,7 +218,9 @@ async fn answer(
         txid: esplora::txid(txid)?,
         vout: arkade::parse_vout(vout).ok_or(ApiError::bad_request("invalid output index"))?,
     };
-    let found = ask(ark, client, ark.client.lookup(outpoint)).await?;
+    // Held through the node's status reads below, so they count against the network's slots too.
+    let _slot = admit(ark, client)?;
+    let found = ask(ark, ark.client.lookup(outpoint)).await?;
     let lookup = found.ok_or(UNKNOWN)?;
     let onchain = states(ctx, ark, outpoint, &lookup.chain).await;
     let mut res = Json(Answer {
@@ -231,18 +233,20 @@ async fn answer(
     Ok(res)
 }
 
-/// Takes a client's token and one of the network's slots, then waits for `call` within
-/// [`LOOKUP_TIMEOUT`], counting arkd's failures.
-async fn ask<T>(
-    ark: &Arkade,
-    client: &Client,
-    call: impl Future<Output = Result<T, arkade::Error>>,
-) -> Result<T, Fail> {
+/// Takes a client's token and one of the network's slots, held until the permit is dropped.
+fn admit<'a>(ark: &'a Arkade, client: &Client) -> Result<SemaphorePermit<'a>, Fail> {
     ark.clients.take(client.addr).map_err(Fail::Refused)?;
-    let _slot = ark
+    Ok(ark
         .in_flight
         .try_acquire()
-        .map_err(|_| ApiError::OVERLOADED)?;
+        .map_err(|_| ApiError::OVERLOADED)?)
+}
+
+/// Waits for `call` within [`LOOKUP_TIMEOUT`], counting arkd's failures.
+async fn ask<T>(
+    ark: &Arkade,
+    call: impl Future<Output = Result<T, arkade::Error>>,
+) -> Result<T, Fail> {
     let found = match tokio::time::timeout(LOOKUP_TIMEOUT, call).await {
         Ok(Ok(found)) => found,
         Ok(Err(arkade::Error::Busy)) => {
@@ -287,7 +291,8 @@ async fn list(
         arkade::AddressError::Version => UNKNOWN_VERSION,
         _ => BAD_ADDRESS,
     })?;
-    let listing = ask(ark, client, ark.client.list(&address, page))
+    let _slot = admit(ark, client)?;
+    let listing = ask(ark, ark.client.list(&address, page))
         .await?
         .ok_or(FOREIGN)?;
     let mut res = Json(&*listing).into_response();

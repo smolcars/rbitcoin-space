@@ -345,8 +345,8 @@ pub struct Client {
     mainnet: bool,
     info: tokio::sync::Mutex<Option<(Instant, Server)>>,
     kept: Kept<Outpoint, Option<Arc<Lookup>>>,
-    /// Pages of address lists, by the VTXO key and the page.
-    lists: Kept<([u8; 32], u32), Arc<Listing>>,
+    /// Pages of address lists, by the address and the page; `None` for another server's address.
+    lists: Kept<(Address, u32), Option<Arc<Listing>>>,
 }
 
 impl fmt::Debug for Client {
@@ -390,21 +390,18 @@ impl Client {
     /// names another server's signer, which is then not asked. At most [`MAX_LIST_CALLS`] calls;
     /// shared and kept as [`Client::lookup`] is.
     pub async fn list(&self, address: &Address, page: u32) -> Result<Option<Arc<Listing>>, Error> {
-        let server = self.info().await?;
-        if !server.signers.contains(&address.server_key) {
-            return Ok(None);
-        }
         let page = page.clamp(1, MAX_PAGE);
-        let key = (address.p2tr_key, page);
         self.lists
-            .get(key, || self.list_page(address, page))
+            .get((*address, page), || self.list_page(address, page))
             .await
-            .map(Some)
     }
 
-    /// `GET /v1/indexer/vtxos?scripts=`, one page of [`PAGE_SIZE`]. Every VTXO must pay to the
-    /// address's script.
-    async fn list_page(&self, address: &Address, page: u32) -> Result<Arc<Listing>, Error> {
+    /// The server's info, then `GET /v1/indexer/vtxos?scripts=`, one page of [`PAGE_SIZE`], unless
+    /// the address names another server. Every VTXO must pay to the address's script.
+    async fn list_page(&self, address: &Address, page: u32) -> Result<Option<Arc<Listing>>, Error> {
+        if !self.info().await?.signers.contains(&address.server_key) {
+            return Ok(None);
+        }
         let script = address.script_hex();
         let path =
             format!("/v1/indexer/vtxos?scripts={script}&page.size={PAGE_SIZE}&page.index={page}");
@@ -421,7 +418,7 @@ impl Client {
             vtxos.push(v);
         }
         let pages = raw.page.map_or(0, |p| u32::try_from(p.total).unwrap_or(0));
-        Ok(Arc::new(Listing { page, pages, vtxos }))
+        Ok(Some(Arc::new(Listing { page, pages, vtxos })))
     }
 
     async fn fetch(&self, outpoint: Outpoint) -> Result<Option<Arc<Lookup>>, Error> {

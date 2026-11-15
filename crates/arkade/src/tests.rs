@@ -668,6 +668,25 @@ async fn an_address_lists_one_page_in_two_calls_then_one() {
 }
 
 #[tokio::test]
+async fn identical_pages_in_flight_share_one_failed_info() {
+    let mut routes = signet_routes();
+    routes.insert("/v1/info".into(), (500, "{}".into()));
+    let f = fake(routes, false).await;
+    let c = Arc::new(client(&f.url, false));
+    let a = Address::parse(SIGNET_ADDR, false).unwrap();
+    let tasks: Vec<_> = (0..8)
+        .map(|_| {
+            let c = Arc::clone(&c);
+            tokio::spawn(async move { c.list(&a, 1).await })
+        })
+        .collect();
+    for t in tasks {
+        assert_eq!(t.await.unwrap().unwrap_err(), Error::Status);
+    }
+    assert_eq!(f.hits.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
 async fn an_address_of_another_server_is_not_listed() {
     let f = fake(signet_routes(), false).await;
     let c = client(&f.url, false);
