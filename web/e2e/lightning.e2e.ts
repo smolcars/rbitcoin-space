@@ -1,6 +1,5 @@
-import type { Page } from "@playwright/test";
 import { chain, expect, test } from "./fixtures";
-import { ACINQ, mainnet, ONE, recorded, serve } from "./lightning-answers";
+import { ACINQ, mainnet, recorded, serve } from "./lightning-answers";
 import { tablesFit, tapRow } from "./rows";
 
 test("the header leads to Lightning, which says it is switched off on regtest", async ({
@@ -136,6 +135,7 @@ test("hostile names stay inert text and never widen the page", async ({ page }) 
       color: "red;x",
     },
     [`nodes/${ACINQ}/history`]: recorded("node-acinq-history"),
+    [`nodes/${ACINQ}/channels?sort=update`]: recorded("node-acinq-updated"),
   });
   await page.goto("/regtest/lightning/search?q=acinq");
   await expect(page.getByText("�QNICA")).toBeVisible();
@@ -306,10 +306,13 @@ test.describe("Lightning's lists", () => {
     "/regtest/lightning/search?q=acinq",
   ];
 
+  // A phone shows a node's channels as cards (policies-node.e2e.ts), not a table.
+  const tabled = (width: number) => pages.filter((p) => width >= 640 || !p.includes("/node/"));
+
   test("every row opens its item from anywhere on it, at a phone's width", async ({ page }) => {
     await serve(page, mainnet());
     await page.setViewportSize({ width: 390, height: 844 });
-    for (const path of pages) {
+    for (const path of tabled(390)) {
       await page.goto(path);
       const tables = page.locator("table.table--rows");
       await expect(tables.first()).toBeVisible();
@@ -328,7 +331,7 @@ test.describe("Lightning's lists", () => {
     }) => {
       await serve(page, mainnet());
       await page.setViewportSize({ width, height: 900 });
-      for (const path of pages) {
+      for (const path of tabled(width)) {
         await page.goto(path);
         await expect(page.locator("table.table--rows tbody tr").first()).toBeVisible();
         await tablesFit(page, `${path} at ${width} px`);
@@ -344,140 +347,6 @@ test("the overview's own links mark one current place at a time", async ({ page 
   await expect(nav.locator(":is([aria-current='page'], [aria-current='location'])")).toHaveText(
     "Overview",
   );
-});
-
-/** The node page's section headed `name`. */
-const panel = (page: Page, name: string) =>
-  page.locator("section", { has: page.getByRole("heading", { name, exact: true }) });
-
-test("a node's past and fee rates sit side by side, and a phone reaches its channels soon after", async ({
-  page,
-}) => {
-  await serve(page, mainnet());
-  await page.goto(`/regtest/lightning/node/${ACINQ}`);
-  const chart = page.getByRole("slider", { name: /This node's channels and capacity/ });
-  await expect(chart).toHaveAttribute("aria-valuetext", /Channels 1\s793/);
-  const fees = panel(page, "Fee rates");
-  await expect(fees.getByText(/^It charges a median of 200–499 ppm to forward/)).toBeVisible();
-  // Two rows of bars on one scale: the longest is the 1 469 channels it prices at 200–499 ppm.
-  const widths = await fees
-    .locator(".ln-fees__fill")
-    .evaluateAll((bars) => bars.map((b) => b.getBoundingClientRect().width));
-  expect(Math.max(...widths)).toBeGreaterThan(10 * Math.min(...widths));
-
-  await page.setViewportSize({ width: 1440, height: 900 });
-  const top = async (name: string) => (await panel(page, name).boundingBox())?.y ?? 0;
-  expect(await top("Over time")).toBe(await top("Fee rates"));
-
-  await page.setViewportSize({ width: 390, height: 844 });
-  // In the wide faces a Linux machine falls back to, as the mempool's chart is checked.
-  await page.evaluate(() => {
-    const root = document.documentElement.style;
-    root.setProperty("--font-sans", '"DejaVu Sans", Verdana, sans-serif');
-    root.setProperty("--font-mono", '"DejaVu Sans Mono", "Courier New", monospace');
-  });
-  const header = (await page.locator(".site-header").boundingBox())?.height ?? 0;
-  // The plot and its axis are on the first screen of its panel, under the sticky header.
-  const fold = await panel(page, "Over time").evaluate((section) => {
-    const plot = section.querySelector("[role=slider]");
-    const bottom = Math.max(
-      ...[...(plot?.querySelectorAll("svg, svg text") ?? [])].map(
-        (e) => e.getBoundingClientRect().bottom,
-      ),
-    );
-    return bottom - section.getBoundingClientRect().top;
-  });
-  expect(fold).toBeLessThanOrEqual(844 - header);
-  // A tap reads a point out and never moves the plot.
-  const svg = chart.locator("svg").first();
-  await svg.scrollIntoViewIfNeeded();
-  const before = await svg.boundingBox();
-  await svg.click({ position: { x: 20, y: 60 } });
-  await expect(page.locator(".chart__readout").first()).toContainText("13 Nov 2026");
-  expect(await svg.boundingBox()).toStrictEqual(before);
-  // Both charts take at most a screen and a half before what follows them.
-  const charts = (await top("What it announces")) - (await top("Over time"));
-  expect(charts).toBeLessThanOrEqual(1.5 * 844);
-  // The figures: a finger's target, and a table that fits the narrowest phone.
-  const figures = fees.locator(".chart__figures > summary");
-  expect((await figures.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
-  await figures.click();
-  await page.setViewportSize({ width: 320, height: 844 });
-  // The chart's own words head the figures, one table each way, and each says which column counts
-  // channels and which sums their capacity (the strict fit at 320 px is in tables.e2e.ts).
-  await expect(fees.getByRole("table", { name: "It charges" })).toBeVisible();
-  await expect(fees.getByRole("table", { name: "Its peers charge" })).toBeVisible();
-  for (const name of ["It charges", "Its peers charge"]) {
-    await expect(fees.getByRole("table", { name }).locator("thead th:visible")).toHaveText([
-      "Fee rate, ppm",
-      "Channels",
-      /Capacity, BTC$/,
-    ]);
-  }
-  await tablesFit(page, "a node's fee figures at 320 px");
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
-});
-
-/** The points of a chart's path `d`, as drawn. */
-const points = (d: string) =>
-  [...d.matchAll(/([MLHV])([\d.-]+)(?: ([\d.-]+))?/g)].reduce<[number, number][]>((out, m) => {
-    const [x0, y0] = out.at(-1) ?? [0, 0];
-    const a = Number(m[2]);
-    const at: [number, number] =
-      m[1] === "H" ? [a, y0] : m[1] === "V" ? [x0, a] : [a, Number(m[3])];
-    out.push(at);
-    return out;
-  }, []);
-
-// Two looks at a small node were once joined by a slope, as if its second channel had grown all
-// day. Its record knows the open's block: the chart steps there, and draws nothing between.
-test("a node's past steps at the moment a channel opened, never a slope between two looks", async ({
-  page,
-}) => {
-  const midnight = 1_794_528_000;
-  const opened = 1_794_603_213;
-  const now = 1_794_607_020;
-  await serve(page, {
-    ...mainnet(),
-    [`nodes/${ONE}/history`]: {
-      from: 1_794_504_600,
-      points: [
-        { time: midnight, channels: 1, capacity: 80_000 },
-        { time: opened, channels: 2, capacity: 2_080_000 },
-        { time: now, channels: 2, capacity: 2_080_000 },
-      ],
-    },
-  });
-  for (const width of [1440, 320]) {
-    await page.setViewportSize({ width, height: 900 });
-    await page.goto(`/regtest/lightning/node/${ONE}`);
-    const past = panel(page, "Over time");
-    await expect(past.getByRole("slider")).toHaveAttribute("aria-valuetext", /Channels 2\b/);
-    const drawn = await past
-      .locator(".chart__line, .chart__area")
-      .evaluateAll((paths) => paths.map((p) => p.getAttribute("d") ?? "").filter(Boolean));
-    // Channels' line and area, capacity's line.
-    expect(drawn).toHaveLength(3);
-    for (const d of drawn) {
-      const at = points(d);
-      const slopes = at.filter(([x, y], i) => {
-        const [px, py] = at[i - 1] ?? [x, y];
-        return Math.abs(x - px) > 0.2 && Math.abs(y - py) > 0.2;
-      });
-      expect(slopes, `${width} px: ${d}`).toStrictEqual([]);
-    }
-    // The rise is at the open, not at the later look: before the plot's right edge.
-    const [line] = drawn;
-    const xs = points(line ?? "").map(([x]) => x);
-    const right = Math.max(...xs);
-    const rise = points(line ?? "").find(
-      ([x, y], i, all) => (all[i - 1]?.[0] ?? -1) === x && all[i - 1]?.[1] !== y,
-    );
-    expect(rise?.[0] ?? right, `${width} px: the step`).toBeLessThan(right - 2);
-    // The figures name the open's minute.
-    await past.getByText("Show the figures").click();
-    await expect(past.getByRole("table")).toContainText("13 Nov 2026, 20:53");
-  }
 });
 
 // The network's totals are samples every ten minutes: while there are few, each is marked, so a
@@ -514,46 +383,4 @@ test("the overview marks its samples while they are few, and not once they are m
     await expect(page.getByRole("slider", { name: /Lightning channels/ })).toBeVisible();
     await expect(page.locator(".ln-history .chart__mark")).toHaveCount(marks);
   }
-});
-
-test.describe("a node's past and fees at the edges", () => {
-  test.use({ consoleErrorsAllowed: [/status of 500/] });
-
-  test("one channel, no past yet, and a refused history", async ({ page }) => {
-    await serve(page, mainnet());
-    await page.goto(`/regtest/lightning/node/${ONE}`);
-    const fees = panel(page, "Fee rates");
-    await expect(fees.locator(".ln-fees__answer")).toHaveText(
-      "It charges 10–49 ppm to forward; its peer charges 200–499 ppm towards it.",
-    );
-    // From its cheapest rate to its dearest, nothing past them.
-    await expect(fees.locator(".ln-fees__label")).toHaveText([
-      "10–49",
-      "50–99",
-      "100–199",
-      "200–499",
-    ]);
-    await expect(
-      page.getByRole("slider", { name: /This node's channels and capacity/ }),
-    ).toHaveAttribute("aria-valuetext", /Channels 1\b/);
-
-    const latest = { time: 1_794_594_636, channels: 1793, capacity: 28_498_822_087 };
-    await serve(page, {
-      ...mainnet(),
-      [`nodes/${ACINQ}/history`]: { from: null, points: [latest] },
-    });
-    await page.goto(`/regtest/lightning/node/${ACINQ}`);
-    const past = panel(page, "Over time");
-    await expect(past.getByText("Nothing to draw yet")).toBeVisible();
-    await expect(past.getByRole("slider")).toHaveCount(0);
-
-    const answers: Record<string, unknown> = mainnet();
-    delete answers[`nodes/${ACINQ}/history`];
-    await serve(page, answers);
-    await page.goto(`/regtest/lightning/node/${ACINQ}`);
-    await expect(past.getByText("Could not load its history")).toBeVisible();
-    await expect(past.getByRole("button", { name: "Try again" })).toBeVisible();
-    // The node's own figures stay.
-    await expect(panel(page, "Fee rates").locator(".ln-fees__answer")).toBeVisible();
-  });
 });

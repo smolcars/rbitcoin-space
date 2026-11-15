@@ -7,7 +7,6 @@ import {
   coverageSentence,
   cut,
   feeRows,
-  feeSentence,
   dataFrom,
   isChannelDetail,
   isChannelId,
@@ -26,6 +25,18 @@ import {
   parseSats,
   type Policy,
   TERMS,
+  ageShort,
+  changeWords,
+  cleanFilter,
+  isOpenPage,
+  listRequest,
+  ordinal,
+  readList,
+  readView,
+  rowBuckets,
+  rowState,
+  viewHref,
+  weekAgo,
 } from "./lightning";
 import {
   acinq,
@@ -34,6 +45,7 @@ import {
   closedOf,
   EARLIER,
   NEXT,
+  openChannel,
   overview,
   series,
   T0,
@@ -203,21 +215,12 @@ describe("a node's fee rates", () => {
     expect(rows[0]?.outgoing.count).toBe(1);
   });
 
-  it("says what the node charges and is charged, by the median channel", () => {
-    expect(feeSentence(feeRows(fees)).replaceAll("\u202F", " ")).toBe(
-      "It charges a median of 2 000–4 999 ppm to forward; its peers charge a median of 2 000–4 999 ppm towards it.",
-    );
-  });
-
-  it("drops the median for one channel, and says when a way has no fee set", () => {
+  it("keeps a one-channel node's two rows, its policy and its peer's none", () => {
     const one = feeRows({
       outgoing: [{ bucket: 100, count: 1, capacity: 10 }],
       incoming: [{ bucket: null, count: 1, capacity: 10 }],
     });
     expect(one.map((r) => r.label)).toStrictEqual(["100–199", "No policy"]);
-    expect(feeSentence(one)).toBe(
-      "It charges 100–199 ppm to forward; its peer has set none towards it.",
-    );
   });
 });
 
@@ -402,5 +405,188 @@ describe("lifeSteps", () => {
       key: "funded",
       time: null,
     });
+  });
+});
+
+// The node page for its operator.
+
+const KEY = "03864ef025fde8fb587d989186ce6a4a186895ee44a926bfc370e2c366597a3f8f";
+const PEER = "033d8656219478701227199cbd6f670335c8d408a92ae88b962c49d4dc0e83e025";
+
+describe("a node's list in the address and as a request", () => {
+  const ask = (search: Record<string, string>, closed = false) =>
+    listRequest(KEY, readList(search, closed), closed).replace(`/nodes/${KEY}/channels`, "");
+
+  it("asks the server's defaults with nothing at all", () => {
+    expect(ask({})).toBe("");
+    expect(ask({}, true)).toBe("?status=closed");
+    expect(readList({}, false)).toMatchObject({ sort: "capacity", dir: "desc", page: 0 });
+    expect(readList({ sort: "out" }, false).dir).toBe("asc");
+  });
+
+  it("carries every parameter the server takes, the page from 1 in the address, 0 to the server", () => {
+    expect(
+      ask({
+        sort: "cltv",
+        dir: "desc",
+        q: " bfx ",
+        peer: PEER.toUpperCase(),
+        state: "here",
+        page: "3",
+      }),
+    ).toBe(`?sort=cltv&dir=desc&q=bfx&peer=${PEER}&state=here&page=2`);
+    expect(ask({ sort: "lived", dir: "asc", kind: "penalty", page: "2" }, true)).toBe(
+      "?status=closed&sort=lived&dir=asc&kind=penalty&page=1",
+    );
+  });
+
+  it("asks for a fee row as its run of the server's buckets", () => {
+    expect(ask({ fee: "out:10" })).toBe("?fee=out%3A10-40");
+    expect(ask({ fee: "in:1" })).toBe("?fee=in%3A1-9");
+    expect(ask({ fee: "out:0" })).toBe("?fee=out%3A0");
+    expect(ask({ fee: "out:100" })).toBe("?fee=out%3A100");
+    expect(ask({ fee: "out:200" })).toBe("?fee=out%3A200-400");
+    expect(ask({ fee: "in:none" })).toBe("?fee=in%3Anone");
+    expect(ask({ fee: "out:10000" })).toBe("?fee=out%3A10000-4294967000");
+    expect(rowBuckets(5000)).toBe("5000-9000");
+  });
+
+  it("reads what the server would refuse as unset, so an edited link still shows a list", () => {
+    const bad = [
+      { sort: "fee" },
+      { dir: "up" },
+      { state: "Active" },
+      { fee: "out:15" },
+      { fee: "up:10" },
+      { peer: "03" },
+      { page: "0" },
+      { page: "4002" },
+      { page: "2.5" },
+      { kind: "force" },
+      { q: "x".repeat(67) },
+      { q: "\u0007" },
+    ];
+    expect(bad.map((b) => ask(b))).toStrictEqual(bad.map(() => ""));
+    // A closed list takes no state or fee, an open one no kind.
+    expect(ask({ state: "here", fee: "out:0", sort: "out" }, true)).toBe("?status=closed");
+  });
+
+  it("strips control characters from the filter and counts code points as the server does", () => {
+    expect(cleanFilter(" a\u0000b ")).toBe("ab");
+    expect(cleanFilter("⚡".repeat(66))).toBe("⚡".repeat(66));
+    expect(cleanFilter("⚡".repeat(67))).toBe("");
+  });
+
+  it("reads the view, Channels by default", () => {
+    expect(readView({})).toBe("channels");
+    expect(readView({ view: "fees" })).toBe("fees");
+    expect(readView({ view: ["closed", "fees"] })).toBe("closed");
+    expect(readView({ view: "map" })).toBe("channels");
+  });
+
+  it("writes a view's address with a change, leaving out what is unset", () => {
+    expect(viewHref("/n", { sort: "out", page: "3" }, { peer: PEER, page: undefined })).toBe(
+      `/n?sort=out&peer=${PEER}`,
+    );
+    expect(viewHref("/n", { state: "here" }, { state: undefined })).toBe("/n");
+  });
+});
+
+describe("a node's week", () => {
+  const now = 1_800_000_000;
+  const h = (from: number | null, times: number[]) => ({
+    from,
+    points: times.map((t, i) => ({ time: t, channels: 10 + i, capacity: 1000 + i })),
+  });
+
+  it("takes the last point a week before now", () => {
+    expect(
+      weekAgo(h(now - 30 * 86_400, [now - 9 * 86_400, now - 7 * 86_400, now - 86_400]), now),
+    ).toStrictEqual({
+      time: now - 7 * 86_400,
+      channels: 11,
+      capacity: 1001,
+    });
+  });
+
+  it("gives nothing where the record is younger than a week, rather than a wrong change", () => {
+    expect(weekAgo(h(now - 6 * 86_400, [now - 5 * 86_400]), now)).toBeNull();
+    expect(weekAgo(h(null, [now]), now)).toBeNull();
+    // The record began in time, but its first point came after the week's start.
+    expect(weekAgo(h(now - 7.5 * 86_400, [now - 6 * 86_400]), now)).toBeNull();
+  });
+
+  it("says a change in words and by how much, never by colour", () => {
+    expect(changeWords(110, 100, String)).toBe("↑ Up 10 (10.0%)");
+    expect(changeWords(99, 100, String)).toBe("↓ Down 1 (1.0%)");
+    expect(changeWords(100, 100, String)).toBe("No change");
+    expect(changeWords(10_001, 10_000, String)).toBe("↑ Up 1 (<0.1%)");
+    expect(changeWords(5, 0, String)).toBe("↑ Up 5");
+  });
+});
+
+describe("a node's words", () => {
+  it("writes ranks as ordinals", () => {
+    expect([1, 2, 3, 4, 11, 12, 13, 21, 22, 101, 111, 1234].map((n) => ordinal(n))).toStrictEqual([
+      "1st",
+      "2nd",
+      "3rd",
+      "4th",
+      "11th",
+      "12th",
+      "13th",
+      "21st",
+      "22nd",
+      "101st",
+      "111th",
+      "1\u202F234th",
+    ]);
+  });
+
+  it("writes an age in hours up to two days, then in days", () => {
+    expect(ageShort(5 * 3600 + 59)).toBe("5 h");
+    expect(ageShort(48 * 3600)).toBe("48 h");
+    expect(ageShort(49 * 3600)).toBe("2 d");
+    expect(ageShort(-10)).toBe("0 h");
+  });
+
+  it("names a row's state from its policies: a missing one says whose, never disabled", () => {
+    const p = openChannel(0).own_policy as Policy;
+    const off = { ...p, enabled: false };
+    const word = (own: Policy | null, peer: Policy | null) =>
+      rowState({ own_policy: own, peer_policy: peer }).word;
+    expect(word(p, p)).toBe("Enabled");
+    expect(word(off, p)).toBe("Disabled by this node");
+    expect(word(p, off)).toBe("Disabled by the peer");
+    expect(word(off, off)).toBe("Disabled both ways");
+    expect(word(p, null)).toBe("Peer policy missing");
+    expect(word(null, p)).toBe("Own policy missing");
+    expect(word(off, null)).toBe("Peer policy missing");
+    expect(word(null, null)).toBe("No policy");
+    expect(rowState({ own_policy: p, peer_policy: null }).tone).toBe("muted");
+    expect(rowState({ own_policy: off, peer_policy: p }).short).toBe("Off here");
+  });
+
+  it("reads a node with no policy one way, and one whose every rate refuses to route", () => {
+    const none = { median: null, weighted: null, lowest: null, highest: null, policies: 0 };
+    const node = acinq();
+    const out = node.figures.fee_rates.outgoing;
+    const figures = (outgoing: unknown, incoming: unknown) => ({
+      ...node,
+      figures: { ...node.figures, fee_rates: { outgoing, incoming } },
+    });
+    // The server's own answer for a way with no policy (crates/server lightning tests).
+    expect(isNodeDetail(figures(none, none))).toBe(true);
+    expect(isNodeDetail(figures({ ...out, weighted: null }, none))).toBe(true);
+    expect(isNodeDetail(figures({ ...out, median: "1" }, none))).toBe(false);
+  });
+
+  it("reads a page of open channels, and refuses one whose rows are not its shape", () => {
+    const page = acinq().open_channels;
+    expect(isOpenPage(page)).toBe(true);
+    expect(isOpenPage({ ...page, channels: [{ ...page.channels[0], op_state: "on" }] })).toBe(
+      false,
+    );
+    expect(isOpenPage({ ...page, per_page: 0 })).toBe(false);
   });
 });

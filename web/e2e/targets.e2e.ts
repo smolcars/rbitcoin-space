@@ -65,7 +65,11 @@ function smallTargets(page: Page, scope: string, scroll = true): Promise<string[
         // A phone's flow card: three lines, one control on each; its address and where it was
         // spent are also in the inspector its details button opens, each a target of its own. So
         // their size is meant, but no neighbour may cover them.
-        const small = c.closest(".tx-flow__item") && !c.matches(".tx-flow__open, .tx-flow__more");
+        // A node's channel card is the same: its peer and its channel on its first line are also
+        // under its chevron (policies-node.e2e.ts).
+        const small =
+          (c.closest(".tx-flow__item") !== null && !c.matches(".tx-flow__open, .tx-flow__more")) ||
+          c.closest(".ln-node-card__id") !== null;
         // A pop-up closes on a scroll, and it opened in sight.
         if (move) c.scrollIntoView({ block: "center", inline: "center" });
         const r = c.getBoundingClientRect();

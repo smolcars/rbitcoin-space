@@ -385,10 +385,6 @@
 
   /* A node's fee rates: a row per range of rates, the cheapest first, two bars in each on one
      scale, what it charges over what its peers charge, each with its count. */
-  .ln-fees__answer {
-    max-width: 72ch;
-    margin: 0 0 var(--space-3);
-  }
   .ln-fees {
     margin: 0;
     container-type: inline-size;
@@ -613,11 +609,11 @@
 
 /* The channel page: its tags, the two lanes, the fee for a hop, the policies and its life. */
 @layer pages {
-  /* An icon in its tone, beside the word that says the same. */
+  /* As tall as its text, so it grows with a reader's text size: 14 px beside a tag's 14 px words. */
   .ln-icon {
     flex: none;
-    width: 14px;
-    height: 14px;
+    width: 1em;
+    height: 1em;
     fill: none;
     stroke: currentColor;
     stroke-width: 1.6;
@@ -1245,6 +1241,537 @@
     }
     .ln-fig--long > .ln-fig__short {
       display: inline;
+    }
+  }
+}
+
+/* The node page, for its operator: the header, the views and their lists, the glance and what it
+   announces. A figure never breaks inside its digits (grouped with no-break spaces) and keeps its
+   unit, except at the largest text sizes, where the unit may take the next line. */
+@layer pages {
+  .ln-node-head {
+    display: grid;
+    gap: var(--space-1);
+  }
+  .ln-node-head h1 {
+    margin: 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .ln-node-head__title {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 var(--space-3);
+  }
+  .ln-node-head__line {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 var(--space-5);
+    margin: 0;
+    font-size: var(--text-sm);
+  }
+  .ln-node-head__line strong {
+    font-size: var(--text-md);
+  }
+  /* Its line held while it loads, so nothing under it moves when it comes. */
+  .ln-node-head__fresh {
+    min-height: 1.5em;
+  }
+
+  /* One view at a time, chosen by tabs that are links, the choice in the address. */
+  .ln-node-views {
+    display: grid;
+    gap: var(--space-4);
+  }
+  .ln-node-views > * {
+    min-width: 0;
+  }
+  .ln-node-tabs ul {
+    width: max-content;
+    max-width: 100%;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+  .ln-node-tabs__n {
+    margin-left: var(--space-2);
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+  }
+
+  /* The list's controls: the text filter, the state or kind chips, a phone's sort. */
+  .ln-node-lead {
+    margin: 0 0 var(--space-2);
+  }
+  .ln-node-filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
+    margin-bottom: var(--space-3);
+  }
+  .ln-node-filter {
+    flex: 1 1 14rem;
+    min-width: 0;
+    max-width: 22rem;
+  }
+  .ln-node-input {
+    width: 100%;
+    min-height: 36px;
+    padding: var(--space-1) var(--space-3);
+    border: 1px solid var(--color-line-strong);
+    border-radius: var(--radius-m);
+    background: var(--color-surface-sunken);
+    color: var(--color-text);
+    font: inherit;
+    font-size: var(--text-sm);
+    text-overflow: ellipsis;
+  }
+  .ln-node-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+  .ln-node-chip {
+    border-radius: var(--radius-pill);
+    color: var(--color-text);
+    text-decoration: none;
+  }
+  .ln-node-chip[aria-current="true"] {
+    background: var(--color-accent-soft);
+    border-color: var(--color-accent);
+  }
+  .ln-node-chip .ln-tag {
+    font-weight: var(--weight-medium);
+  }
+  .ln-node-sortpick {
+    display: none;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+    max-width: 100%;
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+  .ln-node-sortpick select {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .ln-node-total {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-4);
+    min-height: 1.75rem;
+    margin: 0 0 var(--space-2);
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+  .ln-node-total strong {
+    color: var(--color-text);
+  }
+  .ln-node-active {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0 var(--space-3);
+    max-width: 100%;
+    padding: 0 var(--space-1) 0 var(--space-3);
+    border-radius: var(--radius-m);
+    background: var(--color-accent-soft);
+    color: var(--color-text);
+    overflow-wrap: anywhere;
+  }
+  .ln-node-active__clear {
+    display: inline-flex;
+    align-items: center;
+    min-height: 28px;
+    padding: 0 var(--space-2);
+  }
+  .ln-node-peerbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-4);
+    margin: 0 0 var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-m);
+    background: var(--color-accent-soft);
+    font-size: var(--text-sm);
+    overflow-wrap: anywhere;
+  }
+
+  /* A row in two lines, about 48 px, so a screen holds fourteen and more. */
+  .ln-node-list .table td {
+    padding-block: var(--space-1);
+    line-height: 1.3;
+    vertical-align: middle;
+  }
+  .ln-node-row2 {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
+  }
+  .ln-node-row2--end {
+    align-items: flex-end;
+  }
+  /* Each of a row's links at least 24 px tall, so two lines of them are two targets. */
+  .ln-node-row2 a {
+    display: inline-block;
+    line-height: 24px;
+  }
+  .ln-node-row2__line {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0 var(--space-2);
+    white-space: nowrap;
+  }
+  .ln-node-peer {
+    display: inline-block;
+    max-width: 14rem;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    vertical-align: bottom;
+    font-weight: var(--weight-medium);
+  }
+  .ln-node-together {
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+    white-space: nowrap;
+  }
+  .ln-node-continued {
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+  }
+  /* A rate ends on one vertical line; its base fee has a slot of its own after it. */
+  .ln-node-fee {
+    display: inline-grid;
+    grid-template-columns: auto 5em;
+    justify-items: end;
+    column-gap: var(--space-1);
+  }
+  .ln-node-fee__base {
+    justify-self: start;
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+  }
+  .ln-node-whole {
+    white-space: nowrap;
+  }
+
+  /* A phone's channels: cards that fit the width, three short lines, nothing to swipe. */
+  .ln-node-cards {
+    display: grid;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    border-top: 1px solid var(--color-line);
+  }
+  .ln-node-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+    min-width: 0;
+    padding: var(--space-2) 0;
+    border-bottom: 1px solid var(--color-line);
+  }
+  .ln-node-card p {
+    margin: 0;
+  }
+  /* One line: a long name gives way to the channel's id, cut with its whole in its title. */
+  .ln-node-card__id {
+    display: flex;
+    align-items: baseline;
+    gap: 0 var(--space-2);
+    min-width: 0;
+  }
+  .ln-node-card__id .ln-node-peer {
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+  .ln-node-card__id .ln-node-together {
+    flex: none;
+  }
+  .ln-node-card__chan {
+    flex: none;
+    margin-left: auto;
+    font-size: var(--text-sm);
+  }
+  /* Out and in side by side in two equal halves, so they line up down the list. */
+  .ln-node-card__fees {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0 var(--space-2);
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+  }
+  .ln-node-card__k {
+    font-family: var(--font-sans);
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+  }
+  .ln-node-card__state {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0 var(--space-2);
+    font-size: var(--text-sm);
+  }
+  .ln-node-card__state .num {
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+  }
+  /* Grows with the text, so the chevron stays inside its outline; a thumb's target on a phone
+     (`.tap`) without growing the card. */
+  .ln-node-card__toggle {
+    display: inline-grid;
+    place-items: center;
+    margin-left: auto;
+    min-width: 1.75em;
+    min-height: 1.5em;
+    padding: 0 0.3em;
+    line-height: 1;
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-m);
+    background: none;
+    color: var(--color-text-muted);
+    font: inherit;
+    cursor: pointer;
+  }
+  .ln-node-card__list {
+    display: grid;
+    gap: var(--space-1);
+    margin: var(--space-2) 0 0;
+    font-size: var(--text-sm);
+  }
+  .ln-node-card__list > div {
+    display: grid;
+    grid-template-columns: minmax(0, 9rem) minmax(0, 1fr);
+    gap: var(--space-2);
+  }
+  .ln-node-card__list dt {
+    color: var(--color-text-muted);
+  }
+  .ln-node-card__list dd {
+    margin: 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .ln-node-card__go {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 var(--space-5);
+  }
+  .ln-node-card__list .hash {
+    flex-wrap: wrap;
+    max-width: 100%;
+  }
+
+  /* Fees: the figures beside the histogram, whose bars open the channels they count. */
+  .ln-node-fees {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+    align-items: start;
+    gap: var(--space-6);
+  }
+  .ln-node-fees > * {
+    min-width: 0;
+  }
+  .ln-node-ratio {
+    margin: var(--space-3) 0 0;
+    font-size: var(--text-sm);
+  }
+  .ln-fees__go {
+    border-radius: var(--radius-s);
+    color: inherit;
+    text-decoration: none;
+  }
+  @media (hover: hover) {
+    .ln-fees__go:hover {
+      background: var(--color-surface-sunken);
+    }
+    .ln-fees__go:hover .ln-fees__n {
+      color: var(--color-text);
+    }
+  }
+  /* Out and in stacked: a way with no channels takes no line beside one that has some. */
+  @container not (min-width: 30rem) {
+    .ln-fees__bars:has(.ln-fees__go) .ln-fees__bar:not(.ln-fees__go) {
+      display: none;
+    }
+  }
+
+  /* At a glance and what it announces. */
+  .ln-node-glance > * {
+    flex-basis: 9.5rem;
+  }
+  .ln-node-change {
+    display: block;
+  }
+  .ln-node-kinds {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 var(--space-3);
+  }
+  .ln-node-kinds .ln-tag {
+    color: var(--color-text-muted);
+  }
+  .ln-node-identity {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+  }
+  /* As a page subject's hash: the copy button beside the text's first line, so its "Copied" never
+     covers the string; under it only where nothing else fits. */
+  .ln-node-connect {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+    max-width: 100%;
+  }
+  .ln-node-connect__text {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    font-size: 0.8125rem;
+  }
+  .ln-node-colour {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 2px var(--space-3) 2px var(--space-1);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-pill);
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+  }
+  .ln-node-colour__swatch {
+    width: 1em;
+    height: 1em;
+    border-radius: 50%;
+    background: var(--chip);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-text) 25%, transparent);
+  }
+
+  @media (pointer: coarse) {
+    .ln-node-input,
+    .ln-node-tabs .ln-picker__item {
+      min-height: var(--touch);
+    }
+  }
+  @media (max-width: 65em) {
+    .ln-node-fees {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+  @media (max-width: 40em) {
+    .ln-node-sortpick {
+      display: inline-flex;
+    }
+    .ln-node-filter {
+      max-width: none;
+    }
+    /* One row of chips that scrolls, its far edge faded, rather than three rows of them. */
+    .ln-node-chips {
+      flex-wrap: nowrap;
+      overflow-x: auto;
+    }
+    .ln-node-chip {
+      flex: none;
+    }
+  }
+  /* A narrow phone: the card keeps to four lines, so its freshness steps aside (it is under the
+     chevron, and a sort of its own). */
+  @media (max-width: 22.5em) {
+    .ln-node-card__upd {
+      display: none;
+    }
+  }
+
+  /* Text at 200% on a phone: every box takes the width whole; names, keys and tags wrap in their
+     own space, a unit may take the next line, and tables become labelled lists. */
+  @media (max-width: 15em) {
+    .ln-node-views :is(.ln-node-peer, .ln-key, .ln-tag, .ln-picker__item),
+    .ln-node-head .ln-key,
+    .ln-node-glance .num,
+    .ln-node-whole {
+      white-space: normal;
+    }
+    .ln-node-peer {
+      overflow-wrap: anywhere;
+    }
+    .ln-node-tabs ul {
+      flex-wrap: wrap;
+      width: auto;
+    }
+    .ln-node-chips {
+      flex-wrap: wrap;
+    }
+    /* A chip's count goes under its word rather than over it. */
+    .ln-node-chip {
+      flex: 0 1 auto;
+      flex-wrap: wrap;
+      max-width: 100%;
+    }
+    /* The whole hint in sight: "Peer or channel id". */
+    .ln-node-input {
+      padding-inline: var(--space-2);
+      font-size: var(--text-xs);
+    }
+    .ln-node-connect {
+      flex-wrap: wrap;
+    }
+    .ln-node-card__fees,
+    .ln-node-card__list > div {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 0;
+    }
+    .ln-node-card__id {
+      flex-wrap: wrap;
+    }
+    .ln-node-card__chan {
+      flex: 0 1 auto;
+      margin-left: 0;
+    }
+    .ln-node-glance > * {
+      flex-basis: 100%;
+      min-width: 0;
+    }
+    .ln-node-fees .ln-fees__plot {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .ln-node-fees .ln-fees__label {
+      text-align: left;
+    }
+    .ln-node-views .table thead {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+    }
+    .ln-node-views :is(.table, .table tbody, .table tr) {
+      display: block;
+      width: 100%;
+    }
+    .ln-node-views .table tr {
+      position: relative;
+      padding: var(--space-2) 0;
+      border-bottom: 1px solid var(--color-line);
+    }
+    .ln-node-views .table :is(td, th):not(.table__gone) {
+      display: block;
+      padding: 0;
+      border: 0;
+      text-align: left;
+      white-space: normal;
+    }
+    /* Each figure after its column's name; the space lets a long one go under it. */
+    .ln-node-views .table td[data-label]:not(:first-child)::before {
+      content: attr(data-label) " ";
+      font-family: var(--font-sans);
+      font-size: var(--text-sm);
+      color: var(--color-text-muted);
     }
   }
 }

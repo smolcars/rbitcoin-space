@@ -484,9 +484,9 @@ pub(crate) struct OpenQuery {
     pub text: Option<Text>,
     pub peer: Option<[u8; 33]>,
     pub state: Option<OpState>,
-    /// One bar of the node's fee histogram: `true` for the peers' rates (incoming), and the
-    /// bucket, `None` for no policy.
-    pub fee: Option<(bool, Option<u64>)>,
+    /// Bars of the node's fee histogram: `true` for the peers' rates (incoming), and the first
+    /// and last bucket kept, `None` for no policy.
+    pub fee: Option<(bool, Option<(u64, u64)>)>,
 }
 
 impl Default for OpenQuery {
@@ -512,11 +512,13 @@ pub(crate) struct ClosedQuery {
     pub kind: Option<Kind>,
 }
 
-/// `incoming:` or `outgoing:`-side bucket, as `in:100`, `out:none`. The number must be a bucket
-/// the histogram has: a lower bound, not any rate.
-fn fee_bar(s: &str) -> Result<(bool, Option<u64>), ApiError> {
-    const BAD: ApiError =
-        ApiError::bad_request("fee is in: or out: and a fee histogram bucket, or none");
+/// `incoming:` or `outgoing:`-side bucket, as `in:100`, `out:none`, or a run of them, as
+/// `out:10-40` (the buckets from 10 to 40, as the page groups its rows). Each number must be a
+/// bucket the histogram has: a lower bound, not any rate.
+fn fee_bar(s: &str) -> Result<(bool, Option<(u64, u64)>), ApiError> {
+    const BAD: ApiError = ApiError::bad_request(
+        "fee is in: or out: and a fee histogram bucket, a run of them, or none",
+    );
     let (side, b) = s.split_once(':').ok_or(BAD)?;
     let incoming = match side {
         "in" => true,
@@ -526,11 +528,15 @@ fn fee_bar(s: &str) -> Result<(bool, Option<u64>), ApiError> {
     if b == "none" {
         return Ok((incoming, None));
     }
-    let b = number(b, u64::from(u32::MAX)).ok_or(BAD)?;
-    let rate = u32::try_from(b).map_err(|_| BAD)?;
-    (store_ln::bucket(rate) == b)
-        .then_some((incoming, Some(b)))
-        .ok_or(BAD)
+    let bucket = |b: &str| {
+        let n = number(b, u64::from(u32::MAX))?;
+        (store_ln::bucket(u32::try_from(n).ok()?) == n).then_some(n)
+    };
+    let (from, to) = b.split_once('-').unwrap_or((b, b));
+    match (bucket(from), bucket(to)) {
+        (Some(from), Some(to)) if from <= to => Ok((incoming, Some((from, to)))),
+        _ => Err(BAD),
+    }
 }
 
 /// Orders `a` before `b`: present values in `desc` or ascending order, a missing one last either
@@ -563,7 +569,12 @@ pub(crate) fn open_list<'a>(
         }
         if let Some((incoming, bar)) = q.fee {
             let p = if incoming { theirs } else { own };
-            if p.map(|p| store_ln::bucket(p.fee_rate)) != bar {
+            let kept = match (p.map(|p| store_ln::bucket(p.fee_rate)), bar) {
+                (None, None) => true,
+                (Some(b), Some((from, to))) => (from..=to).contains(&b),
+                _ => false,
+            };
+            if !kept {
                 continue;
             }
         }

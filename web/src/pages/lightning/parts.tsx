@@ -230,7 +230,7 @@ export function ChannelLink(props: { id: string }) {
   );
 }
 
-/** A 14 px drawn icon in its tag's tone; always beside a word that says the same. */
+/** A drawn icon the size of its text, in its tag's tone; always beside a word that says the same. */
 export function Icon(props: { name: IconName }) {
   return (
     <svg class="ln-icon" viewBox="0 0 16 16" aria-hidden="true">
@@ -250,6 +250,13 @@ const ICONS: Record<IconName, () => JSX.Element> = {
   pause: () => (
     <>
       <circle cx="8" cy="8" r="6.5" />
+      <path d="M6.5 5.5v5M9.5 5.5v5" />
+    </>
+  ),
+  // The peer's end paused: the same pause, its ring dashed, so the two read apart without colour.
+  pauseDashed: () => (
+    <>
+      <circle cx="8" cy="8" r="6.5" stroke-dasharray="2.6 1.8" />
       <path d="M6.5 5.5v5M9.5 5.5v5" />
     </>
   ),

@@ -72,6 +72,21 @@
   /* Lightning's caution (a disabled direction, a force close, an amount past a limit): orange, as the
      site's amber sits too close to the ochre of a channel's second lane (--series-2). */
   --ln-caution: #c2410c;
+  /* A channel's forwarding rate, ppm, quiet to strong: steps in lightness (darker in light, lighter
+     in dark) as well as hue, so neighbours part. Its own ramp, never the site's sat/vB one. */
+  --ln-ppm-1: #9399a0;
+  --ln-ppm-2: #6c90a9;
+  --ln-ppm-3: #4d82b3;
+  --ln-ppm-4: #466eb8;
+  --ln-ppm-5: #5255b6;
+  --ln-ppm-6: #5c3bab;
+  /* A channel's age: one teal, strongest for the youngest, mixed into the surface in five steps. */
+  --ln-age: #0f766e;
+  --ln-age-1: var(--ln-age);
+  --ln-age-2: color-mix(in srgb, var(--ln-age) 74%, var(--color-surface));
+  --ln-age-3: color-mix(in srgb, var(--ln-age) 52%, var(--color-surface));
+  --ln-age-4: color-mix(in srgb, var(--ln-age) 34%, var(--color-surface));
+  --ln-age-5: color-mix(in srgb, var(--ln-age) 20%, var(--color-surface));
 
   /* Mining pools, the six biggest, then the rest: the one small set of categories on the site,
      only in the pool-share charts, always with names beside them. */
@@ -192,6 +207,13 @@
     --series-2: #d9a24c;
     --series-3: #9aa4ab;
     --ln-caution: #fb923c;
+    --ln-ppm-1: #646a70;
+    --ln-ppm-2: #597f9b;
+    --ln-ppm-3: #5b90c7;
+    --ln-ppm-4: #7a9ce9;
+    --ln-ppm-5: #a9a5ff;
+    --ln-ppm-6: #d8aeff;
+    --ln-age: #26b3a1;
     --pool-1: #6cb0dc;
     --pool-2: #d9a24c;
     --pool-3: #c193d6;
@@ -238,6 +260,13 @@
   --series-2: #d9a24c;
   --series-3: #9aa4ab;
   --ln-caution: #fb923c;
+  --ln-ppm-1: #646a70;
+  --ln-ppm-2: #597f9b;
+  --ln-ppm-3: #5b90c7;
+  --ln-ppm-4: #7a9ce9;
+  --ln-ppm-5: #a9a5ff;
+  --ln-ppm-6: #d8aeff;
+  --ln-age: #26b3a1;
   --pool-1: #6cb0dc;
   --pool-2: #d9a24c;
   --pool-3: #c193d6;

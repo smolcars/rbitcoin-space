@@ -338,7 +338,7 @@ const PAGES: PageType[] = [
   {
     name: "Lightning node",
     path: `/regtest/lightning/node/${ACINQ}`,
-    ready: (p) => p.getByRole("slider").first(),
+    ready: (p) => p.getByRole("heading", { name: "At a glance" }),
     before: (p) => serve(p, mainnet()),
   },
   {

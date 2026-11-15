@@ -47,6 +47,8 @@ async function lightning(page: Page) {
     status: recorded("status"),
     [`nodes/${ACINQ}`]: node,
     [`nodes/${ACINQ}/history`]: recorded("node-acinq-history"),
+    // Its newest policy, asked with `?sort=update`: the key here leaves out the query.
+    [`nodes/${ACINQ}/channels`]: recorded("node-acinq-updated"),
     "channels/811984x2037x0": channel,
   };
   await page.route(/\/regtest\/app\/lightning\//, async (route) => {
@@ -355,6 +357,8 @@ const COPIED: [RegExp, RegExp][] = [
   [/channel id as one number$/, /^\d+$/],
   [/channel id in lnd's form$/, /^\d+:\d+:\d+$/],
   [/hex$|^Copy item \d+$/, /^(?:[0-9a-f]{2})+$/],
+  // A node's key at its first announced address, as a wallet takes it to connect.
+  [/connect string$/, /^0[23][0-9a-f]{64}@\S+$/],
 ];
 
 /** Records what the page hands the clipboard, in place of the clipboard itself. */

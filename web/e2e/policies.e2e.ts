@@ -3,7 +3,7 @@
 // so CI's sharding puts it on the lightest shard (docs/CI.md "Browser test shards").
 import type { Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
-import { recorded } from "./lightning-answers";
+import { pageFaults, recorded } from "./lightning-answers";
 
 /**
  * A channel in each state its page draws, from the recorded answer, its ends given names made to
@@ -84,65 +84,6 @@ async function serveChannel(page: Page): Promise<(answer: unknown) => void> {
   };
 }
 
-/** Anything past the window's edges outside a scroller, and any run of digits on two lines. */
-const channelFaults = (page: Page) =>
-  page.evaluate(() => {
-    for (const d of document.querySelectorAll("details")) d.open = true;
-    const width = document.documentElement.clientWidth;
-    const out: string[] = [];
-    for (const e of document.querySelectorAll("main *")) {
-      const box = e.getBoundingClientRect();
-      if (box.width === 0 || (box.right <= width + 1 && box.left >= -1)) continue;
-      let clipped = false;
-      for (let p = e.parentElement; p && !clipped; p = p.parentElement) {
-        clipped = getComputedStyle(p).overflowX !== "visible";
-      }
-      if (!clipped) {
-        const what = `${e.tagName.toLowerCase()}.${e.className} "${(e.textContent ?? "").slice(0, 40)}"`;
-        out.push(`past the edge: ${what} to ${Math.round(box.right)}`);
-      }
-    }
-    // Names, ids and keys may break; a figure never breaks inside its digits.
-    const walk = document.createTreeWalker(document.querySelector("main") as Node, 4);
-    for (let n = walk.nextNode(); n; n = walk.nextNode()) {
-      if (n.parentElement?.closest("bdi, .hash, .mono, .ln-key, .visually-hidden")) continue;
-      for (const m of (n.textContent ?? "").matchAll(/\d[\d .,:]*\d/g)) {
-        const range = document.createRange();
-        range.setStart(n, m.index);
-        range.setEnd(n, m.index + m[0].length);
-        const tops = new Set(
-          [...range.getClientRects()].filter((r) => r.width > 0).map((r) => Math.round(r.top)),
-        );
-        if (tops.size > 1) out.push(`split: ${m[0]}`);
-      }
-    }
-    // A figure is one piece with its unit ("1 sat", never "1" then "sat"); a time is a phrase.
-    for (const el of document.querySelectorAll<HTMLElement>("main :is(.num, .ln-msat)")) {
-      // A channel id wraps after an "x" by design (ChannelId).
-      if (el.querySelector(".num") || el.closest("time, .visually-hidden, .ln-id")) continue;
-      if (!/\d/.test(el.textContent ?? "") || el.getClientRects().length === 0) continue;
-      // Its visible text only: a figure's words for a screen reader are drawn nowhere.
-      const tops = new Set<number>();
-      const texts = document.createTreeWalker(el, 4);
-      for (let t = texts.nextNode(); t; t = texts.nextNode()) {
-        if (t.parentElement?.closest(".visually-hidden")) continue;
-        const range = document.createRange();
-        range.selectNodeContents(t);
-        for (const r of range.getClientRects()) if (r.width > 0) tops.add(Math.round(r.top));
-      }
-      if (tops.size > 1) out.push(`unit apart: ${el.textContent ?? ""}`);
-      // Nor out of the box a reader sees round it: a fee's well, an end's box, the panel.
-      const box = el.closest(".ln-hop__way, .ln-end, section, header")?.getBoundingClientRect();
-      const r = el.getBoundingClientRect();
-      if (box && (r.left < box.left - 1 || r.right > box.right + 1)) {
-        const at = `${Math.round(r.left)}–${Math.round(r.right)} in ${Math.round(box.left)}–${Math.round(box.right)}`;
-        out.push(`out of its box: ${el.textContent ?? ""} (${at})`);
-      }
-    }
-    if (document.documentElement.scrollWidth > width) out.push("the page scrolls sideways");
-    return out.slice(0, 6);
-  });
-
 test("a channel page draws every state at a desktop's and a phone's width, light and dark", async ({
   page,
 }) => {
@@ -159,7 +100,7 @@ test("a channel page draws every state at a desktop's and a phone's width, light
       await page.goto("/regtest/lightning/channel/811984x2037x0");
       await expect(page.getByRole("heading", { name: "Life of the channel" })).toBeVisible();
       const label = `${name} at ${view.width} px, ${view.colorScheme}`;
-      expect(await channelFaults(page), label).toStrictEqual([]);
+      expect(await pageFaults(page), label).toStrictEqual([]);
       if (name === "longest exact base") {
         // A long fee is exact in a wide well, in magnitude only where its well is narrow.
         await expect(page.locator(".ln-hop__fee").first()).toHaveText(
@@ -203,7 +144,7 @@ for (const text of [20, 24, 32]) {
         answer(channel);
         await page.goto("/regtest/lightning/channel/811984x2037x0");
         await expect(page.getByRole("heading", { name: "Life of the channel" })).toBeVisible();
-        faults.push(...(await channelFaults(page)).map((f) => `${width} px, ${name}: ${f}`));
+        faults.push(...(await pageFaults(page)).map((f) => `${width} px, ${name}: ${f}`));
       }
     }
     expect(faults).toStrictEqual([]);

@@ -817,6 +817,14 @@ mod operators {
         assert_eq!(list("fee=in:none").0, [5]);
         assert_eq!(list("fee=in:1&state=here&q=kraken").0, [2]);
         assert_eq!(list("fee=in:1&state=active").0, Vec::<u64>::new());
+        // A run of bars, as the page groups them into rows: every rate between, no policy apart.
+        assert_eq!(list("fee=out:100-100").0, [1, 4]);
+        let priced: Vec<u64> = list("")
+            .0
+            .into_iter()
+            .filter(|c| ![5, 3].contains(c))
+            .collect();
+        assert_eq!(list("fee=out:0-4294967000").0, priced);
         // A page past the end: empty, with the total.
         let p = open_page(&i, n, &OpenQuery::default(), 4_000);
         assert_eq!(
@@ -852,6 +860,11 @@ mod operators {
             "fee=up:100",
             "fee=out",
             "fee=out:4294967296",
+            "fee=out:40-10",
+            "fee=out:10-15",
+            "fee=out:10-",
+            "fee=out:none-10",
+            "fee=out:1-2-3",
             "peer=03",
             "q=",
             "q=+++",

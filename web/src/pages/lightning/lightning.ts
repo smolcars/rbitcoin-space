@@ -110,23 +110,78 @@ export interface Overview {
 
 export type ChannelState = "active" | "inactive" | "closed";
 
-/** A channel in a node's list: the other end is `peer`, `fee_rate` the node's own policy. */
-export interface NodeChannel {
+/** How a node's open channel stands for its operator: both ends on, its own end off, the peer's,
+ * or both. An end is off when its policy is disabled or missing. */
+export type OpState = "active" | "here" | "peer" | "inactive";
+export const OP_STATES: readonly OpState[] = ["active", "here", "peer", "inactive"];
+
+/** The node at a channel's other end, with its own size; null size once it has no open channel. */
+export interface Peer extends NodeRef {
+  capacity: number | null;
+  channels: number | null;
+}
+
+/** An open channel in a node's list: `own_policy` is the node's, `peer_policy` the other end's. */
+export interface OpenChannel {
   id: string;
   scid: string;
   capacity: number;
   state: ChannelState;
-  peer: NodeRef;
+  op_state: OpState;
+  peer: Peer;
+  /** This node's open channels with the same peer. */
+  with_peer: number;
   fee_rate: number | null;
-  closed: Close | null;
+  own_policy: Policy | null;
+  peer_policy: Policy | null;
+  /** The newer policy's time. */
+  last_update: number | null;
+  /** The funding block's time, null until stored. */
+  funded: number | null;
 }
 
-export interface NodeChannels {
+/** A closed channel in a node's list. */
+export interface ClosedChannel {
+  id: string;
+  scid: string;
+  capacity: number;
+  peer: Peer;
+  funded: number | null;
+  closed: Close;
+  /** The channel its closing transaction funded between the same two nodes, inferred. */
+  continued_as: string | null;
+}
+
+/** A page of a node's channels, as the server sorted and filtered them. */
+export interface ChannelPage<T> {
   status: "open" | "closed";
   page: number;
   per_page: number;
   total: number;
-  channels: NodeChannel[];
+  sort: string;
+  dir: "asc" | "desc";
+  /** Open channels: how many each state holds under every filter but the state's own. */
+  states?: Record<OpState, number>;
+  channels: T[];
+}
+
+/**
+ * One way's fee rates over a node's channels with a policy that way, ppm: each null with no
+ * policy (`policies` 0), and `weighted` also when every rate is above 1 000 000 ppm.
+ */
+export interface FeeFigures {
+  median: number | null;
+  weighted: number | null;
+  lowest: number | null;
+  highest: number | null;
+  policies: number;
+}
+
+export interface NodeFigures {
+  capacity: { median: number; smallest: number; largest: number };
+  funded: { median: number | null; oldest: number | null; youngest: number | null };
+  states: Record<OpState, number>;
+  fee_rates: { outgoing: FeeFigures | null; incoming: FeeFigures | null };
 }
 
 export interface Feature {
@@ -144,6 +199,11 @@ export interface NodeDetail {
   last_update: number | null;
   first_seen: number | null;
   capacity: number;
+  /** Its announced colour, a claim like its name. */
+  color?: string | null;
+  /** Its place among the nodes held, 1 the largest. */
+  rank: { capacity: number; channels: number; of: number };
+  figures: NodeFigures;
   channels: {
     open: number;
     active: number;
@@ -153,7 +213,7 @@ export interface NodeDetail {
     penalty: number;
     other: number;
   };
-  open_channels: NodeChannels;
+  open_channels: ChannelPage<OpenChannel>;
   fees: { incoming: FeeBucket[]; outgoing: FeeBucket[] };
 }
 
@@ -310,17 +370,77 @@ export const isOverview = (v: unknown): v is Overview =>
   list(v["opened"], isListedChannel) &&
   list(v["closed"], isListedChannel);
 
-const isNodeChannel = (v: unknown): v is NodeChannel =>
+const isPolicy = (v: unknown): v is Policy =>
+  obj(v) &&
+  num(v["fee_rate"]) &&
+  num(v["base_fee_msat"]) &&
+  num(v["cltv_delta"]) &&
+  num(v["min_htlc_msat"]) &&
+  num(v["max_htlc_msat"]) &&
+  num(v["last_update"]) &&
+  typeof v["enabled"] === "boolean";
+const isPeer = (v: unknown): v is Peer =>
+  obj(v) && nullable(v["capacity"], num) && nullable(v["channels"], num) && isNodeRef(v);
+const OP: ReadonlySet<unknown> = new Set(OP_STATES);
+
+const isOpenChannel = (v: unknown): v is OpenChannel =>
   obj(v) &&
   str(v["id"]) &&
   num(v["capacity"]) &&
-  str(v["state"]) &&
-  isNodeRef(v["peer"]) &&
+  OP.has(v["op_state"]) &&
+  isPeer(v["peer"]) &&
+  num(v["with_peer"]) &&
   nullable(v["fee_rate"], num) &&
-  nullable(v["closed"], isClose);
+  nullable(v["own_policy"], isPolicy) &&
+  nullable(v["peer_policy"], isPolicy) &&
+  nullable(v["last_update"], num) &&
+  nullable(v["funded"], num);
 
-export const isNodeChannels = (v: unknown): v is NodeChannels =>
-  obj(v) && num(v["page"]) && num(v["total"]) && list(v["channels"], isNodeChannel);
+const isClosedChannel = (v: unknown): v is ClosedChannel =>
+  obj(v) &&
+  str(v["id"]) &&
+  num(v["capacity"]) &&
+  isPeer(v["peer"]) &&
+  nullable(v["funded"], num) &&
+  isClose(v["closed"]) &&
+  nullable(v["continued_as"] ?? null, str);
+
+const isStates = (v: unknown): v is Record<OpState, number> =>
+  obj(v) && OP_STATES.every((k) => num(v[k]));
+
+const isPage = <T>(v: unknown, row: (v: unknown) => v is T): v is ChannelPage<T> =>
+  obj(v) &&
+  num(v["page"]) &&
+  num(v["per_page"]) &&
+  v["per_page"] > 0 &&
+  num(v["total"]) &&
+  (v["states"] === undefined || isStates(v["states"])) &&
+  list(v["channels"], row);
+
+export const isOpenPage = (v: unknown): v is ChannelPage<OpenChannel> => isPage(v, isOpenChannel);
+export const isClosedPage = (v: unknown): v is ChannelPage<ClosedChannel> =>
+  isPage(v, isClosedChannel);
+
+const isFeeFigures = (v: unknown): v is FeeFigures =>
+  obj(v) &&
+  num(v["policies"]) &&
+  ["median", "weighted", "lowest", "highest"].every((k) => nullable(v[k], num));
+
+const isFigures = (v: unknown): v is NodeFigures => {
+  if (!obj(v) || !obj(v["capacity"]) || !obj(v["funded"]) || !obj(v["fee_rates"])) return false;
+  const [c, f, r] = [v["capacity"], v["funded"], v["fee_rates"]];
+  return (
+    num(c["median"]) &&
+    num(c["smallest"]) &&
+    num(c["largest"]) &&
+    nullable(f["median"], num) &&
+    nullable(f["oldest"], num) &&
+    nullable(f["youngest"], num) &&
+    isStates(v["states"]) &&
+    nullable(r["outgoing"], isFeeFigures) &&
+    nullable(r["incoming"], isFeeFigures)
+  );
+};
 
 const isFeature = (v: unknown): v is Feature =>
   obj(v) && num(v["bit"]) && nullable(v["name"], str) && typeof v["required"] === "boolean";
@@ -330,8 +450,13 @@ export const isNodeDetail = (v: unknown): v is NodeDetail =>
   nullable(v["addresses"], (x) => list(x, str)) &&
   list(v["features"], isFeature) &&
   num(v["capacity"]) &&
+  obj(v["rank"]) &&
+  num(v["rank"]["capacity"]) &&
+  num(v["rank"]["channels"]) &&
+  num(v["rank"]["of"]) &&
+  isFigures(v["figures"]) &&
   obj(v["channels"]) &&
-  isNodeChannels(v["open_channels"]) &&
+  isOpenPage(v["open_channels"]) &&
   obj(v["fees"]) &&
   list(v["fees"]["incoming"], isFeeBucket) &&
   list(v["fees"]["outgoing"], isFeeBucket) &&
@@ -349,12 +474,6 @@ export const isNodeHistory = (v: unknown): v is NodeHistory =>
       obj(p) && num(p["time"]) && num(p["channels"]) && num(p["capacity"]),
   );
 
-const isPolicy = (v: unknown): v is Policy =>
-  obj(v) &&
-  num(v["fee_rate"]) &&
-  num(v["base_fee_msat"]) &&
-  num(v["cltv_delta"]) &&
-  typeof v["enabled"] === "boolean";
 const isEnd = (v: unknown): v is End => obj(v) && nullable(v["policy"], isPolicy) && isNodeRef(v);
 const isLineage = (v: unknown): v is Lineage =>
   obj(v) && str(v["id"]) && num(v["capacity"]) && str(v["state"]);
@@ -575,7 +694,7 @@ export function coverageSentence(s: Series, now = Date.now() / 1000): string | u
  * The fee histogram's rows, by lower bound in ppm: few enough to read on a phone whatever the
  * node, each a union of the server's buckets, so a channel is never split between two.
  */
-const FEE_ROWS = [0, 1, 10, 50, 100, 200, 500, 1_000, 2_000, 5_000, 10_000] as const;
+export const FEE_ROWS = [0, 1, 10, 50, 100, 200, 500, 1_000, 2_000, 5_000, 10_000] as const;
 
 /** One way's channels in a row of the histogram. */
 export interface FeeCell {
@@ -600,6 +719,9 @@ const rowLabel = (k: number): string => {
   if (next === undefined) return `${groupDigits(from)}+`;
   return next - 1 === from ? groupDigits(from) : `${groupDigits(from)}–${groupDigits(next - 1)}`;
 };
+
+/** A row's name by its lower bound: `10–49`, `0`, `10 000+`. */
+export const rowName = (from: number): string => rowLabel(rowOf(from));
 
 /**
  * The node's fees as the histogram draws them, cheapest first: the rows from the cheapest that
@@ -629,45 +751,6 @@ export function feeRows(fees: NodeDetail["fees"]): FeeRow[] {
     ...priced.slice(kept[0] ?? 0, (kept.at(-1) ?? -1) + 1),
     ...(none !== undefined && held(none) ? [none] : []),
   ];
-}
-
-/** The row holding the median channel one way, among those with a policy; null with none. */
-export function medianRow(rows: FeeRow[], way: "outgoing" | "incoming"): FeeRow | null {
-  const priced = rows.filter((r) => r.from !== null);
-  const total = priced.reduce((n, r) => n + r[way].count, 0);
-  if (total === 0) return null;
-  let seen = 0;
-  for (const r of priced) {
-    seen += r[way].count;
-    if (seen * 2 >= total) return r;
-  }
-  return null;
-}
-
-/** What the node charges and is charged, in one sentence, from the histogram's rows. */
-export function feeSentence(rows: FeeRow[]): string {
-  // Each channel is in one row each way: the outgoing counts are the node's channels.
-  const one = rows.reduce((sum, x) => sum + x.outgoing.count, 0) === 1;
-  const say = (way: "outgoing" | "incoming") => {
-    const r = medianRow(rows, way);
-    const n = rows.reduce((sum, x) => sum + (x.from === null ? 0 : x[way].count), 0);
-    if (r === null) return null;
-    return `${n === 1 ? "" : "a median of "}${r.label} ppm`;
-  };
-  const out = say("outgoing");
-  const inc = say("incoming");
-  const charges =
-    out === null
-      ? `It has set no fee on its ${one ? "channel" : "channels"}`
-      : `It charges ${out} to forward`;
-  const charged = one
-    ? inc === null
-      ? "its peer has set none towards it"
-      : `its peer charges ${inc} towards it`
-    : inc === null
-      ? "its peers have set none towards it"
-      : `its peers charge ${inc} towards it`;
-  return `${charges}; ${charged}.`;
 }
 
 // A channel's policies, the fee for one hop, and its life.
@@ -817,7 +900,16 @@ export const TERMS: readonly {
 ];
 
 export type Tone = "positive" | "caution" | "negative" | "muted";
-export type IconName = "check" | "pause" | "off" | "swap" | "warn" | "cross" | "branch" | "stop";
+export type IconName =
+  | "check"
+  | "pause"
+  | "pauseDashed"
+  | "off"
+  | "swap"
+  | "warn"
+  | "cross"
+  | "branch"
+  | "stop";
 
 /** A close as its own transaction shows it: a penalty's close is a revoked commitment, a force close. */
 export const closeShown = (kind: CloseKind): CloseKind => (kind === "penalty" ? "force" : kind);
@@ -878,3 +970,230 @@ export const days = (seconds: number): string =>
 /** A node's name in a sentence or a heading: cleaned and cut to 24 characters, "No name" for none. */
 export const shortName = (n: { alias: string | null }): string =>
   cut(cleanAlias(n.alias) ?? "No name", 24).text;
+
+// A node's page for its operator: the view and its list in the address, the server's request.
+
+/** `1st`, `2nd`, `3rd`, `11th`, `1 234th`. */
+export function ordinal(n: number): string {
+  const tens = n % 100;
+  const suffix = tens >= 11 && tens <= 13 ? "th" : (["th", "st", "nd", "rd"][n % 10] ?? "th");
+  return `${groupDigits(n)}${suffix}`;
+}
+
+/** A span as a short column figure: whole hours up to two days, then whole days (`5 h`, `28 d`). */
+export function ageShort(seconds: number): string {
+  const h = Math.max(0, Math.floor(seconds / 3600));
+  return h <= 48 ? `${groupDigits(h)} h` : `${groupDigits(Math.floor(h / 24))} d`;
+}
+
+export const NODE_VIEWS = [
+  { id: "channels", label: "Channels" },
+  { id: "closed", label: "Closed" },
+  { id: "fees", label: "Fees" },
+  { id: "history", label: "History" },
+] as const;
+export type NodeView = (typeof NODE_VIEWS)[number]["id"];
+
+type Search = Record<string, string | string[] | undefined>;
+const one = (v: string | string[] | undefined): string | undefined => (Array.isArray(v) ? v[0] : v);
+
+export function readView(search: Search): NodeView {
+  const v = one(search["view"]);
+  return NODE_VIEWS.find((x) => x.id === v)?.id ?? "channels";
+}
+
+export const OPEN_SORTS = [
+  "capacity",
+  "age",
+  "out",
+  "in",
+  "cltv",
+  "htlc",
+  "update",
+  "peer",
+] as const;
+export type OpenSort = (typeof OPEN_SORTS)[number];
+export const CLOSED_SORTS = ["closed", "capacity", "fee", "lived"] as const;
+export type ClosedSort = (typeof CLOSED_SORTS)[number];
+export const CLOSE_KINDS: readonly CloseKind[] = ["cooperative", "force", "penalty", "other"];
+
+/** The way the server sorts each figure when not told: cheapest fees and shortest delta first. */
+export const firstDir = (sort: string): "asc" | "desc" =>
+  sort === "out" || sort === "in" || sort === "cltv" ? "asc" : "desc";
+
+/** A fee filter: one way, and a row of the histogram by its lower bound (null: no policy). */
+export interface FeeFilter {
+  way: "out" | "in";
+  from: number | null;
+}
+
+/** A list's sort, filters and page as the address holds them, each checked as the server would. */
+export interface ListView {
+  sort: string;
+  dir: "asc" | "desc";
+  /** The address left the direction to the sort's own. */
+  ownDir: boolean;
+  q: string;
+  peer: string | null;
+  state: OpState | null;
+  fee: FeeFilter | null;
+  kind: CloseKind | null;
+  /** From 0, as the server counts. */
+  page: number;
+}
+
+/** The longest page the server serves, from 0. */
+const LAST_PAGE = 4000;
+
+/** What the filter text may be: what the server takes (1 to 66 characters, no control ones). */
+export function cleanFilter(text: string): string {
+  // oxlint-disable-next-line no-control-regex -- the server refuses control characters
+  const t = text.replaceAll(/[\u0000-\u001F\u007F-\u009F]/g, "").trim();
+  // Code points, as the server counts: a surrogate pair is one. Longer is no filter at all.
+  return t.replaceAll(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, "_").length > 66 ? "" : t;
+}
+
+/**
+ * The list a view's address asks for. Anything the server would refuse reads as unset, so a link
+ * that was edited by hand shows the list rather than an error.
+ */
+export function readList(search: Search, closed: boolean): ListView {
+  const sorts: readonly string[] = closed ? CLOSED_SORTS : OPEN_SORTS;
+  const sort = sorts.find((s) => s === one(search["sort"])) ?? (closed ? "closed" : "capacity");
+  const d = one(search["dir"]);
+  const own = d !== "asc" && d !== "desc";
+  const peer = one(search["peer"]);
+  const page = Number(one(search["page"]));
+  const m = /^(out|in):(none|\d+)$/.exec(one(search["fee"]) ?? "");
+  const from = m?.[2] === "none" ? null : Number(m?.[2]);
+  return {
+    sort,
+    dir: own ? (closed ? "desc" : firstDir(sort)) : d,
+    ownDir: own,
+    q: cleanFilter(one(search["q"]) ?? ""),
+    peer: peer !== undefined && isPublicKey(peer) ? peer.toLowerCase() : null,
+    state: closed ? null : (OP_STATES.find((x) => x === one(search["state"])) ?? null),
+    fee:
+      !closed && m && (from === null || FEE_ROWS.some((r) => r === from))
+        ? { way: m[1] === "in" ? "in" : "out", from }
+        : null,
+    kind: closed ? (CLOSE_KINDS.find((k) => k === one(search["kind"])) ?? null) : null,
+    page: Number.isInteger(page) && page >= 2 && page <= LAST_PAGE + 1 ? page - 1 : 0,
+  };
+}
+
+/** The server's bucket for a rate: exact under 10, then tens, hundreds and thousands. */
+const bucket = (rate: number): number => {
+  const step = rate < 10 ? 1 : rate < 100 ? 10 : rate < 1000 ? 100 : 1000;
+  return Math.floor(rate / step) * step;
+};
+
+/** A histogram row as the server's buckets: its first and last, `10-40` for 10 to 49 ppm. */
+export function rowBuckets(from: number): string {
+  const next = FEE_ROWS.find((r) => r > from);
+  const last = bucket(next === undefined ? 4_294_967_295 : next - 1);
+  return last === from ? String(from) : `${from}-${last}`;
+}
+
+/** The request for a view's page of channels: only what differs from the server's defaults. */
+export function listRequest(key: string, v: ListView, closed: boolean): string {
+  const q = new URLSearchParams();
+  if (closed) q.set("status", "closed");
+  if (v.sort !== (closed ? "closed" : "capacity")) q.set("sort", v.sort);
+  if (!v.ownDir) q.set("dir", v.dir);
+  if (v.q !== "") q.set("q", v.q);
+  if (v.peer !== null) q.set("peer", v.peer);
+  if (v.state !== null) q.set("state", v.state);
+  if (v.fee !== null)
+    q.set("fee", `${v.fee.way}:${v.fee.from === null ? "none" : rowBuckets(v.fee.from)}`);
+  if (v.kind !== null) q.set("kind", v.kind);
+  if (v.page > 0) q.set("page", String(v.page));
+  const s = q.toString();
+  return `/nodes/${key}/channels${s === "" ? "" : `?${s}`}`;
+}
+
+/** The address of a view with `change` applied: undefined drops a parameter. */
+export function viewHref(
+  base: string,
+  search: Search,
+  change: Record<string, string | undefined>,
+): string {
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries({ ...search, ...change })) {
+    const value = one(v);
+    if (value !== undefined && value !== "") q.set(k, value);
+  }
+  const s = q.toString();
+  return s === "" ? base : `${base}?${s}`;
+}
+
+/**
+ * The node's channels and capacity a week before `now`, from its history: the last point at or
+ * before then. Null when the record is younger than a week, so no change is shown rather than a
+ * wrong one.
+ */
+export function weekAgo(
+  h: NodeHistory,
+  now: number,
+): { channels: number; capacity: number } | null {
+  const then = now - 7 * 86_400;
+  if (h.from === null || h.from > then) return null;
+  let last: NodeHistory["points"][number] | null = null;
+  for (const p of h.points) if (p.time <= then) last = p;
+  return last;
+}
+
+/** A change in words, never in colour: `↑ 7.0 BTC (2.6%)`, `↓ 3`, `No change`. */
+export function changeWords(now: number, then: number, format: (n: number) => string): string {
+  const d = now - then;
+  if (d === 0) return "No change";
+  const pct = then === 0 ? null : Math.abs(d / then) * 100;
+  const part = pct === null ? "" : ` (${pct < 0.1 ? "<0.1" : pct.toFixed(1)}%)`;
+  return `${d > 0 ? "↑ Up" : "↓ Down"} ${format(Math.abs(d))}${part}`;
+}
+
+/** An operator state as its chip says it: the server's state, never more than it knows. */
+export const OP_WORDS: Record<OpState, { word: string; icon: IconName; tone: Tone }> = {
+  active: { word: "Enabled", icon: "check", tone: "positive" },
+  here: { word: "Off here", icon: "pause", tone: "caution" },
+  peer: { word: "Off at the peer", icon: "pauseDashed", tone: "caution" },
+  inactive: { word: "Off both ways", icon: "off", tone: "muted" },
+};
+
+/**
+ * One channel's state in words for its row, from its two policies: a missing policy is "Policy
+ * incomplete" and says whose, apart from one advertised disabled. `short` is a phone card's.
+ */
+export function rowState(c: { own_policy: Policy | null; peer_policy: Policy | null }): {
+  word: string;
+  short: string;
+  icon: IconName;
+  tone: Tone;
+} {
+  const own = c.own_policy;
+  const peer = c.peer_policy;
+  if (own === null && peer === null)
+    return { word: "No policy", short: "No policy", icon: "off", tone: "muted" };
+  if (peer === null)
+    return { word: "Peer policy missing", short: "Peer missing", icon: "off", tone: "muted" };
+  if (own === null)
+    return { word: "Own policy missing", short: "Own missing", icon: "off", tone: "muted" };
+  if (own.enabled && peer.enabled)
+    return { word: "Enabled", short: "Enabled", icon: "check", tone: "positive" };
+  if (!own.enabled && !peer.enabled)
+    return { word: "Disabled both ways", short: "Off both", icon: "pause", tone: "caution" };
+  return own.enabled
+    ? { word: "Disabled by the peer", short: "Off at peer", icon: "pauseDashed", tone: "caution" }
+    : { word: "Disabled by this node", short: "Off here", icon: "pause", tone: "caution" };
+}
+
+/** A fee one way in a card: `2 499 ppm +1 sat`, a dash with no policy. */
+export const feeShort = (p: Policy | null): string =>
+  p === null ? MISSING : `${ppm(p.fee_rate)} +${msatAsSats(p.base_fee_msat)}`;
+
+/** A base fee in a column whose heading names sats: `1`, `0.5`, `500 msat`. */
+export function baseShort(msatValue: number): string {
+  const m = Math.round(msatValue);
+  if (m > 0 && m < 1000) return msat(m);
+  return msatAsSats(m).replace(/ sats?$/, "");
+}

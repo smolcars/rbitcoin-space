@@ -25,6 +25,7 @@ import {
   FUNDING,
   NEXT,
   opened,
+  openChannel,
   overview,
   series,
   SWEEP,
@@ -212,121 +213,309 @@ describe("the overview", () => {
 });
 
 describe("a node", () => {
-  it("shows its name, key, figures, announcements and first page of channels", async () => {
-    replies[`/app/lightning/nodes/${ACINQ}`] = json(acinq());
-    const el = open(`/lightning/node/${ACINQ}`);
-    await shows(el, "Open channels1 807");
-    expect(el.querySelector("h1")?.textContent).toBe("ACINQ");
-    expect(text(el)).toContain("03864ef0");
-    expect(text(el)).toContain("The public key is the node's identity");
-    expect(text(el)).toContain("First seen26 Feb 2019");
-    expect(text(el)).toContain(
-      "of7husrflx7sforh3fw6yqlpwstee3wg5imvvmkp4bz6rbjxtg5nljad.onion:9735",
+  const node = `/app/lightning/nodes/${ACINQ}`;
+  const list = (q: string) => `${node}/channels?${q}`;
+  const page = (n: number, id: string, more: Record<string, unknown> = {}) => ({
+    ...acinq().open_channels,
+    page: n,
+    channels: [openChannel(0, { id })],
+    ...more,
+  });
+  const press = (el: HTMLElement, label: string) => {
+    const b = [...el.querySelectorAll<HTMLElement>("button, a")].find(
+      (x) => x.textContent?.trim() === label,
     );
+    if (!b) throw new Error(`no control named ${label}`);
+    b.click();
+    flush();
+  };
+
+  it("shows its name and key, its rank, the glance, what it announces and its first page", async () => {
+    replies[node] = json(acinq());
+    const el = open(`/lightning/node/${ACINQ}`);
+    await shows(el, "3rd by capacity");
+    expect(el.querySelector("h1")?.textContent).toBe("ACINQ");
+    expect(text(el)).toContain("03864ef0…7a3f8f");
+    expect(text(el)).toContain("1 807 open channels, 1st by channels");
+    expect(text(el)).toContain("Channel size, median1 956 163 sats");
+    expect(text(el)).toContain("First seen26 Feb 2019");
+    expect(text(el)).toContain(`${ACINQ}@3.33.236.230:9735`);
+    expect(text(el)).toContain("#49daaa");
     expect(text(el)).toContain("data-loss-protect (required)");
-    expect(text(el)).toContain("Bit 37");
     // Addresses are text, never links.
     expect(links(el).some((h) => (h ?? "").includes("9735"))).toBe(false);
+    // The first page is the node's own answer: no request for it.
     expect(el.querySelectorAll("tbody tr")).toHaveLength(25);
     expect(text(el)).toContain("Page 1 of 73");
+    expect(requests.filter((r) => r.includes("/channels"))).toStrictEqual([
+      `/regtest${list("sort=update")}`.replace("/regtest", ""),
+    ]);
+    // Each header that sorts says so; the one in force says how.
+    expect(el.querySelector("th[aria-sort]")?.textContent).toContain("Capacity");
+    expect(el.querySelector("th[aria-sort]")?.getAttribute("aria-sort")).toBe("descending");
   });
 
-  it("asks for later pages and closed channels, and says when it has no closed one", async () => {
-    replies[`/app/lightning/nodes/${ACINQ}`] = json(acinq());
-    replies[`/app/lightning/nodes/${ACINQ}/channels?status=open&page=1`] = json({
-      ...acinq().open_channels,
-      page: 1,
-      channels: [{ ...acinq().open_channels.channels[0], id: "900000x1x1" }],
+  it("asks the server for each sort, page and filter, and keeps the rows until they come", async () => {
+    replies[node] = json(acinq());
+    let answer: (r: Response) => void = () => undefined;
+    replies[list("sort=out")] = () =>
+      new Promise<Response>((resolve) => {
+        answer = resolve;
+      }) as unknown as Response;
+    const el = open(`/lightning/node/${ACINQ}`);
+    await shows(el, "Page 1 of 73");
+    const header = [...el.querySelectorAll("th button")].find((b) =>
+      b.textContent?.startsWith("Fee out"),
+    ) as HTMLElement;
+    header.click();
+    flush();
+    await vi.waitFor(() => expect(requests).toContain(list("sort=out")));
+    // Still the last rows, marked busy, until the answer comes.
+    expect(el.querySelectorAll("tbody tr")).toHaveLength(25);
+    expect(el.querySelector(".ln-busy")?.getAttribute("aria-busy")).toBe("true");
+    answer(Response.json(page(0, "900000x1x1", { sort: "out", dir: "asc" })));
+    await shows(el, "900000x1x1");
+    expect(el.querySelector("th[aria-sort]")?.getAttribute("aria-sort")).toBe("ascending");
+    expect(el.querySelector(".ln-busy")?.getAttribute("aria-busy")).toBe("false");
+    // Pressed again, the other way.
+    replies[list("sort=out&dir=desc")] = json(page(0, "900001x1x1"));
+    (
+      [...el.querySelectorAll("th button")].find((b) =>
+        b.textContent?.startsWith("Fee out"),
+      ) as HTMLElement
+    ).click();
+    flush();
+    await shows(el, "900001x1x1");
+  });
+
+  it("filters by state, peer and fee row, says what is in force, and pages", async () => {
+    replies[node] = json(acinq());
+    replies[list("state=here")] = json(page(0, "900002x1x1", { total: 42 }));
+    const el = open(`/lightning/node/${ACINQ}`);
+    await shows(el, "Off here42");
+    press(el, "Off here42");
+    await shows(el, "42 of 1 807 open channels match");
+    expect(text(el)).toContain("900002x1x1");
+
+    replies[list(`peer=${BFX}`)] = json(page(0, "900003x1x1", { total: 10 }));
+    const peer = el.querySelector<HTMLElement>(`a[href*="peer=${BFX}"]`);
+    peer?.click();
+    flush();
+    await shows(el, "10 channels with bfx-lnd0");
+    expect(text(el)).toContain("All peers");
+
+    // A bar of the histogram is a row of rates: the server is asked for its run of buckets.
+    replies[list("fee=out%3A10-40")] = json(page(0, "900004x1x1", { total: 3 }));
+    const fees = open(`/lightning/node/${ACINQ}?fee=out:10`);
+    await shows(fees, "It charges 10–49 ppm");
+    await shows(fees, "900004x1x1");
+
+    replies[list("page=1")] = json(page(1, "900005x1x1"));
+    const later = open(`/lightning/node/${ACINQ}?page=2`);
+    await shows(later, "900005x1x1");
+    expect(text(later)).toContain("Page 2 of 73");
+  });
+
+  it("asks for the text filter once typing pauses", async () => {
+    replies[node] = json(acinq());
+    replies[list("q=bfx")] = json(page(0, "900006x1x1", { total: 10 }));
+    const el = open(`/lightning/node/${ACINQ}`);
+    await shows(el, "Page 1 of 73");
+    const field = el.querySelector<HTMLInputElement>("input[type=search]");
+    if (!field) throw new Error("no filter");
+    for (const v of ["b", "bf", "bfx"]) {
+      field.value = v;
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    expect(requests.some((r) => r.includes("q="))).toBe(false);
+    await shows(el, "900006x1x1");
+    expect(requests.filter((r) => r.includes("q="))).toStrictEqual([list("q=bfx")]);
+  });
+
+  it("drops typing still waiting when the filter is cleared", async () => {
+    replies[node] = json(acinq());
+    replies[list("q=old")] = json(page(0, "900009x1x1", { total: 1 }));
+    const el = open(`/lightning/node/${ACINQ}?q=old`);
+    await shows(el, "900009x1x1");
+    const field = el.querySelector<HTMLInputElement>("input[type=search]");
+    if (!field) throw new Error("no filter");
+    field.value = "newer";
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+    press(el, "Clear");
+    await shows(el, "Page 1 of 73");
+    await new Promise((resolve) => {
+      setTimeout(resolve, 400);
     });
-    replies[`/app/lightning/nodes/${ACINQ}/channels?status=closed&page=0`] = json({
+    flush();
+    expect(field.value).toBe("");
+    expect(requests.some((r) => r.includes("q=newer"))).toBe(false);
+  });
+
+  it("never lets a slower earlier page replace a newer one", async () => {
+    replies[node] = json(acinq());
+    let slow: (r: Response) => void = () => undefined;
+    replies[list("page=1")] = () =>
+      new Promise<Response>((resolve) => {
+        slow = resolve;
+      }) as unknown as Response;
+    replies[list("page=2")] = json(page(2, "900008x1x1"));
+    const el = open(`/lightning/node/${ACINQ}`);
+    await shows(el, "Page 1 of 73");
+    press(el, "Next");
+    await vi.waitFor(() => expect(requests).toContain(list("page=1")));
+    press(el, "Next");
+    await shows(el, "900008x1x1");
+    slow(Response.json(page(1, "900007x1x1")));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 20);
+    });
+    flush();
+    expect(text(el)).toContain("900008x1x1");
+    expect(text(el)).not.toContain("900007x1x1");
+  });
+
+  it("says a page failed, rather than keep the last one under its number", async () => {
+    replies[node] = json(acinq());
+    replies[list("page=1")] = json({ error: "the node is not answering" }, 502);
+    const el = open(`/lightning/node/${ACINQ}?page=2`);
+    await shows(el, "Could not load these channels");
+    expect(text(el)).toContain("Try again");
+  });
+
+  it("lists its closes by kind, with the channel a close continued as", async () => {
+    replies[node] = json(
+      acinq({ channels: { ...acinq().channels, closed: 2, force: 1, other: 1 } }),
+    );
+    const row = (id: string, kind: string, continued: string | null) => ({
+      id,
+      scid: "1",
+      capacity: 400_000,
+      state: "closed",
+      peer: { id: BFX, alias: "bfx-lnd0", capacity: null, channels: null },
+      fee_rate: null,
+      funded: 1_657_986_467,
+      closed: {
+        block: { height: 975_867, hash: "00".repeat(32), time: 1_794_400_000 },
+        txid: "a5".repeat(32),
+        kind,
+        fee: 304,
+      },
+      continued_as: continued,
+    });
+    replies[list("status=closed")] = json({
       status: "closed",
       page: 0,
       per_page: 25,
-      total: 0,
-      channels: [],
+      total: 2,
+      sort: "closed",
+      dir: "desc",
+      channels: [
+        row("745253x717x0", "force", null),
+        row("948730x2215x0", "other", "975402x1310x1"),
+      ],
     });
-    const el = open(`/lightning/node/${ACINQ}`);
-    await shows(el, "Page 1 of 73");
-    [...el.querySelectorAll("button")].find((b) => b.textContent === "Next")?.click();
-    flush();
-    await shows(el, "900000x1x1");
-    [...el.querySelectorAll("button")].find((b) => b.textContent?.startsWith("Closed"))?.click();
-    flush();
-    await shows(el, "No close seen");
-    expect(requests).toContain(`/app/lightning/nodes/${ACINQ}/channels?status=closed&page=0`);
-  });
-
-  it("says a later page failed, rather than keep the last one under its number", async () => {
-    replies[`/app/lightning/nodes/${ACINQ}`] = json(acinq());
-    replies[`/app/lightning/nodes/${ACINQ}/channels?status=open&page=1`] = json({
-      ...acinq().open_channels,
-      page: 1,
-      channels: [{ ...acinq().open_channels.channels[0], id: "900000x1x1" }],
+    const el = open(`/lightning/node/${ACINQ}?view=closed`);
+    await shows(el, "Continued as 975402x1310x1");
+    expect(text(el)).toContain("Force1");
+    expect(text(el)).toContain("Other1");
+    expect(links(el)).toContain("/lightning/channel/975402x1310x1");
+    replies[list("status=closed&kind=force")] = json({
+      status: "closed",
+      page: 0,
+      per_page: 25,
+      total: 1,
+      sort: "closed",
+      dir: "desc",
+      channels: [row("745253x717x0", "force", null)],
     });
-    replies[`/app/lightning/nodes/${ACINQ}/channels?status=open&page=2`] = json(
-      { error: "the node is not answering" },
-      502,
-    );
-    const el = open(`/lightning/node/${ACINQ}`);
-    const next = async () => {
-      [...el.querySelectorAll("button")].find((b) => b.textContent === "Next")?.click();
-      flush();
-    };
-    await shows(el, "Page 1 of 73");
-    await next();
-    await shows(el, "900000x1x1");
-    await next();
-    await shows(el, "Could not load these channels");
-    expect(text(el)).not.toContain("900000x1x1");
-    expect([...el.querySelectorAll("button")].some((b) => b.textContent === "Try again")).toBe(
-      true,
-    );
+    press(el, "Force1");
+    await shows(el, "1 of 2 closes match");
   });
 
   it("shows a node that never announced itself", async () => {
     // What the server sends for a node it holds only through its channels (nodes.rs app_node).
-    replies[`/app/lightning/nodes/${ACINQ}`] = json(
-      acinq({ alias: null, addresses: null, features: [], last_update: null }),
+    replies[node] = json(
+      acinq({ alias: null, addresses: null, features: [], last_update: null, color: null }),
     );
     const el = open(`/lightning/node/${ACINQ}`);
     await shows(el, "Unnamed node");
     expect(text(el)).toContain("It has sent no announcement");
     expect(text(el)).toContain("AddressesNone announced");
-    expect(text(el)).toContain("Open channels1 807");
+    expect(text(el)).toContain("No address announced");
   });
 
-  it("draws its channels and capacity since the record began, and how it prices them", async () => {
-    replies[`/app/lightning/nodes/${ACINQ}`] = json(acinq());
-    replies[`/app/lightning/nodes/${ACINQ}/history`] = json({
+  it("shows a way with no policy as no figures, not as a node it cannot read", async () => {
+    const none = { median: null, weighted: null, lowest: null, highest: null, policies: 0 };
+    const a = acinq();
+    replies[node] = json({
+      ...a,
+      figures: { ...a.figures, fee_rates: { ...a.figures.fee_rates, incoming: none } },
+    });
+    const el = open(`/lightning/node/${ACINQ}?view=fees`);
+    await shows(el, "Median499–");
+    expect(text(el)).not.toContain("its peers, by median");
+  });
+
+  it("shows its fees in figures, each bar a link to the channels it counts", async () => {
+    replies[node] = json(acinq());
+    const el = open(`/lightning/node/${ACINQ}?view=fees`);
+    await shows(el, "Charges 5.0× its peers, by median");
+    expect(text(el)).toContain("Average, by capacity1 5221 810");
+    expect(links(el)).toContain(`/lightning/node/${ACINQ}?fee=out:2000`);
+    expect(links(el)).toContain(`/lightning/node/${ACINQ}?fee=in:none`);
+  });
+
+  it("gives the week's change only once its record is a week old", async () => {
+    replies[node] = json(acinq());
+    const now = Math.floor(Date.now() / 1000);
+    replies[`${node}/history`] = json({
+      from: now - 30 * 86_400,
+      points: [
+        { time: now - 8 * 86_400, channels: 1797, capacity: 27_000_000_000 },
+        { time: now - 86_400, channels: 1800, capacity: 27_383_219_285 },
+      ],
+    });
+    const el = open(`/lightning/node/${ACINQ}`);
+    await shows(el, "Changes over 7 days");
+    expect(text(el)).toContain("1 698 enabled↑ Up 10 (0.6%)");
+    replies[`${node}/history`] = json({
+      from: now - 3 * 86_400,
+      points: [{ time: now - 86_400, channels: 1800, capacity: 1 }],
+    });
+    clearApiCache();
+    const young = open(`/lightning/node/${ACINQ}`);
+    await shows(young, "1 698 enabled");
+    await new Promise((resolve) => {
+      setTimeout(resolve, 20);
+    });
+    expect(text(young)).not.toContain("Changes over 7 days");
+    expect(text(young)).not.toContain("↑");
+  });
+
+  it("draws its past in the History view, and says when there is none yet", async () => {
+    replies[node] = json(acinq());
+    replies[`${node}/history`] = json({
       from: 1_794_504_600,
       points: [
         { time: 1_794_528_000, channels: 1804, capacity: 27_651_420_454 },
         { time: 1_794_593_410, channels: 1793, capacity: 28_497_516_531 },
       ],
     });
-    const el = open(`/lightning/node/${ACINQ}`);
+    const el = open(`/lightning/node/${ACINQ}?view=history`);
     await shows(el, "Recorded since 12 Nov 2026, 17:30 UTC");
     await vi.waitFor(() => expect(el.querySelector("[role=slider] svg")).not.toBeNull());
-    expect(text(el)).toContain("It charges a median of 2 000–4 999 ppm to forward");
-    // The figures table is drawn only when opened: the channel list is the page's one list.
-    expect(el.querySelectorAll("tbody tr")).toHaveLength(25);
-  });
-
-  it("says when there is no past to draw yet, and when its history is refused", async () => {
-    replies[`/app/lightning/nodes/${ACINQ}`] = json(acinq());
-    replies[`/app/lightning/nodes/${ACINQ}/history`] = json({
+    replies[`${node}/history`] = json({
       from: null,
       points: [{ time: 1_794_593_410, channels: 1793, capacity: 28_497_516_531 }],
     });
-    const el = open(`/lightning/node/${ACINQ}`);
-    await shows(el, "Nothing to draw yet");
-    expect(el.querySelector("[role=slider]")).toBeNull();
-    // The node's own figures stay when its history fails.
-    replies[`/app/lightning/nodes/${ACINQ}/history`] = json({ error: "store is busy" }, 500);
     clearApiCache();
-    const failed = open(`/lightning/node/${ACINQ}`);
+    const none = open(`/lightning/node/${ACINQ}?view=history`);
+    await shows(none, "Nothing to draw yet");
+    replies[`${node}/history`] = json({ error: "store is busy" }, 500);
+    clearApiCache();
+    const failed = open(`/lightning/node/${ACINQ}?view=history`);
     await shows(failed, "Could not load its history");
-    expect(text(failed)).toContain("Open channels1 807");
+    expect(text(failed)).toContain("1 807 open channels");
   });
 
   it("says when this server knows no such node, or the key is not one", async () => {
@@ -609,13 +798,13 @@ describe("hostile names", () => {
     expect(page.querySelector(".ln-name-full")?.textContent).toBe(long);
   });
 
-  it("never lets a node's colour reach the page", async () => {
+  it("draws a node's colour only as the #rrggbb it should be", async () => {
     replies[`/app/lightning/nodes/${ACINQ}`] = json({
       ...acinq(),
       color: "red;background:url(javascript:alert(1))",
     });
     const el = open(`/lightning/node/${ACINQ}`);
-    await shows(el, "Open channels");
+    await shows(el, "Announced colourNone announced");
     expect(el.innerHTML).not.toContain("javascript");
     expect(el.innerHTML).not.toContain("red;");
   });

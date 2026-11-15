@@ -216,7 +216,8 @@ export async function copyNotesClear(page: Page, label: string) {
         b.closest(".hash")?.querySelector(".hash__text") ??
         pop?.querySelector(".num") ??
         b.closest(".tx-code")?.querySelector(".tx-code__text") ??
-        b.closest(".ln-chan__ids dd")?.querySelector(".mono");
+        b.closest(".ln-chan__ids dd")?.querySelector(".mono") ??
+        b.closest(".ln-node-connect")?.querySelector(".mono");
       const name = b.title;
       if (!value) {
         out.push(`"${name}": a copy control whose value this check does not know`);

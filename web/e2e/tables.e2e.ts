@@ -405,10 +405,17 @@ for (const width of FIGURES_WIDTHS) {
   }) => {
     const { open, bothFaces } = await figuresAt(page, width);
     for (const node of [ACINQ, ONE]) {
-      await page.goto(`/regtest/lightning/node/${node}`);
+      // Each in its own view: the past, then its fees by the view's tab, with no reload.
+      await page.goto(`/regtest/lightning/node/${node}?view=history`);
       await expect(page.getByRole("slider")).toBeVisible();
-      await open(["Over time", "Fee rates"]);
-      await bothFaces(["Over time", "Fee rates"], `${node.slice(0, 8)} at ${width} px`);
+      await open(["Over time"]);
+      await bothFaces(["Over time"], `${node.slice(0, 8)}'s past at ${width} px`);
+      await page
+        .getByRole("navigation", { name: "Node views" })
+        .getByRole("link", { name: "Fees" })
+        .click();
+      await open(["Fee rates"]);
+      await bothFaces(["Fee rates"], `${node.slice(0, 8)}'s fees at ${width} px`);
     }
   });
 

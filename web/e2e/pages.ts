@@ -18,6 +18,7 @@ async function lightning(page: Page) {
     "statistics/1w": recorded("statistics-1w"),
     [`nodes/${ACINQ}`]: recorded("node-acinq"),
     [`nodes/${ACINQ}/history`]: recorded("node-acinq-history"),
+    [`nodes/${ACINQ}/channels?sort=update`]: recorded("node-acinq-updated"),
     "channels/811984x2037x0": recorded("channel-811984x2037x0"),
     "search?q=acinq": recorded("search-acinq"),
     "rankings/capacity?limit=100": recorded("rankings-capacity"),
