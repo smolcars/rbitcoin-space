@@ -793,6 +793,13 @@ export const msatAsBtc = (n: number | bigint): string => msatAsSats(n, 1000n);
  */
 export const LONG_FIGURE = 12;
 
+/**
+ * Characters past which a figure is too long even for a room that holds an ordinary long one
+ * (`500 000 000 sats` is 16): the node page's cards and glance show these in magnitude by their
+ * own width, so their ordinary figures stay exact.
+ */
+export const LONGER_FIGURE = 16;
+
 /** What an amount typed in sats reads as: whole sats above zero, grouping spaces allowed. */
 export function parseSats(text: string): { sats: number } | { error: string } {
   const t = text.trim();
@@ -1221,10 +1228,6 @@ export function rowState(c: { own_policy: Policy | null; peer_policy: Policy | n
     ? { word: "Disabled by the peer", short: "Off at peer", icon: "pauseDashed", tone: "caution" }
     : { word: "Disabled by this node", short: "Off here", icon: "pause", tone: "caution" };
 }
-
-/** A fee one way in a card: `2 499 ppm +1 sat`, a dash with no policy. */
-export const feeShort = (p: Policy | null): string =>
-  p === null ? MISSING : `${ppm(p.fee_rate)} +${msatAsSats(p.base_fee_msat)}`;
 
 /** A base fee in a column whose heading names sats: `1`, `0.5`, `500 msat`. */
 export function baseShort(msatValue: number): string {

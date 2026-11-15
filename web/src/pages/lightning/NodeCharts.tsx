@@ -9,7 +9,7 @@ import { type Column, DataTable } from "../../components/DataTable";
 import { More } from "../../components/More";
 import { SectionHeader } from "../../components/SectionHeader";
 import { Empty, ErrorState, Loading } from "../../components/States";
-import { formatBtc, groupDigits } from "../../lib/format";
+import { formatBtcShort, groupDigits } from "../../lib/format";
 import { Link } from "../../components/Link";
 import { paths } from "../../lib/network";
 import {
@@ -97,7 +97,8 @@ export function NodeHistory(props: { history: ApiResource<HistoryAnswer>; retry:
                         draw: "step",
                         axis: "right",
                         tone: 2,
-                        format: formatBtc,
+                        // In magnitude, as the glance and header read it: whole at any size.
+                        format: formatBtcShort,
                         unit: "BTC",
                       },
                     ]}

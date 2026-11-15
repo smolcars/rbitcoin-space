@@ -26,7 +26,13 @@ import { scrollCue } from "../../components/scrollCue";
 import { SectionHeader } from "../../components/SectionHeader";
 import { Empty, ErrorState, Loading } from "../../components/States";
 import { createRequest } from "../../lib/api";
-import { formatBtcShort, groupDigits, MISSING, truncateMiddle } from "../../lib/format";
+import {
+  formatBtcShort,
+  formatPowerOfTen,
+  groupDigits,
+  MISSING,
+  truncateMiddle,
+} from "../../lib/format";
 import { type Network, paths } from "../../lib/network";
 import {
   ageShort,
@@ -37,7 +43,6 @@ import {
   cleanFilter,
   count,
   type FeeFilter,
-  feeShort,
   firstDir,
   isClosedPage,
   isOpenPage,
@@ -45,7 +50,7 @@ import {
   KIND_TAG,
   listRequest,
   type ListView,
-  msatAsSats,
+  ppm,
   type NodeDetail,
   OP_STATES,
   OP_WORDS,
@@ -59,7 +64,7 @@ import {
   sortName,
   viewHref,
 } from "./lightning";
-import { Alias, ask, BlockLink, ChannelId, ChannelLink, Tag } from "./parts";
+import { Alias, ask, BlockLink, ChannelId, ChannelLink, Fig, MsatFig, Tag } from "./parts";
 
 /** Whether the viewport is a phone's (the 40em breakpoint), kept current. */
 function usePhone(): Accessor<boolean> {
@@ -76,6 +81,16 @@ export const FILTER_WAIT_MS = 280;
 
 const days = (seconds: number) => groupDigits(Math.max(0, Math.floor(seconds / 86_400)));
 const sats = (n: number) => `${groupDigits(n)} ${n === 1 ? "sat" : "sats"}`;
+
+/** Sats whole with their unit, in magnitude where the room is too narrow for them (`Fig`). */
+export const SatsFig = (props: { sats: number }) => (
+  <Fig exact={sats(props.sats)} short={`${formatBtcShort(props.sats)} BTC`} />
+);
+
+/** A fee rate whole with its unit, as a power of ten where the room is too narrow for it. */
+const PpmFig = (props: { rate: number }) => (
+  <Fig exact={ppm(props.rate)} short={`${formatPowerOfTen(props.rate)} ppm`} />
+);
 
 interface ListProps {
   node: NodeDetail;
@@ -236,7 +251,11 @@ function PeerBar(props: {
     <p class="ln-node-peerbar">
       <span>
         <Show when={props.together}>
-          {(n) => <strong class="num">{count(n(), "channel")} with </strong>}
+          {(n) => (
+            <strong>
+              <span class="num">{count(n(), "channel")}</span> with{" "}
+            </strong>
+          )}
         </Show>
         <Show when={props.known} fallback={<span>One peer</span>}>
           {(p) => (
@@ -250,9 +269,10 @@ function PeerBar(props: {
         </span>
         <Show when={props.known?.channels}>
           {(n) => (
-            <span class="muted num">
+            <span class="muted">
               {" "}
-              ({count(n(), "channel")}, {formatBtcShort(props.known?.capacity ?? 0)} BTC)
+              (<span class="num">{count(n(), "channel")}</span>,{" "}
+              <span class="num">{formatBtcShort(props.known?.capacity ?? 0)} BTC</span>)
             </span>
           )}
         </Show>
@@ -289,11 +309,6 @@ function StateTag(props: { c: OpenChannel; short?: boolean }) {
     </Tag>
   );
 }
-
-/** A figure kept whole with its unit: `2 499 ppm`. */
-const Whole = (props: { children: JSX.Element }) => (
-  <span class="ln-node-whole">{props.children}</span>
-);
 
 /** The sort a phone picks from a list: each figure, each way, its own way first. */
 function SortPicker(props: {
@@ -337,14 +352,27 @@ const sortedBy = (what: string, v: ListView) => {
   return `${what}, sorted by ${name.charAt(0).toLowerCase()}${name.slice(1)}`;
 };
 
-/** A card's figure for a sort it does not already show. */
-function sortedFigure(by: string, c: OpenChannel): string | null {
+/** A card's figure for a sort it does not already show: its name, then the figure whole. */
+function sortedFigure(by: string, c: OpenChannel): JSX.Element | null {
+  const named = (name: string, figure: JSX.Element) => (
+    <strong>
+      <span class="ln-node-card__k">{name}</span> {figure}
+    </strong>
+  );
+  const own = c.own_policy;
   if (by === "cltv")
-    return `CLTV delta ${c.own_policy ? groupDigits(c.own_policy.cltv_delta) : MISSING}`;
-  if (by === "htlc")
-    return `Max HTLC ${c.own_policy ? msatAsSats(c.own_policy.max_htlc_msat) : MISSING}`;
+    return named(
+      "CLTV delta",
+      <span class="num">{own ? groupDigits(own.cltv_delta) : MISSING}</span>,
+    );
+  if (by === "htlc") return named("Max HTLC", own ? <MsatFig msat={own.max_htlc_msat} /> : MISSING);
   if (by === "peer")
-    return `Peer ${c.peer.capacity === null ? MISSING : `${formatBtcShort(c.peer.capacity)} BTC`}`;
+    return named(
+      "Peer",
+      <span class="num">
+        {c.peer.capacity === null ? MISSING : `${formatBtcShort(c.peer.capacity)} BTC`}
+      </span>,
+    );
   return null;
 }
 
@@ -616,27 +644,32 @@ function Toggle(props: { open: boolean; id: string; onToggle: () => void }) {
 
 /** A phone's open channel in three short lines: who and which; the fee each way; its size,
  * state, age and freshness. The rest is under the chevron. */
-function OpenCard(props: { c: OpenChannel; now: number; peerHref: string; extra: string | null }) {
+function OpenCard(props: {
+  c: OpenChannel;
+  now: number;
+  peerHref: string;
+  extra: JSX.Element | null;
+}) {
   const c = () => props.c;
   const [open, setOpen] = createSignal(false);
-  const fee = (p: Policy | null) => {
-    const [rate, base] = feeShort(p).split(" +");
-    return (
-      <>
-        <Whole>{rate}</Whole>
-        <Show when={base}>
-          {(b) => (
-            <>
-              {" "}
-              <Whole>+{b()}</Whole>
-            </>
-          )}
-        </Show>
-      </>
-    );
-  };
-  const policyAge = (who: string, p: Policy | null) =>
-    p ? `${who} ${ageShort(props.now - p.last_update)} ago` : `${who} missing`;
+  // Each figure whole; the line breaks between the rate and the base fee where it must.
+  const fee = (p: Policy | null) => (
+    <Show when={p} fallback={MISSING}>
+      {(q) => (
+        <>
+          <PpmFig rate={q().fee_rate} /> <MsatFig msat={q().base_fee_msat} sign="+" />
+        </>
+      )}
+    </Show>
+  );
+  const policyAge = (who: string, p: Policy | null) => (
+    <>
+      {who}{" "}
+      <Show when={p} fallback="missing">
+        {(q) => <span class="num">{ageShort(props.now - q().last_update)} ago</span>}
+      </Show>
+    </>
+  );
   return (
     <li class="ln-node-card">
       <p class="ln-node-card__id">
@@ -666,41 +699,41 @@ function OpenCard(props: { c: OpenChannel; now: number; peerHref: string; extra:
         </span>
       </p>
       <p class="ln-node-card__state">
-        <span class="num ln-node-whole">
-          {groupDigits(c().capacity)} <span class="ln-node-card__k">sats</span>
-        </span>
+        <SatsFig sats={c().capacity} />
         <StateTag c={c()} short />
-        <span class="num ln-node-whole">
+        <span class="num">
           <Show when={c().funded} fallback={MISSING}>
             {(f) => <>{days(props.now - f())} d</>}
           </Show>
         </span>
         <Show when={c().last_update}>
-          {(t) => (
-            <span class="num muted ln-node-whole ln-node-card__upd">
-              upd {ageShort(props.now - t())}
-            </span>
-          )}
+          {(t) => <span class="num muted ln-node-card__upd">upd {ageShort(props.now - t())}</span>}
         </Show>
-        <Show when={props.extra}>{(x) => <strong class="num">{x()}</strong>}</Show>
+        {props.extra}
         <Toggle open={open()} id={c().id} onToggle={() => setOpen((o) => !o)} />
       </p>
       <Show when={open()}>
         <dl class="ln-node-card__list">
           <div>
             <dt>CLTV delta</dt>
-            <dd class="num">
-              this node {c().own_policy ? groupDigits(c().own_policy?.cltv_delta ?? 0) : MISSING},
-              the peer {c().peer_policy ? groupDigits(c().peer_policy?.cltv_delta ?? 0) : MISSING}
+            <dd>
+              this node{" "}
+              <span class="num">
+                {c().own_policy ? groupDigits(c().own_policy?.cltv_delta ?? 0) : MISSING}
+              </span>
+              , the peer{" "}
+              <span class="num">
+                {c().peer_policy ? groupDigits(c().peer_policy?.cltv_delta ?? 0) : MISSING}
+              </span>
             </dd>
           </div>
           <div>
             <dt>HTLC, this node</dt>
-            <dd class="num">
+            <dd>
               <Show when={c().own_policy} fallback={MISSING}>
                 {(p) => (
                   <>
-                    {msatAsSats(p().min_htlc_msat)} to {msatAsSats(p().max_htlc_msat)}
+                    <MsatFig msat={p().min_htlc_msat} /> to <MsatFig msat={p().max_htlc_msat} />
                   </>
                 )}
               </Show>
@@ -708,7 +741,7 @@ function OpenCard(props: { c: OpenChannel; now: number; peerHref: string; extra:
           </div>
           <div>
             <dt>Policies updated</dt>
-            <dd class="num">
+            <dd>
               {policyAge("this node", c().own_policy)}; {policyAge("the peer", c().peer_policy)}
             </dd>
           </div>
@@ -729,9 +762,10 @@ function OpenCard(props: { c: OpenChannel; now: number; peerHref: string; extra:
               <span class="ln-key">{truncateMiddle(c().peer.id, 8, 6)}</span>
               <Show when={c().peer.channels}>
                 {(n) => (
-                  <span class="num">
-                    , {count(n(), "channel")}, {formatBtcShort(c().peer.capacity ?? 0)} BTC
-                  </span>
+                  <>
+                    , <span class="num">{count(n(), "channel")}</span>,{" "}
+                    <span class="num">{formatBtcShort(c().peer.capacity ?? 0)} BTC</span>
+                  </>
                 )}
               </Show>
             </dd>
@@ -995,19 +1029,17 @@ function ClosedCard(props: { c: ClosedChannel; peerHref: string }) {
         </span>
       </p>
       <p class="ln-node-card__fees">
-        <span class="ln-node-whole">
-          {groupDigits(c().capacity)} <span class="ln-node-card__k">sats</span>
-        </span>
+        <SatsFig sats={c().capacity} />
         <span>
           <span class="ln-node-card__k">lived</span>{" "}
-          <Whole>{lived(c()) === null ? MISSING : count(lived(c()) ?? 0, "day")}</Whole>
+          <span class="num">{lived(c()) === null ? MISSING : count(lived(c()) ?? 0, "day")}</span>
         </span>
       </p>
       <p class="ln-node-card__state">
         <Tag icon={KIND_TAG[c().closed.kind].icon} tone={KIND_TAG[c().closed.kind].tone}>
           {KIND_SHORT[c().closed.kind]}
         </Tag>
-        <span class="num ln-node-whole">{formatDay(c().closed.block.time)}</span>
+        <span class="num">{formatDay(c().closed.block.time)}</span>
         <Toggle open={open()} id={c().id} onToggle={() => setOpen((o) => !o)} />
       </p>
       <Show when={c().continued_as}>
@@ -1042,7 +1074,11 @@ function ClosedCard(props: { c: ClosedChannel; peerHref: string }) {
           </div>
           <div>
             <dt>Closing fee</dt>
-            <dd class="num">{c().closed.fee === null ? MISSING : sats(c().closed.fee ?? 0)}</dd>
+            <dd>
+              <Show when={c().closed.fee} fallback={MISSING}>
+                {(f) => <SatsFig sats={f()} />}
+              </Show>
+            </dd>
           </div>
           <div>
             <dt>Closing transaction</dt>

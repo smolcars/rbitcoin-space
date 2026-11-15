@@ -5,6 +5,7 @@
 import type { Page, Route } from "@playwright/test";
 import { expect, test } from "./fixtures";
 import { ACINQ, mainnet, ONE, pageFaults, recorded, serve } from "./lightning-answers";
+import { frames } from "./layout";
 import { tablesFit } from "./rows";
 
 type Row = Record<string, unknown> & { peer: Record<string, unknown> };
@@ -182,40 +183,117 @@ test("every filter, the back button through views, and a filter that matches not
   await expect(page).toHaveURL(new RegExp(`/node/${ACINQ}$`));
 });
 
-/** A node whose peers have names made to break a layout: 32 bytes unspaced, right to left, emoji. */
-function hostile(): Record<string, unknown> {
+/** Every bitcoin there is, in sats: the largest capacity or fee a figure can show. */
+const ALL_SATS = 2_100_000_000_000_000;
+/** The largest a policy's 32-bit fields can hold: its rate (ppm) and base fee (msat). */
+const U32 = 4_294_967_295;
+
+/**
+ * The node at the edges: peers with names made to break a layout (32 bytes unspaced, right to
+ * left, emoji), and every figure a row can hold at its longest: all bitcoin as capacity, the
+ * largest rate, base fee, delay and limit a policy can advertise, a close that paid all bitcoin.
+ */
+function extremes(): Record<string, unknown> {
   const names = ["0256ccca46170ff4b1ef0256ccca4617", "عقدةالبرقالسريعة", "⚡🐙🦀⚡🐙🦀⚡🐙"];
-  const rename = <T extends { peer: Record<string, unknown> }>(rows: T[]) =>
-    rows.map((r, i) => ({ ...r, peer: { ...r.peer, alias: names[i % 3] } }));
   const n = node();
   const c = closed();
+  const policy = (p: unknown) => ({
+    ...(p as object),
+    fee_rate: U32,
+    base_fee_msat: U32,
+    cltv_delta: 65_535,
+    max_htlc_msat: ALL_SATS * 1000,
+  });
+  const open = n.open_channels.channels.map((r, i) => ({
+    ...r,
+    capacity: ALL_SATS - i,
+    funded: 1_231_006_505,
+    peer: { ...r.peer, alias: names[i % 3], capacity: ALL_SATS, channels: 99_999 },
+    own_policy: policy(r["own_policy"]),
+    peer_policy: policy(r["peer_policy"]),
+  }));
+  const shut = c.channels.map((r, i) => ({
+    ...r,
+    capacity: ALL_SATS - i,
+    funded: 1_231_006_505,
+    peer: { ...r.peer, alias: names[i % 3] },
+    closed: { ...(r["closed"] as object), fee: ALL_SATS },
+  }));
+  const figures = n["figures"] as Record<string, unknown>;
+  const rates = { median: U32, weighted: U32, lowest: U32, highest: U32, policies: 99_999 };
+  const history = recorded("node-acinq-history") as { from: number; points: object[] };
   return {
     [`nodes/${ACINQ}`]: {
       ...n,
       alias: names[0],
-      open_channels: { ...n.open_channels, channels: rename(n.open_channels.channels) },
+      capacity: ALL_SATS,
+      figures: {
+        ...figures,
+        capacity: { median: ALL_SATS, smallest: ALL_SATS, largest: ALL_SATS },
+        fee_rates: { outgoing: rates, incoming: rates },
+      },
+      fees: {
+        outgoing: [{ bucket: 4_294_967_000, count: 99_999, capacity: ALL_SATS }],
+        incoming: [{ bucket: 0, count: 99_999, capacity: ALL_SATS }],
+      },
+      open_channels: { ...n.open_channels, total: 99_999, channels: open },
     },
-    [`nodes/${ACINQ}/channels?status=closed`]: { ...c, channels: rename(c.channels) },
+    [`nodes/${ACINQ}/channels?sort=htlc`]: { ...n.open_channels, sort: "htlc", channels: open },
+    [`nodes/${ACINQ}/channels?status=closed`]: { ...c, channels: shut },
+    [`nodes/${ACINQ}/history`]: {
+      ...history,
+      // A fresh copy of the recording each call: its points are this answer's own.
+      points: history.points.map((p) => Object.assign(p, { channels: 99_999, capacity: ALL_SATS })),
+    },
   };
 }
 
-test("at 320 px and 200% text, with hostile names, nothing runs sideways and no figure splits", async ({
-  page,
-  browserName,
-}) => {
-  test.skip(browserName !== "chromium", "only Chromium lets a test set the browser's text size");
-  const cdp = await page.context().newCDPSession(page);
-  await cdp.send("Page.setFontSizes", { fontSizes: { standard: 32, fixed: 26 } });
-  await page.setViewportSize({ width: 320, height: 800 });
-  await serve(page, { ...mainnet(), ...hostile() });
-  for (const view of ["channels", "closed", "fees", "history"]) {
-    await page.goto(`/regtest/lightning/node/${ACINQ}?view=${view}`);
-    await expect(page.getByRole("heading", { name: "At a glance" })).toBeVisible();
-    await expect(page.locator("main [aria-busy='true']")).toHaveCount(0);
-    if (view === "channels") await page.locator(".ln-node-card__toggle").first().click();
-    expect(await pageFaults(page), view).toStrictEqual([]);
-  }
-});
+/** Every view, and the list sorted by a figure its cards add (the limit). */
+const VIEWS = ["channels", "channels&sort=htlc", "closed", "fees", "history"];
+const SWEEP = process.env["E2E_SWEEP"] === "1";
+/** `E2E_SPARE=0.05`: every letter that many em wider, to prove the room the layout leaves. */
+const SPARE = Number(process.env["E2E_SPARE"] ?? "0");
+/** Phone widths; with `E2E_SWEEP=1`, every 40 px from 320 to 1440 as well. */
+const WIDTHS = SWEEP ? Array.from({ length: 29 }, (_, i) => 320 + i * 40) : [320, 390];
+
+// A figure never parts from its unit and nothing runs past its box at any text size, in the
+// reader's fonts (`E2E_PROSE`): a test a size, each a visitor of its own.
+for (const text of [16, 20, 24, 32]) {
+  test(`at ${text} px text, the longest figures and hostile names hold on every view`, async ({
+    page,
+    browserName,
+  }) => {
+    test.skip(browserName !== "chromium", "only Chromium lets a test set the browser's text size");
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("Page.setFontSizes", {
+      fontSizes: { standard: text, fixed: Math.round((text * 13) / 16) },
+    });
+    await serve(page, { ...mainnet(), ...extremes() });
+    const faults: string[] = [];
+    // Each view loaded once and resized through the widths, as a reader turns a phone or drags a
+    // window: a load a width would be one visitor asking more than the server serves one.
+    for (const view of VIEWS) {
+      await page.setViewportSize({ width: WIDTHS[0] ?? 320, height: 800 });
+      await page.goto(`/regtest/lightning/node/${ACINQ}?view=${view}`);
+      await expect(page.getByRole("heading", { name: "At a glance" })).toBeVisible();
+      await expect(page.locator("main [aria-busy='true']")).toHaveCount(0);
+      if (view === "history") await expect(page.getByRole("slider")).toBeVisible();
+      if (SPARE > 0)
+        // The page's own text: the shell round it is not this page's to hold.
+        await page.evaluate((em) => {
+          document.querySelector("main")?.style.setProperty("letter-spacing", `${em}em`);
+        }, SPARE);
+      const toggle = page.locator(".ln-node-card__toggle").first();
+      if (await toggle.isVisible()) await toggle.click();
+      for (const width of WIDTHS) {
+        await page.setViewportSize({ width, height: 800 });
+        await frames(page);
+        faults.push(...(await pageFaults(page)).map((f) => `${width} px, ${view}: ${f}`));
+      }
+    }
+    expect(faults).toStrictEqual([]);
+  });
+}
 
 test("a node with one channel, one with no policy, and closes of every kind", async ({ page }) => {
   const n = node();

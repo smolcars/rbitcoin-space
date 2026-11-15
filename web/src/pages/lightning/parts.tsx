@@ -25,6 +25,7 @@ import {
   KIND_TAG,
   msat,
   LONG_FIGURE,
+  LONGER_FIGURE,
   msatAsBtc,
   msatAsSats,
   NAME_IN_LIST,
@@ -465,11 +466,19 @@ export function MsatFig(props: { msat: number | bigint; sign?: string }) {
   );
 }
 
-/** A figure in two forms: `exact`, and where that is long, `short` for the narrowest room. */
+/**
+ * A figure in two forms: `exact`, and where that is long, `short` for the narrowest room. One
+ * past `LONGER_FIGURE` is marked too, for rooms that switch only those.
+ */
 export function Fig(props: { exact: string; short: string }) {
   const long = () => props.exact.length > LONG_FIGURE;
   return (
-    <span class={["num", { "ln-fig--long": long() }]}>
+    <span
+      class={[
+        "num",
+        { "ln-fig--long": long(), "ln-fig--longer": props.exact.length > LONGER_FIGURE },
+      ]}
+    >
       <span class="ln-fig__exact">{props.exact}</span>
       <Show when={long()}>
         <span class="ln-fig__short">{props.short}</span>

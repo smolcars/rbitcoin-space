@@ -80,7 +80,9 @@ export const pageFaults = (page: Page) =>
     // A figure is one piece with its unit ("1 sat", never "1" then "sat"); a time is a phrase.
     for (const el of document.querySelectorAll<HTMLElement>("main :is(.num, .ln-msat)")) {
       // A channel id wraps after an "x" by design (ChannelId).
-      if (el.querySelector(".num") || el.closest("time, .visually-hidden, .ln-id")) continue;
+      // A chart's reading of its time is a phrase too.
+      if (el.querySelector(".num") || el.closest("time, .chart__when, .visually-hidden, .ln-id"))
+        continue;
       if (!/\d/.test(el.textContent ?? "") || el.getClientRects().length === 0) continue;
       // Its visible text only: a figure's words for a screen reader are drawn nowhere.
       const tops = new Set<number>();
@@ -93,9 +95,16 @@ export const pageFaults = (page: Page) =>
       }
       if (tops.size > 1) out.push(`unit apart: ${el.textContent ?? ""}`);
       // Nor out of the box a reader sees round it: a fee's well, an end's box, the panel.
-      const box = el.closest(".ln-hop__way, .ln-end, section, header")?.getBoundingClientRect();
+      // A row that scrolls sideways on purpose (the state chips, a wide table) is its own box.
+      let scrolls = false;
+      for (let p = el.parentElement; p && !scrolls; p = p.parentElement) {
+        scrolls = getComputedStyle(p).overflowX !== "visible";
+      }
+      const box = el
+        .closest(".ln-hop__way, .ln-end, .ln-node-card, section, header")
+        ?.getBoundingClientRect();
       const r = el.getBoundingClientRect();
-      if (box && (r.left < box.left - 1 || r.right > box.right + 1)) {
+      if (!scrolls && box && (r.left < box.left - 1 || r.right > box.right + 1)) {
         const at = `${Math.round(r.left)}–${Math.round(r.right)} in ${Math.round(box.left)}–${Math.round(box.right)}`;
         out.push(`out of its box: ${el.textContent ?? ""} (${at})`);
       }

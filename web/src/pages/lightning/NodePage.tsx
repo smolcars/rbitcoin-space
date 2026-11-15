@@ -36,7 +36,7 @@ import {
   readView,
   weekAgo,
 } from "./lightning";
-import { ClosedList, OpenList } from "./NodeChannels";
+import { ClosedList, OpenList, SatsFig } from "./NodeChannels";
 import { FeeFigures, NodeFees, NodeHistory } from "./NodeCharts";
 import { ask, Gate, LightningNav, rememberList, Stat, Tag } from "./parts";
 
@@ -45,7 +45,7 @@ export default function NodePage() {
   const network = useNetwork();
   const key = () => (params.key ?? "").toLowerCase();
   return (
-    <div class="wrap ln">
+    <div class="wrap ln ln-node-page">
       <LightningNav here="detail" />
       <Show
         when={isPublicKey(key())}
@@ -245,7 +245,6 @@ function Change(props: { now: number; then: number | undefined; format: (n: numb
   );
 }
 
-const sats = (n: number) => `${groupDigits(n)} ${n === 1 ? "sat" : "sats"}`;
 const btc = (n: number) => `${formatBtcShort(n)} BTC`;
 
 function Glance(props: { node: NodeDetail; history: HistoryAnswer | undefined; now: number }) {
@@ -282,19 +281,19 @@ function Glance(props: { node: NodeDetail; history: HistoryAnswer | undefined; n
           label="Channel size, median"
           sub={
             <>
-              Largest <span class="num ln-node-whole">{sats(f().capacity.largest)}</span>, smallest{" "}
-              <span class="num ln-node-whole">{sats(f().capacity.smallest)}</span>
+              Largest <SatsFig sats={f().capacity.largest} />, smallest{" "}
+              <SatsFig sats={f().capacity.smallest} />
             </>
           }
         >
-          <span class="num">{sats(f().capacity.median)}</span>
+          <SatsFig sats={f().capacity.median} />
         </Stat>
         <Stat
           label="Channel age, median"
           sub={
             <Show when={f().funded.oldest !== null}>
-              Oldest <span class="num ln-node-whole">{age(f().funded.oldest)}</span>, youngest{" "}
-              <span class="num ln-node-whole">{age(f().funded.youngest)}</span>
+              Oldest <span class="num">{age(f().funded.oldest)}</span>, youngest{" "}
+              <span class="num">{age(f().funded.youngest)}</span>
             </Show>
           }
         >

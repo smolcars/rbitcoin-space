@@ -667,10 +667,10 @@
   /* A fee's well narrower than its longest exact figure needs at its size (19 characters at
      --text-xl, about 18em with padding), with a fifth to spare: its long figures in magnitude. */
   @container (max-width: 22em) {
-    .ln-fig--long > .ln-fig__exact {
+    .ln-hop__way .ln-fig--long > .ln-fig__exact {
       display: none;
     }
-    .ln-fig--long > .ln-fig__short {
+    .ln-hop__way .ln-fig--long > .ln-fig__short {
       display: inline;
     }
   }
@@ -1202,7 +1202,7 @@
   @media (max-width: 15em) {
     /* At 320 px with 200% text the page is 10em wide, and gutters and panel padding of 1rem a side
        took 4em of it: half of each, so a figure has room whatever the reader's fonts. */
-    .ln-channel {
+    :is(.ln-channel, .ln-node-page) {
       --gutter: var(--space-2);
       --panel-pad: var(--space-2);
     }
@@ -1246,9 +1246,28 @@
 }
 
 /* The node page, for its operator: the header, the views and their lists, the glance and what it
-   announces. A figure never breaks inside its digits (grouped with no-break spaces) and keeps its
-   unit, except at the largest text sizes, where the unit may take the next line. */
+   announces. A figure is one piece at every text size, as on the channel page: never broken inside
+   its digits (grouped with no-break spaces) nor parted from its unit; where its room is too narrow
+   it reads in magnitude (`Fig`). */
 @layer pages {
+  /* A chart's time is a phrase, free to wrap; a channel id wraps after an "x" (ChannelId). */
+  .ln-node-page .num:not(time, .ln-id, .chart__when) {
+    white-space: nowrap;
+  }
+  /* A card and the glance switch their longest figures (`ln-fig--longer`, past 16 characters) to
+     magnitude by their own width, so an ordinary long one ("500 000 000 sats") stays exact. */
+  .ln-node-card,
+  .ln-node-glance {
+    container-type: inline-size;
+  }
+  @container (max-width: 22em) {
+    :is(.ln-node-card, .ln-node-glance) .ln-fig--longer > .ln-fig__exact {
+      display: none;
+    }
+    :is(.ln-node-card, .ln-node-glance) .ln-fig--longer > .ln-fig__short {
+      display: inline;
+    }
+  }
   .ln-node-head {
     display: grid;
     gap: var(--space-1);
@@ -1454,9 +1473,6 @@
     font-size: var(--text-xs);
     color: var(--color-text-muted);
   }
-  .ln-node-whole {
-    white-space: nowrap;
-  }
 
   /* A phone's channels: cards that fit the width, three short lines, nothing to swipe. */
   .ln-node-cards {
@@ -1560,6 +1576,17 @@
     display: flex;
     flex-wrap: wrap;
     gap: 0 var(--space-5);
+  }
+  /* In a narrow card each term goes over its value, and a key breaks where it must. */
+  @container (max-width: 26em) {
+    .ln-node-card__list > div {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 0;
+    }
+  }
+  .ln-node-card__list .ln-key {
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
   .ln-node-card__list .hash {
     flex-wrap: wrap;
@@ -1688,10 +1715,17 @@
      own space, a unit may take the next line, and tables become labelled lists. */
   @media (max-width: 15em) {
     .ln-node-views :is(.ln-node-peer, .ln-key, .ln-tag, .ln-picker__item),
-    .ln-node-head .ln-key,
-    .ln-node-glance .num,
-    .ln-node-whole {
+    .ln-node-head .ln-key {
       white-space: normal;
+    }
+    /* A key breaks anywhere, as a name does; a figure never does. */
+    .ln-node-page .ln-key {
+      overflow-wrap: anywhere;
+    }
+    /* The glance's display figures at the size of the text round them, as the channel page's. */
+    .ln-node-glance .ln-stat__value,
+    .ln-node-glance .ln-stat__value .amount {
+      font-size: var(--text-sm);
     }
     .ln-node-peer {
       overflow-wrap: anywhere;
