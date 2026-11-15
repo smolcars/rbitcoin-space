@@ -1065,8 +1065,11 @@ export const inboundParts = (i: InboundFee): string[] =>
 export const MOVED_FITS = 9;
 
 /** How many of an end's records are changes: its first is where watching began. */
-export const changesIn = (records: readonly Fees[]): number =>
-  records.filter((r, i) => i > 0 && feesMoved(records[i - 1] ?? r, r)).length;
+export const changesIn = (records: readonly FeeRecord[]): number => movesIn(records).length;
+
+/** The times of an end's changes: the records whose fees moved from the one before. */
+export const movesIn = (records: readonly FeeRecord[]): number[] =>
+  records.filter((r, i) => i > 0 && feesMoved(records[i - 1] ?? r, r)).map((r) => r.time);
 
 /**
  * One end's fee rate as chart points: a step that holds each rate until the next record, drawn only

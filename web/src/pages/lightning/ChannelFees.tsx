@@ -14,6 +14,7 @@ import {
   type End,
   type FeeHistory,
   type FeeRecord,
+  changesIn,
   FEE_HISTORY,
   feeSteps,
   inboundOf,
@@ -127,11 +128,14 @@ function Way(props: {
   now: number;
 }) {
   const steps = () => feeSteps(props.records, props.history.watched, props.now);
+  // A record that charged the same as the one before (an inbound fee from none to zero) is no
+  // change: with no other, the way says since when its fee has held.
+  const moved = () => changesIn(props.records) > 0;
   const start = () => props.history.watched[0]?.from ?? props.records[0]?.time ?? props.now;
   const label = () => `${shortName(props.from)}'s fee rate towards ${shortName(props.to)}`;
   return (
     <Switch>
-      <Match when={props.records.length > 1 && steps().x.length > 0}>
+      <Match when={moved() && steps().x.length > 0}>
         <div class="ln-chart ln-feehist__plot">
           <Pending>
             <Chart
@@ -160,7 +164,7 @@ function Way(props: {
         </div>
       </Match>
       {/* Records with no stretch the server says it was recording: their figures, no line. */}
-      <Match when={props.records.length > 1}>
+      <Match when={moved()}>
         <Records records={props.records} label={label()} />
       </Match>
       <Match when={props.records[0]}>

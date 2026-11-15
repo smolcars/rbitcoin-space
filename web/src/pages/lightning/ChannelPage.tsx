@@ -28,6 +28,7 @@ import { type Network, paths } from "../../lib/network";
 import { useNetwork, usePageTitle } from "../../lib/page";
 import {
   changesIn,
+  movesIn,
   type ChannelDetail,
   channelTag,
   CLOSE_WORDS,
@@ -630,11 +631,11 @@ function Life(props: { channel: ChannelDetail; fees: ApiResource<FeeHistory> }) 
   const held = () => {
     const h = props.fees.latest;
     if (!h) return undefined;
-    const ends = [h.node_one.records, h.node_two.records].filter((r) => r.length > 1);
+    // The latest change, by the same test as the count: a record that charged the same is none.
     return {
       one: changesIn(h.node_one.records),
       two: changesIn(h.node_two.records),
-      latest: Math.max(0, ...ends.map((r) => r.at(-1)?.time ?? 0)),
+      latest: Math.max(0, ...movesIn(h.node_one.records), ...movesIn(h.node_two.records)),
     };
   };
   const steps = () => lifeSteps(c(), held());

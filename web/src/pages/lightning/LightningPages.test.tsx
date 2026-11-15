@@ -753,7 +753,14 @@ describe("a channel", () => {
       id: c.id,
       scid: c.scid,
       node_one: { from: T0, records: [rec(T0, 1), rec(T0 + 600, 5), rec(T0 + 4000, 9)] },
-      node_two: { from: T0, records: [rec(T0, 2499)] },
+      // Its second record charged the same (an inbound fee from none to zero): no change.
+      node_two: {
+        from: T0,
+        records: [
+          rec(T0, 2499),
+          { ...rec(T0 + 4500, 2499), inbound_fee: { base_fee_msat: 0, fee_rate: 0 } },
+        ],
+      },
       watched: [
         { from: T0, to: T0 + 1200 },
         { from: T0 + 3600, to: T0 + 4800 },
@@ -771,6 +778,9 @@ describe("a channel", () => {
     );
     expect(links(el)).toContain("#fee-history");
     expect(text(el)).toContain("bfx-lnd0 2, ACINQ 0; the latest");
+    // The latest is the last record whose fee moved, not one that charged the same.
+    const latest = el.querySelector(".ln-step:nth-child(2) .ln-step__body time");
+    expect(latest?.getAttribute("datetime")).toBe(new Date((T0 + 4000) * 1000).toISOString());
     // The hop's working-out says an inbound fee is left out.
     expect(text(section(el, "Fee for this hop") as HTMLElement)).toContain(
       "An inbound fee is not included",
