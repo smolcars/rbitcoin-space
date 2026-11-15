@@ -40,7 +40,7 @@ One per mempool transaction, keyed by txid:
 | size | 4 | the raw transaction | the projected blocks' byte size (`/api/v1/fees/mempool-blocks`) |
 | accept time | 4 | `getmempoolentry` `time` | "first seen"; it is the node's, so it survives our restarts |
 | signals replaceability | 1, in padding | the raw transaction: an input's sequence below `0xfffffffe` (BIP 125) | the replacement trees' `rbf` ([`API.md`](API.md#transactions)). rbitcoin replaces regardless |
-| flags | 8 | the raw transaction ([`API.md`](API.md#transaction-flags)) | the projected blocks' records, so both sockets can tell transactions apart by kind |
+| flags | 8 | the raw transaction, and the replacement bit when the tracker sees it replace another ([`API.md`](API.md#transaction-flags)) | the projected blocks' records, so both sockets can tell transactions apart by kind |
 | output count | 4 | the raw transaction | finding children of a removed transaction |
 | input fingerprints | 16 + 8 per input | the raw transaction | finding what replaced it |
 
@@ -122,6 +122,8 @@ Each removal gets one reason, decided in this order:
 2. **Replaced by X** if X spends one of its inputs, where X is a transaction in one of those blocks or one that entered the mempool in the same cycle. Exact: two transactions spending the same outpoint conflict, and the node cannot hold both, so the replacement enters in the cycle where the original leaves.
 3. **Replaced by X** if it spends an output of a transaction replaced by X in the same cycle: a descendant leaves with its replaced ancestor. Repeated until no more are found.
 4. **Evicted** otherwise.
+
+A replacement that entered in the same cycle gets the replacement bit in its flags, in the delta that adds it. A restart forgets it: the tracker's first listing has no removals to classify.
 
 The window of six blocks is there because a listing and the tip read after it are not atomic: a transaction confirmed just after a listing is removed one cycle later, and its block must still be at hand. A reorg needs nothing special: the window is walked back from the new tip, so it only ever holds the active chain, and transactions from disconnected blocks come back as additions.
 
@@ -274,11 +276,11 @@ One record per transaction, 57 bytes on the wire:
 | rate | 4 | effective fee rate in sat per 1,000 vB: the rate of its chunk, the node's own number |
 | vsize | 4 | sigop-adjusted virtual size |
 | fee | 8 | its own base fee in satoshis |
-| flags | 8 | the tracker's flags for it, copied so a change to them is a change to the record |
+| flags | 8 | the tracker's flags for it, and paid for by a child or pays for a parent: its own fee over vsize against its chunk's members' summed, when the chunk holds two or more and they differ by more than 10% ([`API.md`](API.md#transaction-flags)). A change to them is a change to the record |
 
 Each block also has totals: transaction count, raw weight, vsize, fees, the lowest, median (at the middle vbyte) and highest effective rate, and the vsize in each of the 12 fee bands of `docs/DESIGN.md` (edges at 0.12, 0.15, 0.2, 0.3, 0.5, 1, 1.5, 2, 3, 5 and 10 sat/vB). A rate is banded as it prints, rounded to two decimals, so 0.1196 sat/vB takes band 2 (0.12–0.15) and 0.1996 band 4 (0.2–0.3). How the store keeps them is in [`STORE.md`](STORE.md#fee-bands).
 
-The stream works like the tracker's: `subscribe` returns the current projection and a subscription whose first delta is the next one, deltas are numbered without gaps, and a subscriber more than 64 deltas behind gets `Lagged` and subscribes again. A delta carries the records that entered, moved to another block or changed rate (`set`), the txids that left the mempool (`removed`), both sorted by txid, and every block's new totals. Applying `removed`, then `set`, to the previous projection's records gives the next one's; a test checks this against a running tracker. Order inside a block is not in the delta: it is by rate, and a client sorts by it. Ties keep no meaningful order (see below).
+The stream works like the tracker's: `subscribe` returns the current projection and a subscription whose first delta is the next one, deltas are numbered without gaps, and a subscriber more than 64 deltas behind gets `Lagged` and subscribes again. A delta carries the records that entered, moved to another block or changed rate or flags (`set`), the txids that left the mempool (`removed`), both sorted by txid, and every block's new totals. Applying `removed`, then `set`, to the previous projection's records gives the next one's; a test checks this against a running tracker. Order inside a block is not in the delta: it is by rate, and a client sorts by it. Ties keep no meaningful order (see below).
 
 A new block moves nearly every record in the projected blocks one block forward: 14,000 to 25,000 records (0.8 to 1.4 MB at 57 bytes), once per block. A WebSocket hub may prefer to send a fresh snapshot then.
 

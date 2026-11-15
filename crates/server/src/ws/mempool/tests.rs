@@ -770,11 +770,48 @@ async fn each_topic_gives_a_state_then_changes_that_reach_the_servers_state() {
     converge(&s, &mut client, &mut rx).await;
     let lifted = client.blocks[&0].1[&txid_bytes(&parent)];
     assert_eq!(lifted.0, 20_100 * 1000 / 1200);
+    // And each is flagged by how it pays, on both sockets.
+    use engine::flags::{PAID_BY_CHILD, PAYS_FOR_PARENT, REPLACEMENT};
+    let context = PAID_BY_CHILD | PAYS_FOR_PARENT | REPLACEMENT;
+    let bits = |client: &Client, t: &Txid| client.blocks[&0].1[&txid_bytes(t)].3 & context;
+    let row_bits = |t: &Txid| {
+        let p = s.projector.current();
+        let rows = crate::ws::v1::whole(&s.tracker, 0, 1, &p.blocks[0]);
+        let rows = rows["projected-block-transactions"]["blockTransactions"].clone();
+        let row = rows
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r[0] == json!(t))
+            .cloned();
+        row.unwrap()[5].as_u64().unwrap() & context
+    };
+    assert_eq!(
+        (bits(&client, &parent), bits(&client, &child)),
+        (PAID_BY_CHILD, PAYS_FOR_PARENT)
+    );
+    assert_eq!(
+        (row_bits(&parent), row_bits(&child)),
+        (PAID_BY_CHILD, PAYS_FOR_PARENT)
+    );
+    assert_eq!(bits(&client, &others[1]), 0);
 
-    // A replacement, then a block that empties the first projected block.
+    // A replacement: a new transaction spending what `others[0]` spent. Then a block that
+    // empties the first projected block.
+    let mut replacement = mock
+        .node()
+        .txs
+        .iter()
+        .find(|t| t.tx.compute_txid() == others[0])
+        .unwrap()
+        .tx
+        .clone();
+    replacement.output[0].value = Amount::from_sat(1);
     mock.remove(others[0]);
-    mock.add(5_000, 1000);
+    let replacement = mock.add_tx(replacement, 5_000, 1000);
     converge(&s, &mut client, &mut rx).await;
+    assert_eq!(bits(&client, &replacement), REPLACEMENT);
+    assert_eq!(row_bits(&replacement), REPLACEMENT);
     let n = mock.node().txs.len();
     mock.mine(n);
     converge(&s, &mut client, &mut rx).await;

@@ -92,6 +92,11 @@ impl serde::Serialize for Bands {
     }
 }
 
+/// How far, in percent, a chunk's rate must be above a member's own for paid for by a child, or
+/// below it for pays for a parent. Mainnet chains of 0.12 sat/vB lifted by 2% by one member would
+/// otherwise flag 82 to 90% of a block (`docs/API.md`).
+const CPFP_MARGIN_PERCENT: u128 = 10;
+
 /// The node's chunk rate: sat per 1,000 vB, rounded down, on sigop-adjusted vbytes.
 fn chunk_rate(fee: u64, adjusted_weight: u64) -> u64 {
     match adjusted_weight.div_ceil(4) {
@@ -111,7 +116,8 @@ pub struct Placed {
     pub vsize: u32,
     /// Its own base fee, in satoshis.
     pub fee: u64,
-    /// Its feature bits ([`crate::flags`]), as the tracker read them from its bytes.
+    /// Its feature bits ([`crate::flags`]): the tracker's, and paid for by a child or pays for
+    /// a parent from its chunk in this projection (more than [`CPFP_MARGIN_PERCENT`] apart).
     pub flags: u64,
 }
 
@@ -163,7 +169,8 @@ pub struct Delta {
     pub mempool_seq: u64,
     pub tip: Option<ChainTip>,
     pub stale: bool,
-    /// Transactions that entered, moved to another block or changed rate. Sorted by txid.
+    /// Transactions that entered, moved to another block or changed rate or flags. Sorted by
+    /// txid.
     pub set: Vec<(Txid, Placed)>,
     /// Transactions that left the mempool. Sorted by txid.
     pub removed: Vec<Txid>,
@@ -350,6 +357,12 @@ impl Model {
         );
     }
 
+    /// Replaces a held transaction's tracker flags; the next pack sends it as changed. False when
+    /// it is not held.
+    pub fn set_flags(&mut self, txid: &Txid, flags: u64) -> bool {
+        self.txs.get_mut(txid).map(|tx| tx.flags = flags).is_some()
+    }
+
     /// Removes a transaction. Returns the members of its cluster that remain, whose chunks the
     /// node has to tell us again.
     pub fn remove(&mut self, txid: &Txid) -> Vec<Txid> {
@@ -526,16 +539,32 @@ impl Model {
                     continue;
                 };
                 let rate = u32::try_from(c.key.rate.0).unwrap_or(u32::MAX);
+                // The chunk's own members, base fees on vsize, so equal members compare equal.
+                let (fees, vsizes) = c
+                    .txs
+                    .iter()
+                    .filter_map(|t| self.txs.get(t))
+                    .fold((0u128, 0u128), |(f, v), tx| {
+                        (f + u128::from(tx.fee), v + u128::from(tx.vsize))
+                    });
                 for t in &c.txs {
                     let Some(tx) = self.txs.get_mut(t) else {
                         continue;
+                    };
+                    // Its own rate and the chunk's, on one denominator: fee × the other's vsize.
+                    let (own, all) = (u128::from(tx.fee) * vsizes, fees * u128::from(tx.vsize));
+                    let (low, high) = (100, 100 + CPFP_MARGIN_PERCENT);
+                    let cpfp = match c.txs.len() > 1 {
+                        true if all * low > own * high => crate::flags::PAID_BY_CHILD,
+                        true if own * low > all * high => crate::flags::PAYS_FOR_PARENT,
+                        _ => 0,
                     };
                     let placed = Placed {
                         block,
                         rate,
                         vsize: tx.vsize,
                         fee: tx.fee,
-                        flags: tx.flags,
+                        flags: tx.flags | cpfp,
                     };
                     if tx.pos.map(|p| p.placed) != Some(placed) {
                         changed.push((*t, placed));

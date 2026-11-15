@@ -731,6 +731,20 @@ async fn follows_sends_replacements_and_blocks_with_reasons() {
     let d = sub.recv().await.unwrap();
     assert_eq!(d.seq, mirror.0 + 1);
     assert_eq!(d.removed, vec![(b.compute_txid(), replaced(&b2))]);
+    // The replacement is marked as one; the unrelated child is not.
+    let flag = |t: &Transaction| {
+        let (_, i) = d
+            .added
+            .iter()
+            .find(|(id, _)| *id == t.compute_txid())
+            .unwrap();
+        i.flags & crate::flags::REPLACEMENT
+    };
+    assert_eq!((flag(&b2), flag(&child)), (crate::flags::REPLACEMENT, 0));
+    assert_eq!(
+        tracker.read(|m| m.get(&b2.compute_txid()).map(|i| i.flags)),
+        Some(crate::flags::of(&b2) | crate::flags::REPLACEMENT)
+    );
     // The replaced record comes along, as it was held.
     assert_eq!(
         d.replaced,

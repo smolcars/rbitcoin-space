@@ -25,7 +25,8 @@ pub struct TxInfo {
     /// Signals replaceability itself (BIP 125: an input's sequence below `0xfffffffe`). rbitcoin
     /// replaces regardless; kept for the `/api/v1` replacement trees' `rbf`. Fits in padding.
     pub rbf: bool,
-    /// Its feature bits from its own bytes ([`crate::flags::of`]), in the reference's layout.
+    /// Its feature bits in the reference's layout: from its own bytes ([`crate::flags::of`]),
+    /// and [`crate::flags::REPLACEMENT`] when the tracker saw it replace another transaction.
     pub flags: u64,
     /// Output count, to find children of a removed transaction.
     pub(crate) outputs: u32,

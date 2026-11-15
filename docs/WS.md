@@ -156,7 +156,7 @@ Integers are little-endian. A txid is 32 bytes in the order it is written in hex
 | 32 | 4 | effective fee rate, sat per 1,000 vB: the rate of the chunk it is mined in |
 | 36 | 4 | sigop-adjusted vsize |
 | 40 | 8 | its own fee, satoshis |
-| 48 | 8 | its flags: the bits of [`API.md`](API.md#transaction-flags) that its own bytes show |
+| 48 | 8 | its flags: the bits of [`API.md`](API.md#transaction-flags) that its own bytes show, replacement, and paid for by a child or pays for a parent: its chunk in this projection more than 10% from its own rate |
 
 **Kind 1, snapshot**: the block's whole state.
 
@@ -212,6 +212,8 @@ The server never skips a frame for a subscriber: one that cannot keep up is clos
 | `projected-txs:1` | 582 after a 378 KB snapshot (7,880 transactions; 441 KB at 56 bytes, computed) | a delta per 2.1 s |
 
 These runs sent 48-byte records, before the flags; a delta's records grow by a sixth with them.
+
+The context bits (paid for by a child, pays for a parent) flip as chunks change, and each flip is a set record. Measured on mainnet, 2026-11-15, 75,000 transactions, two servers side by side for the same 240 s with no block: `projected-txs:0` sent 4,727 B/s and 110 records a delta with them, 4,693 B/s and 112 without. No measurable cost, and that was before the 10% margin, which flags far fewer.
 
 A second run of 1,760 s, which included block 975,526 (3,663 transactions confirmed), gave the same rates (1.4 KB/s for the home page; 278 and 602 B/s for blocks 0 and 1). At the block each projected block's change was larger than its new state, so both topics sent a snapshot instead: 87 KB for block 0 (1,822 transactions) and 270 KB for block 1 (102 KB and 315 KB at 56 bytes, computed). A client watching a block pays that once per block. Throughout, our counts matched the node's `getmempoolinfo` to within 10 transactions (the ones that arrived between our cycle and the check), and our block 0 matched the node's template above 99.7% by weight, tie-aware, at every one of 46 checks.
 
@@ -395,7 +397,7 @@ Every message is one JSON object in its own frame, with the key named here.
 | `{"txConfirmed":"<txid>"}` | It was mined | Also when a reorg's new block confirms a transaction that had been replaced |
 | `{"address-transactions":[…]}` | `track-address`: transactions paying or spending it entered the mempool | The node's Esplora JSON for each, as `GET /api/tx/:txid` serves it |
 | `{"block-transactions":[…]}` | `track-address`: transactions of it confirmed | As above |
-| `{"projected-block-transactions":{"index":0,"sequence":1,"blockTransactions":[…]}}` | `track-mempool-block`, and when a block found changes most of it | The block's transactions in mining order, each `[txid, fee, vsize, value, rate, flags, first seen]`: sats, the sigop-adjusted vsize, total output value in sats, effective rate in sat/vB, the bits of [`API.md`](API.md#transaction-flags) that its own bytes show (a number), Unix seconds |
+| `{"projected-block-transactions":{"index":0,"sequence":1,"blockTransactions":[…]}}` | `track-mempool-block`, and when a block found changes most of it | The block's transactions in mining order, each `[txid, fee, vsize, value, rate, flags, first seen]`: sats, the sigop-adjusted vsize, total output value in sats, effective rate in sat/vB, its flags as in the binary records ([`API.md`](API.md#transaction-flags), a number), Unix seconds |
 | `{"projected-block-transactions":{"index":0,"sequence":2,"delta":{"added":[…],"removed":[…],"changed":[…]}}}` | Its changes, at most once per `WS_MEMPOOL_INTERVAL_MS` (2 s), at once on a new tip | `added` as above; `removed` txids; `changed` `[txid, rate, flags, 0]` for a transaction whose rate or flags moved |
 | `{"rbfLatest":[…]}` | `track-rbf`, then when the record of replacements changes, checked every `WS_MEMPOOL_INTERVAL_MS` (2 s) | The bytes `GET /api/v1/replacements` (or `/fullrbf/replacements`) answers at that moment: the 25 newest trees |
 | `{"rbfLatestSummary":[{"txid","mined","fullRbf","oldFee","oldVsize","newFee","newVsize"},…]}` | `track-rbf-summary`, then as `rbfLatest` | The 6 newest trees of `/replacements`, each its newest transaction (`txid`, `new…`, `mined` `false` when not mined) and the sums of fee and vsize of what it directly replaced (`old…`), as the reference adds them |
@@ -492,7 +494,7 @@ Per socket, the parts wanted (four at most), the block drawn and the two replace
 | Transactions in address messages | The node's Esplora JSON, without the reference's own fields (`order`, `vsize`, `adjustedVsize`, `feePerVsize`, `adjustedFeePerVsize`, `effectiveFeePerVsize`, `firstSeen`, `cpfpDirty`, `clusterId`, `chunkIndex`, `cpfpChecked`, …) | Passed through from the node, never rebuilt |
 | `track-addresses` | 2 addresses per socket by default | Each address is a node subscription; raise `WS_MAX_TRACKED_ADDRESSES` to allow more |
 | `multi-address-transactions` | One address per message; `removed` always empty | Each address's message is encoded once for every socket following it |
-| `projected-block-transactions` | Flags only from the transaction's own bytes ([`API.md`](API.md#transaction-flags)): no bit that needs its parents, children or replacements; vsize the sigop-adjusted integer; changes at most every 2 s and none when nothing changed; block 7 not served ([above](#projected-block-drawings)) | Those bits are not computed yet. The reference sends a change about once a second, empty ones too |
+| `projected-block-transactions` | Paid for by a child and pays for a parent by our own rule, from the chunk; replacement only for what this server saw replace ([`API.md`](API.md#transaction-flags)); vsize the sigop-adjusted integer; changes at most every 2 s and none when nothing changed; block 7 not served ([above](#projected-block-drawings)) | The reference's CPFP bits follow its own clusters and it flags fewer of a block. The reference sends a change about once a second, empty ones too |
 | Not served | `refresh-blocks`, `conversions`, `track-txs`, `track-mempool`, `track-mempool-txids`, `utxoSpent`, `address-removed-transactions`, `rbfTransaction`, `rbfInfo` | Status and reason per message in [`compat/websocket.md`](compat/websocket.md) |
 
 ### Cost of a compatible socket

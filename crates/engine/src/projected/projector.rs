@@ -538,8 +538,10 @@ fn apply(s: &mut State, input: Input) -> (Vec<Txid>, Option<ChainTip>, u64, usiz
             for t in &gone {
                 s.model.remove(t);
             }
+            // A held transaction's flags may have changed while we were behind (the tracker's
+            // replacement mark): take the tracker's.
             for (t, fee, vsize, weight, flags) in txs {
-                if !s.model.contains(&t) {
+                if !s.model.set_flags(&t, flags) {
                     s.model.add(t, fee, vsize, weight, flags);
                 }
             }

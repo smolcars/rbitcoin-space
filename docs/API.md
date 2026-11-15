@@ -851,12 +851,21 @@ The two transactions that differ:
 - `d2f4b28e…` has two 1-of-3 bare multisig outputs carrying data in their keys. Every key is a point on the curve, but the reference marks it fake (bit 25) by a rule we did not find.
 - `f8ac0f8d…` spends a Taproot key path (one 64-byte signature) and a P2WSH script with an empty signature (a Lightning anchor after its delay). The reference sets neither P2WSH nor `SIGHASH_DEFAULT` for it, though it does set Taproot.
 
+**Set from the mempool's context,** not by `flags::of`: `KNOWN` leaves them out, so the fixture test and `flags_compare` mask them in the reference's answer.
+
+| Bit | Meaning | Our rule |
+|---|---|---|
+| 16 | Paid for by a child | In a projected block: mined in a chunk of two or more transactions whose rate is more than 10% above its own. The chunk's rate is its members' base fees over their vsizes, summed; compared in integers, `chunk_fee × own_vsize × 10 > own_fee × chunk_vsize × 11`. A zero-fee member of a paying chunk has it. Set by the projector, so it changes as the chunk does |
+| 17 | Pays for a parent | The same, its own rate more than 10% above the chunk's. Never set with 16 |
+| 18 | Replacement | The tracker saw it replace a transaction in the mempool. A restart of our server forgets it for transactions already in the mempool: the stored replacement record is not read back into the flags |
+
+Our 16 and 17 are our own rule. The margin is there because, compared exactly, 16 marked 82 to 89% of block 0 and 90% of blocks 0 to 6 on mainnet (2026-11-15, 75,000 transactions, measured): chains of about 20 transactions at 0.12 sat/vB that one member at 0.2 lifts by 2%. With it, measured the same day: 16 on 2.6 to 3.7% of block 0 and 1.6% of blocks 0 to 6, 17 on 3.8 to 4.3% and 4.1%. The reference follows its own effective-rate clusters: about a fifth of a mined block, most flagged transactions carrying both bits.
+
 **Left unset:**
 
 | Bit | Why |
 |---|---|
 | 5 to 7, 15 | Never seen in the sample |
-| 16, 17 (CPFP), 18 (replacement) | They need the mempool's context, not the transaction's bytes; a later task |
 | 27 | Seen 18 times, on transactions carrying data in pairs of 330-sat P2WSH outputs; no rule found that derives it |
 | 32 (coinjoin) | Seen 16 times; no simple rule matched ("5+ inputs and 5+ equal outputs" found 14 with 25 false positives), and a noisy bit is worse than none |
 

@@ -25,6 +25,14 @@ pub const P2SH: u64 = 1 << 11;
 pub const P2WPKH: u64 = 1 << 12;
 pub const P2WSH: u64 = 1 << 13;
 pub const P2TR: u64 = 1 << 14;
+/// Mined in a chunk of several transactions whose rate is above its own: a child pays for it.
+/// Set by the projector, for its projected blocks only.
+pub const PAID_BY_CHILD: u64 = 1 << 16;
+/// Mined in a chunk of several transactions whose rate is below its own: it pays for a parent.
+/// Set by the projector, for its projected blocks only.
+pub const PAYS_FOR_PARENT: u64 = 1 << 17;
+/// It replaced another transaction in the mempool. Set by the tracker when it sees the replacement.
+pub const REPLACEMENT: u64 = 1 << 18;
 pub const OP_RETURN: u64 = 1 << 24;
 /// A bare multisig output holds a key that is not a point on the curve.
 pub const FAKE_PUBKEY: u64 = 1 << 25;
@@ -41,7 +49,8 @@ pub const SIGHASH_SINGLE: u64 = 1 << 42;
 pub const SIGHASH_DEFAULT: u64 = 1 << 43;
 pub const SIGHASH_ACP: u64 = 1 << 44;
 
-/// Every bit [`of`] can set; the reference's other bits are left unset.
+/// Every bit [`of`] can set. Bits 16 to 18 need the mempool's context and are set elsewhere;
+/// the reference's other bits are left unset.
 pub const KNOWN: u64 = RBF
     | NO_RBF
     | V1

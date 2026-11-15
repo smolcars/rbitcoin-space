@@ -123,6 +123,118 @@ fn a_child_lifts_its_parent() {
 }
 
 #[test]
+fn chunk_members_below_and_above_their_chunk_are_flagged() {
+    use crate::flags::{PAID_BY_CHILD, PAYS_FOR_PARENT, V2};
+    let (parent, child, lone, a, b) = (id(1), id(2), id(3), id(4), id(5));
+    let mut m = Model::default();
+    m.add(parent, 100, 1000, 4000, V2); // 0.1 sat/vB
+    m.add(child, 10_000, 200, 800, V2); // 50 sat/vB
+    m.add(lone, 2_000, 1000, 4000, V2);
+    m.add(a, 300, 141, 561, 0); // equal rates, a weight that does not divide by four
+    m.add(b, 300, 141, 561, 0);
+    let flags = |m: &mut Model| -> HashMap<Txid, u64> {
+        let blocks = order(m, ONE_BLOCK);
+        blocks
+            .iter()
+            .flatten()
+            .map(|(t, p)| (*t, p.flags))
+            .collect()
+    };
+    // Alone in their chunks, nobody pays for anybody.
+    assert!(
+        flags(&mut m)
+            .values()
+            .all(|f| f & (PAID_BY_CHILD | PAYS_FOR_PARENT) == 0)
+    );
+    assert!(m.apply_cluster(&cluster(&[(10_100, 4800, &[parent, child])])));
+    assert!(m.apply_cluster(&cluster(&[(600, 1122, &[a, b])])));
+    let f = flags(&mut m);
+    // The context bits join the bits from the bytes.
+    assert_eq!(f[&parent], V2 | PAID_BY_CHILD);
+    assert_eq!(f[&child], V2 | PAYS_FOR_PARENT);
+    assert_eq!(f[&lone], V2);
+    // Equal members of one chunk get neither.
+    assert_eq!((f[&a], f[&b]), (0, 0));
+    // Each flip is a changed record; a chunk that splits clears them.
+    assert!(m.apply_cluster(&cluster(&[(10_000, 800, &[child]), (100, 4000, &[parent])])));
+    let (_, changed) = m.pack(ONE_BLOCK);
+    let changed: HashMap<Txid, u64> = changed.into_iter().map(|(t, p)| (t, p.flags)).collect();
+    assert_eq!(changed, HashMap::from([(parent, V2), (child, V2)]));
+}
+
+/// The bits of each transaction after packing.
+fn cpfp_bits(m: &mut Model) -> HashMap<Txid, u64> {
+    use crate::flags::{PAID_BY_CHILD, PAYS_FOR_PARENT};
+    let blocks = order(m, ONE_BLOCK);
+    blocks
+        .iter()
+        .flatten()
+        .map(|(t, p)| (*t, p.flags & (PAID_BY_CHILD | PAYS_FOR_PARENT)))
+        .collect()
+}
+
+#[test]
+fn only_a_chunk_more_than_ten_percent_away_flags() {
+    use crate::flags::{PAID_BY_CHILD, PAYS_FOR_PARENT};
+    // A parent at 1 sat/vB and a child of the same size: the chunk is exactly 10% above the
+    // parent at a child fee of 1,200; one sat less is under, one more is over.
+    for (child_fee, parent_bits) in [(1_199, 0), (1_200, 0), (1_201, PAID_BY_CHILD)] {
+        let mut m = Model::default();
+        m.add(id(1), 1_000, 1_000, 4_000, 0);
+        m.add(id(2), child_fee, 1_000, 4_000, 0);
+        let fee = 1_000 + i64::try_from(child_fee).unwrap();
+        assert!(m.apply_cluster(&cluster(&[(fee, 8_000, &[id(1), id(2)])])));
+        // The child, at most 9% above the chunk, pays for its parent by too little to say so.
+        assert_eq!(
+            cpfp_bits(&mut m),
+            HashMap::from([(id(1), parent_bits), (id(2), 0)])
+        );
+    }
+    // A zero-fee parent of 1,000 vB: a child of 10,000 vB is exactly 10% above the chunk; one
+    // vbyte larger is under, one smaller is over. The parent pays nothing, so a child pays for it.
+    for (child_vsize, child_bits) in [(10_001, 0), (10_000, 0), (9_999, PAYS_FOR_PARENT)] {
+        let mut m = Model::default();
+        m.add(id(1), 0, 1_000, 4_000, 0);
+        m.add(id(2), 20_000, child_vsize, child_vsize * 4, 0);
+        let weight = u64::from(1_000 + child_vsize) * 4;
+        assert!(m.apply_cluster(&cluster(&[(20_000, weight, &[id(1), id(2)])])));
+        assert_eq!(
+            cpfp_bits(&mut m),
+            HashMap::from([(id(1), PAID_BY_CHILD), (id(2), child_bits)])
+        );
+    }
+}
+
+#[test]
+fn a_long_chain_lifted_by_one_member_flags_only_that_member() {
+    use crate::flags::PAYS_FOR_PARENT;
+    // As on mainnet: twenty members at 1 sat/vB and one at nearly double lift the chunk by 5%.
+    let mut m = Model::default();
+    let members: Vec<Txid> = (1..=21).map(id).collect();
+    for (i, t) in members.iter().enumerate() {
+        m.add(*t, if i == 20 { 199 } else { 100 }, 100, 400, 0);
+    }
+    assert!(m.apply_cluster(&cluster(&[(2_199, 8_400, &members)])));
+    let bits = cpfp_bits(&mut m);
+    assert_eq!(bits[&id(21)], PAYS_FOR_PARENT);
+    assert!(members[..20].iter().all(|t| bits[t] == 0));
+}
+
+#[test]
+fn new_tracker_flags_for_a_held_transaction_are_a_change() {
+    use crate::flags::{REPLACEMENT, V2};
+    let mut m = Model::default();
+    m.add(id(1), 100, 1000, 4000, V2 | REPLACEMENT);
+    m.pack(ONE_BLOCK);
+    // As after a resync whose snapshot holds it again without the replacement mark.
+    assert!(m.set_flags(&id(1), V2));
+    assert!(!m.set_flags(&id(2), V2));
+    let (_, changed) = m.pack(ONE_BLOCK);
+    assert_eq!(changed.len(), 1);
+    assert_eq!((changed[0].0, changed[0].1.flags), (id(1), V2));
+}
+
+#[test]
 fn a_cluster_with_unknown_members_asks_again() {
     let mut m = Model::default();
     m.add(id(1), 100, 1000, 4000, 0);

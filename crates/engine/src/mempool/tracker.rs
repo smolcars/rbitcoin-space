@@ -656,7 +656,15 @@ impl<S: Source> Poller<S> {
         for (_, r) in &removed {
             match r {
                 Removal::Confirmed { .. } => stats.confirmed += 1,
-                Removal::Replaced { .. } => stats.replaced += 1,
+                Removal::Replaced { by } => {
+                    stats.replaced += 1;
+                    // `added` is in txid order; a replacement mined in a block is not in it.
+                    if let Ok(i) = added.binary_search_by_key(by, |(t, _)| *t)
+                        && let Some((_, info)) = added.get_mut(i)
+                    {
+                        info.flags |= crate::flags::REPLACEMENT;
+                    }
+                }
                 Removal::Evicted => stats.evicted += 1,
             }
         }
