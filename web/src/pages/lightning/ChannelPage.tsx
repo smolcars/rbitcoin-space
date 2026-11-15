@@ -405,7 +405,8 @@ function HopFee(props: { channel: ChannelDetail }) {
         <p class="ln-hop__error" id={`${id}-error`} role="status">
           {error()}
         </p>
-        <ul class="ln-hop__ways">
+        {/* Said again as the amount changes, both ways at once, while focus stays in the field. */}
+        <ul class="ln-hop__ways" aria-live="polite" aria-atomic="true">
           <For each={ways()}>
             {(w) => (
               <li class={`ln-hop__way ln-lane--${w.tone}`}>

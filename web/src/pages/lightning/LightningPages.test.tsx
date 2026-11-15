@@ -389,6 +389,8 @@ describe("a channel", () => {
       input.value = v;
       input.dispatchEvent(new Event("input", { bubbles: true }));
     };
+    // Each new result is said while focus stays in the field.
+    expect(hop.querySelector(".ln-hop__ways")?.getAttribute("aria-live")).toBe("polite");
     // A missing policy is not a disabled one.
     expect(text(hop)).toContain("ACINQ → bfx-lnd0No policy");
     expect(text(hop)).not.toContain("Disabled");

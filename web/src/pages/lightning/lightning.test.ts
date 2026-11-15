@@ -247,6 +247,11 @@ describe("msatAsSats", () => {
     // Past 2⁵³, as a bigint: every digit kept.
     expect(plain(msatAsSats(8_400_000_000_000_000_123n))).toBe("8 400 000 000 000 000.123 sats");
     expect(msatAsSats(Number.NaN)).toBe("–");
+    // A number past 2⁵³ reads as the digits the exact pop-up shows and copies.
+    const big = 1_000_000_000_000_000_100;
+    expect(plain(msatAsSats(big))).toBe("1 000 000 000 000 000.1 sats");
+    expect(plainMsat(big)).toBe("1000000000000000100");
+    expect(msatAsSats(1e22)).toMatch(/ sats$/);
   });
 
   it("never lets a figure break inside its digits", () => {

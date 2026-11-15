@@ -681,7 +681,10 @@ const group = (digits: string): string => digits.replaceAll(/\B(?=(\d{3})+(?!\d)
  */
 export function msatAsSats(n: number | bigint): string {
   if (typeof n === "number" && !Number.isFinite(n)) return MISSING;
-  const big = typeof n === "bigint" ? n : BigInt(Math.round(n));
+  // A number's decimal digits, as `msat` and `plainMsat` show and copy them, not its binary value
+  // past 2⁵³; from 10²¹ JavaScript writes an exponent, which BigInt cannot read.
+  const r = typeof n === "number" ? Math.round(n) : 0;
+  const big = typeof n === "bigint" ? n : BigInt(Math.abs(r) < 1e21 ? String(r) : r);
   const sign = big < 0n ? "−" : "";
   const m = big < 0n ? -big : big;
   if (m > 0n && m < 1000n) return `${sign}${group(String(m))} msat`;
