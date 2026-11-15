@@ -171,12 +171,24 @@ Add the server to the project that already runs rbitcoin, instead of running a s
 
 **You need:** the project's compose file; each node started with [the flags above](#the-node), Esplora on a unix socket in a directory on the host.
 
-1. Copy the `server` service from [`compose.yml`](../deploy/compose.yml) into the project's file, with its hardening and volume, and change what reaches the node:
+1. Add the server to the project's compose file: the service from [`compose.yml`](../deploy/compose.yml) with its hardening, a release image in place of its `build`, and what reaches the nodes:
 
    ```yaml
    services:
      server:
-       # ...the server service and its hardening from deploy/compose.yml, then:
+       image: ghcr.io/smolcars/rbitcoin-space:0.1.0
+       read_only: true
+       cap_drop: [ALL]
+       security_opt: [no-new-privileges:true]
+       restart: unless-stopped
+       logging:
+         driver: local
+       ulimits:
+         nofile: 65536
+       environment:
+         DATA_DIR: /data
+       ports:
+         - 127.0.0.1:8080:8080
        env_file: rbitcoin-space.env
        # The group id of each node's socket; nodes from one image share one.
        group_add: ["<socket gid>"]
@@ -446,9 +458,11 @@ mempool.space's own frontend serves the pages, and this server is its backend: a
 
 mempool.space's frontend is AGPL-licensed and its name and logo are trademarks: this project does not ship it, and whoever runs it follows its licence and trademark policy. Which of its pages work, and what they lack, is the table in [`COMPAT.md`](COMPAT.md#mempoolspaces-frontend-on-this-server).
 
-**You need:** the server running on `127.0.0.1:8080` ([where it runs](#choose-a-scenario)) with a store (`DATA_DIR`, which the compose file sets) and the mempool engine on (the default), from an image newer than 0.1.0: until the next release, a [`master` image](#upgrading) pinned by digest. Then Caddy and a domain as in [Caddy on the host](#caddy-on-the-host).
+**You need:** the server running on `127.0.0.1:8080` ([where it runs](#choose-a-scenario)) with a store (`DATA_DIR`, which the compose file sets) and the mempool engine on (the default); Caddy and a domain as in [Caddy on the host](#caddy-on-the-host).
 
-1. Run the frontend, published on its own loopback port:
+1. Move the server to an image newer than 0.1.0, which lacks what this frontend asks of the socket: until the next release, follow [images of `master`](#images-of-master).
+
+2. Run the frontend, published on its own loopback port:
 
    ```sh
    docker run -d --name mempool-frontend --restart unless-stopped --log-driver local \
@@ -463,7 +477,7 @@ mempool.space's frontend is AGPL-licensed and its name and logo are trademarks: 
    - `BACKEND_MAINNET_HTTP_HOST` must resolve, or the frontend's nginx refuses to start; its own proxying is never reached.
    - It cannot run with a read-only root filesystem: it writes its configuration at start.
 
-2. Write the site into `/etc/caddy/Caddyfile`:
+3. Write the site into `/etc/caddy/Caddyfile`:
 
    ```caddyfile
    explorer.example.com {
@@ -478,12 +492,12 @@ mempool.space's frontend is AGPL-licensed and its name and logo are trademarks: 
 
    The WebSocket is `/api/v1/ws` under the same paths, so it goes to this server too. Load it: `sudo systemctl reload caddy`.
 
-3. Tell the server the client's address: [client addresses](#client-addresses), with `X-Real-IP`.
+4. Tell the server the client's address: [client addresses](#client-addresses), with `X-Real-IP`.
 
-4. Check from another machine:
+5. Check from another machine:
 
    ```sh
-   curl -s https://explorer.example.com/ | grep -o '<title>[^<]*</title>'   # the frontend's page title
+   curl -s https://explorer.example.com/ | grep -o '<title>[^<]*</title>'   # <title>mempool - Bitcoin Explorer</title>
    curl -s https://explorer.example.com/api/blocks/tip/height; echo         # your node's height
    curl -s -o /dev/null --max-time 3 -w '%{http_code}\n' --http1.1 \
      -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' \
@@ -491,7 +505,7 @@ mempool.space's frontend is AGPL-licensed and its name and logo are trademarks: 
      https://explorer.example.com/api/v1/ws                                  # 101
    ```
 
-   Then open the site: the home page shows your node's blocks and projected blocks, and moves when a block arrives.
+   The height must equal `/readyz`'s `tip_height` on the server. The last command prints `101`, then waits until `--max-time` because the socket stays open. Then open the site: the home page shows your node's blocks and projected blocks, and moves when a block arrives.
 
 To try it on regtest first, add `/regtest/api/*` to the `@api` line, `-e REGTEST_ENABLED=true` to the frontend, and open `/regtest`.
 
@@ -653,7 +667,7 @@ docker compose logs --no-log-prefix server | jq -c 'select(.level != "info")'
 
 **A healthy minute** without visitors: one `mempool_summary` and one `fees_summary` per network, `block_backfill_progress` while a backfill writes, `tracking_summary` for a network that saw a replacement, `lightning_summary` with Lightning on, then `block_audited`, `mempool_block`, `difficulty_computed` and two to four `ws_fanout` when a block arrives, and one `http_request` per request (`LOG_REQUESTS=failures` keeps only errors). Refused requests are counted in one `requests_refused` a minute ([`LOGGING.md`](LOGGING.md#for-operators)). [Measured](#one-day-on-mainnet): 11 lines a minute, 6.1 MB a day, two `warn` lines in five and a half hours (`mempool_poll_failed` with `timeout`).
 
-Normal, not alarms: `electrum_unreachable`, `mempool_poll_failed` and `block_rows_failed` in the first seconds after a start; `fees_fallback_started` (`info`) with `warming_up`, meaning our fee recommendations are not served yet: for five minutes nothing, then the node's estimates, capped ([`MEMPOOL.md`](MEMPOOL.md#while-warming-up)); `chain_reorg` and `block_rows_reorged`, several a day on testnet4.
+Normal, not alarms: `electrum_unreachable`, `mempool_poll_failed` and `block_rows_failed` in the first seconds after a start; `fees_fallback_started` (`info`) with `warming_up`, meaning our fee recommendations are not served yet: nothing until the first whole minute of arrivals is watched, then the node's estimates, capped, until five minutes have passed ([`MEMPOOL.md`](MEMPOOL.md#while-warming-up)); `chain_reorg` and `block_rows_reorged`, several a day on testnet4.
 
 **Alert on:**
 
@@ -745,20 +759,27 @@ docker compose up -d
 
 What was observed between the backup and the rollback is lost. Without a backup, delete `mainnet.sqlite`: the old release starts empty and backfills. Without a migration, only the image changes.
 
-**Images of `master`.** Every merge to `master` that changes the image is published as `sha-<full commit>`, never moved, and as `master`, which moves forward only. They pass the same checks and carry the same attestation, but no release notes and no promise: a release is what to run, a `master` image is for trying a change first. Its `version` is the one in `Cargo.toml`. Pin it by digest, so a pull never changes it, and take the compose file and `.env.example` from a checkout of its commit (the `org.opencontainers.image.revision` label):
+#### Images of `master`
 
-```sh
-skopeo inspect --raw docker://ghcr.io/smolcars/rbitcoin-space:master | sha256sum   # the index digest
-echo "SERVER_IMAGE=ghcr.io/smolcars/rbitcoin-space@sha256:<digest>" >> .env
-```
+Every merge to `master` that changes the image is published as `sha-<full commit>`, never moved, and as `master`, which moves forward only. They pass the same checks and carry the same attestation, but no release notes and no promise: a release is what to run, a `master` image is for trying a change first. Its `version` is the one in `Cargo.toml`. Moving to one, between one and a release, or from one to the next is an upgrade like any other. From `deploy/` in the checkout:
 
-`docker buildx imagetools inspect ghcr.io/smolcars/rbitcoin-space:master` prints the same digest. Moving between a `master` image and a release, or from one `master` image to the next, is an upgrade like any other: back up, put the digest in `SERVER_IMAGE`, then:
+1. Back up ([the data directory](#the-data-directory)): migrations are one-way.
+2. Pull the newest `master` image, pin it by digest so a pull never changes it, and check out the compose file of its commit (`.env` and `rpc.cookie` are git-ignored and stay):
 
-```sh
-docker compose pull server
-docker compose up -d --no-deps server
-curl -s http://127.0.0.1:8080/healthz           # revision: the commit of the image you pinned
-```
+   ```sh
+   docker pull ghcr.io/smolcars/rbitcoin-space:master
+   image=$(docker image inspect -f '{{index .RepoDigests 0}}' ghcr.io/smolcars/rbitcoin-space:master)
+   rev=$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image")
+   git fetch --depth 1 origin "$rev" && git checkout "$rev"
+   sed -i.bak "s|^SERVER_IMAGE=.*|SERVER_IMAGE=$image|" .env && rm .env.bak
+   ```
+
+3. Replace the server alone, and check:
+
+   ```sh
+   docker compose up -d --no-deps server
+   curl -s http://127.0.0.1:8080/healthz; echo; echo "$rev"   # its "revision" is the commit printed below it
+   ```
 
 The deployment follows `master` this way.
 
