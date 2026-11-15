@@ -527,6 +527,41 @@ fn ids<'a>(nodes: impl Iterator<Item = &'a Node>) -> Vec<u8> {
     nodes.map(|n| n.id[1]).collect()
 }
 
+#[test]
+fn capacity_splits_by_address_once_per_channel() {
+    // 1 clearnet, 2 Tor only, 3 both, 4 no address, 5 no announcement, 6 Tor only.
+    let with = |n: u8, addresses: &[&str]| {
+        let mut g = gnode(n, "x");
+        if let Some(a) = g.announcement.as_mut() {
+            a.addresses = addresses.iter().map(|a| (*a).to_owned()).collect();
+        }
+        g
+    };
+    let onion = "of7husrflx7sforh3fw6yqlpwstee3wg5imvvmkp4bz6rbjxtg5nljad.onion:9735";
+    let nodes = vec![
+        with(1, &["1.2.3.4:9735"]),
+        with(2, &[onion]),
+        with(3, &["[2001:db8::1]:9735", onion]),
+        with(4, &[]),
+        GraphNode {
+            id: key(5),
+            announcement: None,
+        },
+        with(6, &[onion]),
+    ];
+    let channels = vec![
+        gchan(1, 1, 2, 1),       // clearnet and Tor: clearnet
+        gchan(2, 2, 3, 10),      // Tor and both: clearnet
+        gchan(3, 2, 6, 100),     // Tor and Tor: Tor
+        gchan(4, 1, 4, 1_000),   // an end with no address: unknown
+        gchan(5, 5, 6, 10_000),  // an end that announced nothing: unknown
+        gchan(6, 1, 7, 100_000), // an end not copied: unknown
+    ];
+    let i = Index::build(nodes, channels, &Past::default());
+    assert_eq!(i.by_address(), [11, 100, 111_000]);
+    assert_eq!(i.by_address().iter().sum::<u64>(), 111_111);
+}
+
 #[tokio::test]
 async fn the_index_follows_opens_closes_reorgs_policy_updates_and_departures() {
     let t = temp();

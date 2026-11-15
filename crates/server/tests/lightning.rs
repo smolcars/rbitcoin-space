@@ -952,11 +952,12 @@ async fn nodes_channels_search_and_rankings_answer_exactly_in_both_shapes() {
             "node": { "alias": "<img src=x onerror=alert(1)>\"\\\u{fffd}", "public_key": graph::hex(&graph::key(2)) },
         }])
     );
-    // Capacity by its nodes' addresses: every node here that announced has a clearnet address.
+    // Capacity by its nodes' addresses: c1 joins two clearnet nodes; c2 and c6 reach node 3,
+    // which announced nothing, so they are unknown.
     let isp = get(&addr, "/regtest/api/v1/lightning/nodes/isp-ranking").await;
     assert_eq!(
         String::from_utf8(isp.body).unwrap(),
-        r#"{"clearnetCapacity":7100000,"torCapacity":0,"unknownCapacity":0,"ispRanking":[]}"#
+        r#"{"clearnetCapacity":5000000,"torCapacity":0,"unknownCapacity":2100000,"ispRanking":[]}"#
     );
     for p in [
         "channels-geo?style=widget".to_owned(),

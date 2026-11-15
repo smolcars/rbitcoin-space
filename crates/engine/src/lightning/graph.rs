@@ -202,8 +202,7 @@ pub struct Index {
     ranked: [Vec<u32>; 3],
     /// When our history starts (the oldest statistics row).
     pub start: Option<u64>,
-    /// Capacity in sats by the addresses its nodes announce: clearnet, Tor only, none
-    /// ([`Index::by_address`]).
+    /// [`Index::by_address`].
     by_address: [u64; 3],
 }
 
@@ -300,12 +299,17 @@ impl Index {
                 past.funded.get(i).map(|f| f.1)
             })
             .collect();
-        // A channel counts once, as its better-reached end: clearnet if either end announces a
-        // clearnet address, else Tor if either announces an onion, else neither.
+        // A channel counts once, as the reference's dashboard splits it (docs/LIGHTNING.md,
+        // "Routes"): unknown if either end announced no address, else clearnet if either end
+        // announces one, else Tor.
         let mut by_address = [0; 3];
         for (c, end) in channels.iter().zip(&ends) {
-            let reach = |e: &u32| nodes.get(*e as usize).map_or(2, address_kind);
-            let k = end.iter().map(reach).min().unwrap_or(2);
+            let kinds = end.map(|e| nodes.get(e as usize).map_or(2, address_kind));
+            let k = if kinds.contains(&2) {
+                2
+            } else {
+                kinds.into_iter().min().unwrap_or(2)
+            };
             if let Some(sum) = by_address.get_mut(k) {
                 *sum += c.capacity;
             }
@@ -321,7 +325,7 @@ impl Index {
         }
     }
 
-    /// Capacity in sats by the addresses its nodes announce: clearnet, Tor only, none. Each
+    /// Capacity in sats by the addresses its nodes announce: clearnet, Tor, unknown. Each
     /// channel counts once, so the three sum to the graph's capacity.
     pub fn by_address(&self) -> [u64; 3] {
         self.by_address

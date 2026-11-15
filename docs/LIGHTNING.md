@@ -371,6 +371,17 @@ The node, channel, search and ranking routes read an **index** of the verified g
 | The top 100 nodes by capacity, by open channels and by age, and each node's place by capacity and by open channels | Both |
 | Each open channel's funding block time, for sorting a node's channels by age | The store, in a second read of `ln_channels` by short channel id |
 | Each node's oldest funding block time and its closed channels by kind, and when our history starts (the oldest statistics row) | The store, in one grouped read of `ln_channels`, done again, with the funding times, only after new history or statistics rows were stored |
+| The graph's capacity by its nodes' addresses (below) | The graph |
+
+**Capacity by address** (`/api/v1/lightning/nodes/isp-ranking`, [`API.md`](API.md#apiv1lightning)). Each channel counts once, so the three sum to the graph's capacity:
+
+| A channel whose ends | Counts as |
+|---|---|
+| include one that announced no address (or nothing) | unknown |
+| else include one with a clearnet address (IP or hostname) | clearnet |
+| else (both onion only) | Tor |
+
+This is mempool.space's split as its public figures show it (2026-11-15). Certain: its three sum exactly to its total capacity on testnet3 and signet (0.06 % short on mainnet), so a channel counts once. Likely: on a crawl of its testnet3 graph this rule gives 93.7 / 0.9 / 5.5 % against its 94.4 / 0.9 / 4.7 %; "clearnet if either end is" gives 0.05 % unknown, half to each end 6 % Tor. Its backends rotate between databases of different dates, so the crawl is not of one snapshot.
 
 **Stale by at most 30 s plus a build.** A channel's own routes also read its row from the store, so a close shows there at once. Measured on mainnet (36,223 channels, 13,639 nodes, release build): the copy 10.8 ms, a whole build 24 to 41 ms, so about 0.1 % of one core. After a restart from the graph file the first index came 4 s after the graph synced (111 s from start), and the answers were those before it but for one channel whose policy had changed. **Memory**, estimated from the structures' sizes: about 200 bytes a channel and 330 a node, and 80 a node and 16 a stored channel for the store's part: about 13 MB at mainnet's size, twice that while a new index is built beside the old, and at most about 85 MB at the 100,000-channel ceiling (200,000 nodes). It is not measured apart: the process's footprint after the first build, 249 MB, is within the variation of the figures [measured](#measured-in-the-server) before the index existed.
 
