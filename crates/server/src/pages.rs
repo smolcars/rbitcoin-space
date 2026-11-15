@@ -84,7 +84,7 @@ impl Pages {
         let (network, rest) = split(path);
         let ctx = self.networks.iter().find(|c| c.config.network == network)?;
         let on = chain(network);
-        // The pages four segments deep (docs/ARK.md).
+        // The Ark pages named by an outpoint (docs/ARK.md).
         if let Some(id) = rest.strip_prefix("/ark/arkade/vtxo/") {
             let (txid, vout) = id.split_once(':')?;
             let txid = esplora::txid(txid).ok()?;
@@ -115,6 +115,18 @@ impl Pages {
                 title: "Arkade address".into(),
                 description: format!(
                     "Arkade address {address} on {on}: its VTXOs, as Arkade reports them."
+                ),
+            };
+            return Some((network, head));
+        }
+        if let Some(id) = rest.strip_prefix("/ark/vtxo/") {
+            let (txid, vout) = id.split_once(':')?;
+            let txid = esplora::txid(txid).ok()?;
+            let vout = arkade::parse_vout(vout)?;
+            let head = Head {
+                title: "Ark VTXO".into(),
+                description: format!(
+                    "Ark VTXO {txid}:{vout} on {on}, on whichever Ark server knows it."
                 ),
             };
             return Some((network, head));
@@ -235,8 +247,8 @@ impl Pages {
             },
             [_, Some("lightning"), Some("rankings"), None] => rankings(on, query),
             [_, Some("ark"), None, None] => Head {
-                title: "Ark VTXO".into(),
-                description: format!("Look up an Ark VTXO on {on} by its id."),
+                title: "Ark".into(),
+                description: format!("Look up an Ark VTXO or address on {on}."),
             },
             _ => return None,
         };

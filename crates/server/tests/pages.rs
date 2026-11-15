@@ -498,8 +498,16 @@ async fn every_kind_of_page_on_every_network_says_what_it_is() {
             ),
             (
                 "/ark".into(),
+                "Ark".into(),
+                format!("Look up an Ark VTXO or address on {chain}."),
+            ),
+            (
+                format!("/ark/vtxo/{}:7", "ab".repeat(32)),
                 "Ark VTXO".into(),
-                format!("Look up an Ark VTXO on {chain} by its id."),
+                format!(
+                    "Ark VTXO {}:7 on {chain}, on whichever Ark server knows it.",
+                    "ab".repeat(32)
+                ),
             ),
             (
                 format!("/ark/bark/vtxo/{}:7", "ab".repeat(32)),
@@ -725,6 +733,9 @@ async fn paths_that_do_not_parse_get_the_shell_as_built() {
             ARK_MAIN.replacen("ark1q", "ark1p", 1)
         ),
         "/ark/arkade/address/%3Cscript%3E".to_owned(),
+        format!("/ark/vtxo/{TXID}"),
+        format!("/ark/vtxo/{TXID}:01"),
+        format!("/ark/vtxo/{TXID}:0/x"),
     ];
     for path in &hostile {
         let r = get(&addr, path).await;

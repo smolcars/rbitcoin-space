@@ -574,8 +574,9 @@ Decided while building it:
 ### Ark (not in the prototype)
 
 ```text
-Ark VTXO                         (the entry: one field, a tab per implementation where there are two)
-[Bark VTXO ID: txid:vout] [Open]
+Ark                              (the entry: one box, whatever is pasted; no tabs)
+[VTXO ID, hex or Ark address] [Open]
+Not a VTXO or an Ark address     (only after Open, only when it opens nothing)
 
 ← Another VTXO
 VTXO Bark  (Signatures OK) (Not settled yet) (Expires soon) (Exiting)
@@ -593,6 +594,7 @@ Transactions: # · Kind (Bark's word muted) · On chain · Signature · Other ou
 Decided while building it, with the owner:
 
 - **Very little text.** The picture, the layout and short labels carry it: no helper paragraphs, nothing decorative. States are a short sentence each: not a VTXO ID, Bark does not know this VTXO, the Bark server did not answer, its answer did not check out. A VTXO from its hex (`/ark/bark/hex#…`) is the same page, with no word that it came from hex (the checks and the picture do not change); its states are no VTXO hex, not VTXO hex, this hex is not a Bark VTXO, this VTXO did not check out.
+- **The visitor never picks an implementation.** The entry is a box, a placeholder naming what it takes and Open; no list of formats. What was pasted decides the page ([`ARK.md`](ARK.md#the-entry-page)); a `txid:vout` passes through a short "Asking Bark and Arkade" and lands on the page of the one that knows it.
 - **Badges, not sentences,** in the order a reader needs them: "Signatures OK" only when the server rebuilt the whole chain, found the anchor on the node, found the expiry bound to it and verified every signature ("Not all signed" or "Not verified" otherwise); "Not settled yet" when the chain has arkoor transfers; "Expires soon" within three days of blocks; "Exiting" once an exit transaction is in the mempool or a block. Never "unspent": that cannot be known ([`ARK.md`](ARK.md#where-the-vtxo-comes-from)).
 - **The Bitcoin line is the VTXO's life:** the anchor's block at the anchor, "now" with the blocks left, the expiry at the far end, to scale. The tree's transactions rise from the anchor; transfers run sideways as low arcs and wrap into rows, each above the last, as many to a row as the width holds; other outputs are dashed stubs with their amount where there is room. The VTXO is a ring at the end with its amount; its words go above it near the right edge, so they never fall on the tree.
 - **Play exit** lights the transactions in broadcast order, one per `--dur-slow`, then shows the wait the exit delta imposes. Every node is a button with a 44 px target that selects its transaction; its facts show under the picture.

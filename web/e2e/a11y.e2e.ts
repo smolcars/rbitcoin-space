@@ -6,6 +6,7 @@ import type { Page } from "@playwright/test";
 import {
   ARKADE_ADDRESS,
   ARKADE_ID,
+  arkadeKnowsBarks,
   HEX,
   ID,
   withArkade,
@@ -407,10 +408,20 @@ const PAGES: PageType[] = [
     before: (p) => stubLarge(p, { ledger: () => ({ state: "seeding", seconds: 95 }) }),
   },
   {
-    name: "Ark entry, two implementations",
+    name: "Ark entry",
     path: "/regtest/ark",
-    ready: (p) => p.getByRole("button", { name: "Arkade" }),
+    ready: (p) => p.getByRole("textbox", { name: "VTXO or Ark address" }),
     before: withBoth,
+  },
+  {
+    // Known to both, which should not happen: the lookup's one state with controls of its own.
+    name: "Ark VTXO lookup, known to both",
+    path: `/regtest/ark/vtxo/${ID}`,
+    ready: (p) => p.getByRole("link", { name: "Arkade", exact: true }),
+    before: async (p) => {
+      await withBoth(p);
+      await arkadeKnowsBarks(p);
+    },
   },
   {
     name: "Bark VTXO",

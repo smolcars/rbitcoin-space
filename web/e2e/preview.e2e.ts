@@ -47,6 +47,7 @@ const PAGES = [
   "/regtest/lightning/rankings?%62y=%61ge",
   "/regtest/lightning/rankings?by&by=age",
   "/regtest/ark",
+  `/regtest/ark/vtxo/${"ab".repeat(32)}:0`,
   `/regtest/ark/bark/vtxo/${"ab".repeat(32)}:0`,
   "/regtest/ark/bark/hex",
   `/regtest/ark/arkade/vtxo/${"ab".repeat(32)}:0`,

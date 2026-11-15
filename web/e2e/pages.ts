@@ -4,6 +4,7 @@ import type { Page } from "@playwright/test";
 import {
   ARKADE_ADDRESS,
   ARKADE_ID,
+  arkadeKnowsBarks,
   HEX,
   ID,
   withArkade,
@@ -86,6 +87,15 @@ export const PAGES: { path: string; stub?: (page: Page) => Promise<void> }[] = [
   { path: "/regtest/lightning/channel/811984x2037x0", stub: lightning },
   { path: "/regtest/lightning/search?q=acinq", stub: lightning },
   { path: "/regtest/ark", stub: withBoth },
+  // The lookup with an outpoint both implementations know (which should not happen): its one state
+  // with controls of its own, and one with no 404 from a stub, which the sweeps count as an error.
+  {
+    path: `/regtest/ark/vtxo/${ID}`,
+    stub: async (page) => {
+      await withBoth(page);
+      await arkadeKnowsBarks(page);
+    },
+  },
   { path: `/regtest/ark/bark/vtxo/${ID}`, stub: (page) => withBark(page, true) },
   { path: `/regtest/ark/bark/hex#${HEX}`, stub: withBarkHex },
   // Signet's real VTXO as it is (swept), then as if today: unspent, not settled, a 128-VTXO tree.

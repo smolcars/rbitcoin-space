@@ -1,13 +1,29 @@
 # Ark
 
-Pages for Ark VTXOs: a visitor opens `/ark`, pastes a VTXO's id, and gets its amount, its expiry, the exit path drawn as a picture and the exit transactions, each with where it is on chain. An implementation is shown on a network only when the operator configured a server for it (a Bark VTXO given as its hex needs none, [below](#from-its-hex)) ([`CONFIG.md`](CONFIG.md#ark)); `/app/config` names them per network (`"ark": {"signet": ["bark"]}`), and the header's Ark item and the entry page follow that list ([`FRONTEND.md`](FRONTEND.md#the-apps-own-api)).
+Pages for Ark VTXOs: a visitor opens `/ark`, pastes a VTXO's id without saying whose it is, and gets its amount, its expiry, the exit path drawn as a picture and the exit transactions, each with where it is on chain. An implementation is shown on a network only when the operator configured a server for it (a Bark VTXO given as its hex needs none, [below](#from-its-hex)) ([`CONFIG.md`](CONFIG.md#ark)); `/app/config` names them per network (`"ark": {"signet": ["bark"]}`), and the header's Ark item and the entry page follow that list ([`FRONTEND.md`](FRONTEND.md#the-apps-own-api)).
 
 | Implementation | Crate | Pages | Private API | Configured by |
 |---|---|---|---|---|
 | Bark, by Second | `crates/bark` | `web/src/pages/ark/bark/` | `/app/ark/bark/vtxo/<txid>:<vout>`, and `POST /app/ark/bark/vtxo` for its hex | `{NET}_BARK_URL` (not for hex) |
 | Arkade, by Ark Labs | `crates/arkade` | `web/src/pages/ark/arkade/` | `/app/ark/arkade/vtxo/<txid>/<vout>`, `/app/ark/arkade/address/<address>` | `{NET}_ARKADE_URL` |
 
-The entry page's list of implementations is `web/src/pages/ark/implementations.ts`; an implementation adds one entry there, one route list in `web/src/pages/ark/routes.ts`, and its name in `ark()` in `crates/server/src/app_config.rs`.
+The lookup's list of implementations is `IMPLEMENTATIONS` in `web/src/pages/ark/lookup.ts`; an implementation adds one entry there, one route list in `web/src/pages/ark/routes.ts`, and its name in `ark()` in `crates/server/src/app_config.rs`.
+
+## The entry page
+
+`/ark` is one box and an Open button. `classify` in `web/src/pages/ark/paste.ts` reads what was pasted by its form alone, trimmed, and asks nothing:
+
+| Pasted | Read as | Opens |
+|---|---|---|
+| `<txid>:<vout>` (hex in either case) | a VTXO: Bark's id and Arkade's outpoint look the same | `/ark/vtxo/<txid>:<vout>` |
+| hex starting `0100` or `0200` (a little-endian `u16` version), whole bytes, 50 bytes or more | a serialized Bark VTXO | `/ark/bark/hex#<hex>`: in the fragment, so no server sees it |
+| bech32m `ark1q…` (mainnet) or `tark1q…` (other networks), checksum verified | an Arkade address | `/ark/arkade/address/<address>` |
+| bech32m `ark1p…` or `tark1p…` | a Bark address | nothing: "A Bark address cannot be looked up" |
+| an Ark address of the other kind of network | | nothing: "A mainnet address" or "A test network address" |
+| 64 hex digits alone | a txid, never hex | nothing: "Add :vout to the txid" |
+| anything else | | nothing: "Not a VTXO or an Ark address" |
+
+`/ark/vtxo/<txid>:<vout>` asks each implementation the network's `ark` list names, through its own route, at once. When exactly one knows the VTXO (Bark's "did not verify" counts: its page says so), the page replaces its address with that implementation's page, so Back returns to the box. None: "Not found on Bark or Arkade", naming only what the network has. One could not be reached and none knows it: it is named, with a retry. Both know it, which should not happen: a choice of the two, neither preferred. It adds no server route. A lookup costs one token on each implementation's per-client limiter, and the page it opens asks once more; Bark answers that from the answer it keeps without a token, Arkade spends a second, so a visit takes two of Arkade's burst of ten.
 
 ## Bark
 

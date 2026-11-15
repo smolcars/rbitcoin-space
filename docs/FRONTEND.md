@@ -69,7 +69,8 @@ The network comes from the path. `useNetwork()` returns it; never keep it anywhe
 | Lightning search, rankings | `/lightning/search?q=`, `/lightning/rankings?by=capacity\|channels\|age` | `pages/lightning` | W11 |
 | Mempool history | `/mempool`, `/mempool?interval=2h\|24h\|1w\|1m\|3m\|6m\|1y\|2y\|3y\|4y\|all` | `pages/mempool` | FE9 |
 | Replacements | `/rbf`, `/rbf?view=full-rbf` | `pages/mempool` | G4 |
-| Ark VTXO lookup | `/ark` | `pages/ark` | Ark |
+| Ark lookup | `/ark` | `pages/ark` | Ark |
+| Ark VTXO, any implementation | `/ark/vtxo/:id` (`<txid>:<vout>`) | `pages/ark` | Ark |
 | Arkade VTXO | `/ark/arkade/vtxo/:outpoint` (`<txid>:<vout>`) | `pages/ark/arkade` | Ark |
 | Bark VTXO | `/ark/bark/vtxo/:id` (`<txid>:<vout>`) | `pages/ark/bark` | Ark |
 | Bark VTXO from its hex | `/ark/bark/hex#<hex>` (the hex in the fragment, sent in a `POST` body) | `pages/ark/bark` | Ark |
@@ -349,7 +350,7 @@ A mainnet server 18 minutes after its first sample (keys are sent in another ord
 - **The exit** (`exitSteps`): commitments first, then each transaction after what it spends; a tree transaction is a Leaf when it ends a branch, a Branch otherwise; `ark` reads Transfer. The page names them in its words, Arkade's beside them in muted text.
 - **The picture** (`layout.ts`, drawn by `Tree.tsx` in SVG): the batch trees in quiet ink grown up from their commitments on the Bitcoin line, which runs from the commitment through now to the expiry, this VTXO's branches in the accent, its checkpoints and transfers above the leaves. Without a tree, only the chain's own branch, and the batch's VTXOs as a count. Laid out again on a resize and each minute, never each second. "Play exit" lights the steps at `--dur-slow` each and ends on the wait after an exit; under reduced motion it shows the end at once. The transaction table is its text alternative.
 - **Kept current**: asked again on each new block or reorg, and every 30 s while in view (`POLL_MS`); the server keeps the Arkade answer 30 s, so a block mostly costs a node lookup.
-- **Reached from the Ark entry page** through its entry in `pages/ark/implementations.ts` and `paths.arkadeVtxo` ([`ARK.md`](ARK.md)).
+- **Reached from the Ark entry page** through `/ark/vtxo/…`, which opens it when Arkade alone knows the outpoint (`pages/ark/lookup.ts`, [`ARK.md`](ARK.md#the-entry-page)).
 
 #### Arkade address
 

@@ -177,3 +177,26 @@ export async function withBoth(page: Page) {
   await bark(page, false);
   await arkade(page, false);
 }
+
+/** Valid bech32m with made-up payloads: a Bark address (`p`) on regtest and an Arkade one (`q`) on mainnet. */
+export const BARK_ADDRESS =
+  "tark1p8w4ur23clxd5mzfsh79vn6pg0kaytjeq8w4ur23clxd5mzfsh79vn6pg0kaytjeq8w4ur23clxd5mzfsh79vn6pg0kaytjeq8w4ur23c82ez2";
+export const MAINNET_ADDRESS =
+  "ark1q8w4ur23clxd5mzfsh79vn6pg0kaytjeq8w4ur23clxd5mzfsh79vn6pg0kaytjeq8w4ur23clxd5mzfsh79vn6pg0kaytjeq8w4ur23wz6x87";
+
+/** Every Bark lookup fails as an unreachable Bark server does. Register after `withBoth`. */
+export async function barkDown(page: Page) {
+  await page.route(/\/regtest\/app\/ark\/bark\/vtxo\//, (route) =>
+    route.fulfill({ status: 502, json: { error: "bark server unavailable" } }),
+  );
+}
+
+/** Arkade also knows Bark's VTXO, which should never happen. Register after `withBoth`. */
+export async function arkadeKnowsBarks(page: Page) {
+  const also = `/regtest/app/ark/arkade/vtxo/${ID.replace(":", "/")}`;
+  await page.route(/\/regtest\/app\/ark\/arkade\/vtxo\//, (route) =>
+    new URL(route.request().url()).pathname === also
+      ? route.fulfill({ json: arkadeAnswer() })
+      : route.fallback(),
+  );
+}

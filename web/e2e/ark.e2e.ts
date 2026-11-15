@@ -1,8 +1,39 @@
 // The Ark pages (docs/ARK.md), on regtest without an Ark server and with one from recorded answers.
-import { ARKADE_ID, HEX, ID, withArkade, withBark, withBarkHex, withBoth } from "./ark-answers";
+import type { Page } from "@playwright/test";
+import {
+  ARKADE_ADDRESS,
+  ARKADE_ID,
+  arkadeKnowsBarks,
+  BARK_ADDRESS,
+  barkDown,
+  HEX,
+  ID,
+  MAINNET_ADDRESS,
+  withArkade,
+  withBark,
+  withBarkHex,
+  withBoth,
+} from "./ark-answers";
 import { expect, test } from "./fixtures";
 
 const UNKNOWN = `${"ab".repeat(32)}:1`;
+const HEX = `0100${"ab".repeat(80)}`;
+
+/** Pastes into the entry's box and opens it. */
+async function paste(page: Page, text: string) {
+  await page.getByRole("textbox", { name: "VTXO or Ark address" }).fill(text);
+  await page.getByRole("button", { name: "Open" }).click();
+}
+
+/** The Ark lookups the page asks, by implementation, as they are sent. */
+function lookups(page: Page): string[] {
+  const asked: string[] = [];
+  page.on("request", (r) => {
+    const m = /\/app\/ark\/(\w+)\/vtxo\//.exec(r.url());
+    if (m?.[1]) asked.push(m[1]);
+  });
+  return asked;
+}
 
 test("a network without an Ark server shows no Ark, and its route says why", async ({
   page,
@@ -23,19 +54,20 @@ test("a network without an Ark server shows no Ark, and its route says why", asy
 test.describe("with Bark", () => {
   test.use({ consoleErrorsAllowed: [/status of 404/] });
 
-  test("the entry page opens a VTXO by its id", async ({ page }) => {
+  test("the box opens a Bark VTXO, and Back returns to the box", async ({ page }) => {
     await withBark(page);
+    const asked = lookups(page);
     await page.goto("/regtest/");
     await page.getByRole("navigation").getByRole("link", { name: "Ark" }).click();
     await expect(page).toHaveURL(/\/regtest\/ark$/);
-    const field = page.getByLabel("Bark VTXO ID");
-    await field.fill("not a vtxo");
-    await page.getByRole("button", { name: "Open" }).click();
-    await expect(page.getByText("Not a VTXO ID")).toBeVisible();
-    await field.fill(` ${ID.toUpperCase()} `);
-    await page.getByRole("button", { name: "Open" }).click();
+    await expect(page.getByRole("tab")).toHaveCount(0);
+    await paste(page, ` ${ID.toUpperCase()} `);
     await expect(page).toHaveURL(`/regtest/ark/bark/vtxo/${ID}`);
     await expect(page.getByRole("heading", { level: 1 })).toContainText("VTXO");
+    // Bark alone is asked: once to find the VTXO, once by its page.
+    expect(asked).toStrictEqual(["bark", "bark"]);
+    await page.goBack();
+    await expect(page).toHaveURL(/\/regtest\/ark$/);
   });
 
   test("a VTXO: figures, badges, the exit path and its transactions", async ({ page }) => {
@@ -134,29 +166,70 @@ test.describe("a Bark VTXO from its hex", () => {
 
 test.describe("with Arkade", () => {
   // Reduced motion: Play exit shows its end at once rather than over ten steps.
-  test.use({ consoleErrorsAllowed: [/status of 404/], reducedMotion: "reduce" });
+  test.use({ consoleErrorsAllowed: [/status of (404|502)/], reducedMotion: "reduce" });
 
-  test("the entry page offers Bark and Arkade side by side, and opens an Arkade VTXO", async ({
-    page,
-  }) => {
+  test("the box works out what was pasted", async ({ page }) => {
     await withBoth(page);
     await page.goto("/regtest/ark");
-    const tabs = page.getByRole("group", { name: "Implementation" });
-    await expect(tabs.getByRole("button")).toHaveText(["Bark", "Arkade"]);
-    await tabs.getByRole("button", { name: "Arkade" }).click();
-    await expect(tabs.getByRole("button", { name: "Arkade" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-    await page.getByLabel("Arkade VTXO ID").fill(` ${ARKADE_ID.toUpperCase()} `);
-    await page.getByRole("button", { name: "Open" }).click();
+    await paste(page, ARKADE_ID);
     await expect(page).toHaveURL(`/regtest/ark/arkade/vtxo/${ARKADE_ID}`);
     await expect(page.getByRole("button", { name: "Play exit" })).toBeVisible();
     const ark = page.getByRole("navigation").getByRole("link", { name: "Ark" });
     await expect(ark).toHaveAttribute("aria-current", "true");
-
     await page.getByRole("link", { name: "Another VTXO" }).click();
     await expect(page).toHaveURL(/\/regtest\/ark$/);
+
+    // Those pages are built elsewhere: only where the box goes is checked here.
+    await paste(page, HEX.toUpperCase());
+    await expect(page).toHaveURL(`/regtest/ark/bark/hex#${HEX}`);
+    await page.goto("/regtest/ark");
+    await paste(page, ARKADE_ADDRESS);
+    await expect(page).toHaveURL(`/regtest/ark/arkade/address/${ARKADE_ADDRESS}`);
+
+    // What opens nothing says why, and asks nothing.
+    await page.goto("/regtest/ark");
+    const asked = lookups(page);
+    const cases: [string, string][] = [
+      [BARK_ADDRESS, "A Bark address cannot be looked up"],
+      [MAINNET_ADDRESS, "A mainnet address"],
+      [ID.slice(0, 64), "Add :vout to the txid"],
+      ["<b>hello</b>", "Not a VTXO or an Ark address"],
+    ];
+    for (const [text, why] of cases) {
+      await paste(page, text);
+      await expect(page.getByRole("alert")).toHaveText(why);
+    }
+    await expect(page).toHaveURL(/\/regtest\/ark$/);
+    expect(asked).toStrictEqual([]);
+  });
+
+  test("an outpoint none knows, one an implementation cannot be asked about, and one both know", async ({
+    page,
+  }) => {
+    await withBoth(page);
+    await page.goto(`/regtest/ark/vtxo/${UNKNOWN}`);
+    await expect(page.getByText("Not found on Bark or Arkade")).toBeVisible();
+
+    await barkDown(page);
+    await page.reload();
+    await expect(page.getByText("Bark could not be reached")).toBeVisible();
+    await expect(page.getByText("Not found on Arkade.")).toBeVisible();
+
+    await page.unrouteAll();
+    await withBoth(page);
+    await arkadeKnowsBarks(page);
+    await page.goto(`/regtest/ark/vtxo/${ID}`);
+    await expect(page.getByText("Known to Bark and Arkade")).toBeVisible();
+    await page.getByRole("link", { name: "Arkade", exact: true }).click();
+    await expect(page).toHaveURL(`/regtest/ark/arkade/vtxo/${ID}`);
+  });
+
+  test("a network with Arkade alone asks only Arkade", async ({ page }) => {
+    await withArkade(page);
+    const asked = lookups(page);
+    await page.goto(`/regtest/ark/vtxo/${UNKNOWN}`);
+    await expect(page.getByText("Not found on Arkade", { exact: true })).toBeVisible();
+    expect(asked).toStrictEqual(["arkade"]);
   });
 
   test("a VTXO: arkd's words, its tree, Play exit and a transaction picked", async ({ page }) => {

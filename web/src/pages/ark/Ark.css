@@ -8,44 +8,10 @@
     margin-block-end: var(--space-4);
   }
 
-  .ark-entry__panel--waiting {
-    min-height: 9.5rem;
-  }
-
-  .ark-entry__tabs {
-    display: flex;
-    gap: var(--space-4);
-    margin-block-end: var(--space-4);
-    border-block-end: 1px solid var(--color-line);
-  }
-
-  .ark-entry__tab {
-    /* "Bark" alone is narrower than a thumb. */
-    min-width: var(--touch);
-    min-height: var(--touch);
-    padding: 0;
-    border: 0;
-    border-block-end: 2px solid transparent;
-    background: none;
-    color: var(--color-text-muted);
-    font: inherit;
-    cursor: pointer;
-  }
-
-  .ark-entry__tab[aria-pressed="true"] {
-    border-block-end-color: var(--color-accent);
-    color: var(--color-text);
-  }
-
   .ark-entry__form {
     display: grid;
     gap: var(--space-2);
     justify-items: start;
-  }
-
-  .ark-entry__label {
-    font-size: var(--text-sm);
-    font-weight: var(--weight-medium);
   }
 
   .ark-entry__input {
@@ -72,5 +38,43 @@
 
   .ark-entry__open {
     margin-block-start: var(--space-2);
+  }
+
+  .ark-lookup {
+    display: grid;
+    gap: var(--space-4);
+    padding-block: var(--space-5) var(--space-8);
+  }
+
+  .ark-lookup > * {
+    min-width: 0;
+  }
+
+  .ark-lookup__back {
+    justify-self: start;
+    color: var(--color-text-muted);
+    font-size: var(--text-sm);
+  }
+
+  .ark-lookup h1,
+  .ark-lookup__id {
+    margin: 0;
+  }
+
+  .ark-lookup__id {
+    overflow-wrap: anywhere;
+    color: var(--color-text-muted);
+    font-size: var(--text-sm);
+  }
+
+  .ark-lookup__choice {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    justify-content: center;
+  }
+
+  .ark-lookup__choice .btn {
+    text-decoration: none;
   }
 }
