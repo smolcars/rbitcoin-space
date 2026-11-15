@@ -47,6 +47,8 @@ pub(crate) const SEARCH_MAX: usize = 10;
 /// Channels per page: ours, and the reference's.
 pub(crate) const PAGE: usize = 25;
 const V1_PAGE: usize = 10;
+/// Channels in an `index=-1` answer, largest first: the reference's own cap, observed.
+pub(crate) const V1_ALL: usize = 1_000;
 /// Deepest offset into a node's channels: the graph's ceiling.
 const MAX_OFFSET: usize = 100_000;
 /// Nodes in each list of `/api/v1/lightning/nodes/rankings`, as the reference sends.
@@ -74,8 +76,14 @@ pub fn routes() -> Router<Arc<NetworkContext>> {
         // The reference's location routes, which we do not serve (no GeoIP): answered as any
         // route we do not serve, not as a malformed key.
         .route("/api/v1/lightning/nodes/countries", any(crate::not_found))
-        .route("/api/v1/lightning/nodes/isp-ranking", any(crate::not_found))
         .route("/api/v1/lightning/nodes/world", any(crate::not_found))
+        // Without an IP database: the capacity by address kind, and no provider or place.
+        .route("/api/v1/lightning/nodes/isp-ranking", get(v1_isp_ranking))
+        .route("/api/v1/lightning/channels-geo", get(v1_channels_geo))
+        .route(
+            "/api/v1/lightning/channels-geo/{key}",
+            get(v1_node_channels_geo),
+        )
         .route(
             "/api/v1/lightning/nodes/{key}/statistics",
             get(v1_node_statistics),
@@ -1560,6 +1568,42 @@ async fn v1_fees(State(ctx): State<Arc<NetworkContext>>, UrlPath(key): UrlPath<S
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct V1IspRanking {
+    clearnet_capacity: u64,
+    tor_capacity: u64,
+    unknown_capacity: u64,
+    /// Providers need an IP database we do not have.
+    isp_ranking: [(); 0],
+}
+
+async fn v1_isp_ranking(State(ctx): State<Arc<NetworkContext>>) -> Answer {
+    let (index, _, _) = graph(&ctx)?;
+    let [clearnet_capacity, tor_capacity, unknown_capacity] = index.by_address();
+    let body = V1IspRanking {
+        clearnet_capacity,
+        tor_capacity,
+        unknown_capacity,
+        isp_ranking: [],
+    };
+    Ok(send(&body, "lightning_isp_ranking_v1"))
+}
+
+/// Channels with their ends' places: none known without an IP database.
+async fn v1_channels_geo(State(ctx): State<Arc<NetworkContext>>) -> Answer {
+    graph(&ctx)?;
+    Ok(send(&[(); 0], "lightning_channels_geo_v1"))
+}
+
+async fn v1_node_channels_geo(
+    State(ctx): State<Arc<NetworkContext>>,
+    UrlPath(key): UrlPath<String>,
+) -> Answer {
+    pubkey(&key)?;
+    v1_channels_geo(State(ctx)).await
+}
+
+#[derive(Serialize)]
 struct V1ListNode {
     alias: String,
     public_key: String,
@@ -1579,6 +1623,35 @@ struct V1ListChannel {
     node: V1ListNode,
 }
 
+/// The reference's `index=-1` item: what its node page's channel map draws.
+#[derive(Serialize)]
+struct V1MapChannel<'a> {
+    capacity: u64,
+    short_id: &'a str,
+    id: &'a str,
+    node: V1MapNode<'a>,
+}
+
+#[derive(Serialize)]
+struct V1MapNode<'a> {
+    alias: &'a str,
+    public_key: &'a str,
+}
+
+impl<'a> From<&'a V1ListChannel> for V1MapChannel<'a> {
+    fn from(c: &'a V1ListChannel) -> Self {
+        Self {
+            capacity: c.capacity,
+            short_id: &c.short_id,
+            id: &c.id,
+            node: V1MapNode {
+                alias: &c.node.alias,
+                public_key: &c.node.public_key,
+            },
+        }
+    }
+}
+
 async fn v1_node_channels(
     State(ctx): State<Arc<NetworkContext>>,
     RawQuery(raw): RawQuery,
@@ -1588,11 +1661,23 @@ async fn v1_node_channels(
         q.get("public_key")
             .ok_or(ApiError::bad_request("public_key is required"))?,
     )?;
-    let status = status(q.get("status"))?;
-    let offset = match q.get("index") {
-        None => 0,
-        Some(i) => number(i, MAX_OFFSET as u64)
-            .ok_or(ApiError::bad_request("index is 0 to 100000"))? as usize,
+    // `active`: the open channels that can forward, as the reference's node page asks them.
+    let (status, active) = match q.get("status").map(String::as_str) {
+        None | Some("open") => (Status::Open, false),
+        Some("active") => (Status::Open, true),
+        Some("closed") => (Status::Closed, false),
+        Some(_) => return Err(ApiError::bad_request("status is open, active or closed")),
+    };
+    // `index=-1`: the largest V1_ALL in one answer, in the map's shape; otherwise a page.
+    let (offset, limit, map) = match q.get("index").map(String::as_str) {
+        None => (0, V1_PAGE, false),
+        Some("-1") => (0, V1_ALL, true),
+        Some(i) => (
+            number(i, MAX_OFFSET as u64).ok_or(ApiError::bad_request("index is -1 to 100000"))?
+                as usize,
+            V1_PAGE,
+            false,
+        ),
     };
     let (index, _, store) = graph(&ctx)?;
     let n = index.node(&id).ok_or(NO_NODE)?;
@@ -1608,11 +1693,16 @@ async fn v1_node_channels(
     };
     let (total, list): (u64, Vec<V1ListChannel>) = match status {
         Status::Open => (
-            n.open() as u64,
+            if active {
+                n.active.into()
+            } else {
+                n.open() as u64
+            },
             index
                 .channels_of(n)
+                .filter(|c| !active || c.active())
                 .skip(offset)
-                .take(V1_PAGE)
+                .take(limit)
                 .map(|c| V1ListChannel {
                     status: v1_status(None, Some(c)),
                     closing_reason: None,
@@ -1629,7 +1719,7 @@ async fn v1_node_channels(
                 .collect(),
         ),
         Status::Closed => {
-            let (total, rows) = store_ln::node_closed(store, id, offset, V1_PAGE)
+            let (total, rows) = store_ln::node_closed(store, id, offset, limit)
                 .await
                 .map_err(|e| store_error(&e))?;
             let list = rows
@@ -1648,7 +1738,15 @@ async fn v1_node_channels(
             (total, list)
         }
     };
-    let mut res = send(&list, "lightning_channels_v1");
+    const ROUTE: &str = "lightning_channels_v1";
+    let mut res = if map {
+        send(
+            &list.iter().map(V1MapChannel::from).collect::<Vec<_>>(),
+            ROUTE,
+        )
+    } else {
+        send(&list, ROUTE)
+    };
     res.headers_mut()
         .insert("x-total-count", HeaderValue::from(total));
     Ok(res)

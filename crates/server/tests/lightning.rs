@@ -361,13 +361,15 @@ async fn with_lightning_off_the_routes_say_so() {
         "/regtest/app/lightning/channels/1x1x1",
         "/regtest/api/v1/lightning/nodes/rankings",
         "/regtest/api/v1/lightning/channels/txids",
+        "/regtest/api/v1/lightning/nodes/isp-ranking",
+        "/regtest/api/v1/lightning/channels-geo",
     ] {
         let r = get(&addr, path).await;
         assert_eq!(r.status, 503, "{path}");
         assert_eq!(r.json()["error"], "lightning is off on this network");
     }
     // Not served at all, so the same 404 whether Lightning is on or off.
-    for path in ["countries", "isp-ranking", "world"] {
+    for path in ["countries", "world"] {
         let r = get(&addr, &format!("/regtest/api/v1/lightning/nodes/{path}")).await;
         assert_eq!(r.status, 404, "{path}");
     }
@@ -836,6 +838,19 @@ async fn nodes_channels_search_and_rankings_answer_exactly_in_both_shapes() {
             format!("channels?public_key={one}&status=closed"),
             "channels_closed",
         ),
+        (
+            format!("channels?public_key={one}&status=active&index=0"),
+            "channels_active",
+        ),
+        (
+            format!("channels?public_key={one}&status=active&index=-1"),
+            "channels_map",
+        ),
+        ("nodes/isp-ranking".to_owned(), "isp_ranking"),
+        (
+            format!("channels-geo/{one}?style=nodepage"),
+            "channels_geo_node",
+        ),
         (format!("channels/{c1}"), "channel"),
         (
             format!("channels/txids?txId[]={f1}&txId[]={x4}&txId[]={x5}"),
@@ -897,6 +912,60 @@ async fn nodes_channels_search_and_rankings_answer_exactly_in_both_shapes() {
         s.last().unwrap(),
         &serde_json::json!({ "added": 1_790_121_600, "capacity": 8_700_000, "channels": 4 })
     );
+
+    // Active: the open channels that can forward (c1, not c2 whose one policy is disabled),
+    // paged or all at once in the map's shape; X-Total-Count counts them either way.
+    let channels = |q: &str| {
+        let addr = &addr;
+        let path = format!("/regtest/api/v1/lightning/channels?public_key={one}&{q}");
+        async move { get(addr, &path).await }
+    };
+    let (c1, c2) = (c1.to_string(), graph::scid(800_100, 7, 0).to_string());
+    for (q, total, ids) in [
+        ("status=active&index=0", "1", vec![c1.as_str()]),
+        ("status=active&index=-1", "1", vec![c1.as_str()]),
+        ("status=active", "1", vec![c1.as_str()]),
+        ("status=open&index=-1", "2", vec![c1.as_str(), c2.as_str()]),
+    ] {
+        let r = channels(q).await;
+        let got: Vec<String> = r
+            .json()
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["id"].as_str().unwrap().to_owned())
+            .collect();
+        assert_eq!(
+            (r.header("x-total-count"), got),
+            (Some(total), ids.iter().map(|s| (*s).to_owned()).collect()),
+            "{q}"
+        );
+        assert_eq!(r.header("cache-control"), Some("public, max-age=10"), "{q}");
+    }
+    let map = channels("status=active&index=-1").await.json();
+    assert_eq!(
+        map,
+        serde_json::json!([{
+            "capacity": 5_000_000,
+            "short_id": "800000x5x1",
+            "id": c1,
+            "node": { "alias": "<img src=x onerror=alert(1)>\"\\\u{fffd}", "public_key": graph::hex(&graph::key(2)) },
+        }])
+    );
+    // Capacity by its nodes' addresses: every node here that announced has a clearnet address.
+    let isp = get(&addr, "/regtest/api/v1/lightning/nodes/isp-ranking").await;
+    assert_eq!(
+        String::from_utf8(isp.body).unwrap(),
+        r#"{"clearnetCapacity":7100000,"torCapacity":0,"unknownCapacity":0,"ispRanking":[]}"#
+    );
+    for p in [
+        "channels-geo?style=widget".to_owned(),
+        format!("channels-geo/{one}?style=nodepage"),
+        format!("channels-geo/{}", graph::hex(&graph::key(9))),
+    ] {
+        let r = get(&addr, &format!("/regtest/api/v1/lightning/{p}")).await;
+        assert_eq!((r.status, r.json()), (200, serde_json::json!([])), "{p}");
+    }
 
     // Paging: X-Total-Count, and past the end an empty page.
     let r = get(
@@ -1037,19 +1106,26 @@ async fn nodes_channels_search_and_rankings_answer_exactly_in_both_shapes() {
         // The reference's location routes are not served: 404 like any route we do not serve,
         // not a malformed key, while anything else in a key's place is still checked strictly.
         ("/api/v1/lightning/nodes/countries".to_owned(), 404),
-        ("/api/v1/lightning/nodes/isp-ranking".to_owned(), 404),
         ("/api/v1/lightning/nodes/world".to_owned(), 404),
         ("/api/v1/lightning/nodes/country/us".to_owned(), 404),
         ("/api/v1/lightning/nodes/isp/16509".to_owned(), 404),
         ("/api/v1/lightning/nodes/group/x".to_owned(), 404),
         ("/api/v1/lightning/penalties".to_owned(), 404),
-        ("/api/v1/lightning/channels-geo".to_owned(), 404),
+        ("/api/v1/lightning/channels-geo/zz".to_owned(), 400),
+        (
+            format!("/api/v1/lightning/channels?public_key={one}&status=Active"),
+            400,
+        ),
+        (
+            format!("/api/v1/lightning/channels?public_key={one}&index=-2"),
+            400,
+        ),
         ("/api/v1/lightning/nodes/countrie".to_owned(), 400),
         ("/api/v1/lightning/nodes/world/statistics".to_owned(), 400),
     ] {
         let r = get(&addr, &format!("/regtest{p}")).await;
         assert_eq!(r.status, status, "{p}");
-        if p.contains("/nodes/countries") || p.contains("/isp-ranking") || p.ends_with("/world") {
+        if p.contains("/nodes/countries") || p.ends_with("/world") {
             assert_eq!(r.json(), serde_json::json!({ "error": "not found" }), "{p}");
         }
         if status != 200 {
@@ -1102,11 +1178,12 @@ async fn mainnet_size_routes() -> (Duration, (Duration, String)) {
         k[1..5].copy_from_slice(&n.to_be_bytes());
         k
     };
-    // 36,000 channels between 13,600 nodes, a few hubs holding most, and every one stored.
+    // 36,000 channels between 13,600 nodes, 20 hubs of 1,800 (the largest real node's size)
+    // holding them all, and every one stored.
     let channels: Vec<GraphChannel> = (0..36_000u32)
         .map(|c| GraphChannel {
             scid: (u64::from(c) + 600_000) << 40,
-            nodes: [id(c % 50), id(50 + c % 13_550)],
+            nodes: [id(c % 20), id(20 + c % 13_580)],
             capacity: 100_000 + u64::from(c) * 997 % 50_000_000,
             policies: [
                 Some(graph::policy(c % 3_000, true)),
@@ -1178,6 +1255,24 @@ async fn mainnet_size_routes() -> (Duration, (Duration, String)) {
             slowest = (took, p);
         }
     }
+    // A hub's every active channel at once: the largest 1,000, X-Total-Count all 1,800.
+    let p = format!("/api/v1/lightning/channels?public_key={hub}&status=active&index=-1");
+    let t = std::time::Instant::now();
+    let r = get(&addr, &format!("/regtest{p}")).await;
+    let took = t.elapsed();
+    if took > slowest.0 {
+        slowest = (took, p);
+    }
+    assert_eq!(r.header("x-total-count"), Some("1800"));
+    let all = r.json();
+    let caps: Vec<u64> = all
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["capacity"].as_u64().unwrap())
+        .collect();
+    assert_eq!(caps.len(), 1_000);
+    assert!(caps.is_sorted_by(|a, b| a >= b));
     assert_eq!(calls.load(Ordering::SeqCst), 0);
     (built, slowest)
 }

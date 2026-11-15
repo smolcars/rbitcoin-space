@@ -6,9 +6,11 @@
 // resolves:
 //
 //   cd web && node ../dev/compat/probe.mjs ORIGIN OUT [--control] [--only home,block]
+//     [--network signet] [--node PUBKEY]
 //
-// ORIGIN is our server's mainnet origin, e.g. http://127.0.0.1:PORT; the sample block,
-// transaction and address are taken from it. --control leaves mempool.space's own backend in
+// ORIGIN is our server's origin, e.g. http://127.0.0.1:PORT; the sample block, transaction,
+// address and Lightning node (the best connected, unless --node) are taken from it, on mainnet or
+// --network. --control leaves mempool.space's own backend in
 // place, for comparison. Writes OUT/report.json and a screenshot per page; prints a summary.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -22,16 +24,19 @@ const flag = (name) => {
 };
 const [origin, out] = args;
 if (!origin || !out || origin.startsWith("--")) {
-  console.error("usage: node ../dev/compat/probe.mjs ORIGIN OUT [--control] [--only a,b]");
+  console.error(
+    "usage: node ../dev/compat/probe.mjs ORIGIN OUT [--control] [--only a,b] [--network n] [--node k]",
+  );
   process.exit(2);
 }
 const ours = origin.replace(/\/$/, "");
 const control = args.includes("--control");
 const only = flag("only")?.split(",");
 const REF = "https://mempool.space";
+const net = flag("network") ? `/${flag("network")}` : "";
 
 const get = async (path) => {
-  const r = await fetch(ours + path);
+  const r = await fetch(ours + net + path);
   if (!r.ok) throw new Error(`${path} -> ${r.status}`);
   return r.headers.get("content-type")?.includes("json") ? r.json() : r.text();
 };
@@ -42,6 +47,9 @@ const txid = (await get(`/api/block/${hash}/txids`))[5];
 const tx = await get(`/api/tx/${txid}`);
 const address = tx.vout.map((o) => o.scriptpubkey_address).find(Boolean);
 const unconfirmed = (await get("/api/mempool/recent"))[0].txid;
+const node =
+  flag("node") ??
+  (await get("/api/v1/lightning/nodes/rankings/connectivity").catch(() => []))[0]?.publicKey;
 /** name, path, how long to watch it (ms) */
 const pages = [
   ["home", "/", 25000],
@@ -55,11 +63,16 @@ const pages = [
   ["graphs-mempool", "/graphs/mempool"],
   ["rbf", "/rbf"],
   ["lightning", "/lightning"],
+  ...(node ? [["lightning-node", `/lightning/node/${node}`]] : []),
 ];
 
 mkdirSync(out, { recursive: true });
 const browser = await chromium.launch();
-const report = { control, sample: { height, hash, txid, address, unconfirmed }, pages: {} };
+const report = {
+  control,
+  sample: { network: net || "mainnet", height, hash, txid, address, unconfirmed, node },
+  pages: {},
+};
 
 for (const [name, path, wait = 15000] of pages) {
   if (only && !only.includes(name)) continue;
@@ -75,7 +88,7 @@ for (const [name, path, wait = 15000] of pages) {
     if (m.type() === "error") rec.errors.push(`console: ${m.text().slice(0, 300)}`);
   });
 
-  await page.route(`${REF}/api/**`, async (route) => {
+  await page.route(`${REF}${net}/api/**`, async (route) => {
     const req = route.request();
     const u = new URL(req.url());
     const row = { method: req.method(), path: u.pathname + u.search };
@@ -107,7 +120,7 @@ for (const [name, path, wait = 15000] of pages) {
   const ups = [];
   page.on("close", () => ups.forEach((u) => u.close()));
   await page.routeWebSocket(/\/api\/v1\/ws/, (ws) => {
-    const up = new WebSocket(control ? ws.url() : `${ours.replace(/^http/, "ws")}/api/v1/ws`);
+    const up = new WebSocket(control ? ws.url() : `${ours.replace(/^http/, "ws")}${net}/api/v1/ws`);
     ups.push(up);
     const queue = [];
     up.onopen = () => queue.splice(0).forEach((m) => up.send(m));
@@ -131,7 +144,7 @@ for (const [name, path, wait = 15000] of pages) {
   });
 
   try {
-    await page.goto(REF + path, { waitUntil: "domcontentloaded", timeout: 60000 });
+    await page.goto(REF + net + path, { waitUntil: "domcontentloaded", timeout: 60000 });
     await page.waitForTimeout(wait);
     await page.screenshot({ path: join(out, `${name}.png`) });
   } catch (e) {

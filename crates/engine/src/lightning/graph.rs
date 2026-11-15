@@ -202,6 +202,9 @@ pub struct Index {
     ranked: [Vec<u32>; 3],
     /// When our history starts (the oldest statistics row).
     pub start: Option<u64>,
+    /// Capacity in sats by the addresses its nodes announce: clearnet, Tor only, none
+    /// ([`Index::by_address`]).
+    by_address: [u64; 3],
 }
 
 fn at(i: usize) -> u32 {
@@ -297,6 +300,16 @@ impl Index {
                 past.funded.get(i).map(|f| f.1)
             })
             .collect();
+        // A channel counts once, as its better-reached end: clearnet if either end announces a
+        // clearnet address, else Tor if either announces an onion, else neither.
+        let mut by_address = [0; 3];
+        for (c, end) in channels.iter().zip(&ends) {
+            let reach = |e: &u32| nodes.get(*e as usize).map_or(2, address_kind);
+            let k = end.iter().map(reach).min().unwrap_or(2);
+            if let Some(sum) = by_address.get_mut(k) {
+                *sum += c.capacity;
+            }
+        }
         Self {
             nodes,
             channels,
@@ -304,7 +317,14 @@ impl Index {
             ends,
             ranked,
             start: past.start,
+            by_address,
         }
+    }
+
+    /// Capacity in sats by the addresses its nodes announce: clearnet, Tor only, none. Each
+    /// channel counts once, so the three sum to the graph's capacity.
+    pub fn by_address(&self) -> [u64; 3] {
+        self.by_address
     }
 
     /// Nodes and channels held.
@@ -433,6 +453,25 @@ pub fn bucket(rate: u32) -> u64 {
 }
 
 /// The first `len` hex digits of `id`, lowercase.
+/// 0 a node that announces a clearnet address, 1 only onions, 2 no address.
+fn address_kind(n: &Node) -> usize {
+    let addresses = n
+        .announcement
+        .as_ref()
+        .map_or(&[][..], |a| &a.addresses[..]);
+    let onion = |a: &String| {
+        a.rsplit_once(':')
+            .is_some_and(|(h, _)| h.ends_with(".onion"))
+    };
+    if addresses.iter().any(|a| !onion(a)) {
+        0
+    } else if addresses.is_empty() {
+        2
+    } else {
+        1
+    }
+}
+
 fn hex_prefix(id: &[u8; 33], len: usize) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     id.iter()

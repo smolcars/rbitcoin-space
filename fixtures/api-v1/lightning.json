@@ -1,5 +1,5 @@
 {
- "_about": "Answers of mempool.space's public API (its Lightning backend, last updated 2026-08-30) recorded 2026-11-12, for the shape tests of crates/server/tests/lightning.rs: field names, order and JSON types. Lists are trimmed to one or two items; values are public gossip and chain data. channels?status=open also sent X-Total-Count: 1936.",
+ "_about": "Answers of mempool.space's public API (its Lightning backend, last updated 2026-08-30) recorded 2026-11-12, for the shape tests of crates/server/tests/lightning.rs: field names, order and JSON types. Lists are trimmed to one or two items; values are public gossip and chain data. channels?status=open also sent X-Total-Count: 1936. Recorded 2026-11-15 from the same API: channels_active (status=active&index=0), channels_map (status=active&index=-1: at most 1,000 items, largest first, whatever X-Total-Count says), isp_ranking and channels_geo_node (channels-geo/:pubkey?style=nodepage for a node with no known place).",
  "search": {
   "nodes": [
    {
@@ -407,5 +407,79 @@
    },
    "outputs": {}
   }
- ]
+ ],
+ "channels_active": [
+  {
+   "status": 1,
+   "closing_reason": null,
+   "closing_date": null,
+   "capacity": 500000000,
+   "short_id": "811984x2037x0",
+   "id": "892785849701564416",
+   "fee_rate": 2499,
+   "node": {
+    "alias": "bfx-lnd0",
+    "public_key": "033d8656219478701227199cbd6f670335c8d408a92ae88b962c49d4dc0e83e025",
+    "channels": 573,
+    "capacity": "42515679181"
+   }
+  },
+  {
+   "status": 1,
+   "closing_reason": null,
+   "closing_date": null,
+   "capacity": 500000000,
+   "short_id": "819145x648x0",
+   "id": "900659452377038848",
+   "fee_rate": 2499,
+   "node": {
+    "alias": "bfx-lnd0",
+    "public_key": "033d8656219478701227199cbd6f670335c8d408a92ae88b962c49d4dc0e83e025",
+    "channels": 573,
+    "capacity": "42515679181"
+   }
+  }
+ ],
+ "channels_map": [
+  {
+   "capacity": 500000000,
+   "short_id": "811984x2037x0",
+   "id": "892785849701564416",
+   "node": {
+    "alias": "bfx-lnd0",
+    "public_key": "033d8656219478701227199cbd6f670335c8d408a92ae88b962c49d4dc0e83e025"
+   }
+  },
+  {
+   "capacity": 500000000,
+   "short_id": "819145x648x0",
+   "id": "900659452377038848",
+   "node": {
+    "alias": "bfx-lnd0",
+    "public_key": "033d8656219478701227199cbd6f670335c8d408a92ae88b962c49d4dc0e83e025"
+   }
+  }
+ ],
+ "isp_ranking": {
+  "clearnetCapacity": 318559212416,
+  "torCapacity": 6575452993,
+  "unknownCapacity": 49662903219,
+  "ispRanking": [
+   [
+    "14618,16509",
+    "Amazon.com",
+    177730283066,
+    7705,
+    448
+   ],
+   [
+    "14061",
+    "DigitalOcean",
+    42462766732,
+    1640,
+    139
+   ]
+  ]
+ },
+ "channels_geo_node": []
 }
