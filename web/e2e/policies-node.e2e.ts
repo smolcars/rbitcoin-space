@@ -256,44 +256,74 @@ const SPARE = Number(process.env["E2E_SPARE"] ?? "0");
 /** Phone widths; with `E2E_SWEEP=1`, every 40 px from 320 to 1440 as well. */
 const WIDTHS = SWEEP ? Array.from({ length: 29 }, (_, i) => 320 + i * 40) : [320, 390];
 
-// A figure never parts from its unit and nothing runs past its box at any text size, in the
-// reader's fonts (`E2E_PROSE`): a test a size, each a visitor of its own.
-for (const text of [16, 20, 24, 32]) {
-  test(`at ${text} px text, the longest figures and hostile names hold on every view`, async ({
-    page,
-    browserName,
-  }) => {
-    test.skip(browserName !== "chromium", "only Chromium lets a test set the browser's text size");
-    const cdp = await page.context().newCDPSession(page);
-    await cdp.send("Page.setFontSizes", {
-      fontSizes: { standard: text, fixed: Math.round((text * 13) / 16) },
-    });
-    await serve(page, { ...mainnet(), ...extremes() });
-    const faults: string[] = [];
-    // Each view loaded once and resized through the widths, as a reader turns a phone or drags a
-    // window: a load a width would be one visitor asking more than the server serves one.
-    for (const view of VIEWS) {
-      await page.setViewportSize({ width: WIDTHS[0] ?? 320, height: 800 });
-      await page.goto(`/regtest/lightning/node/${ACINQ}?view=${view}`);
-      await expect(page.getByRole("heading", { name: "At a glance" })).toBeVisible();
-      await expect(page.locator("main [aria-busy='true']")).toHaveCount(0);
-      if (view === "history") await expect(page.getByRole("slider")).toBeVisible();
-      if (SPARE > 0)
-        // The page's own text: the shell round it is not this page's to hold.
-        await page.evaluate((em) => {
-          document.querySelector("main")?.style.setProperty("letter-spacing", `${em}em`);
-        }, SPARE);
-      const toggle = page.locator(".ln-node-card__toggle").first();
-      if (await toggle.isVisible()) await toggle.click();
-      for (const width of WIDTHS) {
-        await page.setViewportSize({ width, height: 800 });
-        await frames(page);
-        faults.push(...(await pageFaults(page)).map((f) => `${width} px, ${view}: ${f}`));
-      }
-    }
-    expect(faults).toStrictEqual([]);
+/** The filter's hint, as wide as the page sets it, against the room its field gives it. */
+const hintCut = (page: Page) =>
+  page.evaluate(() => {
+    const field = document.querySelector<HTMLInputElement>("input.ln-node-input");
+    if (!field || field.getClientRects().length === 0) return null;
+    const hint = getComputedStyle(field, "::placeholder");
+    const own = getComputedStyle(field);
+    const ruler = document.createElement("span");
+    ruler.textContent = field.placeholder;
+    ruler.style.setProperty("position", "absolute");
+    ruler.style.setProperty("white-space", "pre");
+    ruler.style.setProperty("font", hint.font);
+    ruler.style.setProperty("font-family", own.fontFamily);
+    document.body.append(ruler);
+    const need = ruler.getBoundingClientRect().width;
+    ruler.remove();
+    const room =
+      field.clientWidth - Number.parseFloat(own.paddingLeft) - Number.parseFloat(own.paddingRight);
+    return need > room ? `the filter's hint needs ${Math.ceil(need)} px of ${room}` : null;
   });
-}
+
+// A figure never parts from its unit and nothing runs past its box at any text size, in the
+// reader's fonts (`E2E_PROSE`): a test a size, each a visitor of its own. On a touch screen, as a
+// phone is: there a field's text keeps the page's size (global.css).
+test.describe("on a touch screen", () => {
+  test.use({ hasTouch: true });
+  for (const text of [16, 20, 24, 32]) {
+    test(`at ${text} px text, the longest figures and hostile names hold on every view`, async ({
+      page,
+      browserName,
+    }) => {
+      test.skip(
+        browserName !== "chromium",
+        "only Chromium lets a test set the browser's text size",
+      );
+      const cdp = await page.context().newCDPSession(page);
+      await cdp.send("Page.setFontSizes", {
+        fontSizes: { standard: text, fixed: Math.round((text * 13) / 16) },
+      });
+      await serve(page, { ...mainnet(), ...extremes() });
+      const faults: string[] = [];
+      // Each view loaded once and resized through the widths, as a reader turns a phone or drags a
+      // window: a load a width would be one visitor asking more than the server serves one.
+      for (const view of VIEWS) {
+        await page.setViewportSize({ width: WIDTHS[0] ?? 320, height: 800 });
+        await page.goto(`/regtest/lightning/node/${ACINQ}?view=${view}`);
+        await expect(page.getByRole("heading", { name: "At a glance" })).toBeVisible();
+        await expect(page.locator("main [aria-busy='true']")).toHaveCount(0);
+        if (view === "history") await expect(page.getByRole("slider")).toBeVisible();
+        if (SPARE > 0)
+          // The page's own text: the shell round it is not this page's to hold.
+          await page.evaluate((em) => {
+            document.querySelector("main")?.style.setProperty("letter-spacing", `${em}em`);
+          }, SPARE);
+        const toggle = page.locator(".ln-node-card__toggle").first();
+        if (await toggle.isVisible()) await toggle.click();
+        for (const width of WIDTHS) {
+          await page.setViewportSize({ width, height: 800 });
+          await frames(page);
+          faults.push(...(await pageFaults(page)).map((f) => `${width} px, ${view}: ${f}`));
+          const cut = await hintCut(page);
+          if (cut !== null) faults.push(`${width} px, ${view}: ${cut}`);
+        }
+      }
+      expect(faults).toStrictEqual([]);
+    });
+  }
+});
 
 test("a node with one channel, one with no policy, and closes of every kind", async ({ page }) => {
   const n = node();

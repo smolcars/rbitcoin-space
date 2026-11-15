@@ -1743,10 +1743,15 @@
       flex-wrap: wrap;
       max-width: 100%;
     }
-    /* The whole hint in sight: "Peer or channel id". */
+    /* The whole hint in sight: "Peer or channel id". On a touch screen a field's own text stays
+       the page's size (global.css, so the browser never zooms into it); the hint takes a size of
+       its own. */
     .ln-node-input {
-      padding-inline: var(--space-2);
+      padding-inline: var(--space-1);
       font-size: var(--text-xs);
+    }
+    .ln-node-input::placeholder {
+      font-size: 0.7em;
     }
     .ln-node-connect {
       flex-wrap: wrap;
