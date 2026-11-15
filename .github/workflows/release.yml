@@ -352,8 +352,9 @@ jobs:
           # Tor with the proof-of-work defence, as the tor user, under the overlay's hardening.
           test "$(docker image inspect -f '{{.Config.User}}' "$image:$version-$ARCH")" = tor
           run() { docker run --rm --read-only --cap-drop ALL --security-opt no-new-privileges "$image:$version-$ARCH" "$@"; }
-          run --version | grep -q "^Tor version ${version%-r*}\.$"
-          run --list-modules | grep -qx 'pow: yes'
+          # grep reads all of it: -q would stop early and fail the pipe under pipefail.
+          run --version | grep "^Tor version ${version%-r*}\.$" > /dev/null
+          run --list-modules | grep -x 'pow: yes' > /dev/null
           if [ "$GITHUB_EVENT_NAME" = push ]; then
             # The join takes this digest, not the tag, which a concurrent run may move.
             docker push "$image:$version-$ARCH" | tee push.txt
