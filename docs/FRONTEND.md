@@ -345,7 +345,7 @@ A mainnet server 18 minutes after its first sample (keys are sent in another ord
 - **The exit** (`exitSteps`): commitments first, then each transaction after what it spends; a tree transaction is a Leaf when it ends a branch, a Branch otherwise; `ark` reads Transfer. The page names them in its words, Arkade's beside them in muted text.
 - **The picture** (`layout.ts`, drawn by `Tree.tsx` in SVG): the batch trees in quiet ink grown up from their commitments on the Bitcoin line, which runs from the commitment through now to the expiry, this VTXO's branches in the accent, its checkpoints and transfers above the leaves. Without a tree, only the chain's own branch, and the batch's VTXOs as a count. Laid out again on a resize and each minute, never each second. "Play exit" lights the steps at `--dur-slow` each and ends on the wait after an exit; under reduced motion it shows the end at once. The transaction table is its text alternative.
 - **Kept current**: asked again on each new block or reorg, and every 30 s while in view (`POLL_MS`); the server keeps the Arkade answer 30 s, so a block mostly costs a node lookup.
-- **For the Ark entry page**: `entry.ts` exports `arkadeEntry` (label, placeholder, `parse`, `href`) and `arkadeVtxoPath`. The path is built from a parsed outpoint only, hex and digits, so it needs no encoding.
+- **Reached from the Ark entry page** through its entry in `pages/ark/implementations.ts` and `paths.arkadeVtxo` ([`ARK.md`](ARK.md)).
 
 ### Live data
 

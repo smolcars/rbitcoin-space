@@ -86,6 +86,24 @@ const record = (page: Page) =>
     w.seen = [];
     w.at = [];
     const ids = new Map<Element, number>();
+    // A picture's control draws its ring as a stroke on a shape inside it: at least 2 px, visible,
+    // in --color-focus, the colour the site keeps for focus, so a diagram's own strokes never count.
+    const svgRing = (e: SVGElement): boolean => {
+      const probe = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      probe.style.stroke = "var(--color-focus)";
+      e.append(probe);
+      const focus = getComputedStyle(probe).stroke;
+      probe.remove();
+      return [...e.querySelectorAll("*")].some((x) => {
+        const s = getComputedStyle(x);
+        return (
+          s.stroke === focus &&
+          Number.parseFloat(s.strokeWidth) >= 2 &&
+          Number.parseFloat(s.strokeOpacity) > 0 &&
+          s.visibility !== "hidden"
+        );
+      });
+    };
     w.here = (): Stop | null => {
       const e = document.activeElement;
       // A picture's controls are SVG elements (the Arkade exit path's nodes).
@@ -98,13 +116,7 @@ const record = (page: Page) =>
         const s = x && getComputedStyle(x);
         if (s && s.outlineStyle !== "none" && Number.parseFloat(s.outlineWidth) >= 2) ring = true;
       }
-      // A picture's control draws its ring as a stroke on a shape inside it.
-      if (e instanceof SVGElement) {
-        for (const x of e.querySelectorAll("*")) {
-          const s = getComputedStyle(x);
-          if (s.stroke !== "none" && Number.parseFloat(s.strokeWidth) >= 2) ring = true;
-        }
-      }
+      if (e instanceof SVGElement) ring ||= svgRing(e);
       const header = document.querySelector(".site-header");
       const box = e.getBoundingClientRect();
       const bottom =
@@ -431,6 +443,49 @@ test.describe("every page type", () => {
       expect.soft(await moved(page), "movement under reduced motion").toEqual([]);
     });
   }
+});
+
+// The walk's ring check for a picture's controls: a stroke that is always there is no ring.
+test("an SVG control's ring is a focus-coloured stroke, not any stroke it always has", async ({
+  page,
+}) => {
+  await page.goto("/regtest/no/such/page");
+  // Built through the CSSOM: the policy refuses style attributes and elements.
+  await page.evaluate(() => {
+    const ns = "http://www.w3.org/2000/svg";
+    const sheet = new CSSStyleSheet();
+    sheet.replaceSync(
+      "g.probe { outline: none !important } g.ringed:focus-visible circle { stroke: var(--color-focus) }",
+    );
+    document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
+    const svg = document.createElementNS(ns, "svg");
+    for (const [name, stroke] of [
+      ["always", "#888"],
+      ["ringed", "none"],
+    ] as const) {
+      const g = document.createElementNS(ns, "g");
+      g.setAttribute("class", `probe ${name}`);
+      g.setAttribute("tabindex", "0");
+      const c = document.createElementNS(ns, "circle");
+      for (const [k, v] of [
+        ["r", "9"],
+        ["cx", "10"],
+        ["cy", "10"],
+        ["stroke", stroke],
+        ["stroke-width", "2"],
+      ] as const)
+        c.setAttribute(k, v);
+      g.append(c);
+      svg.append(g);
+    }
+    document.querySelector("main")?.prepend(svg);
+  });
+  await record(page);
+  await page.locator("g.always").focus();
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Tab");
+  const { seen } = await noted(page);
+  expect(seen.map((s) => s?.ring)).toStrictEqual([false, true]);
 });
 
 // Escape closes what opened and gives focus back to what opened it.
