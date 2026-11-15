@@ -227,7 +227,7 @@ function Now(props: { stats: Stats | null; before: Before | null }) {
     </Show>
   );
   return (
-    <section aria-labelledby="ln-now-title">
+    <section class="ln-overview-now" aria-labelledby="ln-now-title">
       <SectionHeader title="The network now" id="ln-now-title">
         <Show when={props.stats}>{(s) => <>As of {formatMoment(s().time)}</>}</Show>
       </SectionHeader>

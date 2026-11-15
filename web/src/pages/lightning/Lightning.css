@@ -1980,6 +1980,7 @@
 @layer pages {
   /* The period sits under the page's title, nearer than the gap between sections. */
   .ln-periods {
+    display: flex;
     margin-top: calc(var(--space-4) - var(--space-7));
   }
   .ln-jumps {
@@ -2106,6 +2107,7 @@
   }
   .ln-feed__time {
     grid-area: time;
+    justify-self: end;
     text-align: right;
     color: var(--color-text-muted);
   }
@@ -2131,9 +2133,13 @@
       display: inline;
     }
   }
+  /* A channel id whole on its line; a fee's from and to break between them instead. */
+  .ln-feed__what .ln-id {
+    white-space: nowrap;
+  }
   @media (max-width: 65em) {
     .ln-feed__row {
-      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-columns: auto minmax(0, 1fr);
       grid-template-areas:
         "kind time"
         "what fig"
@@ -2141,7 +2147,7 @@
     }
   }
   /* Large text on a phone: everything one under another, each the row's width. */
-  @media (max-width: 22.5em) {
+  @media (max-width: 15em) {
     .ln-feed__row {
       grid-template-columns: minmax(0, 1fr);
       grid-template-areas: "kind" "time" "what" "fig" "ends";
@@ -2171,6 +2177,15 @@
     }
     .ln-feed__ends {
       row-gap: var(--space-3);
+    }
+  }
+
+  /* A phone at 200% text: the totals at the size of the text round them, as the node page's
+     glance, so a figure fits whole in any reader's font. */
+  @media (max-width: 15em) {
+    .ln-overview-now .ln-stat__value,
+    .ln-overview-now .ln-stat__value .amount {
+      font-size: var(--text-md);
     }
   }
 

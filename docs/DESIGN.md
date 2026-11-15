@@ -552,14 +552,20 @@ Decided while building it:
 
 ```text
 Lightning              (nodes and channels are found from the header's search)
+[24 h | 1 w | 1 m]     (one period for the totals, the movers and the chart)
 The network now ═════════════════════════════════════════ As of 12 Nov, 18:30 UTC
-Channels  Nodes  Capacity  Median fee rate  Median base fee
-(only channels checked against the chain)
+Channels  Nodes  Capacity  Median fee rate  Median base fee   (each: ↑ Up 28 (0.1%))
+As it happens ═══════════════════════════════════════════════════ ● Live [Pause]
+[All | Opens | Closes | Fee changes]   Since 14:02 UTC: 2 opened, 1 closed, 412 fees moved
+kind │ channel │ capacity, or fee from → to │ node ↔ node │ when      (30 rows, its own box)
+Movers ═══════════════════════════════════════════════ Net change, the last week
+[Capacity | Channels]  [Gained | Lost | Either way]
+node, change, now
+Newest nodes ═════════════════════ │ Nodes that left ═══════════════════
+Closes by kind ═════════════════════════════════════════════════ Each day, UTC
+[a bar a day, its kinds stacked]
 Over time ═══════════════════════════════════════════════════ Every ten minutes
-[24 h | 1 w | 1 m | 3 m | 1 y | All]   (since when, with the hatch)
 [area: channels; dashed line: capacity, right axis]
-Newest channels ══════════════════ │ Newest closes ═════════════════════
-channel and ends, capacity, block  │ channel, kind and ends, capacity, block
 Largest nodes ════════════════════ │ Most connected nodes ══════════════
 Node page: name (text, cut), key grouped with copy, "the key is the identity";
   figures; its past │ its fee rates (two bars a row: it charges, its peers charge); addresses and features as chips; channels, open | closed, 25 a page
@@ -571,8 +577,9 @@ Channel page: id, its state as an icon and a word, the two nodes, capacity, age,
 
 Decided while building it:
 
-- **The order answers the visit:** the figures, the history chart, then five-row previews of the largest and best-connected nodes (their "Top 100" in the panel's heading) and of the newest opens and closes. Every Lightning page has the short Overview and Rankings row; a node or channel leads back to the list the reader came from.
-- **What is ours is said, not hidden.** Under the figures, one line says only channels checked against the chain are counted; how, and what the fee figures leave out, is behind "How these figures are made". History starts when this server's peer first synced: with no interval in the address the chart starts there and says so; a chosen interval hatches the time before it. The closed lists say they hold closes seen since then.
+- **The order answers the visit, for an operator:** the totals with their change over the period, what is happening now, who moved, how channels closed, the network over time, then five-row previews of the largest and best-connected nodes (their "Top 100" in the panel's heading). Every Lightning page has the short Overview and Rankings row; a node or channel leads back to the list the reader came from.
+- **The feed is calm.** Batches come at most every 30 s (about 23 fee changes a minute on mainnet, under one open): each lands at once with one flash, never row by row, and a burst says how many it left out. Opens and closes stay a press away in its kind picker when fee changes flood it. It pauses for its button, a pointer or focus in it, and starts paused under reduced motion. A close's kind is its tag: a penalty in the negative tone, a force close in `--ln-caution`. The same tones colour the bars of closes by kind; cooperative and other closes are neutrals.
+- **What is ours is said, not hidden.** Under the figures, one line says only channels checked against the chain are counted; how, and what the fee figures leave out, is behind "How these figures are made". History starts when this server's peer first synced: the chart hatches the time before it and says since when, and closes by kind hatch the days before it. The closed lists say they hold closes seen since then.
 - **A close says how sure it is,** beside its kind: "Force close · Certain", "Cooperative close · Likely" (a splice that only takes funds out looks the same), "Penalty · Certain", "Other · Certain it is not a plain close". Lists give the kind in one word; the channel page gives the reason.
 - **Charts are drawn in the series colours,** as the mining charts are: the main series an area, the second a dashed line on its own scale. Capacity in the figures reads in magnitude (`3 199 BTC`).
 - **Names are claims.** A node's name is text, cut short in lists and titles with the rest one press away, and isolated so its direction cannot run into the text beside it; its public key is always next to it. A node's announced colour appears once, in its Identity section, as a small swatch beside its `#rrggbb` value, a claim like its name; nowhere else does it colour anything.
