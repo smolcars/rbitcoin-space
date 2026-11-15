@@ -824,7 +824,7 @@ Answered from an index of the verified graph that the server rebuilds every 30 s
 | `q` (a node's channels) | 1 to 66 characters once percent-decoded and trimmed, valid UTF-8, no control character | `400 filter text is 1 to 66 characters, without control characters` |
 | `peer` | 66 hex digits, as `:key` | `400 invalid public key: 66 hex digits` |
 | `state` (open channels) | `active`, `here`, `peer` or `inactive` | `400` |
-| `fee` (open channels) | `out:` or `in:`, then a bucket of the node's fee histogram (0 to 9, then 10, 20 … 90, 100, 200 … 900, 1000, 2000 …, up to 4,294,967,295) or `none` | `400` |
+| `fee` (open channels) | `out:` or `in:`, then a bucket of the node's fee histogram (0 to 9, then 10, 20 … 90, 100, 200 … 900, 1000, 2000 …, up to 4,294,967,000) or `none` | `400` |
 | `kind` (closed channels) | `cooperative`, `force`, `penalty` or `other` | `400` |
 
 A parameter given twice is `400`, and so is `state` or `fee` with `status=closed`, `kind` with open channels, and a `sort` of the other status. `/app` routes that take parameters (search, rankings, a node's channels, the overview, which takes none) refuse unknown ones, and the others ignore a query string; `/api/v1` routes ignore unknown parameters, like every `/api/v1` query, so cache-busting works. A node or channel we do not hold is `404` (`node not found`, `channel not found`); a page past the end is an empty list. A node is held while it has an open channel in the graph.
