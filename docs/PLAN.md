@@ -29,12 +29,12 @@ Liquid, the accelerator, translations, the Lightning world map, and address-pref
 The repository builds, tests and merges quickly.
 - Rust workspace and a server that answers `/healthz` and serves the frontend.
 - Frontend skeleton.
-- CI inside its 3-minute budget.
+- CI inside its 4-minute budget.
 - A regtest harness: rbitcoin in Docker with scripts to mine and transact.
 - The parity inventory in [`COMPAT.md`](COMPAT.md).
 - A design language and a static prototype.
 
-**Done when:** a change to either the server or the frontend goes from push to green in under 3 minutes, and `dev/regtest/regtest.py up` gives a working regtest node.
+**Done when:** a change to either the server or the frontend goes from push to green in under 4 minutes, and `dev/regtest/regtest.py up` gives a working regtest node.
 
 ### M1 — Explorer skeleton
 A usable explorer for confirmed data.

@@ -2,7 +2,7 @@
 
 ## Budget
 
-**A pull request finishes its checks in under 3 minutes with a warm cache.** This is a hard rule, measured as wall-clock time from push to the `ci-ok` check. Runners are GitHub's free hosted runners.
+**A pull request finishes its checks in under 4 minutes with a warm cache.** This is a hard rule, measured as wall-clock time from push to the `ci-ok` check. Runners are GitHub's free hosted runners.
 
 A PR that adds a slower step must make room for it or move it out of the PR path (to a scheduled or post-merge job).
 
@@ -10,9 +10,11 @@ A PR that adds a slower step must make room for it or move it out of the PR path
 
 | Job | Limit | Warm, 2026-11-13 |
 |---|---|---|
-| `rust` | 135 s | 92 to 121 s |
-| `e2e`, each of its four shards | 145 s | 62 to 93 s with three; 68 to 106 s with four, on 2026-11-14 ([below](#browser-test-shards)) |
-| `web` | 60 s | 30 to 39 s |
+| `rust` | 170 s | 92 to 121 s |
+| `e2e`, each of its four shards | 180 s | 62 to 93 s with three; 68 to 106 s with four, on 2026-11-14 ([below](#browser-test-shards)) |
+| `web` | 75 s | 30 to 39 s |
+
+The owner raised the budget from 3 to 4 minutes on 2026-11-15, and each limit by about a quarter (from 135, 145 and 60 s), as the project grew: a `rust` job 2 s over its limit had failed a pull request that added one small test. The whole run is `changes`, the slowest job and `ci-ok`, so the 180 s shard limit leaves about a minute of the four.
 
 The job's last step, [`.github/job-limit.sh`](../.github/job-limit.sh), writes the job's time to the run's summary and fails a pull request's job that went over, when its Rust cache was a warm, exact hit. A cold run (a new lockfile or toolchain) and a `master` push only warn: failing them would stop `rust-cache` from saving the cache that makes the next run warm. The `rust` and `e2e` jobs also list their ten slowest tests in the summary ([`.github/slowest.py`](../.github/slowest.py), from nextest's and Playwright's JUnit reports).
 

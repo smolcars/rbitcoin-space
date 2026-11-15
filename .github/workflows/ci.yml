@@ -1,6 +1,6 @@
 name: CI
 
-# The budget is under 3 minutes wall-clock with a warm cache; each job also has its own limit,
+# The budget is under 4 minutes wall-clock with a warm cache; each job also has its own limit,
 # checked by its last step (docs/CI.md "Budget").
 on:
   pull_request:
@@ -83,7 +83,7 @@ jobs:
       CARGO_PROFILE_DEV_DEBUG: 0
       CARGO_TERM_COLOR: always
       # The job's limit in seconds, a little above its time on the day it was set (docs/CI.md).
-      JOB_LIMIT: 135
+      JOB_LIMIT: 170
       NEXTEST_VERSION: 0.9.149
       NEXTEST_SHA256: 32d1d8c0567b7a80bee2bad8bb09125c846da96bc009b2de11ec08557290c770
     steps:
@@ -129,7 +129,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
-      JOB_LIMIT: 60
+      JOB_LIMIT: 75
     defaults:
       run:
         working-directory: web
@@ -174,7 +174,7 @@ jobs:
       CARGO_TERM_COLOR: always
       E2E_SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
       # Each shard's limit, with room for the pages being added (docs/CI.md "Browser test shards").
-      JOB_LIMIT: 145
+      JOB_LIMIT: 180
     steps:
       - run: echo "JOB_STARTED=$(date +%s)" >> "$GITHUB_ENV"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

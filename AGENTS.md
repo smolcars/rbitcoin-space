@@ -8,7 +8,7 @@ rbitcoin.space is a block explorer built for rbitcoin v0.9.2. Read [`docs/ARCHIT
 2. **Never broadcast a transaction on mainnet, and never call a write RPC on a shared node.** That includes probing a write route with a malformed body to see whether it exists: the request still reaches the node. Test writes on regtest ([`docs/REGTEST.md`](docs/REGTEST.md)).
 3. **Never read or copy mempool.space source code.** It is AGPL and this project is MIT. Work from its observable API behaviour and write everything in your own words.
 4. **Never weaken a rule in [`docs/SECURITY.md`](docs/SECURITY.md) to make something work.** If a rule blocks you, say so in the PR.
-5. **Never push CI over its budget.** A PR must finish its checks in under 3 minutes with a warm cache ([`docs/CI.md`](docs/CI.md)).
+5. **Never push CI over its budget.** A PR must finish its checks in under 4 minutes with a warm cache ([`docs/CI.md`](docs/CI.md)).
 6. **Never edit [`docs/TODO.md`](docs/TODO.md).** The orchestrator owns it.
 
 ## Workflow
