@@ -16,3 +16,4 @@
 0014_ledger_fill.sql 66ab8f51bc5f5097
 0015_ledger_history.sql cdec14a372a06540
 0016_ledger_history_taken.sql 8a45e3b480ecf367
+0017_lightning_closes.sql 34fc6cdf3df8d943

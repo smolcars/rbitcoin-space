@@ -819,8 +819,15 @@ Answered from an index of the verified graph that the server rebuilds every 30 s
 | `page` (ours) | 0 to 4,000, 25 channels a page | `400` |
 | `index` (reference) | An offset, 0 to 100,000, 10 channels a page | `400` |
 | `limit` (rankings) | 1 to 100, default 25, as for the channel lists above | `400` |
+| `sort` (a node's channels) | Open: `capacity` (the default), `age`, `out`, `in`, `cltv`, `htlc`, `update`, `peer`. Closed: `closed` (the default), `capacity`, `fee`, `lived` | `400` |
+| `dir` | `asc` or `desc` | `400 dir is asc or desc` |
+| `q` (a node's channels) | 1 to 66 characters once percent-decoded and trimmed, valid UTF-8, no control character | `400 filter text is 1 to 66 characters, without control characters` |
+| `peer` | 66 hex digits, as `:key` | `400 invalid public key: 66 hex digits` |
+| `state` (open channels) | `active`, `here`, `peer` or `inactive` | `400` |
+| `fee` (open channels) | `out:` or `in:`, then a bucket of the node's fee histogram (0 to 9, then 10, 20 … 90, 100, 200 … 900, 1000, 2000 …, up to 4,294,967,295) or `none` | `400` |
+| `kind` (closed channels) | `cooperative`, `force`, `penalty` or `other` | `400` |
 
-A parameter given twice is `400`. `/app` routes that take parameters (search, rankings, a node's channels, the overview, which takes none) refuse unknown ones, and the others ignore a query string; `/api/v1` routes ignore unknown parameters, like every `/api/v1` query, so cache-busting works. A node or channel we do not hold is `404` (`node not found`, `channel not found`); a page past the end is an empty list. A node is held while it has an open channel in the graph.
+A parameter given twice is `400`, and so is `state` or `fee` with `status=closed`, `kind` with open channels, and a `sort` of the other status. `/app` routes that take parameters (search, rankings, a node's channels, the overview, which takes none) refuse unknown ones, and the others ignore a query string; `/api/v1` routes ignore unknown parameters, like every `/api/v1` query, so cache-busting works. A node or channel we do not hold is `404` (`node not found`, `channel not found`); a page past the end is an empty list. A node is held while it has an open channel in the graph.
 
 **Search** matches public keys by prefix (hex, any case) in key order, then aliases by substring (Unicode lowercase on both sides), most capacity first: at most 10 nodes. A query that parses as a channel id also returns that channel, open or closed. Its cost is a binary search and one pass over at most 13,600 aliases of at most 32 bytes, whatever the query: 0.5 ms on mainnet.
 
@@ -828,7 +835,7 @@ A parameter given twice is `400`. `/app` routes that take parameters (search, ra
 
 ##### `/app/lightning/…`
 
-What the Lightning pages read; one request for each page's main content. Real mainnet answers, 2026-11-12, trimmed where `…`.
+What the Lightning pages read; one request for each page's main content. Real mainnet answers, 2026-11-12 (the node page 2026-11-15), trimmed where `…`.
 
 | Route | Answer |
 |---|---|
@@ -836,7 +843,7 @@ What the Lightning pages read; one request for each page's main content. Real ma
 | `GET /search?q=` | `{nodes: [{id, alias, capacity, channels}], channels: [{id, scid, capacity, state}]}` |
 | `GET /rankings/:by` | `by` is `capacity`, `channels` or `age` (oldest first funding first); `{by, nodes: [{id, alias, capacity, channels, first_seen, last_update}]}`, `?limit=` up to 100 |
 | `GET /nodes/:key` | The node page: below |
-| `GET /nodes/:key/channels?status=&page=` | `{status, page, per_page, total, channels}`: open channels largest first, from the index; closed ones newest close first, from the store |
+| `GET /nodes/:key/channels?status=&page=&sort=&dir=&q=&peer=&state=&fee=&kind=` | `{status, page, per_page, total, sort, dir, channels}`, and for open channels `states`: open channels from the index, largest first unless sorted otherwise; closed ones from the store, newest close first unless sorted otherwise ([below](#a-nodes-channels)) |
 | `GET /nodes/:key/history` | `{from, points: [{time, channels, capacity}]}`: the node's open channels and capacity at each UTC midnight since `from` (when our history starts: the first statistics snapshot; `null` before it), at the block time of each of its channels' opens and closes after the first midnight, then now, oldest first. A chart steps at the changes rather than drawing a slope between midnights |
 | `GET /channels/:id` | The channel page: below. Open or closed |
 | `GET /tx/:txid` | `{opened, closed}`: the channels this transaction funded and closed, each as in the channel lists above. For the transaction page |
@@ -849,14 +856,24 @@ GET /app/lightning/nodes/03864ef025fde8fb587d989186ce6a4a186895ee44a926bfc370e2c
  "addresses": ["3.33.236.230:9735", "of7husrflx7sforh3fw6yqlpwstee3wg5imvvmkp4bz6rbjxtg5nljad.onion:9735"],
  "features": [{"bit": 0, "name": "data-loss-protect", "required": true}, {"bit": 7, "name": "gossip-queries", "required": false}, …],
  "features_hex": "a00098a82a8a6981", "last_update": 1794051404, "first_seen": 1551152144,
- "capacity": 27383219285,
- "channels": {"open": 1807, "active": 1729, "closed": 0, "cooperative": 0, "force": 0, "penalty": 0, "other": 0},
- "fees": {"incoming": [{"bucket": null, "count": 77, "capacity": 156929566}, {"bucket": 0, "count": 60, "capacity": 1146048852}, …],
-          "outgoing": [{"bucket": null, "count": 60, "capacity": 91707732}, {"bucket": 400, "count": 1481, "capacity": 6377292455}, …]},
- "open_channels": {"status": "open", "page": 0, "per_page": 25, "total": 1807, "channels": [
-   {"id": "811984x2037x0", "scid": "892785849701564416", "capacity": 500000000, "state": "active",
-    "peer": {"id": "033d8656…e025", "alias": "bfx-lnd0"}, "fee_rate": 2499, "closed": null}, …]}}
+ "capacity": 28450936325, "rank": {"capacity": 3, "channels": 1, "of": 13618},
+ "channels": {"open": 1804, "active": 1741, "closed": 33, "cooperative": 13, "force": 20, "penalty": 0, "other": 0},
+ "figures": {"capacity": {"median": 1965000, "smallest": 100000, "largest": 500000000},
+             "funded": {"median": 1772013542, "oldest": 1551152144, "youngest": 1794694919},
+             "states": {"active": 1684, "here": 37, "peer": 20, "inactive": 63},
+             "fee_rates": {"outgoing": {"median": 499, "weighted": 1538, "lowest": 499, "highest": 3999, "policies": 1750},
+                           "incoming": {"median": 100, "weighted": 1829, "lowest": 0, "highest": 2000000, "policies": 1736}}},
+ "fees": {"incoming": [{"bucket": null, "count": 68, "capacity": 158964561}, {"bucket": 0, "count": 60, "capacity": 1144632090}, …],
+          "outgoing": [{"bucket": null, "count": 54, "capacity": 128336005}, {"bucket": 400, "count": 1473, "capacity": 6323026212}, …]},
+ "open_channels": {"status": "open", "page": 0, "per_page": 25, "total": 1804, "sort": "capacity", "dir": "desc",
+   "states": {"active": 1684, "here": 37, "peer": 20, "inactive": 63}, "channels": [
+   {"id": "811984x2037x0", "scid": "892785849701564416", "capacity": 500000000, "state": "active", "op_state": "active",
+    "peer": {"id": "033d8656…e025", "alias": "bfx-lnd0", "capacity": 32461828251, "channels": 544}, "with_peer": 10,
+    "fee_rate": 2499, "own_policy": {"fee_rate": 2499, "base_fee_msat": 1000, "cltv_delta": 144, …}, "peer_policy": {"fee_rate": 1, …},
+    "last_update": 1794550008, "funded": 1697189564, "closed": null}, …]}}
 ```
+
+`rank` is the node's place among the nodes held by capacity and by open channels (1 the largest, ties broken as the rankings break them) and how many nodes that is out of. `figures` are over its open channels: `capacity` and `funded` (funding block times, `null` while none is stored) as median, smallest and largest; `states`, the channels in each operator state (below); and `fee_rates`, `outgoing` for the rates it charges and `incoming` for those its peers charge toward it, each `{median, weighted, lowest, highest, policies}` over the channels with a policy that way: `weighted` is the average weighted by capacity, leaving out rates above 1,000,000 ppm as the network's averages do; `null` with no policy. Medians are the lower middle value, as everywhere here. `open_channels` is the first page of the channel list's default view.
 
 `features` names a bit by BOLT 9 (`null` when it names none); `fees` buckets the fee rates others charge into the node (`incoming`) and the node charges (`outgoing`) over its open channels: exact under 10 ppm, then rounded down to tens, hundreds and, from 1,000, thousands; `null` counts channels with no policy that way. A closed channel in a list has `"fee_rate": null` and `closed` as below.
 
@@ -882,6 +899,32 @@ GET /app/lightning/rankings/capacity?limit=2
                              {"id": "03a1f3af…a72f", "alias": "Binance", "capacity": 32315912432, "channels": 130, "first_seen": 1705383088, "last_update": 1794504053}]}
 GET /app/lightning/nodes/03864ef0…3f8f/history   (before the first statistics snapshot)
 {"from": null, "points": [{"time": 1794505190, "channels": 1807, "capacity": 27383219285}]}
+```
+
+###### A node's channels
+
+`GET /app/lightning/nodes/:key/channels` sorts and filters a node's channels for its operator, 25 a page, the work in proportion to the node's own channels.
+
+**Open channels** sort by `capacity`; `age`, funding block time (`desc`, oldest first); `out`, this node's fee rate; `in`, the peer's fee rate; `cltv`, this node's CLTV delta; `htlc`, this node's max HTLC; `update`, the newer policy's time; and `peer`, the peer's total capacity. Without `dir`: `asc` for `out`, `in` and `cltv`, `desc` for the others. A channel without the figure (no policy that way, or a funding time not stored yet) comes last both ways, and ties go by channel id, lowest first, so pages are stable. The filters combine:
+
+- `q` keeps the channels whose peer's alias contains the text (lowercased both sides), whose peer's key starts with it (hex, any case), or whose id is the text in either form.
+- `peer` keeps the channels with one peer.
+- `state` keeps one operator state: `active` both ends on, `here` only this node's end off, `peer` only the peer's end off, `inactive` both off. An end is off when its policy is disabled or there is none.
+- `fee` keeps one bar of the node's fee histogram: `out:` this node's rate (the histogram's `outgoing`), `in:` the peer's (`incoming`), the bucket's lower bound or `none` for no policy that way.
+
+`total` counts what every filter keeps; `states` counts the channels in each state that every filter but `state` keeps, for the filter's own buttons. A row is `{id, scid, capacity, state, op_state, peer: {id, alias, capacity, channels}, with_peer, fee_rate, own_policy, peer_policy, last_update, funded, closed}`: `op_state` the state above; the peer's own capacity and open channels; `with_peer`, this node's open channels with that peer; `fee_rate`, `own_policy` and `peer_policy` as the channel route serves them (`null` where none); `last_update`, the newer policy's time; `funded`, the funding block's time, `null` until stored; `closed`, `null`.
+
+**Closed channels** sort by `closed`, the closing height; `capacity`; `fee`, the closing fee (unknown last both ways); or `lived`, from funding to closing block time; `desc` without `dir`, and ties newest close, then newest funding, first. `kind` keeps one kind, `penalty` taking in force closes later found to be breaches, as the node's counts do; `peer` one peer; `q` a channel id in either form, a peer key prefix, or the alias of a peer still in the graph (one that has left it is found by its key only). A row is `{id, scid, capacity, state, peer, fee_rate: null, funded, closed, continued_as}`, `continued_as` the id of the channel its close funded (as on [the channel route](#applightning)) or `null`, the peer's `capacity` and `channels` `null` when it has no open channel.
+
+```json
+GET /app/lightning/nodes/03864ef0…3f8f/channels?status=closed
+{"status": "closed", "page": 0, "per_page": 25, "total": 33, "sort": "closed", "dir": "desc", "channels": [
+  {"id": "745253x717x0", "scid": "819414339181936640", "capacity": 400000, "state": "closed",
+   "peer": {"id": "037591d5…8779", "alias": "PirateHash", "capacity": 37050, "channels": 1}, "fee_rate": null, "funded": 1657986467,
+   "closed": {"block": {"height": 975867, …}, "txid": "a52b26e5…679c", "kind": "force", "fee": 304}, "continued_as": null}, …]}
+GET /app/lightning/nodes/03864ef0…3f8f/channels?sort=out&state=here&q=lnd
+{"status": "open", "page": 0, "per_page": 25, "total": 2, "sort": "out", "dir": "asc",
+ "states": {"active": 61, "here": 2, "peer": 0, "inactive": 0}, "channels": […]}
 ```
 
 ##### `/api/v1/lightning/…`
@@ -913,7 +956,21 @@ Values and their differences from the reference:
 - **Feature names** follow BOLT 9 (`gossip-queries-ex`, `route-blinding`, `dual-fund`, `quiesce`, `onion-messages` where the reference says `unknown`); implementation-specific bits the reference names (31 `amp`, 2023 `script-enforced-lease`) are `unknown` here.
 - **Errors** are our `{"error": …}` model; the reference answers some with plain text (`Channel not found`).
 
-**Cost.** Measured on mainnet (36,223 channels, 13,639 nodes), release build, a client on the same machine, three requests each: every route answered in 0.3 to 0.9 ms, first and repeated alike, except the three that read a node's rows from the store (its closed channels, `/history` and `/statistics`, 1.5 to 2.6 ms for ACINQ's 1,807 channels). The largest answers are the 100-node rankings (25 KB) and the overview (7 KB). A test builds a graph of mainnet's size and checks every route answers it without the node (`crates/server/tests/lightning.rs`); an ignored one beside it holds each under 250 ms in a debug build, on a machine with nothing else running.
+**Cost.** Measured on mainnet (36,223 channels, 13,639 nodes), release build, a client on the same machine, three requests each: every route answered in 0.3 to 0.9 ms, first and repeated alike, except the three that read a node's rows from the store (its closed channels in the reference's shape, `/history` and `/statistics`, 1.5 to 2.6 ms for ACINQ's 1,807 channels). The largest answers are the 100-node rankings (25 KB) and the overview (7 KB). A test builds a graph of mainnet's size and checks every route answers it without the node (`crates/server/tests/lightning.rs`); an ignored one beside it holds each under 250 ms in a debug build, on a machine with nothing else running.
+
+**Cost of a node's channel views and figures.** Measured 2026-11-15 on the retired demo's store and a freshly synced graph (36,224 channels, 13,618 nodes), release build, the server's own `duration_ms` over 15 requests each, on a machine shared with other builds (load 2 to 10): least and median.
+
+| Request | ms |
+|---|---|
+| ACINQ, the most channels (1,804): each of the 8 sorts, both ways, page 0 | 0.35 to 0.45, median 0.4 to 0.85 |
+| ACINQ, a late page (72), by capacity and by peer | 0.24 to 0.31 |
+| ACINQ, text: `q=lnd`, `q=02`; 66 hostile characters; all four filters at once | 0.5 to 0.6; 0.26; 0.25 |
+| ACINQ, the node answer with rank and figures | 1.25, median 1.4 |
+| Binance, the largest by capacity (129 channels): every sort, filter and page, and its node answer | 0.08 to 0.4, median up to 1.1 (the load rose to 9 meanwhile) |
+| Closed lists: ACINQ (33 closes); the node with the most closes in the store (63), by close, by lifetime, filtered | 0.42; 0.25 to 1 median |
+| A channel with lineage both ways; one without | 0.3; 0.27 to 0.3 |
+
+Single requests reached 3 to 11 ms while other builds loaded the machine; the least is the code's own cost. Two changes brought it there. The index keeps both nodes' places for every channel, so a list reads each channel's peer and funding time directly: looking each up by binary search had cost ACINQ's lists 1 to 4.5 ms. And a node's closes are read through `0017`'s partial indexes on closed rows, one per end, instead of through the node indexes, which read every open row too (1.4 to 2 ms for ACINQ, now 0.4). The index with funding times, places and ends builds in 25 to 28 ms, as before.
 
 ## Using it from the frontend
 

@@ -640,3 +640,397 @@ async fn the_totals_at_the_first_sync_stand_in_until_a_newer_snapshot_is_stored(
         Some(point(1_000_200, 1_066))
     );
 }
+
+/// A node's channels as its operator reads them: sorts, filters, counts, refusals, rank and
+/// figures, straight from an index, without a server.
+mod operators {
+    #![allow(clippy::panic)]
+
+    use super::nodes::{
+        ClosedQuery, ClosedSort, OpState, OpenQuery, OpenSort, Text, View, channel_view,
+        closed_list, figures, open_list, open_page,
+    };
+    use super::*;
+    use engine::lightning::{
+        Announcement, Block, Close, GraphChannel, GraphNode, Index, Kind, Open, Past, Penalty,
+        Policy,
+    };
+
+    const T: u64 = 1_790_000_000;
+    const U: u32 = 1_790_000_000;
+    const DAY: u64 = 86_400;
+
+    fn key(n: u8) -> [u8; 33] {
+        let mut k = [n; 33];
+        k[0] = 3;
+        k
+    }
+
+    fn pol(fee_rate: u32, enabled: bool, cltv: u16, max_htlc: u64, update: u32) -> Option<Policy> {
+        Some(Policy {
+            fee_rate,
+            base_fee_msat: 1_000,
+            cltv_delta: cltv,
+            min_htlc_msat: 1_000,
+            max_htlc_msat: max_htlc,
+            enabled,
+            last_update: U + update,
+        })
+    }
+
+    fn sc(n: u64) -> u64 {
+        (800_000 + n) << 40
+    }
+
+    /// Node 1 with five channels: c1 and c4 with peer 2 ("Bitfinex"), c2 with 3 (markup for a
+    /// name), c3 with 4 (no name, no funding time stored), c5 with 6 (announced as node one, no
+    /// policies). Peers 2 and 3 share c6. Node 4 has one channel; node 6 none with a policy.
+    fn index() -> Index {
+        let ch = |n: u64, nodes, capacity, policies| GraphChannel {
+            scid: sc(n),
+            nodes,
+            capacity,
+            policies,
+        };
+        let channels = vec![
+            ch(
+                1,
+                [key(1), key(2)],
+                5_000_000,
+                [pol(100, true, 40, 1_000_000, 5), pol(10, true, 9, 9, 1)],
+            ),
+            ch(
+                2,
+                [key(1), key(3)],
+                2_000_000,
+                [pol(500, false, 144, 5_000_000, 2), pol(1, true, 9, 9, 9)],
+            ),
+            ch(
+                3,
+                [key(1), key(4)],
+                2_000_000,
+                [None, pol(2_000, true, 9, 9, 3)],
+            ),
+            ch(
+                4,
+                [key(1), key(2)],
+                1_000_000,
+                [pol(100, true, 80, 2_000_000, 4), pol(5, false, 9, 9, 1)],
+            ),
+            ch(5, [key(6), key(1)], 3_000_000, [None, None]),
+            ch(6, [key(2), key(3)], 10_000_000, [None, None]),
+        ];
+        let named = |n: u8, alias: &str| GraphNode {
+            id: key(n),
+            announcement: Some(Announcement {
+                alias: alias.to_owned(),
+                color: [0; 3],
+                addresses: Vec::new(),
+                features: Vec::new(),
+                last_update: U,
+            }),
+        };
+        let nodes = vec![named(2, "Bitfinex"), named(3, "<b>Kraken</b>")];
+        let past = Past {
+            funded: [1, 2, 4, 5, 6]
+                .iter()
+                .map(|n| (sc(*n), T + (n - 1) * DAY))
+                .collect(),
+            ..Past::default()
+        };
+        Index::build(nodes, channels, &past)
+    }
+
+    fn ids(list: &[engine::lightning::Link<'_>]) -> Vec<u64> {
+        list.iter()
+            .map(|l| (l.channel.scid >> 40) - 800_000)
+            .collect()
+    }
+
+    fn view(raw: &str) -> Result<View, ApiError> {
+        channel_view(Some(raw)).map(|v| v.0)
+    }
+
+    fn open(raw: &str) -> OpenQuery {
+        match view(raw) {
+            Ok(View::Open(q)) => q,
+            other => panic!("{raw}: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn every_sort_goes_both_ways_with_missing_figures_last_and_ties_by_id() {
+        let i = index();
+        let n = i.node(&key(1)).unwrap();
+        for (sort, desc, asc) in [
+            ("capacity", [1, 5, 2, 3, 4], [4, 2, 3, 5, 1]),
+            // Oldest first; c3 has no funding time.
+            ("age", [1, 2, 4, 5, 3], [5, 4, 2, 1, 3]),
+            ("out", [2, 1, 4, 3, 5], [1, 4, 2, 3, 5]),
+            ("in", [3, 1, 4, 2, 5], [2, 4, 1, 3, 5]),
+            ("cltv", [2, 4, 1, 3, 5], [1, 4, 2, 3, 5]),
+            ("htlc", [2, 4, 1, 3, 5], [1, 4, 2, 3, 5]),
+            ("update", [2, 1, 4, 3, 5], [3, 4, 1, 2, 5]),
+            ("peer", [1, 4, 2, 5, 3], [3, 5, 2, 1, 4]),
+        ] {
+            for (dir, want) in [("desc", desc), ("asc", asc)] {
+                let q = open(&format!("sort={sort}&dir={dir}"));
+                assert_eq!(ids(&open_list(&i, n, &q).0), want, "{sort} {dir}");
+            }
+        }
+        // Without `dir`, each sort's own first direction; the default is today's order.
+        assert_eq!(open(""), OpenQuery::default());
+        assert!(!open("sort=out").desc);
+        assert!(open("sort=age").desc);
+    }
+
+    #[test]
+    fn filters_combine_and_the_state_counts_follow_the_other_filters() {
+        let i = index();
+        let n = i.node(&key(1)).unwrap();
+        let list = |raw: &str| {
+            let (l, counts) = open_list(&i, n, &open(raw));
+            (ids(&l), counts)
+        };
+        // Both ends on, this end off (disabled, or no policy), the peer's off, both off.
+        assert_eq!(list(""), (vec![1, 5, 2, 3, 4], [1, 2, 1, 1]));
+        assert_eq!(list("state=here"), (vec![2, 3], [1, 2, 1, 1]));
+        assert_eq!(list("state=inactive"), (vec![5], [1, 2, 1, 1]));
+        // Text: an alias in any case, a key prefix, a channel id in either form, markup as text.
+        assert_eq!(list("q=BITF").0, [1, 4]);
+        assert_eq!(list("q=030303").0, [2]);
+        assert_eq!(list(&format!("q={}", scid_text(sc(3)))).0, [3]);
+        assert_eq!(list(&format!("q={}", sc(3))).0, [3]);
+        assert_eq!(list("q=%3Cb%3Ekr").0, [2]);
+        assert_eq!(list("q=nobody").0, Vec::<u64>::new());
+        // One peer, then with a state: counts are within the peer.
+        let two = hex(&key(2));
+        assert_eq!(list(&format!("peer={two}")), (vec![1, 4], [1, 0, 1, 0]));
+        assert_eq!(
+            list(&format!("peer={two}&state=peer")),
+            (vec![4], [1, 0, 1, 0])
+        );
+        // A bar of the fee histogram, each way, "no policy" included.
+        assert_eq!(list("fee=out:100").0, [1, 4]);
+        assert_eq!(list("fee=out:none").0, [5, 3]);
+        assert_eq!(list("fee=in:2000").0, [3]);
+        assert_eq!(list("fee=in:none").0, [5]);
+        assert_eq!(list("fee=in:1&state=here&q=kraken").0, [2]);
+        assert_eq!(list("fee=in:1&state=active").0, Vec::<u64>::new());
+        // A page past the end: empty, with the total.
+        let p = open_page(&i, n, &OpenQuery::default(), 4_000);
+        assert_eq!(
+            (p["total"].clone(), p["channels"].clone()),
+            (5.into(), serde_json::json!([]))
+        );
+        let p = open_page(&i, n, &OpenQuery::default(), 0);
+        assert_eq!(
+            p["states"],
+            serde_json::json!({"active": 1, "here": 2, "peer": 1, "inactive": 1})
+        );
+        // c5 names node 1 second: its own end is still found.
+        let c5 = &p["channels"][1];
+        assert_eq!(
+            (c5["id"].as_str(), c5["op_state"].as_str()),
+            (Some(scid_text(sc(5)).as_str()), Some("inactive"))
+        );
+        assert_eq!(p["channels"][0]["with_peer"], 2);
+        assert_eq!(p["channels"][0]["peer"]["capacity"], 16_000_000);
+    }
+
+    #[test]
+    fn bad_parameters_are_refused_before_anything_is_read() {
+        let long = "a".repeat(67);
+        for raw in [
+            "sort=fee",
+            "sort=capacity&sort=age",
+            "dir=up",
+            "state=on",
+            "state=Active",
+            "fee=out:150",
+            "fee=out:-1",
+            "fee=up:100",
+            "fee=out",
+            "fee=out:4294967296",
+            "peer=03",
+            "q=",
+            "q=+++",
+            "q=a%07b",
+            "q=a%0Ab",
+            &format!("q={long}"),
+            "q=%FF",
+            "x=1",
+            "page=4001",
+            "status=all",
+            "status=closed&state=active",
+            "status=closed&fee=in:none",
+            "status=closed&sort=age",
+            "status=open&kind=force",
+            "status=closed&kind=breach",
+        ] {
+            assert!(view(raw).is_err(), "{raw}");
+        }
+        // Errors say what was wrong, and nothing about the server.
+        assert_eq!(
+            view("state=on").unwrap_err(),
+            ApiError::bad_request("state is active, here, peer or inactive")
+        );
+        assert_eq!(
+            view("q=a&q=b").unwrap_err(),
+            ApiError::bad_request("query parameter given twice")
+        );
+        assert_eq!(
+            view("x=1").unwrap_err(),
+            ApiError::bad_request("unknown query parameter")
+        );
+        // Text is trimmed and up to 66 characters, any script.
+        assert!(view(&format!("q={}", "é".repeat(66))).is_ok());
+        assert_eq!(
+            view("status=closed&sort=lived&dir=asc&kind=penalty"),
+            Ok(View::Closed(ClosedQuery {
+                sort: ClosedSort::Lived,
+                desc: false,
+                text: None,
+                peer: None,
+                kind: Some(Kind::Penalty),
+            }))
+        );
+        assert_eq!(open("sort=peer&dir=asc").sort, OpenSort::Peer);
+        assert_eq!(open("state=peer").state, Some(OpState::Peer));
+        assert_eq!(open("q=+Bit+").text, Text::parse("bit").ok());
+    }
+
+    fn closed(
+        scid: u64,
+        peer: u8,
+        capacity: u64,
+        height: u32,
+        kind: Kind,
+        fee: Option<u64>,
+    ) -> Channel {
+        let block = |height: u32, time: u64| Block {
+            height,
+            hash: bitcoin::BlockHash::from_byte_array([1; 32]),
+            time,
+        };
+        Channel {
+            open: Open {
+                scid,
+                node_one: key(1),
+                node_two: key(peer),
+                capacity,
+                block: block(u32::try_from(scid >> 40).unwrap(), T),
+            },
+            close: Some(Close {
+                block: block(height, T + u64::from(height - 800_000) * DAY),
+                txid: Txid::from_byte_array([9; 32]),
+                kind,
+                fee,
+            }),
+            penalty: None,
+            funding_txid: None,
+        }
+    }
+
+    #[test]
+    fn closed_channels_sort_and_filter_with_ties_newest_first() {
+        let i = index();
+        let mut breach = closed(sc(13), 4, 300, 800_050, Kind::Force, None);
+        breach.penalty = Some(Penalty {
+            block: breach.close.unwrap().block,
+            txid: Txid::from_byte_array([8; 32]),
+        });
+        // Newest close first, as the store reads them.
+        let rows = vec![
+            closed(sc(12), 3, 200, 800_060, Kind::Force, Some(50)),
+            breach,
+            closed(sc(14), 2, 500, 800_050, Kind::Other, Some(900)),
+            closed(sc(11), 2, 200, 800_040, Kind::Cooperative, Some(50)),
+        ];
+        let q = |raw: &str| match view(&format!("status=closed&{raw}")) {
+            Ok(View::Closed(q)) => q,
+            other => panic!("{raw}: {other:?}"),
+        };
+        let list = |raw: &str| -> Vec<u64> {
+            closed_list(&i, &key(1), rows.clone(), &q(raw))
+                .iter()
+                .map(|c| (c.open.scid >> 40) - 800_000)
+                .collect()
+        };
+        assert_eq!(list("page=0"), [12, 14, 13, 11]);
+        assert_eq!(list("dir=asc"), [11, 14, 13, 12]);
+        assert_eq!(list("sort=capacity"), [14, 13, 12, 11]);
+        assert_eq!(list("sort=capacity&dir=asc"), [12, 11, 13, 14]);
+        // No fee known: last either way.
+        assert_eq!(list("sort=fee"), [14, 12, 11, 13]);
+        assert_eq!(list("sort=fee&dir=asc"), [12, 11, 14, 13]);
+        assert_eq!(list("sort=lived"), [12, 14, 13, 11]);
+        assert_eq!(list("sort=lived&dir=asc"), [11, 14, 13, 12]);
+        // A breach is a penalty, whatever its close looked like.
+        assert_eq!(list("kind=penalty"), [13]);
+        assert_eq!(list("kind=force"), [12]);
+        assert_eq!(list(&format!("peer={}", hex(&key(2)))), [14, 11]);
+        assert_eq!(list(&format!("peer={}&kind=other", hex(&key(2)))), [14]);
+        assert_eq!(list("q=bitfinex"), [14, 11]);
+        assert_eq!(list("q=030404"), [13]);
+        assert_eq!(list(&format!("q={}", scid_text(sc(12)))), [12]);
+    }
+
+    #[test]
+    fn rank_and_figures_for_a_large_node_one_channel_and_no_policies() {
+        let i = index();
+        let rank = |n: u8| i.node(&key(n)).unwrap().rank;
+        // Capacity: 2 16M, 3 12M, 1 13M; channels: 1 five, 2 three, 3 two.
+        assert_eq!(rank(2), [1, 2]);
+        assert_eq!(rank(1), [2, 1]);
+        assert_eq!(rank(3), [3, 3]);
+        assert_eq!(rank(6), [4, 4]);
+        assert_eq!(rank(4), [5, 5]);
+        let f = |n: u8| figures(&i, i.node(&key(n)).unwrap());
+        let one = f(1);
+        assert_eq!(
+            one["capacity"],
+            serde_json::json!({"median": 2_000_000, "smallest": 1_000_000, "largest": 5_000_000})
+        );
+        assert_eq!(
+            one["funded"],
+            serde_json::json!({"median": T + DAY, "oldest": T, "youngest": T + 4 * DAY})
+        );
+        assert_eq!(
+            one["states"],
+            serde_json::json!({"active": 1, "here": 2, "peer": 1, "inactive": 1})
+        );
+        // 100 on 5M and 1M, 500 on 2M: (500M + 100M + 1,000M) / 8M = 200.
+        assert_eq!(
+            one["fee_rates"]["outgoing"],
+            serde_json::json!({"median": 100, "weighted": 200, "lowest": 100, "highest": 500, "policies": 3})
+        );
+        assert_eq!(one["fee_rates"]["incoming"]["policies"], 4);
+        // One channel, no funding time stored, and no policy toward it.
+        let four = f(4);
+        assert_eq!(
+            four["capacity"],
+            serde_json::json!({"median": 2_000_000, "smallest": 2_000_000, "largest": 2_000_000})
+        );
+        assert_eq!(
+            four["funded"],
+            serde_json::json!({"median": null, "oldest": null, "youngest": null})
+        );
+        assert_eq!(
+            four["fee_rates"]["outgoing"],
+            serde_json::json!({"median": 2_000, "weighted": 2_000, "lowest": 2_000, "highest": 2_000, "policies": 1})
+        );
+        let none = serde_json::json!({"median": null, "weighted": null, "lowest": null, "highest": null, "policies": 0});
+        assert_eq!(four["fee_rates"]["incoming"], none);
+        // No policies at all.
+        let six = f(6);
+        assert_eq!(
+            six["fee_rates"],
+            serde_json::json!({"outgoing": none, "incoming": none})
+        );
+        assert_eq!(
+            six["states"],
+            serde_json::json!({"active": 0, "here": 0, "peer": 0, "inactive": 1})
+        );
+    }
+}

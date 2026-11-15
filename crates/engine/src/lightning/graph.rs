@@ -89,6 +89,8 @@ pub struct Past {
     pub nodes: HashMap<[u8; 33], NodePast>,
     /// The oldest statistics row: when our history starts.
     pub start: Option<u64>,
+    /// Every stored channel's funding block time, by short channel id.
+    pub funded: Vec<(u64, u64)>,
 }
 
 /// One stored channel of a node, for its history.
@@ -110,6 +112,9 @@ pub struct Node {
     /// Open channels that can forward.
     pub active: u32,
     pub past: Option<NodePast>,
+    /// Its place among the nodes held by capacity and by open channels, 1 the largest, ties
+    /// broken as the rankings break them.
+    pub rank: [u32; 2],
     /// Indices into [`Index`]'s channels: largest first, then by short channel id.
     channels: Vec<u32>,
     /// The alias, lowercased: what a search matches.
@@ -125,6 +130,22 @@ impl Node {
     pub fn open(&self) -> usize {
         self.channels.len()
     }
+
+    /// The alias, lowercased: what a search matches. Empty without one.
+    pub fn alias_key(&self) -> &str {
+        &self.key
+    }
+}
+
+/// One of a node's open channels, as [`Index::links`] gives it.
+#[derive(Debug, Clone, Copy)]
+pub struct Link<'a> {
+    pub channel: &'a GraphChannel,
+    /// The funding block time, once the store has it.
+    pub funded: Option<u64>,
+    /// The node at the other end, and its place in the index: equal for the same peer.
+    pub peer: Option<&'a Node>,
+    pub peer_at: u32,
 }
 
 /// A ranking of nodes.
@@ -162,6 +183,10 @@ pub struct Index {
     nodes: Vec<Node>,
     /// By short channel id.
     channels: Vec<GraphChannel>,
+    /// Each channel's funding block time, in `channels`' order: `None` before the store has it.
+    funded: Vec<Option<u64>>,
+    /// Each channel's two nodes as indices into `nodes`, in `channels`' order.
+    ends: Vec<[u32; 2]>,
     /// The top [`RANKED`] nodes by capacity, channels and age, as indices into `nodes`.
     ranked: [Vec<u32>; 3],
     /// When our history starts (the oldest statistics row).
@@ -198,19 +223,24 @@ impl Index {
                     capacity: 0,
                     active: 0,
                     past: past.nodes.get(&id).copied(),
+                    rank: [0; 2],
                     channels: Vec::new(),
                 }
             })
             .collect();
+        let mut ends = Vec::with_capacity(channels.len());
         for (i, c) in channels.iter().enumerate() {
-            for id in &c.nodes {
+            let mut end = [u32::MAX; 2];
+            for (e, id) in end.iter_mut().zip(&c.nodes) {
                 if let Ok(n) = nodes.binary_search_by(|n| n.id.cmp(id)) {
+                    *e = at(n);
                     let Some(n) = nodes.get_mut(n) else { continue };
                     n.channels.push(at(i));
                     n.capacity += c.capacity;
                     n.active += u32::from(c.active());
                 }
             }
+            ends.push(end);
         }
         let cap = |i: &u32| channels.get(*i as usize).map_or(0, |c| c.capacity);
         for n in &mut nodes {
@@ -235,13 +265,32 @@ impl Index {
                 all.retain(|i| nodes.get(*i as usize).is_some_and(|n| n.past.is_some()));
             }
             all.sort_unstable_by_key(|i| (key(i), *i));
-            all.truncate(RANKED);
             all
         };
-        let ranked = [rank(Rank::Capacity), rank(Rank::Channels), rank(Rank::Age)];
+        let mut ranked = [rank(Rank::Capacity), rank(Rank::Channels), rank(Rank::Age)];
+        for (side, list) in ranked.iter().take(2).enumerate() {
+            for (place, i) in list.iter().enumerate() {
+                if let Some(r) = nodes
+                    .get_mut(*i as usize)
+                    .and_then(|n| n.rank.get_mut(side))
+                {
+                    *r = at(place + 1);
+                }
+            }
+        }
+        ranked.iter_mut().for_each(|r| r.truncate(RANKED));
+        let funded = channels
+            .iter()
+            .map(|c| {
+                let i = past.funded.binary_search_by_key(&c.scid, |f| f.0).ok()?;
+                past.funded.get(i).map(|f| f.1)
+            })
+            .collect();
         Self {
             nodes,
             channels,
+            funded,
+            ends,
             ranked,
             start: past.start,
         }
@@ -271,6 +320,24 @@ impl Index {
         n.channels
             .iter()
             .filter_map(|i| self.channels.get(*i as usize))
+    }
+
+    /// A node's open channels, largest first, each with its funding time and the node at its
+    /// other end: no lookups, so a request can read every one of a large node's channels.
+    pub fn links<'a>(&'a self, n: &'a Node) -> impl Iterator<Item = Link<'a>> {
+        let me = self.nodes.binary_search_by(|x| x.id.cmp(&n.id)).ok();
+        n.channels.iter().filter_map(move |i| {
+            let i = *i as usize;
+            let channel = self.channels.get(i)?;
+            let [a, b] = self.ends.get(i).copied().unwrap_or([u32::MAX; 2]);
+            let other = if me == Some(a as usize) { b } else { a };
+            Some(Link {
+                channel,
+                funded: self.funded.get(i).copied().flatten(),
+                peer: self.nodes.get(other as usize),
+                peer_at: other,
+            })
+        })
     }
 
     /// The top [`RANKED`] nodes.

@@ -321,6 +321,14 @@ pub async fn by_txids(store: &Store, txids: Vec<Txid>) -> Result<Vec<Channel>, E
         .await
 }
 
+/// The lowest held channel between nodes ?2 and ?3 funded by transaction ?1.
+const NEXT: &str = concat!(
+    "SELECT ",
+    channel_columns!(),
+    " FROM ln_channels WHERE open_txid = ?1 AND ((node_one = ?2 AND node_two = ?3) ",
+    "OR (node_one = ?3 AND node_two = ?2)) ORDER BY scid LIMIT 1"
+);
+
 /// The held channel between the same two nodes funded by `c`'s closing transaction, and the one
 /// whose closing transaction funded `c`: a splice, or a close that reopens in one transaction.
 /// The lowest id where one transaction funded or closed several. Two indexed lookups at most.
@@ -338,15 +346,7 @@ pub async fn lineage(
                     .query_row(params![t.to_byte_array().to_vec(), a, b], row)
                     .optional()?)
             };
-            let next = one(
-                concat!(
-                    "SELECT ",
-                    channel_columns!(),
-                    " FROM ln_channels WHERE open_txid = ?1 AND ((node_one = ?2 AND node_two = ?3) ",
-                    "OR (node_one = ?3 AND node_two = ?2)) ORDER BY scid LIMIT 1"
-                ),
-                c.close.map(|x| x.txid),
-            )?;
+            let next = one(NEXT, c.close.map(|x| x.txid))?;
             let previous = one(
                 concat!(
                     "SELECT ",
@@ -357,6 +357,47 @@ pub async fn lineage(
                 c.funding_txid,
             )?;
             Ok((next, previous))
+        })
+        .await
+}
+
+/// What each of `closed` continued as ([`lineage`]): one indexed lookup each, in one read.
+pub async fn continued(store: &Store, closed: Vec<Channel>) -> Result<Vec<Option<u64>>, Error> {
+    store
+        .read(Read::Lightning, move |sql| {
+            let mut next = sql.prepare(NEXT)?;
+            closed
+                .iter()
+                .map(|c| {
+                    let Some(x) = c.close else { return Ok(None) };
+                    let (a, b) = (c.open.node_one.to_vec(), c.open.node_two.to_vec());
+                    Ok(next
+                        .query_row(params![x.txid.to_byte_array().to_vec(), a, b], row)
+                        .optional()?
+                        .map(|n| n.open.scid))
+                })
+                .collect()
+        })
+        .await
+}
+
+/// Every closed channel of a node, newest close first. Through the closed rows' node indexes
+/// (`0017`), one per end: a node's open rows are never read.
+pub async fn node_closes(store: &Store, node: [u8; 33]) -> Result<Vec<Channel>, Error> {
+    store
+        .read(Read::Lightning, move |sql| {
+            Ok(sql
+                .prepare(concat!(
+                    "SELECT ",
+                    channel_columns!(),
+                    " FROM ln_channels WHERE node_one = ?1 AND close_height IS NOT NULL ",
+                    "UNION ALL SELECT ",
+                    channel_columns!(),
+                    " FROM ln_channels WHERE node_two = ?1 AND close_height IS NOT NULL ",
+                    "ORDER BY close_height DESC, scid DESC"
+                ))?
+                .query_map(params![node.to_vec()], row)?
+                .collect::<Result<Vec<_>, _>>()?)
         })
         .await
 }
@@ -384,8 +425,9 @@ pub async fn node_spans(store: &Store, node: [u8; 33]) -> Result<Vec<Span>, Erro
         .await
 }
 
-/// Every stored node's oldest funding and closes by kind, and when the history starts: the part
-/// of the index the live graph cannot give. One pass over the table.
+/// Every stored node's oldest funding and closes by kind, every channel's funding time, and when
+/// the history starts: the part of the index the live graph cannot give. Two passes over the
+/// table.
 pub async fn past(store: &Store) -> Result<Past, Error> {
     store
         .read(Read::LightningIndex, move |sql| {
@@ -415,9 +457,14 @@ pub async fn past(store: &Store) -> Result<Past, Error> {
                     },
                 );
             }
+            let funded = sql
+                .prepare("SELECT scid, open_time FROM ln_channels ORDER BY scid")?
+                .query_map([], |r| Ok((get(r, 0)?, get(r, 1)?)))?
+                .collect::<Result<Vec<_>, _>>()?;
             Ok(Past {
                 nodes,
                 start: start.and_then(|t| u64::try_from(t).ok()),
+                funded,
             })
         })
         .await

@@ -73,7 +73,7 @@ Inside a migration: no `BEGIN` or `COMMIT` (it already runs in a transaction; th
 | [`audits`](#audits) | `0003_audits.sql` | One row per block we watched arrive: how it compared with the block we expected | **No:** observed live |
 | [`mempool_history`](#mempool_history) | `0004_mempool_history.sql`, `0012_split_lowest_band.sql` (the [split](#fee-bands)) | The mempool sampled once a minute, rolled into hours and days as it ages | No: observed live, lost with the file |
 | [`replacements`](#replacements) | `0005_replacements.sql`, `0008_replacement_blocks.sql` | The replacement record: what replaced what, as the mempool tracker saw it | No: observed live, lost with the file |
-| [`ln_channels`](#ln_channels) | `0006_lightning.sql`, `0007_lightning_lookups.sql` (`open_txid` and the lookup indexes) | Every public channel the Lightning peer verified, with its close | **No:** gossip forgets a channel once it closes |
+| [`ln_channels`](#ln_channels) | `0006_lightning.sql`, `0007_lightning_lookups.sql` (`open_txid` and the lookup indexes), `0017_lightning_closes.sql` (a node's closes) | Every public channel the Lightning peer verified, with its close | **No:** gossip forgets a channel once it closes |
 | [`ln_statistics`](#ln_statistics) | `0006_lightning.sql` | The Lightning network's totals every ten minutes, rolled into hours and days as they age | No: observed live |
 | [`chain`](#chain) | `0009_chain.sql` | One row: the genesis hash of the chain the file was written for | Yes: written again by the check below |
 | [`block_totals`, `pool_totals`](#totals) | `0010_block_totals.sql` | The block table's running totals: per day and per block series point, and per pool per 1,008 heights and per week | Yes: recomputed from `blocks` |
@@ -461,9 +461,11 @@ So a reorg leaves the table as if the undone record had never arrived, and apply
 | `closed(store, limit)` | Up to `limit` closed rows, newest close first, through the partial index |
 | `channel(store, scid)` | One row, by its key |
 | `node_closed(store, node, offset, limit)` | A node's closed rows, newest close first, and how many it has: through the node indexes, so it reads that node's rows only (2.3 ms for ACINQ's 1,807) |
+| `node_closes(store, node)` | Every closed row of a node, newest close first, for its sorted and filtered list: through the closed rows' node indexes (`0017`), one per end, so it never reads the node's open rows |
+| `continued(store, closed)`, `lineage(store, channel)` | The channel each close funded between the same two nodes, and for one channel the one whose close funded it: an indexed lookup on the funding or closing txid each, the lowest id where several |
 | `node_spans(store, node)` | A node's rows' funding and closing times and capacity, for its history ([`LIGHTNING.md`](LIGHTNING.md#routes)) |
 | `by_txids(store, txids)` | The rows each txid funded or closed: two index lookups per txid |
-| `past(store)` | Every node's oldest funding time and closes by kind, and the oldest statistics row: one grouped pass over the table for the graph's index, done again only after new rows were stored |
+| `past(store)` | Every node's oldest funding time and closes by kind, every channel's funding time, and the oldest statistics row: two passes over the table for the graph's index, done again only after new rows were stored |
 | `unfunded(store, after, limit)`, `set_funding(store, found)` | The rows still without a funding txid, and storing them (`try_write`, and only while the row names the same block) |
 | `apply(store, changes)` | Stores records in order, in one write; fails with `Error::Full` rather than wait |
 
