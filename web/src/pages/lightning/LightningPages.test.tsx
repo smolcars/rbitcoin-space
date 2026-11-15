@@ -431,6 +431,42 @@ describe("a node", () => {
     await shows(el, "1 of 2 closes match");
   });
 
+  it("shows a closing fee of 0 on a phone's card as 0 sats, not as missing", async () => {
+    vi.stubGlobal("matchMedia", (q: string) => ({
+      matches: q.includes("max-width"),
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    }));
+    replies[node] = json(acinq({ channels: { ...acinq().channels, closed: 1, cooperative: 1 } }));
+    const block = { height: 975_867, hash: "00".repeat(32), time: 1_794_400_000 };
+    replies[list("status=closed")] = json({
+      status: "closed",
+      page: 0,
+      per_page: 25,
+      total: 1,
+      sort: "closed",
+      dir: "desc",
+      channels: [
+        {
+          id: "745253x717x0",
+          scid: "1",
+          capacity: 400_000,
+          state: "closed",
+          peer: { id: BFX, alias: "bfx-lnd0", capacity: null, channels: null },
+          fee_rate: null,
+          funded: 1_657_986_467,
+          closed: { block, txid: "a5".repeat(32), kind: "cooperative", fee: 0 },
+          continued_as: null,
+        },
+      ],
+    });
+    const el = open(`/lightning/node/${ACINQ}?view=closed`);
+    await vi.waitFor(() => expect(el.querySelector(".ln-node-card__toggle")).not.toBeNull());
+    el.querySelector<HTMLElement>(".ln-node-card__toggle")?.click();
+    flush();
+    await shows(el, "Closing fee0 sats");
+  });
+
   it("shows a node that never announced itself", async () => {
     // What the server sends for a node it holds only through its channels (nodes.rs app_node).
     replies[node] = json(

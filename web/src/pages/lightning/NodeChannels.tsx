@@ -1074,11 +1074,8 @@ function ClosedCard(props: { c: ClosedChannel; peerHref: string }) {
           </div>
           <div>
             <dt>Closing fee</dt>
-            <dd>
-              <Show when={c().closed.fee} fallback={MISSING}>
-                {(f) => <SatsFig sats={f()} />}
-              </Show>
-            </dd>
+            {/* A fee of 0 is a fee: only an unknown one is missing. */}
+            <dd>{c().closed.fee === null ? MISSING : <SatsFig sats={c().closed.fee ?? 0} />}</dd>
           </div>
           <div>
             <dt>Closing transaction</dt>
