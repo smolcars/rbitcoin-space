@@ -317,11 +317,12 @@ pub async fn route(
     Extension(client): Extension<Client>,
     Path(id): Path<String>,
 ) -> Response {
-    let Some(bark) = &ctx.bark else {
-        return OFF.into_response();
-    };
+    // The request is checked before anything else, whatever the network has.
     let Ok(id) = id.parse::<VtxoId>() else {
         return ApiError::bad_request("invalid vtxo id").into_response();
+    };
+    let Some(bark) = &ctx.bark else {
+        return OFF.into_response();
     };
     let started = Instant::now();
     let (mut rx, started_it) = match bark.start(&ctx, id, &client) {

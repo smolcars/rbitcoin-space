@@ -151,7 +151,7 @@ export default function VtxoPage() {
 
   return (
     <div class="wrap bark-page">
-      <Link class="bark-page__back" href={paths.ark()}>
+      <Link class="bark-page__back tap" href={paths.ark()}>
         ← Another VTXO
       </Link>
       <Show when={id()} fallback={<Empty title="Not a VTXO ID" />}>
@@ -476,9 +476,9 @@ function Body(props: { vtxo: BarkVtxo }) {
           </div>
           <div>
             <dt>Wait after exit</dt>
-            <dd class="num">
-              {groupDigits(props.vtxo.exitDelta)} blocks{" "}
-              <span class="muted">{roughTime(props.vtxo.exitDelta)}</span>
+            <dd>
+              <span class="num bark-figure-piece">{groupDigits(props.vtxo.exitDelta)} blocks</span>{" "}
+              <span class="muted num bark-figure-piece">{roughTime(props.vtxo.exitDelta)}</span>
             </dd>
           </div>
           <div>
@@ -493,7 +493,9 @@ function Body(props: { vtxo: BarkVtxo }) {
                 href={paths.tx(props.vtxo.anchor.txid)}
                 copyLabel="Copy the anchor's outpoint"
               />{" "}
-              <span class="muted num">{groupDigits(props.vtxo.anchor.value)} sats</span>
+              <span class="muted num bark-figure-piece">
+                {groupDigits(props.vtxo.anchor.value)} sats
+              </span>
             </dd>
           </div>
         </dl>

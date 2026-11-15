@@ -9,6 +9,11 @@
     min-width: 0;
   }
 
+  /* A figure never breaks inside itself or from its unit; the line breaks between figures. */
+  .bark-figure-piece {
+    white-space: nowrap;
+  }
+
   .bark-page__back {
     justify-self: start;
     color: var(--color-text-muted);

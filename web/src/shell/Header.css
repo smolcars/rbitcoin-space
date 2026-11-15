@@ -229,6 +229,9 @@
       grid-auto-columns: auto;
       justify-content: space-between;
     }
+    .nav:has(> :nth-child(5)) a {
+      min-width: var(--touch);
+    }
     .nav a {
       justify-content: center;
       padding: 0 2px;
