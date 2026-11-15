@@ -13,6 +13,9 @@ fn ark(n: &NetworkConfig) -> Vec<&'static str> {
     if n.bark.is_some() {
         list.push("bark");
     }
+    if n.arkade.is_some() {
+        list.push("arkade");
+    }
     list
 }
 

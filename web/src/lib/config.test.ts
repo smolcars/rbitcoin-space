@@ -20,9 +20,16 @@ describe("parseConfig", () => {
   });
 
   it("keeps each network's Ark implementations", () => {
-    const ark = { signet: ["bark", "<b>", 3], liquid: ["bark"], mainnet: [], regtest: "bark" };
+    const ark = {
+      signet: ["bark", "<b>", 3, "arkade"],
+      liquid: ["bark"],
+      mainnet: ["arkade"],
+      testnet4: [],
+      regtest: "bark",
+    };
     expect(parseConfig({ networks: ["signet"], version: "1", ark })?.ark).toStrictEqual({
-      signet: ["bark"],
+      signet: ["bark", "arkade"],
+      mainnet: ["arkade"],
     });
   });
 });

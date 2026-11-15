@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { arkadeEntry, arkadeVtxoPath } from "./entry";
+import { paths } from "../../../lib/network";
 import { type Dot, layout } from "./layout";
 import { A, answer, B1, C, K, L1, L2, NOW, R } from "./testdata";
 import {
@@ -86,15 +86,9 @@ describe("outpoints", () => {
     }
   });
 
-  it("lead the entry page to the VTXO's page", () => {
-    expect(arkadeEntry.label).toBe("Arkade");
-    expect(arkadeEntry.parse(`  ${A}:3\n`)).toStrictEqual({ txid: A, vout: 3 });
-    expect(arkadeEntry.parse("<b>:1</b>")).toBeUndefined();
-    expect(arkadeVtxoPath({ txid: A, vout: 3 })).toBe(`/ark/arkade/vtxo/${A}:3`);
-    expect(arkadeEntry.vtxo(` ${A.toUpperCase()}:3`)).toBe(`/ark/arkade/vtxo/${A}:3`);
-    for (const bad of ["../x?y", "..", ".", " ", ""]) {
-      expect(arkadeEntry.vtxo(bad)).toBe("/ark/arkade/vtxo/not-an-outpoint");
-    }
+  it("are what the entry page leads to", () => {
+    expect(paths.arkadeVtxo(`${A}:3`)).toBe(`/ark/arkade/vtxo/${A}:3`);
+    expect(parseOutpoint(`${A}:3`)).toStrictEqual({ txid: A, vout: 3 });
   });
 });
 

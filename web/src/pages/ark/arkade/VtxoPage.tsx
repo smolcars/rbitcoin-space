@@ -7,10 +7,12 @@ import { Amount, Sats } from "../../../components/Amount";
 import { CopyButton } from "../../../components/CopyButton";
 import { type Column, DataTable } from "../../../components/DataTable";
 import { Hash } from "../../../components/Hash";
+import { Link } from "../../../components/Link";
 import { SectionHeader } from "../../../components/SectionHeader";
 import { Empty, ErrorState, Loading } from "../../../components/States";
 import { TimeUtc } from "../../../components/Time";
 import { ApiError, createRequest, fetchApp, isNotFound } from "../../../lib/api";
+import { loadConfig } from "../../../lib/config";
 import { blocksTopic } from "../../../lib/blocks-topic";
 import { useNow } from "../../../lib/clock";
 import { formatUtc, groupDigits, hashGroups } from "../../../lib/format";
@@ -52,8 +54,14 @@ export default function VtxoPage() {
     return o ? `${network()} ${o.txid} ${o.vout}` : undefined;
   });
   usePageTitle(() => "Arkade VTXO");
+  // Asked only where the network has Arkade; elsewhere the page says so without a request.
+  const [config] = createRequest(() => true, loadConfig);
+  const here = () => config()?.ark[network()]?.includes("arkade") === true;
   return (
     <div class="wrap arkade-page">
+      <Link class="arkade-page__back tap" href={paths.ark()}>
+        ← Another VTXO
+      </Link>
       <Show
         when={key()}
         keyed
@@ -66,11 +74,22 @@ export default function VtxoPage() {
       >
         {(k) => {
           const [n, txid, vout] = k.split(" ");
+          const outpoint = { txid: txid ?? "", vout: Number(vout) };
           return (
-            <Lookup
-              network={isNetwork(n) ? n : "mainnet"}
-              outpoint={{ txid: txid ?? "", vout: Number(vout) }}
-            />
+            <Switch>
+              <Match when={config.loading}>
+                <Title />
+                <OutpointLine outpoint={outpoint} />
+                <Loading label="Asking Arkade" />
+              </Match>
+              <Match when={!here()}>
+                <Title />
+                <Empty title="Arkade is not available on this network" />
+              </Match>
+              <Match when={true}>
+                <Lookup network={isNetwork(n) ? n : "mainnet"} outpoint={outpoint} />
+              </Match>
+            </Switch>
           );
         }}
       </Show>

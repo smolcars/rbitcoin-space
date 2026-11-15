@@ -13,6 +13,7 @@ export interface ArkImplementation {
 
 export const IMPLEMENTATIONS: readonly ArkImplementation[] = [
   { id: "bark", name: "Bark", vtxo: paths.barkVtxo },
+  { id: "arkade", name: "Arkade", vtxo: paths.arkadeVtxo },
 ];
 
 /** The implementations a network has, in the list's order. */

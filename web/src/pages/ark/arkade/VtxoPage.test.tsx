@@ -8,12 +8,19 @@ import { A, answer, C, K, NOW } from "./testdata";
 import type { VtxoAnswer } from "./vtxo";
 import VtxoPage from "./VtxoPage";
 
+// The shell's config, as the server would give it: Arkade on signet unless a test says otherwise.
+const ark = vi.hoisted(() => ({ signet: ["arkade"] }));
+vi.mock(import("../../../lib/config"), () => ({
+  loadConfig: async () => ({ networks: ["signet"], version: "1", ark: { signet: ark.signet } }),
+}));
+
 let reply: () => Response;
 let requests: string[];
 const disposers: (() => void)[] = [];
 
 beforeEach(() => {
   clearApiCache();
+  ark.signet = ["arkade"];
   requests = [];
   reply = () => Response.json(answer());
   vi.stubGlobal("WebSocket", FakeSocket);
@@ -150,7 +157,15 @@ describe("states without a VTXO", () => {
     expect(el.querySelector(".arkade-svg")).toBeNull();
   });
 
-  it("says Arkade is not available on a network without it", async () => {
+  it("says Arkade is not available on a network without it, and asks nothing", async () => {
+    ark.signet = ["bark"];
+    const el = open(page);
+    await shows(el, "Arkade is not available on this network");
+    expect(requests).toHaveLength(0);
+    expect(el.querySelector("a[href='/signet/ark']")?.textContent).toContain("Another VTXO");
+  });
+
+  it("says so too when the server has no Arkade after all", async () => {
     reply = () => Response.json({ error: "arkade is not available here" }, { status: 404 });
     const el = open(page);
     await shows(el, "Arkade is not available on this network");

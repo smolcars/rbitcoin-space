@@ -5,7 +5,7 @@ export interface AppConfig {
   /** Enabled networks, in the server's order. */
   networks: Network[];
   version: string;
-  /** The Ark implementations each network looks VTXOs up on (`bark`), only where it has one. */
+  /** The Ark implementations each network looks VTXOs up on (`bark`, `arkade`), only where it has one. */
   ark: Partial<Record<Network, string[]>>;
 }
 
