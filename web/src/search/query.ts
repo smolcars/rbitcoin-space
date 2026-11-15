@@ -49,8 +49,10 @@ export function classify(input: string): Query | null {
   const uri = /^bitcoin:(?:\/\/)?([^?#]*)(?:\?([^#]*))?/i.exec(q);
   if (uri) {
     const path = decode(uri[1] ?? "");
-    // BIP321: a URI with no address in its path can carry a silent payments one as `sp`.
-    return plain(path === "" ? (param(uri[2] ?? "", "sp") ?? "") : path, "address");
+    if (path !== "") return plain(path, "address");
+    // BIP321: a URI with no address in its path can carry a silent payments one as `sp`, and only that.
+    const sp = plain(param(uri[2] ?? "", "sp") ?? "", "address");
+    return sp?.kind === "address" && sp.address.type === "sp" ? sp : null;
   }
   if (q.includes("/")) return fromLink(q);
   return plain(q, null);

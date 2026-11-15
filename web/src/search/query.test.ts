@@ -160,6 +160,8 @@ describe("classify: bitcoin: URIs", () => {
   it.each([
     "bitcoin:",
     "bitcoin:?sp=notanaddress",
+    // `sp` holds a silent payments address only.
+    `bitcoin:?sp=${TAPROOT}`,
     "bitcoin:?lightning=lnbc1",
     `bitcoin:${TXID}`,
     "bitcoin:840000",
