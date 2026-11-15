@@ -205,10 +205,21 @@ Add the server to the project that already runs rbitcoin, instead of running a s
 
    The socket's group id is `stat -c %g <socket>` on the host. The server connects as a member of that group.
 
-2. Write `rbitcoin-space.env`, owner-only, with each network's six variables ([`CONFIG.md`](CONFIG.md#networks)):
-   - `{NET}_ESPLORA_URL`: the socket's path inside the server, such as `/run/mainnet/esplora.sock`.
-   - `{NET}_RPC_HOST` and `{NET}_ELECTRUM_ADDR`: the node's service name, such as `mainnet` and `mainnet:50001`, on the project's network. Neither is published.
-   - `{NET}_RPC_USER` and `{NET}_RPC_PASSWORD`: copied from the node's cookie file (`user:password`).
+2. Write `rbitcoin-space.env` beside the project's compose file, with each network's six variables ([`CONFIG.md`](CONFIG.md#networks)). For mainnet:
+
+   ```sh
+   touch rbitcoin-space.env && chmod 600 rbitcoin-space.env
+   cat > rbitcoin-space.env <<'EOF'
+   MAINNET_RPC_HOST=<node service>
+   MAINNET_RPC_PORT=<its --rpc-listen port>
+   MAINNET_RPC_USER=<user from the node's cookie>
+   MAINNET_RPC_PASSWORD=<password from the node's cookie>
+   MAINNET_ESPLORA_URL=/run/mainnet/esplora.sock
+   MAINNET_ELECTRUM_ADDR=<node service>:<its --electrum-listen port>
+   EOF
+   ```
+
+   Add the same six with `SIGNET_` and `TESTNET4_` for the other nodes, each `ESPLORA_URL` at its own mount. RPC and Electrum are reached by service name on the project's network; neither is published.
 
 3. Start the server alone, leaving the nodes as they are:
 
@@ -780,6 +791,8 @@ Every merge to `master` that changes the image is published as `sha-<full commit
    docker compose up -d --no-deps server
    curl -s http://127.0.0.1:8080/healthz; echo; echo "$rev"   # its "revision" is the commit printed below it
    ```
+
+Without a checkout, run the first three lines of step 2 (the pull, `image` and `rev`), then put `$image` where the image is named: in [the node on another host](#the-node-on-another-host), remove the container and run its step 2 with `$image` in place of the release; in [another compose project](#the-node-in-another-compose-project), set the service's `image:` to it and run `docker compose up -d --no-deps server`.
 
 The deployment follows `master` this way.
 
