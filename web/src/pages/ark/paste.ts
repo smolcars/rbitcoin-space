@@ -83,19 +83,10 @@ export function refusal(p: Pasted): string | undefined {
   return undefined;
 }
 
-/**
- * The Bark hex and Arkade address pages' paths, as their own PRs add them to `paths` in
- * lib/network.ts; this goes once they are there. The hex is in the fragment, which no server sees.
- */
-export const arkPaths = {
-  barkHex: (hex: string) => `/ark/bark/hex#${hex}`,
-  arkadeAddress: (address: string) => `/ark/arkade/address/${encodeURIComponent(address)}`,
-};
-
 /** The page a paste opens, network-free, or `undefined` when it opens none. */
 export function destination(p: Pasted): string | undefined {
   if (p.kind === "vtxo") return paths.arkVtxo(p.id);
-  if (p.kind === "bark-hex") return arkPaths.barkHex(p.hex);
-  if (p.kind === "arkade-address") return arkPaths.arkadeAddress(p.address);
+  if (p.kind === "bark-hex") return paths.barkHex(p.hex);
+  if (p.kind === "arkade-address") return paths.arkadeAddress(p.address);
   return undefined;
 }

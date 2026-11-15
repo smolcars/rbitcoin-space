@@ -10,6 +10,7 @@ import {
   ID,
   MAINNET_ADDRESS,
   withArkade,
+  withArkadeAddress,
   withBark,
   withBarkHex,
   withBoth,
@@ -17,7 +18,6 @@ import {
 import { expect, test } from "./fixtures";
 
 const UNKNOWN = `${"ab".repeat(32)}:1`;
-const HEX = `0100${"ab".repeat(80)}`;
 
 /** Pastes into the entry's box and opens it. */
 async function paste(page: Page, text: string) {
@@ -169,6 +169,9 @@ test.describe("with Arkade", () => {
   test.use({ consoleErrorsAllowed: [/status of (404|502)/], reducedMotion: "reduce" });
 
   test("the box works out what was pasted", async ({ page }) => {
+    // The address list and the hex check first: `withBoth` then says regtest has both.
+    await withArkadeAddress(page);
+    await withBarkHex(page);
     await withBoth(page);
     await page.goto("/regtest/ark");
     await paste(page, ARKADE_ID);
@@ -179,12 +182,16 @@ test.describe("with Arkade", () => {
     await page.getByRole("link", { name: "Another VTXO" }).click();
     await expect(page).toHaveURL(/\/regtest\/ark$/);
 
-    // Those pages are built elsewhere: only where the box goes is checked here.
+    // Hex opens its VTXO, checked; an address opens its list.
     await paste(page, HEX.toUpperCase());
     await expect(page).toHaveURL(`/regtest/ark/bark/hex#${HEX}`);
+    await expect(
+      page.getByRole("list", { name: "State" }).getByText("Signatures OK"),
+    ).toBeVisible();
     await page.goto("/regtest/ark");
     await paste(page, ARKADE_ADDRESS);
     await expect(page).toHaveURL(`/regtest/ark/arkade/address/${ARKADE_ADDRESS}`);
+    await expect(page.getByRole("table").getByRole("link").first()).toBeVisible();
 
     // What opens nothing says why, and asks nothing.
     await page.goto("/regtest/ark");
