@@ -447,13 +447,7 @@ pub(crate) async fn json<T: serde::de::DeserializeOwned>(
 fn is_heavy(route: &Route) -> bool {
     matches!(
         route,
-        Route::BlindbitTweaks { .. }
-            | Route::BlindbitTweakIndex { .. }
-            | Route::BlindbitUtxos(_)
-            | Route::BlindbitSpentIndex(_)
-            | Route::BlindbitFilterNewUtxos(_)
-            | Route::BlindbitFilterSpent(_)
-            | Route::ScriptStats { .. }
+        Route::ScriptStats { .. }
             | Route::ScriptUtxo { .. }
             | Route::ScriptTxs { .. }
             | Route::ScriptTxsChain { .. }
@@ -1248,8 +1242,8 @@ fn parse_segments(segs: &[&str], q: &mut Query<'_>, network: Network) -> Result<
     Ok(Call::Read(route))
 }
 
-/// Decimal digits only: `u32::from_str` would also take a leading `+`.
-fn int(s: &str, msg: &'static str) -> Result<u32, ApiError> {
+/// Decimal digits only: `from_str` would also take a leading `+`.
+fn int<T: FromStr>(s: &str, msg: &'static str) -> Result<T, ApiError> {
     if s.is_empty() || !s.bytes().all(|b| b.is_ascii_digit()) {
         return Err(ApiError::bad_request(msg));
     }
@@ -1322,13 +1316,7 @@ impl<'a> Query<'a> {
 
     fn dust_limit(&mut self) -> Result<Option<u64>, ApiError> {
         self.take("dustLimit")
-            .map(|s| {
-                if s.is_empty() || !s.bytes().all(|b| b.is_ascii_digit()) {
-                    return Err(ApiError::bad_request("invalid dustLimit"));
-                }
-                s.parse()
-                    .map_err(|_| ApiError::bad_request("invalid dustLimit"))
-            })
+            .map(|s| int(s, "invalid dustLimit"))
             .transpose()
     }
 
