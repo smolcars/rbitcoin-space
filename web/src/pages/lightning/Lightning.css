@@ -1520,6 +1520,8 @@
     font-family: var(--font-mono);
     font-size: 0.8125rem;
   }
+  /* A card's capacity reads as the mockup set it: its unit small and quiet, the figure whole. */
+  .ln-node-card .ln-fig__unit,
   .ln-node-card__k {
     font-family: var(--font-sans);
     font-size: var(--text-xs);

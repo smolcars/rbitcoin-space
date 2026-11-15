@@ -80,11 +80,14 @@ function usePhone(): Accessor<boolean> {
 export const FILTER_WAIT_MS = 280;
 
 const days = (seconds: number) => groupDigits(Math.max(0, Math.floor(seconds / 86_400)));
-const sats = (n: number) => `${groupDigits(n)} ${n === 1 ? "sat" : "sats"}`;
 
 /** Sats whole with their unit, in magnitude where the room is too narrow for them (`Fig`). */
 export const SatsFig = (props: { sats: number }) => (
-  <Fig exact={sats(props.sats)} short={`${formatBtcShort(props.sats)} BTC`} />
+  <Fig
+    exact={groupDigits(props.sats)}
+    unit={props.sats === 1 ? "sat" : "sats"}
+    short={`${formatBtcShort(props.sats)} BTC`}
+  />
 );
 
 /** A fee rate whole with its unit, as a power of ten where the room is too narrow for it. */
