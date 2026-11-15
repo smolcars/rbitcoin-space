@@ -3,11 +3,13 @@ import {
   changeShown,
   changesIn,
   feeSteps,
+  feesMoved,
   type Fees,
   inboundOf,
   inboundWord,
   isFeeChanges,
   isFeeHistory,
+  movedText,
   btcAxis,
   cleanAlias,
   msat,
@@ -671,10 +673,28 @@ describe("fee history", () => {
     ).toStrictEqual({ x: [3000, 3500], y: [5, 5] });
   });
 
+  it("draws no line without a stretch the server was recording, and runs overlapping ones as one", () => {
+    expect(feeSteps([rec(1000, 5), rec(1100, 6)], [], 500)).toStrictEqual({ x: [], y: [] });
+    // A clock set back between two runs: time still runs forward, with no false gap.
+    const steps = feeSteps(
+      [rec(90, 1), rec(160, 2)],
+      [
+        { from: 100, to: 200 },
+        { from: 150, to: 250 },
+      ],
+      260,
+    );
+    expect(steps).toStrictEqual({ x: [100, 160, 260], y: [1, 2, 2] });
+  });
+
   it("counts changes, not the first record, which is where watching began", () => {
     expect(changesIn([])).toBe(0);
     expect(changesIn([rec(1, 1)])).toBe(0);
     expect(changesIn([rec(1, 1), rec(2, 2), rec(3, 3)])).toBe(2);
+    // None to zero both ways charges the same: kept by the server, not a change here.
+    expect(
+      changesIn([rec(1, 1), rec(2, 1, { inbound_fee: { base_fee_msat: 0, fee_rate: 0 } })]),
+    ).toBe(0);
   });
 
   it("shows the fee that moved, so a row never reads from 500 to 500", () => {
@@ -695,8 +715,34 @@ describe("fee history", () => {
         { inbound_fee: { base_fee_msat: -1000, fee_rate: -200 } },
       ),
     ).toBe("inbound");
-    // None and zero both ways are the same fee.
-    expect(shown({}, { inbound_fee: { base_fee_msat: 0, fee_rate: 0 } })).toBe("rate");
+    // None and zero both ways are the same fee: no move, so no row shows it.
+    expect(feesMoved(fees(), fees({ inbound_fee: { base_fee_msat: 0, fee_rate: 0 } }))).toBe(false);
+    expect(feesMoved(fees(), fees({ base_fee_msat: 0 }))).toBe(true);
+  });
+
+  it("writes each side of a change as its row does, for the room it needs", () => {
+    const fees = (f: Partial<Fees> = {}): Fees => ({
+      fee_rate: 500,
+      base_fee_msat: 1000,
+      inbound_fee: null,
+      ...f,
+    });
+    const both = (before: Partial<Fees>, after: Partial<Fees>) => {
+      const c = { before: fees(before), after: fees(after) };
+      return [movedText(c, c.before), movedText(c, c.after)].map((t) =>
+        t.replaceAll("\u202F", " "),
+      );
+    };
+    expect(both({ fee_rate: 3391 }, { fee_rate: 2999 })).toStrictEqual(["3 391", "2 999"]);
+    expect(both({}, { base_fee_msat: 2000 })).toStrictEqual(["1 sat", "2 sats"]);
+    expect(both({}, { inbound_fee: { base_fee_msat: -1000, fee_rate: -200 } })).toStrictEqual([
+      "none",
+      "−200 ppm −1 sat",
+    ]);
+    expect(both({ inbound_fee: { base_fee_msat: 0, fee_rate: 5 } }, {})).toStrictEqual([
+      "+5 ppm",
+      "none",
+    ]);
   });
 
   it("names an inbound fee by its sign, and shows none when it is zero both ways", () => {

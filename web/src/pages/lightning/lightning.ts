@@ -1027,19 +1027,46 @@ export function inboundWord(f: InboundFee): "discount" | "surcharge" | "fee" {
 export function changeShown(c: { before: Fees; after: Fees }): "rate" | "base" | "inbound" {
   if (c.before.fee_rate !== c.after.fee_rate) return "rate";
   if (c.before.base_fee_msat !== c.after.base_fee_msat) return "base";
-  const a = c.before.inbound_fee;
-  const b = c.after.inbound_fee;
-  const same =
-    (a?.fee_rate ?? 0) === (b?.fee_rate ?? 0) &&
-    (a?.base_fee_msat ?? 0) === (b?.base_fee_msat ?? 0);
-  return same ? "rate" : "inbound";
+  return sameInbound(c.before, c.after) ? "rate" : "inbound";
 }
+
+/** Whether two inbound fees charge the same: none and zero both ways are the same fee. */
+const sameInbound = (a: Fees, b: Fees): boolean =>
+  (a.inbound_fee?.fee_rate ?? 0) === (b.inbound_fee?.fee_rate ?? 0) &&
+  (a.inbound_fee?.base_fee_msat ?? 0) === (b.inbound_fee?.base_fee_msat ?? 0);
+
+/** Whether a fee moved between two records. The server keeps an inbound fee going from none to
+ *  zero as a change, which charges the same: not one here. */
+export const feesMoved = (a: Fees, b: Fees): boolean =>
+  a.fee_rate !== b.fee_rate || a.base_fee_msat !== b.base_fee_msat || !sameInbound(a, b);
 
 /** The channel page's fee history section, which the node's fee changes and its life link to. */
 export const FEE_HISTORY = "fee-history";
 
+/** One side of a change as its row writes it, for the room it needs: the rate bare (the column's
+ *  ppm), the base fee in sats, an inbound fee signed with its units, or "none". */
+export function movedText(c: { before: Fees; after: Fees }, f: Fees): string {
+  const shown = changeShown(c);
+  if (shown === "rate") return groupDigits(f.fee_rate);
+  if (shown === "base") return msatAsSats(f.base_fee_msat);
+  const i = inboundOf(f);
+  return i ? inboundParts(i).join(" ") : "none";
+}
+
+/** An inbound fee's figures as `InboundFig` writes them, each signed: `−200 ppm`, `+1 sat`. */
+export const inboundParts = (i: InboundFee): string[] =>
+  [
+    i.fee_rate === 0 ? "" : `${plus(i.fee_rate)}${ppm(i.fee_rate)}`,
+    i.base_fee_msat === 0 ? "" : `${plus(i.base_fee_msat)}${msatAsSats(i.base_fee_msat)}`,
+  ].filter((p) => p !== "");
+
+/** Past this many characters a change's from or to no longer fits a phone's column beside the
+ *  other: the rows write "from → to" under the channel instead. */
+export const MOVED_FITS = 9;
+
 /** How many of an end's records are changes: its first is where watching began. */
-export const changesIn = (records: readonly unknown[]): number => Math.max(0, records.length - 1);
+export const changesIn = (records: readonly Fees[]): number =>
+  records.filter((r, i) => i > 0 && feesMoved(records[i - 1] ?? r, r)).length;
 
 /**
  * One end's fee rate as chart points: a step that holds each rate until the next record, drawn only
@@ -1054,17 +1081,21 @@ export function feeSteps(
 ): { x: number[]; y: (number | null)[] } {
   const x: number[] = [];
   const y: (number | null)[] = [];
-  const first = records[0];
-  const stretches: readonly Watched[] =
-    watched.length > 0 || first === undefined ? watched : [{ from: first.time, to: now }];
-  const lastTime = records.at(-1)?.time ?? now;
+  // Stretches come oldest first; two that overlap (a clock set back between two runs) are one,
+  // so time runs forward.
+  const stretches: Watched[] = [];
+  for (const w of watched) {
+    const last = stretches.at(-1);
+    if (last && w.from <= last.to) last.to = Math.max(last.to, w.to);
+    else stretches.push({ ...w });
+  }
   const push = (t: number, v: number | null) => {
     x.push(t);
     y.push(v);
   };
   stretches.forEach((s, k) => {
     const next = stretches[k + 1];
-    const to = next ? s.to : Math.max(s.to, now, lastTime);
+    const to = next ? s.to : Math.max(s.to, now);
     let held: number | null = null;
     for (const r of records) if (r.time <= s.from) held = r.fee_rate;
     if (held !== null) push(s.from, held);

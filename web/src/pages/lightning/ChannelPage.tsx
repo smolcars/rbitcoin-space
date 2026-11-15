@@ -142,7 +142,8 @@ function Body(props: { channel: ChannelDetail; network: Network }) {
   const now = useNow();
   // The fee history is a second request, after the channel's own: a closed channel has none.
   const [fees, { refetch }] = createRequest(
-    () => (c().closed ? undefined : c().id),
+    // With no policy either way the section is not drawn: nothing to ask.
+    () => (c().closed || !(c().node_one.policy ?? c().node_two.policy) ? undefined : c().id),
     (id, signal) => ask(props.network, `/channels/${id}/fees`, isFeeHistory, signal),
   );
   // Read once per answer: the steps run on to it, and the chart is not drawn again on the clock.

@@ -158,3 +158,23 @@ export function feeHistory(
     ],
   };
 }
+
+/**
+ * The tables in `sel` that scroll sideways, which `pageFaults` lets pass as boxes of their own: a
+ * fee history's figures and a node's fee changes fit whole at every size.
+ */
+export const tablesScrolling = (page: Page, sel: string) =>
+  page.evaluate(
+    (s) =>
+      [...document.querySelectorAll(`${s} :is(.table-scroll, .chart__table)`)]
+        .filter((e) => e.getClientRects().length > 0 && e.scrollWidth > e.clientWidth + 1)
+        .map((e) => {
+          // What reaches furthest, to name the cause.
+          let far: Element = e;
+          for (const d of e.querySelectorAll("*"))
+            if (d.getBoundingClientRect().right > far.getBoundingClientRect().right) far = d;
+          const what = `${far.tagName.toLowerCase()}.${far.className} "${(far.textContent ?? "").slice(0, 30)}"`;
+          return `${s} scrolls: ${e.scrollWidth} in ${e.clientWidth}, ${what}`;
+        }),
+    sel,
+  );

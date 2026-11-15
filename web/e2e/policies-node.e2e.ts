@@ -13,6 +13,7 @@ import {
   pageFaults,
   recorded,
   serve,
+  tablesScrolling,
 } from "./lightning-answers";
 import { frames } from "./layout";
 import { tablesFit } from "./rows";
@@ -359,7 +360,11 @@ test.describe("on a touch screen", () => {
         for (const width of WIDTHS) {
           await page.setViewportSize({ width, height: 800 });
           await frames(page);
-          faults.push(...(await pageFaults(page)).map((f) => `${width} px, ${view}: ${f}`));
+          const found = [
+            ...(await pageFaults(page)),
+            ...(await tablesScrolling(page, ".ln-recent")),
+          ];
+          faults.push(...found.map((f) => `${width} px, ${view}: ${f}`));
           const cut = await hintCut(page);
           if (cut !== null) faults.push(`${width} px, ${view}: ${cut}`);
         }

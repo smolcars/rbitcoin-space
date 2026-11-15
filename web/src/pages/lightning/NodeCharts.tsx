@@ -26,6 +26,7 @@ import {
   btcAxis,
   changeShown,
   FEE_HISTORY,
+  feesMoved,
   count,
   feeRows,
   type FeeFigures as Figures,
@@ -34,6 +35,8 @@ import {
   type Fees,
   inboundOf,
   isFeeChanges,
+  MOVED_FITS,
+  movedText,
   type NodeDetail,
   type NodeHistory as HistoryAnswer,
 } from "./lightning";
@@ -338,7 +341,10 @@ function Moved(props: { c: FeeChange; fees: Fees }) {
           {(f) => <InboundFig fee={f()} />}
         </Show>
       </Match>
-      <Match when={true}>{groupDigits(props.fees.fee_rate)}</Match>
+      {/* Its own figure, so a line breaks beside it, never inside it. */}
+      <Match when={true}>
+        <span class="num">{groupDigits(props.fees.fee_rate)}</span>
+      </Match>
     </Switch>
   );
 }
@@ -354,6 +360,10 @@ const CHANGE_COLUMNS: Column<FeeChange>[] = [
           </Link>
           {/* A phone drops the Whose and When columns; both stay in this cell. */}
           <span class="ln-recent__sub ln-recent__phone">{whose(c)}</span>
+        </span>
+        {/* Where a figure is too long for the From and To columns on a phone, they go here. */}
+        <span class="ln-node-row2__line ln-recent__fromto">
+          <Moved c={c} fees={c.before} /> → <Moved c={c} fees={c.after} />
         </span>
         <span class="ln-node-row2__line ln-recent__ends">
           {/* Text, not a link: the row opens the channel, which links its peer; two links in one
@@ -384,6 +394,9 @@ export function RecentChanges(props: { node: NodeDetail; network: Network }) {
     () => props.node.id,
     (id, signal) => ask(props.network, `/nodes/${id}/fees`, isFeeChanges, signal),
   );
+  // The server keeps an inbound fee going from none to zero as a change: it charges the same.
+  const moved = (a: { changes: FeeChange[] }) =>
+    a.changes.filter((c) => feesMoved(c.before, c.after));
   return (
     <section aria-labelledby="ln-recent-title" class="ln-recent">
       <SectionHeader title="Recent fee changes" id="ln-recent-title">
@@ -392,13 +405,24 @@ export function RecentChanges(props: { node: NodeDetail; network: Network }) {
       <Switch>
         <Match when={changes.latest}>
           {(a) => (
-            <DataTable
-              caption="The latest fee changes on its channels, newest first"
-              columns={CHANGE_COLUMNS}
-              rows={a().changes}
-              rowHref={(c) => `${paths.lightningChannel(c.id)}#${FEE_HISTORY}`}
-              empty={<Empty title="No change kept" />}
-            />
+            <div
+              class={[
+                "ln-recent__table",
+                {
+                  "ln-recent--long": moved(a()).some((c) =>
+                    [c.before, c.after].some((f) => movedText(c, f).length > MOVED_FITS),
+                  ),
+                },
+              ]}
+            >
+              <DataTable
+                caption="The latest fee changes on its channels, newest first"
+                columns={CHANGE_COLUMNS}
+                rows={moved(a())}
+                rowHref={(c) => `${paths.lightningChannel(c.id)}#${FEE_HISTORY}`}
+                empty={<Empty title="No change kept" />}
+              />
+            </div>
           )}
         </Match>
         <Match when={changes.state === "errored"}>

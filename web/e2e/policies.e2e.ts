@@ -12,6 +12,7 @@ import {
   pageFaults,
   recorded,
   serve,
+  tablesScrolling,
 } from "./lightning-answers";
 
 /** The largest a policy's 32-bit rate can be, in ppm. */
@@ -156,6 +157,7 @@ test("a channel page draws every state at a desktop's and a phone's width, light
       await feesDrawn(page, hasFees);
       const label = `${name} at ${view.width} px, ${view.colorScheme}`;
       expect(await pageFaults(page), label).toStrictEqual([]);
+      expect(await tablesScrolling(page, "#fee-history"), label).toStrictEqual([]);
       if (name === "longest exact base") {
         // A long fee is exact in a wide well, in magnitude only where its well is narrow.
         await expect(page.locator(".ln-hop__fee").first()).toHaveText(
@@ -203,7 +205,11 @@ for (const text of [20, 24, 32]) {
         await expect(page.getByRole("heading", { name: "Life of the channel" })).toBeVisible();
         // The section comes with the page's own content, so it is there to count by now.
         await feesDrawn(page, (await page.locator("#fee-history").count()) > 0);
-        faults.push(...(await pageFaults(page)).map((f) => `${width} px, ${name}: ${f}`));
+        const found = [
+          ...(await pageFaults(page)),
+          ...(await tablesScrolling(page, "#fee-history")),
+        ];
+        faults.push(...found.map((f) => `${width} px, ${name}: ${f}`));
       }
     }
     expect(faults).toStrictEqual([]);

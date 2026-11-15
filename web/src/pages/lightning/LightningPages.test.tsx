@@ -520,6 +520,11 @@ describe("a node", () => {
       changes: [
         change("913755x2933x0", "peer", fees(1000), fees(50)),
         change("913755x2933x1", "own", fees(500, 1000), fees(500, 2000)),
+        // An inbound fee from none to zero, which the server keeps: it charges the same.
+        change("913755x2933x2", "own", fees(500), {
+          ...fees(500),
+          inbound_fee: { base_fee_msat: 0, fee_rate: 0 },
+        }),
       ],
     });
     const plain = open(`/lightning/node/${ACINQ}`);
@@ -531,6 +536,7 @@ describe("a node", () => {
     expect(text(el)).toContain("This node, base fee1 sat2 sats");
     expect(text(el)).not.toContain("500500");
     expect(links(el)).toContain("/lightning/channel/913755x2933x0#fee-history");
+    expect(text(el)).not.toContain("913755x2933x2");
     replies[`${node}/fees`] = json({ changes: [] });
     clearApiCache();
     const none = open(`/lightning/node/${ACINQ}?view=fees`);
@@ -709,6 +715,8 @@ describe("a channel", () => {
     );
     await shows(none, "Who charges what");
     expect(text(none.querySelector(".ln-chan__title") as HTMLElement)).toContain("No policy");
+    // Nothing to chart: its fee history is not asked for.
+    expect(requests.some((r) => r.includes("811984x2037x9/fees"))).toBe(false);
     // Nothing to work out or compare: the lanes say "No policy" each way, and that is all.
     expect(titles(none)).toStrictEqual(["Who charges what", "Life of the channel"]);
     expect(text(none)).not.toContain("Disabled");

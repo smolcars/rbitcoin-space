@@ -17,6 +17,9 @@ import {
   FEE_HISTORY,
   feeSteps,
   inboundOf,
+  inboundParts,
+  LONG_FIGURE,
+  msatAsSats,
   ppm,
   shortName,
 } from "./lightning";
@@ -128,7 +131,7 @@ function Way(props: {
   const label = () => `${shortName(props.from)}'s fee rate towards ${shortName(props.to)}`;
   return (
     <Switch>
-      <Match when={props.records.length > 1}>
+      <Match when={props.records.length > 1 && steps().x.length > 0}>
         <div class="ln-chart ln-feehist__plot">
           <Pending>
             <Chart
@@ -155,6 +158,10 @@ function Way(props: {
             />
           </Pending>
         </div>
+      </Match>
+      {/* Records with no stretch the server says it was recording: their figures, no line. */}
+      <Match when={props.records.length > 1}>
+        <Records records={props.records} label={label()} />
       </Match>
       <Match when={props.records[0]}>
         {(r) => (
@@ -214,13 +221,26 @@ function Records(props: { records: FeeRecord[]; label: string }) {
         ]
       : []),
   ];
+  // A figure past 12 characters (a 32-bit rate, a base fee of thousands of sats) leaves no room
+  // for columns: the records read as a labelled list.
+  const long = () =>
+    props.records.some((r) => {
+      const f = inboundOf(r);
+      return [
+        groupDigits(r.fee_rate),
+        msatAsSats(r.base_fee_msat),
+        ...(f ? inboundParts(f) : []),
+      ].some((t) => t.length > LONG_FIGURE);
+    });
   return (
-    <DataTable
-      caption={props.label}
-      columns={columns()}
-      rows={props.records
-        .map((_, i, all) => all[all.length - 1 - i])
-        .filter((r) => r !== undefined)}
-    />
+    <div class={{ "ln-feehist--long": long() }}>
+      <DataTable
+        caption={props.label}
+        columns={columns()}
+        rows={props.records
+          .map((_, i, all) => all[all.length - 1 - i])
+          .filter((r) => r !== undefined)}
+      />
+    </div>
   );
 }

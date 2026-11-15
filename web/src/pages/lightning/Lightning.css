@@ -412,6 +412,69 @@
   .ln-feehist__plot {
     min-height: calc(160px + 5.75rem);
   }
+  /* The records as a labelled list where their columns cannot fit: a narrow panel, or a record
+     with a figure past 12 characters. */
+  .ln-feehist__way {
+    container-type: inline-size;
+  }
+  @container (max-width: 30rem) {
+    .ln-feehist .table thead {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+    }
+    .ln-feehist :is(.table, .table tbody, .table tr) {
+      display: block;
+      width: 100%;
+    }
+    .ln-feehist .table tr {
+      padding: var(--space-2) 0;
+      border-bottom: 1px solid var(--color-line);
+    }
+    .ln-feehist .table td {
+      display: block;
+      padding: 0;
+      border: 0;
+      text-align: left;
+      white-space: normal;
+    }
+    .ln-feehist .table td[data-label]:not(:first-child)::before {
+      content: attr(data-label) " ";
+      font-family: var(--font-sans);
+      font-size: var(--text-sm);
+      color: var(--color-text-muted);
+    }
+  }
+  .ln-feehist--long .table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .ln-feehist--long :is(.table, .table tbody, .table tr) {
+    display: block;
+    width: 100%;
+  }
+  .ln-feehist--long .table tr {
+    padding: var(--space-2) 0;
+    border-bottom: 1px solid var(--color-line);
+  }
+  .ln-feehist--long .table td {
+    display: block;
+    padding: 0;
+    border: 0;
+    text-align: left;
+    white-space: normal;
+  }
+  .ln-feehist--long .table td[data-label]:not(:first-child)::before {
+    content: attr(data-label) " ";
+    font-family: var(--font-sans);
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
   .ln-feehist__still {
     margin: 0;
     padding-left: calc(var(--space-2) + 3px);
@@ -695,7 +758,8 @@
 
   /* A figure is one piece, its unit with it, at any text size: a line breaks between figures
      ("1 ppm" + "1 sat"), never inside one. Its digit groups are joined by no-break spaces. */
-  :is(.ln-chan, .ln-lanes, .ln-hop, .ln-outcome, .ln-life, .ln-terms) .num:not(time) {
+  :is(.ln-chan, .ln-lanes, .ln-hop, .ln-outcome, .ln-life, .ln-terms, .ln-feehist)
+    .num:not(time, .chart__when) {
     white-space: nowrap;
   }
   /* A long msat figure's magnitude, shown in its place only where the room is narrowest (below). */
@@ -1662,6 +1726,9 @@
   .ln-recent__phone {
     display: none;
   }
+  .ln-recent__fromto {
+    display: none;
+  }
   .ln-node-ratio {
     margin: var(--space-3) 0 0;
     font-size: var(--text-sm);
@@ -1760,6 +1827,26 @@
     }
     .ln-recent__who .ln-node-row2__line {
       flex-wrap: wrap;
+    }
+    /* A figure too long for the From and To columns: "from → to" under the channel instead,
+       breaking between its figures. */
+    .ln-recent--long .ln-recent__fromto {
+      display: flex;
+      flex-wrap: wrap;
+      white-space: normal;
+    }
+    .ln-recent--long :is(th, td):is(:nth-child(3), :nth-child(4)) {
+      display: none;
+    }
+    /* A channel id breaks after an "x" (ChannelId), as nowhere else on the line can. */
+    .ln-recent__who .ln-id {
+      white-space: normal;
+    }
+    /* A name with no space (a key's digits) breaks anywhere rather than widen the row. */
+    .ln-recent__sub {
+      min-width: 0;
+      white-space: normal;
+      overflow-wrap: anywhere;
     }
     .ln-recent__ends {
       justify-content: space-between;
