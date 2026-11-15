@@ -117,18 +117,19 @@ const COINBASE_ONLY: BlockSummary = {
   fee_bands: Array.from({ length: 10 }, () => 0),
 };
 /** The block's transaction records, as the server encodes them: the coinbase and 29 others. */
-function records(version = 1): ArrayBuffer {
-  const view = new DataView(new ArrayBuffer(8 + 30 * 20));
+function records(version = 2): ArrayBuffer {
+  const view = new DataView(new ArrayBuffer(8 + 30 * 28));
   view.setUint32(0, version, true);
   view.setUint32(4, 30, true);
   for (let i = 0; i < 30; i++) {
-    view.setUint32(8 + i * 20, 200, true);
-    view.setBigUint64(12 + i * 20, BigInt(i === 0 ? 0 : 1000), true);
-    view.setBigUint64(20 + i * 20, 5000n, true);
+    view.setUint32(8 + i * 28, 200, true);
+    view.setBigUint64(12 + i * 28, BigInt(i === 0 ? 0 : 1000), true);
+    view.setBigUint64(20 + i * 28, 5000n, true);
+    view.setBigUint64(28 + i * 28, 1034n, true);
   }
   return view.buffer;
 }
-const txsPath = `/app/block/${HASH}/txs`;
+const txsPath = `/app/block/${HASH}/txs?v=2`;
 const summaryPath = (...hashes: string[]) => `/app/blocks/summary?hashes=${hashes.join(",")}`;
 const normal = () => ({
   [`/block/${HASH}`]: { body: block },
@@ -415,7 +416,7 @@ describe("BlockPage", () => {
   });
 
   it("asks for a reload when the server sends a newer record format", async () => {
-    serve({ ...normal(), [txsPath]: { body: records(2) } });
+    serve({ ...normal(), [txsPath]: { body: records(3) } });
     const el = open(`/block/${HASH}`);
     await until(() => expect(text(el)).toContain("The server is newer than this page."));
   });

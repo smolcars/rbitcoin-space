@@ -10,11 +10,12 @@ use crate::mining::pools;
 use crate::projected::{BAND_EDGES, BANDS, Bands};
 
 /// Version of the [`encode_txs`] format, its first four bytes.
-pub const TXS_FORMAT: u32 = 1;
+pub const TXS_FORMAT: u32 = 2;
 /// Bytes before the first record: format version and record count, both `u32` little-endian.
 pub const TXS_HEADER: usize = 8;
-/// Bytes per transaction: vsize `u32`, fee `u64`, output value `u64`, all little-endian.
-pub const TXS_RECORD: usize = 20;
+/// Bytes per transaction: vsize `u32`, fee `u64`, output value `u64`, [`crate::flags`] `u64`,
+/// all little-endian.
+pub const TXS_RECORD: usize = 28;
 
 /// The facts of one block, as `/app/block/{hash}/summary` answers them. Everything except
 /// `tx_count` leaves the coinbase out, as `getblockstats` does.
@@ -152,18 +153,35 @@ fn rates(paying: &[BlockTx]) -> Option<Rates> {
     })
 }
 
+/// Each transaction's [`crate::flags::of`], in block order, read from the block's raw bytes.
+/// `None` unless `raw` holds the listed transactions in the listed order: a different block
+/// under the same hash, or a short one, must not lend its flags.
+pub fn flags(block: &Block, raw: &bitcoin::Block) -> Option<Vec<u64>> {
+    if raw.txdata.len() != block.tx.len() {
+        return None;
+    }
+    raw.txdata
+        .iter()
+        .zip(&block.tx)
+        .map(|(t, listed)| (t.compute_txid() == listed.txid).then(|| crate::flags::of(t)))
+        .collect()
+}
+
 /// Every transaction in block order, coinbase first (its fee is 0), as fixed-width records
 /// after an 8-byte header ([`TXS_FORMAT`], count). A square needs no txid up front: the public
-/// API resolves a block hash and index to one (`/api/block/:hash/txid/:index`).
-pub fn encode_txs(block: &Block) -> Vec<u8> {
-    let mut out = Vec::with_capacity(TXS_HEADER + TXS_RECORD * block.tx.len());
+/// API resolves a block hash and index to one (`/api/block/:hash/txid/:index`). `flags` is
+/// [`flags`]' answer for this block, one per transaction.
+pub fn encode_txs(block: &Block, flags: &[u64]) -> Vec<u8> {
+    let count = block.tx.len().min(flags.len());
+    let mut out = Vec::with_capacity(TXS_HEADER + TXS_RECORD * count);
     out.extend_from_slice(&TXS_FORMAT.to_le_bytes());
-    let count = u32::try_from(block.tx.len()).unwrap_or(u32::MAX);
+    let count = u32::try_from(count).unwrap_or(u32::MAX);
     out.extend_from_slice(&count.to_le_bytes());
-    for tx in block.tx.iter().take(count as usize) {
+    for (tx, f) in block.tx.iter().zip(flags).take(count as usize) {
         out.extend_from_slice(&tx.vsize.to_le_bytes());
         out.extend_from_slice(&tx.fee.map_or(0, |f| f.to_sat()).to_le_bytes());
         out.extend_from_slice(&tx.value.to_sat().to_le_bytes());
+        out.extend_from_slice(&f.to_le_bytes());
     }
     out
 }
@@ -288,7 +306,7 @@ mod tests {
             ..block(&[])
         };
         assert_eq!(facts(&empty).tx_count, 0);
-        assert_eq!(encode_txs(&empty), [1, 0, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(encode_txs(&empty, &[]), [2, 0, 0, 0, 0, 0, 0, 0]);
     }
 
     #[test]
@@ -349,11 +367,57 @@ mod tests {
     }
 
     #[test]
+    fn flags_come_only_from_the_listed_transactions_in_their_order() {
+        use bitcoin::{OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Witness};
+        let t = |vout: u32| Transaction {
+            version: bitcoin::transaction::Version::TWO,
+            lock_time: bitcoin::absolute::LockTime::ZERO,
+            input: vec![TxIn {
+                previous_output: OutPoint {
+                    txid: Txid::all_zeros(),
+                    vout,
+                },
+                script_sig: ScriptBuf::new(),
+                sequence: Sequence::MAX,
+                witness: Witness::new(),
+            }],
+            output: vec![TxOut {
+                value: Amount::from_sat(1),
+                script_pubkey: ScriptBuf::new_op_return([]),
+            }],
+        };
+        let raw = |txdata: Vec<Transaction>| bitcoin::Block {
+            header: bitcoin::constants::genesis_block(bitcoin::Network::Regtest).header,
+            txdata,
+        };
+        let txs = vec![t(0), t(1), t(2)];
+        let mut b = block(&[(1, 100), (2, 100)]);
+        for (listed, t) in b.tx.iter_mut().zip(&txs) {
+            listed.txid = t.compute_txid();
+        }
+        let got = flags(&b, &raw(txs.clone())).unwrap();
+        assert_eq!(got, txs.iter().map(crate::flags::of).collect::<Vec<_>>());
+        assert!(got.iter().all(|f| f & crate::flags::OP_RETURN != 0));
+        assert_eq!(
+            flags(&b, &raw(vec![t(1), t(0), t(2)])),
+            None,
+            "out of order"
+        );
+        assert_eq!(flags(&b, &raw(txs[..2].to_vec())), None, "short");
+        assert_eq!(flags(&b, &raw(vec![t(0), t(1), t(2), t(3)])), None, "long");
+        assert_eq!(
+            flags(&b, &raw(vec![t(0), t(1), t(9)])),
+            None,
+            "another transaction"
+        );
+    }
+
+    #[test]
     fn records_are_fixed_width_in_block_order() {
         let b = block(&[(11, 100), (u64::from(u32::MAX) + 1, 200)]);
-        let out = encode_txs(&b);
+        let out = encode_txs(&b, &[crate::flags::KNOWN, 1 << 44, 7]);
         assert_eq!(out.len(), TXS_HEADER + 3 * TXS_RECORD);
-        assert_eq!(out[..8], [1, 0, 0, 0, 3, 0, 0, 0]);
+        assert_eq!(out[..8], [2, 0, 0, 0, 3, 0, 0, 0]);
         let rec = |i: usize| &out[TXS_HEADER + i * TXS_RECORD..][..TXS_RECORD];
         let u32_at = |r: &[u8], o: usize| u32::from_le_bytes(r[o..o + 4].try_into().unwrap());
         let u64_at = |r: &[u8], o: usize| u64::from_le_bytes(r[o..o + 8].try_into().unwrap());
@@ -365,5 +429,9 @@ mod tests {
         assert_eq!((u32_at(rec(1), 0), u64_at(rec(1), 4)), (100, 11));
         assert_eq!(u64_at(rec(2), 4), 1 << 32);
         assert_eq!(u64_at(rec(2), 12), 200_000);
+        // The flags, at offset 20 of each record.
+        assert_eq!(u64_at(rec(0), 20), crate::flags::KNOWN);
+        assert_eq!(u64_at(rec(1), 20), 1 << 44);
+        assert_eq!(u64_at(rec(2), 20), 7);
     }
 }

@@ -1,15 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { decodeTxs, TxsFormatError } from "./decode";
 
-/** The server's format: version, count, then vsize u32, fee u64, value u64 per record. */
-function encode(records: [number, number, number][], version = 1, count = records.length) {
-  const view = new DataView(new ArrayBuffer(8 + records.length * 20));
+/** The server's format: version, count, then vsize u32, fee u64, value u64, flags u64 per record. */
+function encode(records: [number, number, number][], version = 2, count = records.length) {
+  const view = new DataView(new ArrayBuffer(8 + records.length * 28));
   view.setUint32(0, version, true);
   view.setUint32(4, count, true);
   for (const [i, [vsize, fee, value]] of records.entries()) {
-    view.setUint32(8 + i * 20, vsize, true);
-    view.setBigUint64(12 + i * 20, BigInt(fee), true);
-    view.setBigUint64(20 + i * 20, BigInt(value), true);
+    view.setUint32(8 + i * 28, vsize, true);
+    view.setBigUint64(12 + i * 28, BigInt(fee), true);
+    view.setBigUint64(20 + i * 28, BigInt(value), true);
+    view.setBigUint64(28 + i * 28, 0xffff_ffff_ffff_ffffn, true);
   }
   return view.buffer;
 }
@@ -43,13 +44,14 @@ describe("decodeTxs", () => {
   });
 
   it("refuses another version, so the page can ask for a reload", () => {
-    expect(refusal(encode([[100, 0, 1]], 2))).toBe("version");
+    expect(refusal(encode([[100, 0, 1]], 1))).toBe("version");
+    expect(refusal(encode([[100, 0, 1]], 3))).toBe("version");
   });
 
   it("refuses a truncated reply, trailing bytes and a short header", () => {
-    expect(refusal(encode([[100, 0, 1]]).slice(0, 20))).toBe("malformed");
-    expect(refusal(encode([[100, 0, 1]], 1, 2))).toBe("malformed");
-    expect(refusal(encode([[100, 0, 1]], 1, 0))).toBe("malformed");
+    expect(refusal(encode([[100, 0, 1]]).slice(0, 28))).toBe("malformed");
+    expect(refusal(encode([[100, 0, 1]], 2, 2))).toBe("malformed");
+    expect(refusal(encode([[100, 0, 1]], 2, 0))).toBe("malformed");
     expect(refusal(new ArrayBuffer(4))).toBe("malformed");
   });
 });

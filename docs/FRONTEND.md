@@ -158,7 +158,7 @@ What the public API cannot give cheaply: a mined block's fee facts and every tra
 | Route | Answer |
 |---|---|
 | `GET /app/block/:hash/summary` | The block's facts, JSON (below) |
-| `GET /app/block/:hash/txs` | Every transaction as a fixed-width binary record (below) |
+| `GET /app/block/:hash/txs?v=2` | Every transaction as a fixed-width binary record (below) |
 | `GET /app/blocks/summary?hashes=<hash>,<hash>,…` | 1 to 10 blocks' facts, a JSON array in the order asked. Repeats are allowed |
 
 ```json
@@ -179,23 +179,26 @@ What the public API cannot give cheaply: a mined block's fee facts and every tra
 - `audit` is the block's health: its audit's totals ([Block audits](#block-audits) below), or `null` when it has none. A new block's summary is computed with its audit, so the `summary` message and the first fetch already carry it; `null` stays `null`. A server older than this field leaves it out: treat that as `null`.
 - `fee_bands` is the virtual size paying in each of the twelve design bands, cheapest first: the strata. A block stored before the lowest band was split carries ten, all under 0.2 sat/vB in the first; `widenBands` (`lib/format.ts`) reads either, and the strata name that first band "under 0.20 sat/vB" ([`DESIGN.md`](DESIGN.md#fee-scale)). They sum to `vsize`. Each transaction is banded on its rate as printed, as `feeBand` does, so a stratum's color agrees with the numbers beside it. How full the block is comes from the block's own `weight` (Esplora) over 4,000,000.
 
-`/txs` is `application/octet-stream`, little-endian: an 8-byte header, then one 20-byte record per transaction in block order, the coinbase first.
+`/txs` is `application/octet-stream`, little-endian: an 8-byte header, then one 28-byte record per transaction in block order, the coinbase first.
 
 | Offset | Size | Field |
 |---|---|---|
-| 0 | `u32` | Format version, `1` |
+| 0 | `u32` | Format version, `2` |
 | 4 | `u32` | Record count, `tx_count` |
-| 8 + 20·i | `u32` | Virtual size of transaction `i` |
-| 12 + 20·i | `u64` | Fee in sats; 0 for the coinbase |
-| 20 + 20·i | `u64` | Total output value in sats |
+| 8 + 28·i | `u32` | Virtual size of transaction `i` |
+| 12 + 28·i | `u64` | Fee in sats; 0 for the coinbase |
+| 20 + 28·i | `u64` | Total output value in sats |
+| 28 + 28·i | `u64` | The transaction's flags ([`API.md`](API.md#transaction-flags)); the frontend does not read them yet |
 
-Read it with a `DataView`; a `u64` here is below 2^53, so `Number(view.getBigUint64(o, true))` is exact. A record has no txid: when a square is hovered or clicked, ask `/api/block/:hash/txid/:index`, which is cached for good. Mainnet block 975 511, 4,198 transactions, is 83,968 bytes: 16.6 KB gzipped and 12.7 KB with brotli, if the proxy in front compresses (the server itself does not). The facts are about 400 bytes. Check the version before reading; a different one means a newer server and a page that needs a reload.
+Read it with a `DataView`; a `u64` here is below 2^53 (the highest flag is bit 44), so `Number(view.getBigUint64(o, true))` is exact. A record has no txid: when a square is hovered or clicked, ask `/api/block/:hash/txid/:index`, which is cached for good. Mainnet block 976,000, 4,003 transactions, is 112,092 bytes (80,068 in format 1, without flags); the proxy in front may compress it (the server itself does not). The facts are about 400 bytes. Check the version before reading; a different one means a newer server and a page that needs a reload.
+
+**The format is in the URL.** An answer is cached for good under its URL, so a new format needs a new one: the page asks for `?v=2`, the format it reads, and no browser or proxy holding a format 1 answer under the plain path can hand it one. The plain path, and `?v=2`, both answer format 2; any other query is a `400`. A tab still running an older page asks the plain path: a cached format 1 answer it reads as before, a fresh one tells it to reload, and the reloaded page asks `?v=2`.
 
 **In the frontend.** `lib/summary.ts` has the type, `isSummary`, and `fetchSummaries(network, hashes, signal)`, which asks for up to ten at a time with `withRetry` and keeps every summary it sees, fetched or pushed, for the life of the page (`knownSummary`). The home page asks for its ten tiles in one batch on first paint and then takes each new block's from the WebSocket, asking over HTTP only if the push has not come within 4 s. Older tiles, as the strip scrolls into the past, are asked for once it stops ([The block strip's past](#the-block-strips-past)). The blocks list (25 a page, from three of the API's ten-block answers) asks per row, two at a time, so an old page fills in row by row. Draw the bands with `Strata`, and the records with the transaction grid below. The home strip's and the mining page's tiles put `miner.name` on the line under each tile (`aria-hidden`, its space always kept) and in the tile link's text; the block page links it to the pool's page.
 
 **Caching.** A summary is fixed by its hash, so success is `Cache-Control: public, max-age=31536000, immutable`, and `api.ts`-style in-memory caching is right. Errors are `no-store`.
 
-**Cost and limits.** A block in the block table with its fee rates ([`STORE.md`](STORE.md#blocks)) costs nothing: once backfilled, the facts of the last year's blocks come from there. `/txs` always needs the node. An uncached block costs the node a block listing: about 60 ms and 0.3 MB on mainnet where the node has the listing route, a heavy call (about 0.7 s and 10 MB) where it does not ([`RBITCOIN.md`](RBITCOIN.md#listing-a-blocks-transactions)), so:
+**Cost and limits.** A block in the block table with its fee rates ([`STORE.md`](STORE.md#blocks)) costs nothing: once backfilled, the facts of the last year's blocks come from there. `/txs` always needs the node. An uncached block costs the node a block listing: about 60 ms and 0.3 MB on mainnet where the node has the listing route, a heavy call (about 0.7 s and 10 MB) where it does not ([`RBITCOIN.md`](RBITCOIN.md#listing-a-blocks-transactions)), and beside it the raw block for the flags (up to 4 MB, [`RBITCOIN.md`](RBITCOIN.md#listing-a-blocks-transactions)), so:
 
 - Concurrent requests for one block share one computation, and the facts and the records come from the same one.
 - The newest ten blocks are computed as they arrive, so the home page's tiles are always cached. A new block's facts are also pushed on the WebSocket as a `summary` message; use that rather than fetching.

@@ -92,9 +92,17 @@ fn esplora(h: &Header, height: u32) -> Value {
     })
 }
 
-/// The `n`th transaction's txid in every mock block: `n + 1` as the printed hash's last byte.
+/// The `n`th transaction of every mock block: the coinbase, then copies of it told apart by
+/// their lock time. Only their txids and flags are read.
+fn tx(n: u32) -> bitcoin::Transaction {
+    bitcoin::Transaction {
+        lock_time: bitcoin::absolute::LockTime::from_consensus(n),
+        ..coinbase()
+    }
+}
+
 fn txid(n: u32) -> String {
-    format!("{:064x}", n + 1)
+    tx(n).compute_txid().to_string()
 }
 
 /// `getblock` verbosity 2: the coinbase, then fee `1000 * i` sats on weight `561 * i`.
@@ -246,6 +254,15 @@ async fn rpc(State(node): N, Json(req): Json<Value>) -> Json<Value> {
     Json(json!({"result": block_json(hash, height), "error": null, "id": 0}))
 }
 
+/// `/block/:hash/raw`, for the flags. The header is not read.
+async fn raw_block(State(node): N) -> Vec<u8> {
+    node.count("raw");
+    bitcoin::consensus::serialize(&bitcoin::Block {
+        header: mine(BlockHash::all_zeros(), 0, 0),
+        txdata: (0..TXS).map(tx).collect(),
+    })
+}
+
 async fn mock(chain: &[Header]) -> (u16, Arc<Node>) {
     let node = Arc::new(Node::default());
     for (height, h) in chain.iter().enumerate() {
@@ -263,6 +280,7 @@ async fn mock(chain: &[Header]) -> (u16, Arc<Node>) {
         .route("/blocks/{h}", route_get(blocks_from))
         .route("/block/{hash}", route_get(block))
         .route("/block/{hash}/status", route_get(status))
+        .route("/block/{hash}/raw", route_get(raw_block))
         .route("/", post(rpc))
         .with_state(Arc::clone(&node));
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -916,7 +934,8 @@ async fn a_block_summary_costs_one_node_call_whatever_asks_for_it() {
             let weight = 561 * (i + 1);
             let fee = if i == 0 { 0 } else { 1000 * i };
             json!({"txid": txid(i), "fee": fee, "vsize": f64::from(weight) / 4.0,
-                "value": 10_000 * (i + 1), "rate": f64::from(fee) / f64::from(weight.div_ceil(4))})
+                "value": 10_000 * (i + 1), "rate": f64::from(fee) / f64::from(weight.div_ceil(4)),
+                "flags": engine::flags::of(&tx(i))})
         })
         .collect();
     let want = norm(Value::Array(want));
@@ -925,20 +944,31 @@ async fn a_block_summary_costs_one_node_call_whatever_asks_for_it() {
     assert!(
         text.find("\"txid\"") < text.find("\"fee\"")
             && text.find("\"value\"") < text.find("\"rate\"")
+            && text.find("\"rate\"") < text.find("\"flags\"")
     );
+    let flags = engine::flags::NO_RBF | engine::flags::V2 | engine::flags::P2PKH;
+    assert_eq!(want[1]["flags"], flags, "the mock's transactions");
     let again = get(&s.addr, &format!("{V1}/block/{id}/summary")).await;
     assert_eq!(again.body, r.body);
     let one = get(&s.addr, &format!("{V1}/block/{id}/tx/{}/summary", txid(2))).await;
     assert_eq!((one.status, one.json()), (200, want[2].clone()));
     assert_eq!(one.header("cache-control"), Some(IMMUTABLE));
-    // The private routes read the same cached summary.
+    // The private routes read the same cached summary, the format named or not.
+    let txs = get(&s.addr, &format!("/regtest/app/block/{id}/txs?v=2")).await;
+    assert_eq!(txs.status, 200);
+    assert_eq!(txs.body[..8], [2, 0, 0, 0, 5, 0, 0, 0]);
+    assert_eq!(txs.body[8 + 28 + 20..][..8], flags.to_le_bytes());
+    let plain = get(&s.addr, &format!("/regtest/app/block/{id}/txs")).await;
+    assert_eq!(plain.body, txs.body);
+    for other in ["v=1", "v=3", "v=2&v=2", "x=1"] {
+        let r = get(&s.addr, &format!("/regtest/app/block/{id}/txs?{other}")).await;
+        assert_eq!(r.status, 400, "{other}");
+    }
     assert_eq!(
-        get(&s.addr, &format!("/regtest/app/block/{id}/txs"))
-            .await
-            .status,
-        200
+        (s.node.calls("getblock"), s.node.calls("raw")),
+        (1, 1),
+        "one getblock and one raw block for all of them"
     );
-    assert_eq!(s.node.calls("getblock"), 1, "one getblock for all of them");
     drop(s.dir);
 }
 

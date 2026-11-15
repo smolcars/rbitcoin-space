@@ -4,7 +4,9 @@
 //! One summary costs the node a block listing ([`Lister`]): on a node with
 //! `/block/:hash/txs/summary`, about 0.2 MB and a few tens of milliseconds for a full mainnet
 //! block, three small Esplora calls; without it, a `getblock` at verbosity 2, about 10 MB and
-//! most of a second. So (SECURITY.md rules 6–8):
+//! most of a second. Beside it, the raw block from Esplora (at most 4 MB) for each transaction's
+//! flags. Nothing else reads a block's raw bytes for flags: the backfill lists blocks without
+//! them. So (SECURITY.md rules 6–8):
 //! - a computation runs in its own task, and every request for that block meanwhile joins it;
 //! - results are kept in a cache bounded in bytes (`BLOCK_SUMMARY_CACHE_MB`), least recently
 //!   used out first, and the newest [`WARM_BLOCKS`] are computed as blocks arrive;
@@ -38,6 +40,7 @@ use logging::events::{
     BlockTxsFellBack, BlockTxsSource,
 };
 use node::electrum::Event as ElectrumEvent;
+use node::esplora::Error as EsploraError;
 use node::rpc::Error as RpcError;
 use serde::Serialize;
 use serde_json::json;
@@ -94,7 +97,7 @@ impl Summary {
             .as_chunks::<{ stats::TXS_RECORD }>()
             .0;
         self.ids.iter().zip(records).map(|(&(txid, weight), r)| {
-            // A record is vsize `u32`, fee `u64`, value `u64`, little-endian.
+            // A record is vsize `u32`, fee `u64`, value `u64`, flags `u64`, little-endian.
             let num = |at: usize| {
                 r.get(at..at + 8)
                     .and_then(|b| b.try_into().ok())
@@ -115,6 +118,7 @@ impl Summary {
                 } else {
                     fee as f64 / f64::from(whole)
                 },
+                flags: num(20),
             }
         })
     }
@@ -122,7 +126,8 @@ impl Summary {
 
 /// One transaction as the reference's block summary lists it. `vsize` is weight / 4, unrounded,
 /// as the reference gives it; `rate` is the fee over the node's vsize (whole vbytes), as the
-/// reference's is for every transaction it does not rate as part of a package.
+/// reference's is for every transaction it does not rate as part of a package. `flags` is
+/// [`engine::flags::of`], a number below 2^53 (`docs/API.md`, "Transaction flags").
 #[derive(Debug, Serialize)]
 struct TxRow {
     txid: Txid,
@@ -130,6 +135,7 @@ struct TxRow {
     vsize: f64,
     value: u64,
     rate: f64,
+    flags: u64,
 }
 
 /// Why a computation produced no summary.
@@ -157,6 +163,16 @@ impl Failure {
             RpcError::Timeout => Self::Timeout,
             RpcError::ResponseTooBig => Self::TooBig,
             RpcError::Decode(_) => Self::Decode,
+            _ => Self::Unavailable,
+        }
+    }
+
+    /// The raw block's read. Its `404` is not `NotFound`: the listing found the block.
+    fn from_esplora(e: &EsploraError) -> Self {
+        match e {
+            EsploraError::Timeout => Self::Timeout,
+            EsploraError::ResponseTooBig => Self::TooBig,
+            EsploraError::Decode(_) => Self::Decode,
             _ => Self::Unavailable,
         }
     }
@@ -350,20 +366,33 @@ async fn compute(
     let ctx = &landing.ctx;
     let s = &ctx.summaries;
     let started = Instant::now();
-    let (block, via, node_ms) = {
+    let (block, raw, via, node_ms) = {
         // Never closed, so this cannot fail.
         let _running = s.running.acquire().await;
         let called = Instant::now();
-        let (block, via) = ctx.lister.block(&ctx.rpc, &ctx.esplora, landing.hash).await;
-        (block, via, called.elapsed().as_secs_f64() * 1000.0)
+        // The raw block is for the flags (`docs/RBITCOIN.md`); read beside the listing.
+        let ((block, via), raw) = tokio::join!(
+            ctx.lister.block(&ctx.rpc, &ctx.esplora, landing.hash),
+            ctx.esplora.block_raw(landing.hash)
+        );
+        (block, raw, via, called.elapsed().as_secs_f64() * 1000.0)
     };
     drop(pending);
     let network = ctx.config.network.name();
-    let outcome = match block {
+    let outcome = match (block, raw) {
         // A different block under the asked hash would poison the cache for good.
-        Ok(b) if b.hash != landing.hash => Err(Failure::Decode),
-        Ok(b) => {
-            let txs: Bytes = stats::encode_txs(&b).into();
+        (Ok(b), _) if b.hash != landing.hash => Err(Failure::Decode),
+        (Ok(b), Ok(raw)) => match stats::flags(&b, &raw.value) {
+            // Not the listed transactions: no flags rather than wrong ones, and nothing cached.
+            None => Err(Failure::Decode),
+            Some(flags) => Ok((b, flags)),
+        },
+        (Ok(_), Err(e)) => Err(Failure::from_esplora(&e)),
+        (Err(e), _) => Err(Failure::from_rpc(&e)),
+    };
+    let outcome = match outcome {
+        Ok((b, flags)) => {
+            let txs: Bytes = stats::encode_txs(&b, &flags).into();
             logging::emit(&BlockSummaryComputed {
                 network,
                 height: b.height,
@@ -388,7 +417,7 @@ async fn compute(
                 audit,
             }))
         }
-        Err(e) => Err(Failure::from_rpc(&e)),
+        Err(f) => Err(f),
     };
     match &outcome {
         Ok(summary) => {
@@ -578,9 +607,9 @@ fn unkept_unless(read: bool, mut res: Response) -> Response {
     res
 }
 
-/// The hash in the path, before anything is asked of the node.
-fn parse_hash(hash: &str, uri: &Uri) -> Result<BlockHash, Answer> {
-    if uri.query().is_some_and(|q| !q.is_empty()) {
+/// The hash in the path, before anything is asked of the node. `query` must be empty.
+fn parse_hash(hash: &str, query: Option<&str>) -> Result<BlockHash, Answer> {
+    if query.is_some_and(|q| !q.is_empty()) {
         return Err(Answer::Bad(ApiError::bad_request(
             "unexpected query parameter",
         )));
@@ -597,7 +626,7 @@ pub async fn facts(
 ) -> Response {
     const ROUTE: &str = "block_summary";
     let answer = async {
-        let hash = parse_hash(&hash, &uri)?;
+        let hash = parse_hash(&hash, uri.query())?;
         let (facts, source) = match stored(&ctx, &[hash]).await.pop().flatten() {
             Some(f) => (f, Source::Stored),
             None => {
@@ -622,7 +651,9 @@ pub async fn facts(
         .unwrap_or_else(|a: Answer| a.into_response(ROUTE))
 }
 
-/// `GET /app/block/{hash}/txs`: [`stats::encode_txs`].
+/// `GET /app/block/{hash}/txs[?v=2]`: [`stats::encode_txs`]. The frontend asks with the format
+/// it reads, so no browser or proxy holding an older format's answer, cached for good under the
+/// plain path, answers it (`docs/FRONTEND.md`).
 pub async fn txs(
     State(ctx): State<Arc<NetworkContext>>,
     Extension(client): Extension<Client>,
@@ -631,7 +662,8 @@ pub async fn txs(
 ) -> Response {
     const ROUTE: &str = "block_summary_txs";
     let answer = async {
-        let hash = parse_hash(&hash, &uri)?;
+        let format = format!("v={}", stats::TXS_FORMAT);
+        let hash = parse_hash(&hash, uri.query().filter(|q| *q != format))?;
         let (s, source) = get(&ctx, hash, client.addr).await?;
         Ok(ok(ROUTE, "application/octet-stream", s.txs.clone(), source))
     };

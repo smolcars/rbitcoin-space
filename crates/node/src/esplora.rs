@@ -145,6 +145,9 @@ pub const MAX_BLOCK_TXS: usize = 20_000;
 /// Largest `/block/:hash/txs/summary` answer read: [`MAX_BLOCK_TXS`] rows of at most about 125
 /// bytes (a quoted txid, two `u64` and a `u32`). A full mainnet block is about 0.2 MB.
 pub const MAX_SUMMARY_BYTES: usize = 4 << 20;
+/// Largest `/block/:hash/raw` answer read: a block's serialized size is at most its weight,
+/// 4,000,000.
+pub const MAX_BLOCK_BYTES: usize = 4_000_000;
 
 impl Esplora {
     pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -186,9 +189,10 @@ impl Esplora {
         }
         let mut path = String::with_capacity(160);
         route.write_path(&mut path);
-        // The listing route has a bound of its own, enforced while reading.
+        // These routes have a bound of their own, enforced while reading.
         let cap = match route {
             Route::BlockTxsSummary(_) => MAX_SUMMARY_BYTES,
+            Route::BlockRaw(_) => MAX_BLOCK_BYTES,
             _ => usize::MAX,
         };
         let res = self
@@ -298,6 +302,7 @@ impl Esplora {
         .await
     }
 
+    /// One over [`MAX_BLOCK_BYTES`] is `ResponseTooBig`, refused before or while reading.
     pub async fn block_raw(&self, hash: BlockHash) -> Result<Stamped<bitcoin::Block>, Error> {
         self.typed(Route::BlockRaw(hash), consensus).await
     }

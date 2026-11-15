@@ -26,7 +26,7 @@ import { describeBands, Strata, strataLayers, strataTop } from "../../components
 import { ErrorState } from "../../components/States";
 import { TimeAgo, TimeUtc } from "../../components/Time";
 import type { GridState } from "../../components/txgrid/TxGrid";
-import { decodeTxs, TxsFormatError } from "../../components/txgrid/decode";
+import { decodeTxs, TxsFormatError, TXS_VERSION } from "../../components/txgrid/decode";
 import type { GridTx } from "../../components/txgrid/layout";
 import {
   createApi,
@@ -257,7 +257,8 @@ function BlockView(props: { hash?: string | undefined; height?: number | undefin
   const [gridTxs, gridTxsCtl] = createRequest(
     () => (props.hash ? { hash: props.hash, network: network() } : undefined),
     async ({ hash, network: n }, signal): Promise<GridTx[]> => {
-      const path = `/block/${hash}/txs`;
+      // The format in the URL: a cache holding another format's answer has it under another key.
+      const path = `/block/${hash}/txs?v=${TXS_VERSION}`;
       return decodeTxs(await fetchApp<ArrayBuffer>(n, path, { as: "bytes", signal }));
     },
   );

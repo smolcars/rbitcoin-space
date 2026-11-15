@@ -459,7 +459,7 @@ An answer is computed once per write to the table or the audits and kept in memo
 
 Side by side on mainnet (2026-11-12, tip 975,545; the tip list, the list from 974,000, block 975,541's summary and one recent full block, compared field by field): every header field, `reward`, `totalFees`, `avgFee`, the coinbase fields, `header` and `virtualSize` were identical in every block; the differences are the rows above. The summary had the same 2,077 transactions in the same order with the same `fee`, `vsize` and `value`; `rate` differed only for the 145 transactions the reference rated as packages.
 | Summary `time` | Absent | The reference adds when it first saw a transaction, for some; we keep accept times only for an audit's listed transactions |
-| Summary `flags` | Absent | The reference's bit field of transaction features (script types, RBF and the like) needs every input's previous output, which neither block listing gives (`getblock` at verbosity 2 or the summary route). A `0` would claim none |
+| Summary `flags` | Ours, from the raw block | Each transaction's [flags](#transaction-flags), after `rate` as on the reference: the bits we derive, equal to the reference's masked to them except for the two transactions written up there. The bits that need context (CPFP, replacement) are never set here |
 | Summary `rate` | The transaction's own rate | The reference gives a transaction mined with its ancestors or descendants their package's rate (three transactions at 16.861 where their own were 5.34, 6.00 and 33.10). In one mainnet block, 1,931 of 2,076 rates were equal and the other 145 were such packages |
 | `tx/:txid/summary` of a txid not in the block | `404 {"error": "transaction not found in this block"}` | The reference answers `404` too |
 
@@ -817,7 +817,7 @@ Every route but `prevouts` asks the node nothing: a request is a parse and a few
 - **First-seen.** Equal to the node's `getmempoolentry` time; 1 to 2 s before the reference's, as above. Transactions that left the mempool as replaced: ours from the record, `0` on the reference.
 ### Transaction flags
 
-The reference's per-transaction `flags` (in block summaries and the like) is a bit field of features; bit N is the value `1 << N`. We keep its layout, so the field can be passed through. Not served yet: the rows above that say `flags` is absent or `0` still hold. Code: `crates/engine/src/flags.rs`, one pure function of the transaction's own bytes, with a constant per bit.
+The reference's per-transaction `flags` (in block summaries and the like) is a bit field of features; bit N is the value `1 << N`. We keep its layout, so the field can be passed through. Served in mined blocks' summaries: `/api/v1/block/:hash/summary` and `/tx/:txid/summary` rows, and the `/app/block/:hash/txs` records ([`FRONTEND.md`](FRONTEND.md#block-summaries)), from the block's raw bytes ([`RBITCOIN.md`](RBITCOIN.md#listing-a-blocks-transactions)). Code: `crates/engine/src/flags.rs`, one pure function of the transaction's own bytes, with a constant per bit.
 
 **Input types are inferred,** with no previous outputs: from the scriptSig and the witness alone ([below](#how-an-input-is-placed)). A spend the rules cannot place sets no type bit rather than a guess.
 

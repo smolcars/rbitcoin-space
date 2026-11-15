@@ -26,7 +26,7 @@ use tokio::net::{TcpListener, TcpStream};
 const TXS: usize = 100;
 /// Bytes the server's cache counts for one mock block: header, records, txids and weights, and
 /// fixed overhead.
-const ENTRY: usize = 8 + 20 * TXS + 36 * TXS + 512;
+const ENTRY: usize = 8 + 28 * TXS + 36 * TXS + 512;
 
 // The node side.
 
@@ -39,6 +39,22 @@ struct Node {
     max_in_flight: AtomicUsize,
     /// While a test holds this for writing, `getblock` answers nothing.
     gate: tokio::sync::RwLock<()>,
+    /// What `/block/:hash/raw` answers: [`Raw`] as a `u8`.
+    raw: std::sync::atomic::AtomicU8,
+}
+
+/// `/block/:hash/raw` answers.
+#[derive(Clone, Copy)]
+#[repr(u8)]
+enum Raw {
+    /// The listed transactions.
+    Good = 0,
+    /// The same transactions, the first two swapped.
+    Swapped = 1,
+    /// Cut short by one byte.
+    Truncated = 2,
+    /// One byte over what a block can be.
+    TooBig = 3,
 }
 
 impl Node {
@@ -106,11 +122,51 @@ fn coinbase_json(hash: &str) -> (Value, Value) {
     )
 }
 
+/// The mock's `i`th transaction in every block, told apart by its lock time. Only its txid and
+/// flags are read.
+fn tx(i: usize) -> bitcoin::Transaction {
+    use bitcoin::{Amount, OutPoint, ScriptBuf, Sequence, TxIn, TxOut, Witness};
+    bitcoin::Transaction {
+        version: bitcoin::transaction::Version::TWO,
+        lock_time: bitcoin::absolute::LockTime::from_consensus(i as u32),
+        input: vec![TxIn {
+            previous_output: OutPoint::null(),
+            script_sig: ScriptBuf::new(),
+            sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+            witness: Witness::new(),
+        }],
+        output: vec![TxOut {
+            value: Amount::from_sat(1),
+            script_pubkey: ScriptBuf::new_op_return([]),
+        }],
+    }
+}
+
+/// What every mock transaction's flags are.
+const FLAGS: u64 = engine::flags::RBF | engine::flags::V2 | engine::flags::OP_RETURN;
+
+async fn raw(State(node): State<Arc<Node>>) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    let mut txdata: Vec<_> = (0..TXS).map(tx).collect();
+    let header = bitcoin::constants::genesis_block(bitcoin::Network::Regtest).header;
+    let mode = node.raw.load(Ordering::SeqCst);
+    if mode == Raw::Swapped as u8 {
+        txdata.swap(0, 1);
+    }
+    let mut bytes = bitcoin::consensus::serialize(&bitcoin::Block { header, txdata });
+    if mode == Raw::Truncated as u8 {
+        bytes.pop();
+    } else if mode == Raw::TooBig as u8 {
+        bytes.resize(4_000_001, 0);
+    }
+    bytes.into_response()
+}
+
 /// The block the mock answers for `hash`.
 fn block_json(hash: &str) -> Value {
     let tx = (0..TXS)
         .map(|i| {
-            let mut t = json!({"txid": "00".repeat(32), "vsize": 100, "weight": 400, "size": 100,
+            let mut t = json!({"txid": tx(i).compute_txid().to_string(), "vsize": 100, "weight": 400, "size": 100,
                 "vout": [{"value": 0.0001, "n": 0}, {"value": 0.00000002, "n": 1}]});
             if i > 0 {
                 t["fee"] = json!(i as f64 * 10.0 / 1e8);
@@ -133,6 +189,7 @@ async fn mock(delay: Duration) -> (u16, Arc<Node>) {
     });
     let app = axum::Router::new()
         .route("/", post(rpc))
+        .route("/block/{hash}/raw", axum::routing::get(raw))
         .with_state(Arc::clone(&node));
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -158,7 +215,7 @@ async fn start_with(
         ("REGTEST_RPC_PORT", port.to_string()),
         ("REGTEST_RPC_USER", "u".to_owned()),
         ("REGTEST_RPC_PASSWORD", "p".to_owned()),
-        ("REGTEST_ESPLORA_URL", "http://127.0.0.1:1".to_owned()),
+        ("REGTEST_ESPLORA_URL", format!("http://127.0.0.1:{port}")),
         ("REGTEST_ELECTRUM_ADDR", "127.0.0.1:1".to_owned()),
         ("TRUSTED_PROXY_HEADER", "X-Real-IP".to_owned()),
         // The test connects from loopback and names its client in the header.
@@ -316,17 +373,24 @@ async fn facts_records_and_batches_are_served_and_cached_for_good() {
         (Some("block_summary"), Some("upstream"))
     );
 
-    let r = get(&addr, &format!("/regtest/app/block/{a}/txs"), "192.0.2.1").await;
+    let r = get(
+        &addr,
+        &format!("/regtest/app/block/{a}/txs?v=2"),
+        "192.0.2.1",
+    )
+    .await;
     assert_eq!(r.status, 200);
     assert_eq!(r.header("cache-control"), Some(IMMUTABLE));
     assert_eq!(r.header("content-type"), Some("application/octet-stream"));
-    assert_eq!(r.body.len(), 8 + 20 * TXS);
-    assert_eq!(r.body[..8], [1, 0, 0, 0, TXS as u8, 0, 0, 0]);
-    // The second transaction: 100 vB, 10 sats, 10 002 sats out.
-    let rec = &r.body[28..48];
+    assert_eq!(r.body.len(), 8 + 28 * TXS);
+    assert_eq!(r.body[..8], [2, 0, 0, 0, TXS as u8, 0, 0, 0]);
+    // The second transaction: 100 vB, 10 sats, 10 002 sats out, and its flags.
+    let rec = &r.body[36..64];
     assert_eq!(u32::from_le_bytes(rec[..4].try_into().unwrap()), 100);
     assert_eq!(u64::from_le_bytes(rec[4..12].try_into().unwrap()), 10);
-    assert_eq!(u64::from_le_bytes(rec[12..].try_into().unwrap()), 10_002);
+    assert_eq!(u64::from_le_bytes(rec[12..20].try_into().unwrap()), 10_002);
+    assert_eq!(u64::from_le_bytes(rec[20..].try_into().unwrap()), FLAGS);
+    assert_eq!(FLAGS, engine::flags::of(&tx(1)));
     assert_eq!(request_event(&r).await["source"], "cached");
     assert_eq!(
         node.calls(&a),
@@ -702,4 +766,38 @@ async fn hostile_parameters_never_reach_the_node() {
         assert_eq!(r.header("cache-control"), Some("no-store"));
     }
     assert_eq!(node.calls(&unknown), 2);
+}
+
+/// A raw block that is not the listed one, cut short or too big fails the computation: no
+/// record with zeros for flags, nothing cached, and the next request computes again.
+#[tokio::test]
+async fn a_bad_raw_block_fails_the_summary_and_caches_nothing() {
+    let (addr, node) = start(Duration::ZERO, 100).await;
+    let h = hash(9);
+    for (mode, label) in [
+        (Raw::Swapped, "decode"),
+        (Raw::Truncated, "decode"),
+        (Raw::TooBig, "response_too_big"),
+    ] {
+        node.raw.store(mode as u8, Ordering::SeqCst);
+        let before = node.calls(&h);
+        for path in [summary(&h), format!("/regtest/app/block/{h}/txs")] {
+            let r = get(&addr, &path, "192.0.2.3").await;
+            assert_eq!(r.status, 502, "{label}: {r:?}");
+            assert_eq!(r.header("cache-control"), Some("no-store"));
+            assert_eq!(request_event(&r).await["upstream_error"], label);
+        }
+        assert_eq!(node.calls(&h), before + 2, "{label}: computed again");
+    }
+    node.raw.store(Raw::Good as u8, Ordering::SeqCst);
+    let r = get(
+        &addr,
+        &format!("/regtest/api/v1/block/{h}/summary"),
+        "192.0.2.3",
+    )
+    .await;
+    assert_eq!(r.status, 200);
+    let rows = r.json();
+    assert_eq!(rows.as_array().unwrap().len(), TXS);
+    assert!(rows.as_array().unwrap().iter().all(|r| r["flags"] == FLAGS));
 }

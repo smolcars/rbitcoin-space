@@ -157,6 +157,29 @@ async fn summary(State(node): N, Path(h): Path<String>) -> Response {
     }
 }
 
+/// The recorded block's transactions, from `getblock`'s hex.
+fn transactions() -> Vec<bitcoin::Transaction> {
+    let b: Value = serde_json::from_slice(&fixture("rpc/testnet4/getblock-160394.json")).unwrap();
+    b["tx"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| bitcoin::consensus::encode::deserialize_hex(t["hex"].as_str().unwrap()).unwrap())
+        .collect()
+}
+
+/// The recorded block's raw bytes, for the flags. The header is not read.
+async fn raw_block(Path(h): Path<String>) -> Response {
+    if !known(&h) {
+        return (StatusCode::NOT_FOUND, "Not Found").into_response();
+    }
+    let block = bitcoin::Block {
+        header: bitcoin::constants::genesis_block(bitcoin::Network::Testnet4).header,
+        txdata: transactions(),
+    };
+    bitcoin::consensus::serialize(&block).into_response()
+}
+
 async fn raw_tx(Path(txid): Path<String>) -> Response {
     if txid != COINBASE {
         return (StatusCode::NOT_FOUND, "Not Found").into_response();
@@ -171,6 +194,7 @@ async fn mock(node: &Arc<Node>) -> SocketAddr {
         .route("/block-height/0", get(|| async { GENESIS }))
         .route("/block/{hash}", get(block))
         .route("/block/{hash}/txs/summary", get(summary))
+        .route("/block/{hash}/raw", get(raw_block))
         .route("/tx/{txid}/raw", get(raw_tx))
         .with_state(Arc::clone(node));
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -309,7 +333,7 @@ async fn logged(network: &str, event: &str, n: usize) -> Value {
 // Tests.
 
 /// The block every consumer reads, the facts the backfill rates from, and every summary route's
-/// bytes are the same through either source.
+/// bytes, the flags included, are the same through either source.
 #[tokio::test]
 async fn both_sources_give_identical_answers() {
     let node = Arc::new(Node::default());
@@ -327,7 +351,11 @@ async fn both_sources_give_identical_answers() {
     let (route, getblock) = (route.unwrap(), getblock.unwrap());
     assert_eq!(route, getblock, "the audit and the summaries read this");
     assert_eq!(route.tx.len(), 6);
-    assert_eq!(stats::encode_txs(&route), stats::encode_txs(&getblock));
+    let flags = stats::flags(&route, &esplora.block_raw(h).await.unwrap().value).unwrap();
+    assert_eq!(
+        stats::encode_txs(&route, &flags),
+        stats::encode_txs(&getblock, &flags)
+    );
     assert_eq!(stats::facts(&route), stats::facts(&getblock));
 
     // The backfill's source, each way.
@@ -360,6 +388,19 @@ async fn both_sources_give_identical_answers() {
         served.push(body);
     }
     assert_eq!(with.calls(), (0, 1), "one listing however many routes ask");
+    // Each transaction's flags, from the raw block, in the records and the `/api/v1` rows.
+    let want: Vec<u64> = transactions().iter().map(engine::flags::of).collect();
+    assert!(want.iter().all(|&f| f != 0));
+    let records = &served[1][8..];
+    assert_eq!(records.len(), 28 * want.len());
+    let in_records: Vec<u64> = records
+        .chunks(28)
+        .map(|r| u64::from_le_bytes(r[20..].try_into().unwrap()))
+        .collect();
+    assert_eq!(in_records, want);
+    let rows: Vec<Value> = serde_json::from_slice(&served[2]).unwrap();
+    let in_rows: Vec<u64> = rows.iter().map(|r| r["flags"].as_u64().unwrap()).collect();
+    assert_eq!(in_rows, want);
     let without = Arc::new(Node::default());
     without.set(Mode::V092);
     let (app, _electrum) = start("TESTNET4", &without).await;

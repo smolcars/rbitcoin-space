@@ -44,7 +44,8 @@ const MAINNET: [u32; 20] = [
 /// Everything we store or serve from one listing, as bytes.
 fn derived(b: &Block) -> Vec<u8> {
     let mut out = serde_json::to_vec(&stats::facts(b)).unwrap();
-    out.extend(stats::encode_txs(b));
+    // The flags need the raw block, which neither listing gives; the rest of each record is here.
+    out.extend(stats::encode_txs(b, &vec![0; b.tx.len()]));
     // `/api/v1/block/:hash/summary` adds each txid and weight; the audit reads txid, fee, vsize
     // and weight of every transaction but the coinbase; the summary keeps the parent.
     for t in &b.tx {

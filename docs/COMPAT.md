@@ -70,7 +70,7 @@ Every `planned` row, as of the count above, and the rows the owner has decided. 
 | Clock `/clock` | Full-screen tip height, fee and mempool size | Nothing, without the price | A few hours | Build later; leave the price out |
 | TV `/tv` | Full-screen block strip and mempool chart | Nothing | A day | Skip: the home page in full screen is the same view |
 | Preview `/tx/preview` | Decodes a pasted transaction or PSBT | A transaction and PSBT parser in the browser, for untrusted input | Several days | An idea for later: with no broadcast page (the owner's decision), nothing is scheduled |
-| Mempool goggles | Filters the block drawing by transaction kind | Per-transaction flags (script types, signalling, CPFP, …) computed in the engine and carried to the grid | Several days | Build later, with the same flags for `/v1/block/:hash/summary` |
+| Mempool goggles | Filters the block drawing by transaction kind | Per-transaction flags: computed in the engine and served for mined blocks (`/v1/block/:hash/summary`, the grid's records). Left: our own filter UI, and the bits that need context (CPFP, replacement) | Several days | Build the filter UI later |
 
 ### REST routes
 
@@ -99,7 +99,7 @@ cd web && node ../dev/compat/probe.mjs http://127.0.0.1:<port> <out dir> --netwo
 
 | Page | Works | Missing |
 |---|---|---|
-| Home `/` | Fee panel, projected and mined blocks with fees and pools, difficulty, mempool figures and chart, goggles drawing, recent replacements, live | Goggles filters (no flags) |
+| Home `/` | Fee panel, projected and mined blocks with fees and pools, difficulty, mempool figures and chart, goggles drawing, recent replacements, live | Goggles filters on the projected blocks (no flags there yet; a mined block's are served) |
 | Block `/block/:hash` | Everything, drawing included | Audit of a block the server did not watch |
 | Transaction, confirmed | Everything | Per-transaction audit of an unwatched block |
 | Transaction, unconfirmed | Everything, with its position, ETA and the projected blocks above it | |

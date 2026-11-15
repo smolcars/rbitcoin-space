@@ -1,12 +1,13 @@
-// Reads GET /app/block/:hash/txs, the fixed-width record of every transaction in a block
+// Reads GET /app/block/:hash/txs?v=2, the fixed-width record of every transaction in a block
 // (docs/FRONTEND.md "Block summaries"). Small and dependency-free, so a page can import it
 // without loading the renderer.
 import type { GridTx } from "./layout";
 
 /** The record format this app reads. A different one means a newer server. */
-export const TXS_VERSION = 1;
+export const TXS_VERSION = 2;
 const HEADER = 8;
-const RECORD = 20;
+// The record's last eight bytes, the transaction's flags, are not read yet.
+const RECORD = 28;
 
 /** Why a reply could not be read. `version` asks for a reload; `malformed` is a broken reply. */
 export class TxsFormatError extends Error {
