@@ -46,10 +46,20 @@ const WRAPPING = /^[\s"'`<([{\u{2018}\u{201C}]+|[\s"'`>)\]}\u{2019}\u{201D}.,;]+
 export function classify(input: string): Query | null {
   if (input.length > MAX_QUERY) return null;
   const q = input.replaceAll(INVISIBLE, "").replaceAll(WRAPPING, "");
-  const uri = /^bitcoin:(?:\/\/)?([^?#]*)/i.exec(q);
-  if (uri) return plain(decode(uri[1] ?? ""), "address");
+  const uri = /^bitcoin:(?:\/\/)?([^?#]*)(?:\?([^#]*))?/i.exec(q);
+  if (uri) {
+    const path = decode(uri[1] ?? "");
+    // BIP321: a URI with no address in its path can carry a silent payments one as `sp`.
+    return plain(path === "" ? (param(uri[2] ?? "", "sp") ?? "") : path, "address");
+  }
   if (q.includes("/")) return fromLink(q);
   return plain(q, null);
+}
+
+/** A URI query's parameter, its key matched in any case as BIP321 asks; null when it is absent. */
+function param(query: string, key: string): string | null {
+  for (const [k, v] of new URLSearchParams(query)) if (k.toLowerCase() === key) return v;
+  return null;
 }
 
 function decode(segment: string): string {

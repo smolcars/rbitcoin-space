@@ -31,6 +31,34 @@ describe("recognise", () => {
     expect(recognise(address)).toStrictEqual({ address, type, networks });
   });
 
+  it.each([
+    [
+      "sp1qqgste7k9hx0qftg6qmwlkqtwuy6cycyavzmzj85c6qdfhjdpdjtdgqjuexzk6murw56suy3e0rd2cgqvycxttddwsvgxe2usfpxumr70xc9pkqwv",
+      ["mainnet"],
+    ],
+    [
+      "tsp1qqgste7k9hx0qftg6qmwlkqtwuy6cycyavzmzj85c6qdfhjdpdjtdgqjuexzk6murw56suy3e0rd2cgqvycxttddwsvgxe2usfpxumr70xc3wk4yh",
+      TEST,
+    ],
+  ])("%s is a silent payments address", (address, networks) => {
+    expect(recognise(address)).toStrictEqual({ address, type: "sp", networks });
+    // Its checksum, version and keys are the address page's to check.
+    expect(recognise(`${address.slice(0, -1)}q`)?.type).toBe("sp");
+  });
+
+  it("takes silent payments addresses up to 1023 characters, and no shorter than version 0", () => {
+    expect(recognise(`sp1${"q".repeat(1020)}`)?.type).toBe("sp");
+    expect(recognise(`sp1${"q".repeat(1021)}`)).toBeNull();
+    expect(
+      recognise(
+        "sp1qqgste7k9hx0qftg6qmwlkqtwuy6cycyavzmzj85c6qdfhjdpdjtdgqjuexzk6murw56suy3e0rd2cgqvycxttddwsvgxe2usfpxumr70xc9pkqwv".slice(
+          0,
+          -1,
+        ),
+      ),
+    ).toBeNull();
+  });
+
   it("reads upper-case bech32 as lower case, and keeps base58 as given", () => {
     expect(recognise("BC1QW508D6QEJXTDG4Y5R3ZARVARY0C5XW7KV8F3T4")?.address).toBe(
       "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4",

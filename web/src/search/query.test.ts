@@ -6,6 +6,8 @@ import { classify, MAX_QUERY } from "./query";
 const TXID = "65428488a6202f1d681d053b3ff5d8ea9f5b0e5e1e0dcf7bf2e4c1e5a3f9c2e1";
 const BLOCK = "00000000000000000000e13ad5e424f6ba7208b0c1a9a687e9ccc4d62b3b094c";
 const TAPROOT = "bc1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqzk5jj0";
+const SP =
+  "sp1qqgste7k9hx0qftg6qmwlkqtwuy6cycyavzmzj85c6qdfhjdpdjtdgqjuexzk6murw56suy3e0rd2cgqvycxttddwsvgxe2usfpxumr70xc9pkqwv";
 
 const height = (h: number) => ({ kind: "height", height: h });
 const hash = (h: string, as: "block" | "tx" | null = null) => ({ kind: "hash", hash: h, as });
@@ -146,7 +148,18 @@ describe("classify: bitcoin: URIs", () => {
   });
 
   it.each([
+    [`bitcoin:?sp=${SP}`, SP],
+    [`BITCOIN:?SP=${SP.toUpperCase()}`, SP],
+    [`bitcoin:?amount=1&sp=${SP}`, SP],
+    // An on-chain address in the path is the one to show.
+    [`bitcoin:${TAPROOT}?sp=${SP}`, TAPROOT],
+  ])("%s holds a silent payments address", (q, address) => {
+    expect(classify(q)).toMatchObject({ kind: "address", address: { address } });
+  });
+
+  it.each([
     "bitcoin:",
+    "bitcoin:?sp=notanaddress",
     "bitcoin:?lightning=lnbc1",
     `bitcoin:${TXID}`,
     "bitcoin:840000",
