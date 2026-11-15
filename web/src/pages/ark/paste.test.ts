@@ -88,6 +88,11 @@ describe("classify", () => {
       kind: "other-network",
       mainnet: false,
     });
+    // Before its version: a Bark address on the wrong network is still on the wrong network.
+    expect(classify(BARK_SIGNET, "mainnet")).toStrictEqual({
+      kind: "other-network",
+      mainnet: false,
+    });
   });
 
   it("a Bark address is recognised, and goes nowhere", () => {

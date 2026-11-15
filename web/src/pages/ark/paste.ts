@@ -65,11 +65,11 @@ export function classify(input: string, network: Network): Pasted {
   const hrp = m?.[1];
   const data = m?.[2];
   if (!hrp || !data || !isBech32m(hrp, data)) return { kind: "unknown" };
+  const mainnet = hrp === "ark";
+  if (mainnet !== (network === "mainnet")) return { kind: "other-network", mainnet };
   const version = data[0];
   if (version === "p") return { kind: "bark-address" };
   if (version !== "q") return { kind: "unknown-version" };
-  const mainnet = hrp === "ark";
-  if (mainnet !== (network === "mainnet")) return { kind: "other-network", mainnet };
   return { kind: "arkade-address", address: lower };
 }
 
