@@ -35,7 +35,7 @@ A third connection the same day (about three minutes, `want ["stats","live-2h-ch
 | `{"track-address":"<address>"}` | Pushes new mempool and confirmed transactions for one address | Shared Electrum scripthash subscriptions | served | M2 | ref | One per socket; `"stop"` ends it. One history page per change of the address, shared by every socket |
 | `{"track-addresses":[…]}` | Same for several addresses | As above | served | M2 | ref | At most `WS_MAX_TRACKED_ADDRESSES` (2), with `track-address`; the reference allows 10. `[]` stops |
 | `{"track-scripthashes":[…]}` | Same, by scripthash | As above | skipped | — | — | Answered `track-scripthashes-error` |
-| `{"track-mempool-block":<index>}` | Full transaction list of one projected block, then deltas | Engine (MP2, MP3) | different | — | ref | Binary on `/app/ws`; answered `track-mempool-block-error` here |
+| `{"track-mempool-block":<index>}` | Full transaction list of one projected block, then deltas | Engine (MP2, MP3) | served | WS4 | ref | Blocks 0 to 6; the last (7) and beyond answer `track-mempool-block-error`. `-1` stops, as the frontend sends on leaving the page ([`WS.md`](../WS.md#projected-block-drawings)) |
 | `{"track-rbf":"all"\|"fullRbf"}` | Recent replacement trees, then updates | Engine | skipped | — | ref | Answered `track-rbf-error` |
 | `{"track-rbf-summary":true}` | Short list of recent replacements | Engine | skipped | — | ref | Answered `track-rbf-summary-error` |
 | `{"track-mempool":true}` | Every mempool change: added, removed, mined, replaced, with a sequence | Engine (MP1) | skipped | — | ref | Every transaction to every client: answered `track-mempool-error` |
@@ -72,7 +72,7 @@ A third connection the same day (about three minutes, `want ["stats","live-2h-ch
 | `block-transactions` | Confirmed transactions for a tracked address in a new block | As above | served | M2 | ref | As above |
 | `multi-address-transactions` | Per-address mempool, confirmed and removed transactions | As above | served | M2 | ref | One address per message; `removed` is always empty |
 | `address-removed-transactions` | Transactions dropped for a tracked address | Engine removal reasons | skipped | — | — | A transaction that leaves without confirming is not said |
-| `projected-block-transactions` | Full list, then `delta` with added, removed and changed | Engine | different | — | ref | Binary on `/app/ws` |
+| `projected-block-transactions` | Full list, then `delta` with added, removed and changed | Engine | served | WS4 | ref | Flags always `0`; vsize the sigop-adjusted integer; no empty deltas. Seen on mempool.space 2026-11-15: a delta about once a second, empty ones too; the whole list again at a block, in the frame with `block`; the fourth number of `changed` was 0 in all 350 seen |
 | `rbfLatest` | Replacement trees | Engine | skipped | — | ref |  |
 | `rbfLatestSummary` | Short replacement list | Engine | skipped | — | ref |  |
 | `mempool-transactions` | Mempool changes as full transactions, with `sequence` | Engine | skipped | — | ref | `track-mempool` is not served |

@@ -361,6 +361,7 @@ Text frames with one JSON object. An object may hold several of these keys; each
 | `{"track-tx":"<txid>"}` | Follows one transaction, 64 hex digits in lower case. A new one replaces the last; `{"track-tx":"stop"}` ends it |
 | `{"track-address":"<address>"}` | Follows one address of this network (bech32 in either case). A new one replaces the last; `"stop"` ends it |
 | `{"track-addresses":["<address>", …]}` | Follows a set of addresses, replacing the last set; `[]` stops it. Duplicates count once |
+| `{"track-mempool-block":<n>}` | Draws projected block `n` ([below](#projected-block-drawings)). A new one replaces the last; a negative `n` stops it, as the reference's frontend sends (`-1`) when it leaves the page |
 
 What else happens, as on the reference unless it says otherwise:
 
@@ -368,7 +369,7 @@ What else happens, as on the reference unless it says otherwise:
 |---|---|
 | Text that is not JSON | Close `4000` (the reference closes too, without a status) |
 | JSON it does not understand: another type, an unknown key or `action`, a value of the wrong type, a txid or address that does not parse for this network | Nothing; the socket stays |
-| `track-mempool`, `track-mempool-txids`, `track-mempool-block`, `track-rbf`, `track-rbf-summary`, `track-txs`, `track-scripthashes`, `track-accelerations` | `{"<key>-error":"not served by this server"}`, and the socket stays. Ours: the reference serves them |
+| `track-mempool`, `track-mempool-txids`, `track-rbf`, `track-rbf-summary`, `track-txs`, `track-scripthashes`, `track-accelerations` | `{"<key>-error":"not served by this server"}`, and the socket stays. Ours: the reference serves them |
 | `refresh-blocks` and the reference's other keys | Nothing |
 
 ### What the server sends
@@ -387,10 +388,24 @@ Every message is one JSON object in its own frame, with the key named here.
 | `{"txConfirmed":"<txid>"}` | It was mined | Also when a reorg's new block confirms a transaction that had been replaced |
 | `{"address-transactions":[…]}` | `track-address`: transactions paying or spending it entered the mempool | The node's Esplora JSON for each, as `GET /api/tx/:txid` serves it |
 | `{"block-transactions":[…]}` | `track-address`: transactions of it confirmed | As above |
+| `{"projected-block-transactions":{"index":0,"sequence":1,"blockTransactions":[…]}}` | `track-mempool-block`, and when a block found changes most of it | The block's transactions in mining order, each `[txid, fee, vsize, value, rate, flags, first seen]`: sats, the sigop-adjusted vsize, total output value in sats, effective rate in sat/vB, `0`, Unix seconds |
+| `{"projected-block-transactions":{"index":0,"sequence":2,"delta":{"added":[…],"removed":[…],"changed":[…]}}}` | Its changes, at most once per `WS_MEMPOOL_INTERVAL_MS` (2 s), at once on a new tip | `added` as above; `removed` txids; `changed` `[txid, rate, 0, 0]` for a transaction whose rate moved |
 | `{"multi-address-transactions":{"<address>":{"mempool":[…],"confirmed":[…],"removed":[]}}}` | `track-addresses`: the same events | One address per message, written as the server writes it (bech32 in lower case); `removed` is always empty |
-| `{"<key>-error":"…"}` | `track-tx`, `track-address` or `track-addresses` over a limit below | The socket stays. What the message asked to stop is stopped: a refused `track-tx` or `track-address` has still ended the previous one, and a `track-addresses` set keeps the addresses the server could take |
+| `{"<key>-error":"…"}` | `track-tx`, `track-address`, `track-addresses` or `track-mempool-block` over a limit below, or a block that is not served | The socket stays. What the message asked to stop is stopped: a refused `track-tx` or `track-address` has still ended the previous one, and a `track-addresses` set keeps the addresses the server could take |
 
 A part wanted, or a transaction followed, gets its current message at once (a transaction gets none while no message applies: not seen yet, evicted). `live-2h-chart` and an address get nothing until the next sample or change, as on the reference. After a reconnect, send everything again.
+
+#### Projected block drawings
+
+| Case | Answer |
+|---|---|
+| `n` 0 to 6 | The block's list, then its changes; a block the projection does not have is an empty list |
+| `n` 7, the last block | `track-mempool-block-error`: it holds the rest of the mempool, 42,064 transactions and 4.2 MB a list on mainnet (2026-11-15), with no bound. `/app/ws` has no topic for it either |
+| `n` 8 or more | The same error. The reference sends nothing |
+| Not an integer | Nothing |
+| The block already drawn, again | Its stored state again (frames already encoded), at most once per `WS_MEMPOOL_INTERVAL_MS`; the rest are ignored. The frontend asks again when it loses its place, hundreds of times a second |
+
+`sequence` rises by exactly one with each message of a block, for every socket: one that joins gets the list and up to 16 changes since, one higher each, and then the same messages as everyone. The frontend asks for the block again when a `sequence` does not follow. The order against `block` is `mempool-blocks`' ([above](#what-the-server-sends)), with the exception every topic has: the state a socket gets when it joins, or asks again, is the latest held, possibly on the parent of the last `block`, and the drawing on that block follows as a change ([When a block is found](#when-a-block-is-found)). A slow client is dropped (`4003`), as on every topic.
 
 #### Blocks and their extras
 
@@ -430,7 +445,7 @@ Every rule in [Connection rules](#connection-rules) applies, with the same setti
 
 They are pools of their own: a compatible socket never takes one of `WS_MAX_SOCKETS` or a client's `WS_CLIENT_MAX_SOCKETS`, and the reverse. Over a cap at upgrade, `503` or `429` as for `/app/ws`, logged with `refused` `v1_server_sockets` or `v1_client_sockets`.
 
-Per socket, the parts wanted (four at most) count inside `WS_MAX_SUBSCRIPTIONS`; the `track-tx` transaction inside `WS_MAX_TRACKED_TXS`; the `track-address` address and the `track-addresses` set together inside `WS_MAX_TRACKED_ADDRESSES` (2; the reference allows 10). Over it, `track-addresses` is answered `track-addresses-error` and changes nothing; `track-tx` and `track-address` answer `track-tx-error` and `track-address-error`. Past the network's `WS_TRACKED_TXS_TOTAL` or `WS_TRACKED_ADDRESSES_TOTAL`, shared with `/app/ws`, the same keys say the server is full, for the transaction or each address it could not take; past the client's budget for new addresses, that it is going too fast. A message is at most `WS_MAX_MESSAGE_BYTES` (1,024 bytes, about twenty addresses).
+Per socket, the parts wanted (four at most) and the block drawn count inside `WS_MAX_SUBSCRIPTIONS`; the `track-tx` transaction inside `WS_MAX_TRACKED_TXS`; the `track-address` address and the `track-addresses` set together inside `WS_MAX_TRACKED_ADDRESSES` (2; the reference allows 10). Over it, `track-addresses` is answered `track-addresses-error` and changes nothing; `track-tx` and `track-address` answer `track-tx-error` and `track-address-error`. Past the network's `WS_TRACKED_TXS_TOTAL` or `WS_TRACKED_ADDRESSES_TOTAL`, shared with `/app/ws`, the same keys say the server is full, for the transaction or each address it could not take; past the client's budget for new addresses, that it is going too fast. A message is at most `WS_MAX_MESSAGE_BYTES` (1,024 bytes, about twenty addresses).
 
 ### Why other sites may open it
 
@@ -453,11 +468,19 @@ Per socket, the parts wanted (four at most) count inside `WS_MAX_SUBSCRIPTIONS`;
 | Transactions in address messages | The node's Esplora JSON, without the reference's own fields (`order`, `vsize`, `adjustedVsize`, `feePerVsize`, `adjustedFeePerVsize`, `effectiveFeePerVsize`, `firstSeen`, `cpfpDirty`, `clusterId`, `chunkIndex`, `cpfpChecked`, …) | Passed through from the node, never rebuilt |
 | `track-addresses` | 2 addresses per socket by default | Each address is a node subscription; raise `WS_MAX_TRACKED_ADDRESSES` to allow more |
 | `multi-address-transactions` | One address per message; `removed` always empty | Each address's message is encoded once for every socket following it |
-| Not served | `refresh-blocks`, `conversions`, the replacement feeds (`rbfLatest`, `rbfSummary`, …), `track-txs`, `track-mempool*`, `track-mempool-block`, `utxoSpent`, `address-removed-transactions`, `rbfTransaction`, `rbfInfo` | Status and reason per message in [`compat/websocket.md`](compat/websocket.md) |
+| `projected-block-transactions` | Flags always `0`, so the goggles' filters find nothing; vsize the sigop-adjusted integer; changes at most every 2 s and none when nothing changed; block 7 not served ([above](#projected-block-drawings)) | Flags are not computed yet. The reference sends a change about once a second, empty ones too |
+| Not served | `refresh-blocks`, `conversions`, the replacement feeds (`rbfLatest`, `rbfSummary`, …), `track-txs`, `track-mempool`, `track-mempool-txids`, `utxoSpent`, `address-removed-transactions`, `rbfTransaction`, `rbfInfo` | Status and reason per message in [`compat/websocket.md`](compat/websocket.md) |
 
 ### Cost of a compatible socket
 
 A compatible socket costs what an `/app/ws` socket costs: every message is encoded once per network and each socket's queue holds references to the same bytes. `live-2h-chart` is encoded once per sample, in the sampler's own report of the write, and `vBytesPerSecond` is read from that sample in memory: neither reads the store or the node. The blocks are one read of the block table per change of it, for every socket. Nothing it sends reaches the node except a new block's header, once and shared with `GET /api/v1/blocks`, and following an address, which reads one history page per change of the address, shared by every socket following it.
+
+A projected block is encoded only while a compatible socket draws it, once per message for all of them, by one task per network. Block 0 on mainnet, 2026-11-15, release build:
+
+| | JSON here | Binary, `projected-txs:0` |
+|---|---|---|
+| Whole list | 613 KB (6,096 transactions), 3.2 ms to encode | 293 KB |
+| A change, one per 2.0 s | median 2.8 KB, at most 29 KB; 0.4 ms (at most 2.3 ms) with the diff | median 1.4 KB, at most 12 KB |
 
 Measured locally on the release build against the regtest node (Apple M4 shared with other work, clients in Bun on the same machine), every socket wanting `blocks`, `stats` and `mempool-blocks` and following the same transaction and address, under the same activity in each step (a payment to the address every 15 s, a block a minute), 60 s a step:
 

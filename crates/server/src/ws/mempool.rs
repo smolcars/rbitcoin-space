@@ -46,7 +46,7 @@ const SNAPSHOT_HEAD: usize = 16;
 const DELTA_HEAD: usize = 32;
 /// Changes kept after a topic's state for new subscribers before they are folded into a new
 /// state. Well under the send queue, so a new subscriber never fills it on its own.
-const MAX_APPENDED: usize = 16;
+pub(super) const MAX_APPENDED: usize = 16;
 /// How often a healthy network writes a `mempool_summary` line.
 const SUMMARY_EVERY: Duration = Duration::from_secs(60);
 /// Longest a projection waits for the `blocks` topic to announce its tip (or for one on the
@@ -162,6 +162,11 @@ pub(crate) fn run(
             Arc::clone(ctx),
             tracker.clone(),
             Arc::clone(&stats),
+        )),
+        tokio::spawn(super::v1::drawings(
+            Arc::clone(ctx),
+            tracker.clone(),
+            projector.clone(),
         )),
         tokio::spawn(report(
             ctx.config.network.name(),
@@ -327,7 +332,7 @@ async fn projected_feed(
     }
 }
 
-async fn sleep_until(at: Option<Instant>) {
+pub(super) async fn sleep_until(at: Option<Instant>) {
     match at {
         Some(at) => tokio::time::sleep_until(at).await,
         None => std::future::pending().await,

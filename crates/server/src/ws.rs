@@ -132,6 +132,9 @@ pub enum Topic {
     V1Address(node::electrum::ScriptHash),
     /// `/api/v1/ws`: one address of a `track-addresses` set, sent in that message's shape.
     V1Addresses(node::electrum::ScriptHash),
+    /// `/api/v1/ws`: one projected block's transactions, `track-mempool-block`. Always below
+    /// [`mempool::TXS_TOPICS`].
+    V1ProjectedTxs(u8),
 }
 
 /// Names of the [`Topic::ProjectedTxs`] topics, by block.
@@ -180,6 +183,7 @@ impl Topic {
             Self::V1LiveChart => "v1:live-2h-chart",
             Self::V1Tx(_) => "v1:tx",
             Self::V1Address(_) | Self::V1Addresses(_) => "v1:address",
+            Self::V1ProjectedTxs(_) => "v1:projected-txs",
             Self::ProjectedTxs(i) => PROJECTED_TXS.get(usize::from(i)).copied().unwrap_or(""),
         }
     }

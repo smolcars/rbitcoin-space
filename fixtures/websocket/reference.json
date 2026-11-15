@@ -1,5 +1,5 @@
 {
- "observed": "mempool.space /api/v1/ws, 2026-11-12 (init: 2026-11-15), mainnet; lists cut to their first element",
+ "observed": "mempool.space /api/v1/ws, 2026-11-12 (init and projected-block-transactions: 2026-11-15), mainnet; lists cut to their first element",
  "pong": {
   "pong": true
  },
@@ -491,6 +491,53 @@
    "backend": "esplora",
    "coreVersion": "(the reference's own value, not kept)",
    "osVersion": "(the reference's own value, not kept)"
+  }
+ },
+ "projected-block-transactions": {
+  "projected-block-transactions": {
+   "index": 0,
+   "sequence": 246690,
+   "blockTransactions": [
+    [
+     "5a05d2e8e0a248e45ec7054c11d8d13f0bffef01e4dcd0d52ede3388db6f42fc",
+     60000,
+     188.5,
+     9564155,
+     318.3,
+     1099511640070,
+     1794755845
+    ]
+   ]
+  }
+ },
+ "projected-block-transactions:delta": {
+  "projected-block-transactions": {
+   "index": 0,
+   "sequence": 246691,
+   "delta": {
+    "added": [
+     [
+      "9fd0268e1bd3dd4af0631c18b7b80be62f07c771aaa2272a4f1845069c4a7ae9",
+      914,
+      276.25,
+      996217,
+      3.31,
+      1099511631882,
+      1794757100
+     ]
+    ],
+    "removed": [
+     "3ea722e9286114c4a87b96d8adbe659fc6e00881c7ca540ff5957ecd824dee00"
+    ],
+    "changed": [
+     [
+      "218bf4c3c5892bfa810bafbce6359d77cec37bd2c5d79d1a6746262b2b9b12c8",
+      1.57,
+      1116691577866,
+      0
+     ]
+    ]
+   }
   }
  }
 }

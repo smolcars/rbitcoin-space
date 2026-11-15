@@ -37,11 +37,11 @@ One table per group, each on its own page:
 |---|---|---|---|---|---|---|---|
 | Esplora REST (`/api`) | [`compat/esplora.md`](compat/esplora.md) | 56 | 44 | 0 | 0 | 12 | 48 |
 | mempool.space REST (`/api/v1`) | [`compat/api-v1.md`](compat/api-v1.md) | 73 | 52 | 4 | 2 | 15 | 72 |
-| WebSocket | [`compat/websocket.md`](compat/websocket.md) | 48 | 22 | 1 | 4 | 21 | 43 |
+| WebSocket | [`compat/websocket.md`](compat/websocket.md) | 48 | 24 | 1 | 2 | 21 | 43 |
 | Pages and visible features | [`compat/pages.md`](compat/pages.md) | 55 | 33 | 9 | 5 | 8 | 31 |
-| **Total** | | **232** | **151** | **14** | **11** | **56** | **194** |
+| **Total** | | **232** | **153** | **14** | **9** | **56** | **194** |
 
-Every row's status was checked against `master` on 2026-11-12 (task C1), and the rows of `vBytesPerSecond`, `live-2h-chart` and `backend-info` again when they were built (task G1), the Lightning node's fee histogram and history when they were (task G3), the three mining rows of the pages when they were (task G2), the two replacements rows of the pages when they were (task G4), the five rows of broadcast, test-accept and package submission when the owner decided on them (2026-11-13), and the socket's `init`, `backend` and block rows when they were built (task WS3, 2026-11-15): routes by request to a server on regtest and, read-only, on mainnet, signet and testnet4; pages by loading them in headless Chromium on each network. A page is `served` only when it shows everything its row names; a part it lacks has a row of its own.
+Every row's status was checked against `master` on 2026-11-12 (task C1), and the rows of `vBytesPerSecond`, `live-2h-chart` and `backend-info` again when they were built (task G1), the Lightning node's fee histogram and history when they were (task G3), the three mining rows of the pages when they were (task G2), the two replacements rows of the pages when they were (task G4), the five rows of broadcast, test-accept and package submission when the owner decided on them (2026-11-13), the socket's `init`, `backend` and block rows when they were built (task WS3, 2026-11-15), and its `track-mempool-block` and `projected-block-transactions` rows when they were (task WS4, 2026-11-15): routes by request to a server on regtest and, read-only, on mainnet, signet and testnet4; pages by loading them in headless Chromium on each network. A page is `served` only when it shows everything its row names; a part it lacks has a row of its own.
 
 Each row gives the feature, what it returns, where our answer comes from (an rbitcoin Esplora route or RPC method, our engine, our store, or Lightning), its status, its milestone from [`PLAN.md`](PLAN.md) and how it was checked.
 
@@ -98,12 +98,12 @@ cd web && node ../dev/compat/probe.mjs http://127.0.0.1:<port> <out dir>
 
 | Page | Works | Missing |
 |---|---|---|
-| Home `/` | Fee panel, projected and mined blocks with fees and pools, difficulty, mempool figures and chart | Goggles drawing (`track-mempool-block`), replacement list (`track-rbf-summary`) |
+| Home `/` | Fee panel, projected and mined blocks with fees and pools, difficulty, mempool figures and chart, goggles drawing | Goggles filters (no flags), replacement list (`track-rbf-summary`) |
 | Block `/block/:hash` | Everything, drawing included | Audit of a block the server did not watch |
 | Transaction, confirmed | Everything | Per-transaction audit of an unwatched block |
 | Transaction, unconfirmed | Everything, with its position | |
 | Address | Everything | |
-| Next block `/mempool-block/0` | Figures | Drawing (`track-mempool-block`) |
+| Next block `/mempool-block/0` | Figures, drawing and fee chart | |
 | Blocks `/blocks` | Everything; health where audited | |
 | Mining `/mining` | Rewards, pools, difficulty | Charts wait on a backfilled table |
 | Mempool graph `/graphs/mempool` | The live chart | History before the server started |
