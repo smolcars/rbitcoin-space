@@ -85,15 +85,20 @@ export const pageFaults = (page: Page) =>
         continue;
       if (!/\d/.test(el.textContent ?? "") || el.getClientRects().length === 0) continue;
       // Its visible text only: a figure's words for a screen reader are drawn nowhere.
-      const tops = new Set<number>();
+      const tops: number[] = [];
       const texts = document.createTreeWalker(el, 4);
       for (let t = texts.nextNode(); t; t = texts.nextNode()) {
         if (t.parentElement?.closest(".visually-hidden")) continue;
         const range = document.createRange();
         range.selectNodeContents(t);
-        for (const r of range.getClientRects()) if (r.width > 0) tops.add(Math.round(r.top));
+        for (const r of range.getClientRects()) if (r.width > 0) tops.push(r.top);
       }
-      if (tops.size > 1) out.push(`unit apart: ${el.textContent ?? ""}`);
+      // One line however its text is set: a smaller unit beside its digits sits a little lower,
+      // so only a step of half the figure's size is a new line.
+      const half = Number.parseFloat(getComputedStyle(el).fontSize) / 2;
+      tops.sort((a, b) => a - b);
+      if (tops.some((t, i) => i > 0 && t - (tops[i - 1] ?? t) > half))
+        out.push(`unit apart: ${el.textContent ?? ""}`);
       // Nor out of the box a reader sees round it: a fee's well, an end's box, the panel.
       // A row that scrolls sideways on purpose (the state chips, a wide table) is its own box.
       let scrolls = false;
