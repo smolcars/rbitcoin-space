@@ -551,7 +551,8 @@ function CloseBars(props: { days: DayCloses[]; sum: string; first: number | null
                 ...CLOSE_KINDS.map((k): Column<DayCloses> => ({
                   header: KIND_SHORT[k],
                   numeric: true,
-                  cell: (d) => groupDigits(d[k]),
+                  // Before the record began nothing is known: never "0".
+                  cell: (d) => (unknown(d) ? "–" : groupDigits(d[k])),
                 })),
               ]}
               rows={sorted(props.days, (a, b) => b.time - a.time)}

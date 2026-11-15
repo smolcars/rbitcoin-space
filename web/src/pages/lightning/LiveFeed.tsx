@@ -85,9 +85,9 @@ export function LiveFeed(props: { network: Network }) {
     setNewest(batch);
   };
   /** What a message or answer adds; the first one is the list as it stands, never news. */
-  const take = (events: FeedEvent[], more: number, news: boolean) => {
+  const take = (events: FeedEvent[], more: number) => {
     const fresh = seen.fresh(events);
-    if (news) {
+    if (isLoaded) {
       const c = { opened: 0, closed: 0, fee: 0 };
       for (const e of fresh) c[e.event] += 1;
       setCounts((n) => ({
@@ -128,7 +128,7 @@ export function LiveFeed(props: { network: Network }) {
   useTopic(feedTopic, {
     message: (m) => {
       setFailed(undefined);
-      take(m.events, m.type === "events" ? m.more : 0, m.type === "events");
+      take(m.events, m.type === "events" ? m.more : 0);
     },
     // A reconnect's snapshot follows the new subscription: it holds what was missed.
     resync: () => undefined,
@@ -142,7 +142,7 @@ export function LiveFeed(props: { network: Network }) {
     try {
       const v = await ask(props.network, "/feed", isFeed, c.signal);
       setFailed(undefined);
-      take(readFeed(v), 0, false);
+      take(readFeed(v), 0);
     } catch (error) {
       if (!c.signal.aborted) setFailed(error);
     }

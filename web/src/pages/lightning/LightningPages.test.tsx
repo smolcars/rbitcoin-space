@@ -277,6 +277,19 @@ describe("the overview", () => {
     expect(text(feed)).toContain("and 51 more in this batch, not listed");
   });
 
+  it("counts what the HTTP fallback finds after the list was there", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+    const el = mount(() => <LightningPage />, "/regtest/lightning");
+    (await socket()).hello();
+    recent([feeEvent(1)]);
+    await feedOf(el);
+    FakeSocket.last().drop();
+    replies["/app/lightning/feed"] = json({ events: [feeEvent(1), openEvent(3)] });
+    await vi.advanceTimersByTimeAsync(30_000);
+    await shows(el, "1 opened, 0 closed, 0 fees moved");
+    expect(requests).toContain("/regtest/app/lightning/feed");
+  });
+
   it("starts paused under reduced motion", async () => {
     vi.spyOn(globalThis, "matchMedia").mockReturnValue({ matches: true } as MediaQueryList);
     const el = mount(() => <LightningPage />, "/regtest/lightning");
@@ -372,6 +385,10 @@ describe("the overview", () => {
     details.dispatchEvent(new Event("toggle"));
     flush();
     await vi.waitFor(() => expect(section.querySelectorAll("tbody tr")).toHaveLength(30));
+    // The days before the record are unknown in the figures too, never "0".
+    const rows = [...section.querySelectorAll("tbody tr")].map((r) => text(r as HTMLElement));
+    expect(rows[0]).toBe("12 Nov 20263100");
+    expect(rows[29]).toMatch(/–––––?$/);
   });
 
   it("shows a section that could not load as such, and the rest of the page", async () => {

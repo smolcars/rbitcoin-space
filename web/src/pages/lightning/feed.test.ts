@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { feedTopic, isFeedEvent, KEEP, moversFor, place, type Row, Seen, shown } from "./feed";
-import { closeEvent, feeEvent, movers, openEvent } from "./testdata";
+import {
+  feedTopic,
+  isCloses,
+  isFeedEvent,
+  KEEP,
+  moversFor,
+  place,
+  type Row,
+  Seen,
+  shown,
+} from "./feed";
+import { closeEvent, closes, feeEvent, movers, openEvent } from "./testdata";
 
 const keys = (rows: Row[]) => rows.map((r) => (r.ev ? r.ev.id : `more ${r.more ?? 0}`));
 
@@ -22,6 +32,12 @@ describe("the feed's messages", () => {
     });
     expect(feedTopic.parse({ type: "other", events: [] })).toBeUndefined();
     expect(feedTopic.parse({ type: "recent" })).toBeUndefined();
+  });
+
+  it("refuses closes whose totals it cannot read", () => {
+    expect(isCloses(closes())).toBe(true);
+    expect(isCloses({ ...closes(), total: {} })).toBe(false);
+    expect(isCloses({ ...closes(), total: { ...closes().total, force: "1" } })).toBe(false);
   });
 
   it("refuses an event of an unknown kind or with a field missing", () => {
@@ -68,6 +84,17 @@ describe("the feed's list", () => {
     );
     expect(rows.filter((r) => r.ev?.event === "fee")).toHaveLength(KEEP);
     expect(shown(rows, "opened")).toHaveLength(1);
+  });
+
+  it("keeps a batch's opens and closes when a burst of newer fee changes fills it", () => {
+    const burst = Array.from({ length: 40 }, (_, i) => feeEvent(100 + i));
+    // An open is dated by its block, an hour or more before it arrives: older than the burst.
+    const rows = place([], [...burst, openEvent(-60), closeEvent(-61, "force")], 0, 1);
+    expect(shown(rows, "opened")).toHaveLength(1);
+    expect(shown(rows, "closed")).toHaveLength(1);
+    const all = shown(rows, "all");
+    expect(keys(all).slice(0, 2)).toStrictEqual([openEvent(-60).id, closeEvent(-61, "force").id]);
+    expect(keys(all).at(-1)).toBe("more 13");
   });
 
   it("keeps a row that is already there the same object, so its element stays", () => {

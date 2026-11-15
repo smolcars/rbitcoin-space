@@ -135,11 +135,15 @@ const MOVER_LISTS = [
 export const isMovers = (v: unknown): v is Movers =>
   obj(v) && num(v["from"]) && num(v["time"]) && MOVER_LISTS.every((k) => list(v[k], isMover));
 
+const COUNTS = ["cooperative", "force", "penalty", "other", "capacity"];
 const isDay = (v: unknown): v is DayCloses =>
-  obj(v) &&
-  ["time", "cooperative", "force", "penalty", "other", "capacity"].every((k) => num(v[k]));
+  obj(v) && num(v["time"]) && COUNTS.every((k) => num(v[k]));
 export const isCloses = (v: unknown): v is Closes =>
-  obj(v) && num(v["time"]) && list(v["days"], isDay) && obj(v["total"]);
+  obj(v) &&
+  num(v["time"]) &&
+  list(v["days"], isDay) &&
+  obj(v["total"]) &&
+  COUNTS.every((k) => num((v["total"] as Obj)[k]));
 
 // The feed's list.
 
@@ -181,9 +185,10 @@ export class Seen {
 }
 
 /**
- * The list after a batch arrives: its events on top, newest first, then where it left some out,
- * then what was there; at most `KEEP` of each kind, and only the newest three "more" rows. A
- * batch's events are not all of one kind, but a burst is fee changes: they are what it cuts.
+ * The list after a batch arrives: its events on top, then where it left some out, then what was
+ * there; at most `KEEP` of each kind, and only the newest three "more" rows. A batch lists its
+ * opens and closes first, each kind newest first: a burst is fee changes, and an open is dated an
+ * hour or more before it arrives, so by time alone a burst would cut it.
  */
 export function place(
   rows: readonly Row[],
@@ -193,7 +198,11 @@ export function place(
 ): Row[] {
   // A burst that would fill the list leaves a place for its "and N more", so it is seen.
   const room = more > 0 || fresh.length > KEEP ? KEEP - 1 : KEEP;
-  const top: Row[] = fresh.slice(0, room).map((ev) => ({ key: eventKey(ev), batch, ev }));
+  const ordered = sorted(
+    fresh,
+    (a, b) => Number(a.event === "fee") - Number(b.event === "fee") || b.time - a.time,
+  );
+  const top: Row[] = ordered.slice(0, room).map((ev) => ({ key: eventKey(ev), batch, ev }));
   const left = more + Math.max(0, fresh.length - room);
   if (left > 0) top.push({ key: `more|${batch}`, batch, more: left });
   const counts = new Map<string, number>();
