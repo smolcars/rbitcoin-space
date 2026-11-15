@@ -90,7 +90,7 @@ test("a flow card's amount stays inside its card at every width from 320 to 340 
 
 // The check itself: each kind of fault it exists for, built on a page, is found; the same text
 // in a box that scrolls on that axis is not.
-test("the layout check finds text over text, text cut on any edge, a short form's lost end, and a wrapped label", async ({
+test("the layout check finds text over text, text cut on any edge, a short form's or a fitted ID's lost end, and a wrapped label", async ({
   page,
 }) => {
   await page.goto("/regtest/no/such/page");
@@ -104,7 +104,7 @@ test("the layout check finds text over text, text cut on any edge, a short form'
       parent.append(el);
       return el;
     };
-    const host = add(main ?? document.body, { position: "relative", height: "400px" });
+    const host = add(main ?? document.body, { position: "relative", height: "440px" });
     const at = (top: number): Record<string, string> => ({
       position: "absolute",
       top: `${top}px`,
@@ -138,6 +138,12 @@ test("the layout check finds text over text, text cut on any edge, a short form'
     split.className = "hash--ends";
     add(split, { display: "inline" }, "nB3eG7k…").className = "hash__head";
     add(split, { display: "inline" }, "Zq9Xw").className = "hash__tail";
+    // A table's fitted ID: the whole value in two halves, its tail cut wholly out of sight.
+    const fitted = add(host, { ...at(410), width: "40px", overflow: "hidden" });
+    fitted.title = whole;
+    fitted.className = "hash--fit";
+    add(fitted, { display: "inline" }, whole.slice(0, -8)).className = "hash__head";
+    add(fitted, { display: "inline" }, whole.slice(-8)).className = "hash__tail";
     // Only scrolled out of sight: scrolling shows it.
     add(host, { ...at(140), width: "60px", overflowX: "auto" }, "Scrolls along");
     const row = add(host, { ...at(200), width: "300px", whiteSpace: "normal" });
@@ -159,5 +165,6 @@ test("the layout check finds text over text, text cut on any edge, a short form'
   expect(faults.join("\n")).toContain('"mwLW3XD…UAuat" loses its end');
   expect(faults.join("\n")).not.toMatch(/"mwLW3XD…" /);
   expect(faults.join("\n")).toContain('"nB3eG7k…Zq9Xw" loses its end');
+  expect(faults.join("\n")).toContain('"mwLW3XDqcAYmYKp8VDEYXweSBJ5mTUAuat" loses its end');
   expect(faults.join("\n")).toContain('the label "Two words" wraps');
 });
