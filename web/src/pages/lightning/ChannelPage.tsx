@@ -14,7 +14,7 @@ import { Empty, ErrorState, Loading } from "../../components/States";
 import { TimeAgo } from "../../components/Time";
 import { createRequest, isNotFound } from "../../lib/api";
 import { useNow } from "../../lib/clock";
-import { formatUtc, groupDigits, isoTime } from "../../lib/format";
+import { formatBtcShort, formatUtc, groupDigits, isoTime } from "../../lib/format";
 import { type Network, paths } from "../../lib/network";
 import { useNetwork, usePageTitle } from "../../lib/page";
 import {
@@ -44,6 +44,7 @@ import {
   BlockLink,
   ChannelId,
   ChannelLink,
+  Fig,
   Gate,
   Icon,
   KindTag,
@@ -60,7 +61,7 @@ export default function ChannelPage() {
   const id = () => params.id ?? "";
   usePageTitle(() => `Lightning channel ${id()}`);
   return (
-    <div class="wrap ln">
+    <div class="wrap ln ln-channel">
       <LightningNav here="detail" />
       <Show
         when={isChannelId(id())}
@@ -144,7 +145,9 @@ function Body(props: { channel: ChannelDetail }) {
           </span>
         </p>
         <p class="ln-chan__line">
-          <strong class="num">{count(c().capacity, "sat")}</strong>
+          <strong>
+            <Fig exact={count(c().capacity, "sat")} short={`${formatBtcShort(c().capacity)} BTC`} />
+          </strong>
           <Show when={c().funding.block}>
             {(b) => (
               <span>

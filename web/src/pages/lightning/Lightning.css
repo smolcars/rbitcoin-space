@@ -1119,6 +1119,24 @@
     .ln-terms th[scope="row"] {
       white-space: normal;
     }
+    /* Each term a row of its own over its two values, under the two ends' names: a term column
+       beside them left the values too little room for their longest figures in a wide font. */
+    .ln-terms thead tr,
+    .ln-terms tbody tr {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    }
+    .ln-terms thead th:first-child {
+      display: none;
+    }
+    .ln-terms tbody th {
+      grid-column: 1 / -1;
+      border-top: 1px solid var(--color-line);
+    }
+    .ln-terms td {
+      border-top: 0;
+      padding-block: var(--space-1);
+    }
   }
 
   /* A narrow phone, or a large text size: the ends stack, and each term is a row of its own over
@@ -1137,21 +1155,15 @@
     .ln-end--two .ln-node {
       align-items: flex-start;
     }
-    /* Each term a row of its own over its two values, one a line, each named for its node: two
-       columns cannot hold the longest limits (21 million BTC to the msat). */
+    /* Narrower still, the two values one a line, each named for its node: two columns cannot
+       hold the longest exact limits (99 999 999.999 sats). */
     .ln-terms thead {
       display: none;
     }
     .ln-terms tbody tr {
-      display: grid;
       grid-template-columns: minmax(0, 1fr);
     }
-    .ln-terms tbody th {
-      border-top: 1px solid var(--color-line);
-    }
     .ln-terms td {
-      border-top: 0;
-      padding-block: var(--space-1);
       text-align: left;
       white-space: normal;
     }
@@ -1180,6 +1192,16 @@
 
   /* Larger text still (a phone at 200%). */
   @media (max-width: 15em) {
+    /* At 320 px with 200% text the page is 10em wide, and gutters and panel padding of 1rem a side
+       took 4em of it: half of each, so a figure has room whatever the reader's fonts. */
+    .ln-channel {
+      --gutter: var(--space-2);
+      --panel-pad: var(--space-2);
+    }
+    .ln-input {
+      padding-inline: var(--space-2);
+      font-size: var(--text-md);
+    }
     /* Each step's number beside its title, and what it says the whole width beneath. */
     .ln-step {
       padding-left: 0;

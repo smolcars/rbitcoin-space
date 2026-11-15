@@ -452,16 +452,20 @@ export function Msat(props: { msat: number; what: string }) {
  * its place; elsewhere it is the exact figure alone. `sign` goes before either (a difference).
  */
 export function MsatFig(props: { msat: number | bigint; sign?: string }) {
-  const exact = () => `${props.sign ?? ""}${msatAsSats(props.msat)}`;
-  const long = () => exact().length > LONG_FIGURE;
+  const sign = () => props.sign ?? "";
+  return (
+    <Fig exact={`${sign()}${msatAsSats(props.msat)}`} short={`${sign()}${msatAsBtc(props.msat)}`} />
+  );
+}
+
+/** A figure in two forms: `exact`, and where that is long, `short` for the narrowest room. */
+export function Fig(props: { exact: string; short: string }) {
+  const long = () => props.exact.length > LONG_FIGURE;
   return (
     <span class={["num", { "ln-fig--long": long() }]}>
-      <span class="ln-fig__exact">{exact()}</span>
+      <span class="ln-fig__exact">{props.exact}</span>
       <Show when={long()}>
-        <span class="ln-fig__short">
-          {props.sign ?? ""}
-          {msatAsBtc(props.msat)}
-        </span>
+        <span class="ln-fig__short">{props.short}</span>
       </Show>
     </span>
   );
