@@ -321,6 +321,46 @@ pub async fn by_txids(store: &Store, txids: Vec<Txid>) -> Result<Vec<Channel>, E
         .await
 }
 
+/// The held channel between the same two nodes funded by `c`'s closing transaction, and the one
+/// whose closing transaction funded `c`: a splice, or a close that reopens in one transaction.
+/// The lowest id where one transaction funded or closed several. Two indexed lookups at most.
+pub async fn lineage(
+    store: &Store,
+    c: Channel,
+) -> Result<(Option<Channel>, Option<Channel>), Error> {
+    store
+        .read(Read::Lightning, move |sql| {
+            let (a, b) = (c.open.node_one.to_vec(), c.open.node_two.to_vec());
+            let one = |q: &'static str, t: Option<Txid>| -> Result<Option<Channel>, Error> {
+                let Some(t) = t else { return Ok(None) };
+                Ok(sql
+                    .prepare(q)?
+                    .query_row(params![t.to_byte_array().to_vec(), a, b], row)
+                    .optional()?)
+            };
+            let next = one(
+                concat!(
+                    "SELECT ",
+                    channel_columns!(),
+                    " FROM ln_channels WHERE open_txid = ?1 AND ((node_one = ?2 AND node_two = ?3) ",
+                    "OR (node_one = ?3 AND node_two = ?2)) ORDER BY scid LIMIT 1"
+                ),
+                c.close.map(|x| x.txid),
+            )?;
+            let previous = one(
+                concat!(
+                    "SELECT ",
+                    channel_columns!(),
+                    " FROM ln_channels WHERE close_txid = ?1 AND ((node_one = ?2 AND node_two = ?3) ",
+                    "OR (node_one = ?3 AND node_two = ?2)) ORDER BY scid LIMIT 1"
+                ),
+                c.funding_txid,
+            )?;
+            Ok((next, previous))
+        })
+        .await
+}
+
 /// A node's channels as stored, open and closed: what its past is rebuilt from.
 pub async fn node_spans(store: &Store, node: [u8; 33]) -> Result<Vec<Span>, Error> {
     store

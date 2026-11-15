@@ -521,6 +521,8 @@ mod graph {
             vec![
                 (c1, at(800_000, 0).hash, txid(0xf1)),
                 (c4, at(799_500, 0).hash, txid(0xf4)),
+                // c4's close funded c2, between the same two nodes: a lineage.
+                (c2, at(800_100, 1).hash, txid(0x44)),
             ],
         )
         .await

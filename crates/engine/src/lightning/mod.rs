@@ -10,8 +10,8 @@ mod graph;
 mod sampler;
 
 pub use db::{
-    apply, apply_from, by_txids, channel, closed, insert, latest, node_closed, node_spans, opened,
-    past, record, series, set_funding, unfunded,
+    apply, apply_from, by_txids, channel, closed, insert, latest, lineage, node_closed, node_spans,
+    opened, past, record, series, set_funding, unfunded,
 };
 pub use graph::{
     Announcement, Bucket, GraphChannel, GraphNode, Index, Node, NodePast, NodePoint, Past, Policy,

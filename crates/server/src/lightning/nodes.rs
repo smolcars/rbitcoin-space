@@ -533,7 +533,25 @@ async fn app_channel(
     let scid = scid(&id)?;
     let (index, _, store) = graph(&ctx)?;
     let (live, stored) = find_channel(&index, store, scid).await?;
+    let (next, previous) = match stored {
+        Some(c) => store_ln::lineage(store, c)
+            .await
+            .map_err(|e| store_error(&e))?,
+        None => (None, None),
+    };
     let (live, stored) = (live.as_ref(), stored.as_ref());
+    // The channel a lineage names: open, as the index knows it, or closed.
+    let link = |c: Option<Channel>| {
+        c.map_or(Value::Null, |c| {
+            let live = index.channel(c.open.scid);
+            json!({
+                "id": scid_text(c.open.scid),
+                "scid": c.open.scid.to_string(),
+                "capacity": live.map_or(c.open.capacity, |l| l.capacity),
+                "state": state(Some(&c), live),
+            })
+        })
+    };
     let closed = stored.is_some_and(|c| c.close.is_some());
     let nodes = live.map_or_else(
         || stored.map_or([[0; 33]; 2], |c| [c.open.node_one, c.open.node_two]),
@@ -564,6 +582,8 @@ async fn app_channel(
         },
         "closed": stored.map_or(Value::Null, close_json),
         "penalty": stored.and_then(|c| c.penalty).map(|p| json!({ "block": block_json(&p.block), "txid": p.txid.to_string() })),
+        "continued_as": link(next),
+        "continued_from": link(previous),
     });
     Ok(send(&v, "lightning_channel"))
 }

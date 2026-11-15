@@ -830,6 +830,72 @@ async fn funding_txids_lookups_and_a_node_s_closed_channels() {
     assert_eq!(node_spans(s, [2; 33]).await.unwrap().len(), 2);
 }
 
+/// A close's transaction that funded a channel between the same two nodes continues it, both
+/// ways; one between other nodes does not; of several, the lowest id.
+#[tokio::test]
+async fn lineage_follows_a_closing_transaction_into_the_channels_it_funded() {
+    let t = temp();
+    let s = &t.store;
+    let x = Txid::from_byte_array([0x77; 32]);
+    let (a, d) = (open(A, 1), open(800_003 << 40, 1));
+    // B and C are both funded by A's closing transaction; D, also funded by it, is between
+    // other nodes; E is an open channel closed by nothing.
+    let (b, c) = (open(B, 1), open(C, 1));
+    let d = Open {
+        node_one: [4; 33],
+        ..d
+    };
+    let e = open(800_004 << 40, 1);
+    apply(
+        s,
+        vec![
+            Change::Closed(a, close(800_001, Kind::Other, 0x77)),
+            Change::Opened(c),
+            Change::Opened(b),
+            Change::Opened(d),
+            Change::Opened(e),
+        ],
+    )
+    .await
+    .unwrap();
+    // Funding txids, as the background filler stores them.
+    let fe = Txid::from_byte_array([0xe0; 32]);
+    set_funding(
+        s,
+        vec![
+            (B, b.block.hash, x),
+            (C, c.block.hash, x),
+            (d.scid, d.block.hash, x),
+            (e.scid, e.block.hash, fe),
+        ],
+    )
+    .await
+    .unwrap();
+    let get = |scid| async move { channel(s, scid).await.unwrap().unwrap() };
+    let (next, previous) = lineage(s, get(A).await).await.unwrap();
+    assert_eq!((next.map(|c| c.open.scid), previous), (Some(B), None));
+    for later in [B, C] {
+        let (next, previous) = lineage(s, get(later).await).await.unwrap();
+        assert_eq!((next, previous.map(|c| c.open.scid)), (None, Some(A)));
+    }
+    // Other nodes, and a channel whose funding closed nothing: no lineage.
+    assert_eq!(lineage(s, get(d.scid).await).await.unwrap(), (None, None));
+    assert_eq!(lineage(s, get(e.scid).await).await.unwrap(), (None, None));
+    // An open channel whose funding txid is not known yet: nothing to follow.
+    apply(s, vec![Change::OpenUndone(B), Change::Opened(open(B, 2))])
+        .await
+        .unwrap();
+    assert_eq!(lineage(s, get(B).await).await.unwrap(), (None, None));
+    assert_eq!(
+        lineage(s, get(A).await)
+            .await
+            .unwrap()
+            .0
+            .map(|c| c.open.scid),
+        Some(C)
+    );
+}
+
 /// Mainnet's size: 36,000 channels between 13,600 nodes.
 fn mainnet_graph() -> (Vec<GraphNode>, Vec<GraphChannel>) {
     let id = |n: u32| {

@@ -867,10 +867,12 @@ GET /app/lightning/channels/811984x2037x0
               "policy": {"fee_rate": 1, "base_fee_msat": 1000, "cltv_delta": 80, "min_htlc_msat": 1000, "max_htlc_msat": 20000000000, "enabled": true, "last_update": 1794456478}},
  "node_two": {"id": "03864ef0…3f8f", "alias": "ACINQ", "color": "#49daaa", "policy": {"fee_rate": 2499, …}},
  "funding": {"txid": "a7f10c25…d4f5", "vout": 0, "block": {"height": 811984, "hash": "000000000000000000019545…fb7e", "time": 1697189564}},
- "closed": null, "penalty": null}
+ "closed": null, "penalty": null, "continued_as": null, "continued_from": null}
 ```
 
 `policy` is what that node charges to forward over the channel, `null` until it sent one and for a closed channel. `funding.txid` is `null` until the server has asked the node for it ([`LIGHTNING.md`](LIGHTNING.md#funding-transactions)); `funding.block` is `null` only for a channel the store has not recorded yet. A closed channel has `closed: {block, txid, kind, fee}` and, after a breach, `penalty: {block, txid}`.
+
+`continued_as` is the channel between the same two nodes that this one's closing transaction funded, and `continued_from` the one whose closing transaction funded this one, each `{id, scid, capacity, state}` (as `"continued_as": {"id": "811984x2037x0", "scid": "892785849701564416", "capacity": 500000000, "state": "active"}`) or `null` when we hold no such channel. That is a splice or a close that reopens in the same transaction; the chain cannot tell which, so neither is called a splice. Where one transaction funded or closed several channels between the two, the lowest id. `continued_as` is `null` while a channel is open, and `continued_from` until the server has asked the node for the funding txid.
 
 ```json
 GET /app/lightning/search?q=acinq
