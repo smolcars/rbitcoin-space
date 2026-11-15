@@ -1,0 +1,29 @@
+[package]
+name = "bark"
+description = "Bark VTXOs: the Bark server's GetVtxo call, our own decoder, and the exit chain rebuilt and checked"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+bitcoin.workspace = true
+bytes.workspace = true
+http-body-util.workspace = true
+hyper = { workspace = true, features = ["http2"] }
+hyper-util = { workspace = true, features = ["http2"] }
+rustls.workspace = true
+tokio = { workspace = true, features = ["time"] }
+tokio-rustls.workspace = true
+webpki-roots.workspace = true
+
+[dev-dependencies]
+# The fake Bark server in tests/client.rs.
+hyper = { workspace = true, features = ["http2", "server"] }
+hyper-util = { workspace = true, features = ["http2", "server"] }
+serde_json.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "test-util"] }
+
+[lints]
+workspace = true

@@ -321,7 +321,7 @@ Decided while building it, where the rest of this document left it open. The pag
 
 | Component | What it is |
 |---|---|
-| Header | Logo and wordmark, network switch, search, navigation (Blocks, Mempool, Mining, Lightning), theme toggle. Sticky, except on a screen under 30em tall (a phone on its side, a page zoomed in or set in a large text size), where it scrolls away with the page. Focus and in-page links stop clear of it. One row on wide screens. Between 640 and 1040 px (tablets, a desktop at 200% zoom) two rows: the brand, the search and the theme toggle, then the network switch and the sections. On a phone two rows of about 100 px in all: the mark, the network, the search (its hint one word, "Search") and the theme, then the four sections sharing the row evenly, every one in sight at 320 px. A focused search takes the whole first row, the mark, network and theme stepping aside, so it and its answer are the phone's width. The network and theme are 44 px targets around a smaller drawn pill and square |
+| Header | Logo and wordmark, network switch, search, navigation (Blocks, Mempool, Mining, Lightning, and Ark on a network that has an Ark server), theme toggle. Sticky, except on a screen under 30em tall (a phone on its side, a page zoomed in or set in a large text size), where it scrolls away with the page. Focus and in-page links stop clear of it. One row on wide screens. Between 640 and 1040 px (tablets, a desktop at 200% zoom) two rows: the brand, the search and the theme toggle, then the network switch and the sections. On a phone two rows of about 100 px in all: the mark, the network, the search (its hint one word, "Search") and the theme, then the sections sharing the row, every one in sight at 320 px: four evenly, five (with Ark) each as wide as its name. A focused search takes the whole first row, the mark, network and theme stepping aside, so it and its answer are the phone's width. The network and theme are 44 px targets around a smaller drawn pill and square |
 | Network band | A slim band tinted with the network colour, a short hatched mark and the warning in words. Test networks only |
 | Logo | `design/logo.svg`, also the favicon: a crab, a nod to Rust and to rbitcoin's own crab, lifting a block of three strata, the top layer shorter, offset and in the accent, still settling. In the header it is inline SVG, 32 px: the crab and the two settled layers in `--color-network`, the top layer in `--color-accent` on every network. The wordmark is live text, so a new name is one string |
 | Block tile | Projected (dashed) or mined (solid). Height or label, median fee, fee range, total fees (in magnitude), its fee layers, transaction count and age. Mined tiles link to the block and show the pool below |
@@ -550,6 +550,33 @@ Decided while building it:
 - **Tables fit a 320 px phone,** and every column keeps a gutter at every width. A chart's figures do too, with no sideways scroll: a time takes two lines (the day, then the time of day, with "UTC" in the header), and a node's fee figures are one table each way, headed with the chart's own words, side by side only where the panel holds both whole and one over the other otherwise. Long headers take two lines and fee-rate ranges break before their upper end wherever room runs short, at any width. A channel row puts its id, kind, time and both ends in one cell; a node list drops, on a phone, the figure it is not ranked by.
 - **The channel page is for the operators at its ends.** Each direction is drawn as a lane, coloured `--series-1` and `--series-2` across the lanes, the calculator and nothing else, saying in words which end charges what. What gossip says is said as advertised: "Enabled" is not "routable", and a missing policy reads "No policy", never "Disabled", which is only an advertised disabled flag. A closed channel has no policy to show, so it shows how it ended and its life, not empty drawings; one with no policy either way shows its lanes and no calculator or table. "Continued as" a new channel is inferred from the closing transaction, and said so. A figure is one piece at every text size: never broken inside its digits (its groups are joined by no-break spaces) nor parted from its unit, the line breaking between figures ("1 ppm" + "1 sat"); at the largest sizes (below 15em: 320 or 390 px at 200% text) the page's gutters and panel padding halve, the display figures stop growing past the text round them, and a figure longer than 12 characters (an msat term, the capacity) reads in magnitude (`0.200 BTC`); so does one in a hop fee's well narrower than 22em of its own text, at any size; so each fits whole in any reader's fonts. A name breaks anywhere, or is cut with its whole in the title. On a phone each policy term is a row over its two values, under the two ends' names; below 22.5em (a 320 px phone, or larger text) the values go one a line, each named for its node.
 - **Switched off is a sentence,** not an empty chart: a network without Lightning says so, and a peer still syncing shows how far it has come and fills the page when done.
+
+### Ark (not in the prototype)
+
+```text
+Ark VTXO                         (the entry: one field, a tab per implementation where there are two)
+[Bark VTXO ID: txid:vout] [Open]
+
+← Another VTXO
+VTXO Bark  (Signatures OK) (Not settled yet) (Expires soon) (Exiting)
+125985e9 e2bfa047 … 594b7567:0  [copy]
+Amount 0.00010000 BTC / 10 000 sats │ Expires 1 210 blocks left / Block 101 010 / ▬▬▬── │ Exit 5 transactions / 3 tree, 2 transfers
+Exit path ════════════════════════════════════════════════════════════════ [Play exit]
+   ◦ 20 000 sats ╲ 2 ─ 3 ⌒ 4 ⌒ ◎ This VTXO 10 000 sats (then wait 2 016 blocks)
+                  1
+  ···■ Anchor 96 970 ··········· ▾ 1 210 blocks left ··········· | Expiry 101 010   (the Bitcoin line)
+  key: exit transaction, other output, transfer;  a selected node's facts under it
+Details (closed): server key, user key, policy, wait after exit, encoding, anchor
+Transactions: # · Kind (Bark's word muted) · On chain · Signature · Other outputs · Fee · Txid
+```
+
+Decided while building it, with the owner:
+
+- **Very little text.** The picture, the layout and short labels carry it: no helper paragraphs, nothing decorative. States are a short sentence each: not a VTXO ID, Bark does not know this VTXO, the Bark server did not answer, its answer did not check out.
+- **Badges, not sentences,** in the order a reader needs them: "Signatures OK" only when the server rebuilt the whole chain, found the anchor on the node and verified every signature ("Not all signed" or "Not verified" otherwise); "Not settled yet" when the chain has arkoor transfers; "Expires soon" within three days of blocks; "Exiting" once an exit transaction is in the mempool or a block. Never "unspent": that cannot be known ([`ARK.md`](ARK.md#where-the-vtxo-comes-from)).
+- **The Bitcoin line is the VTXO's life:** the anchor's block at the anchor, "now" with the blocks left, the expiry at the far end, to scale. The tree's transactions rise from the anchor; transfers run sideways as low arcs and wrap into rows, each above the last, as many to a row as the width holds; other outputs are dashed stubs with their amount where there is room. The VTXO is a ring at the end with its amount; its words go above it near the right edge, so they never fall on the tree.
+- **Play exit** lights the transactions in broadcast order, one per `--dur-slow`, then shows the wait the exit delta imposes. Every node is a button with a 44 px target that selects its transaction; its facts show under the picture.
+- **Two exceptions to the principles, approved by the owner for this picture alone.** (a) Quiet idle motion: the VTXO's ring breathes, opacity only, slowly (principle 6 otherwise forbids ambient motion). Reduced motion stops it, and Play exit then shows its end at once, so the picture is still. (b) The accent marks the VTXO's own path, its transactions and its ring (principle 3 otherwise keeps it for interaction); everything else in the picture stays neutral.
 
 ## Plain CSS or a utility framework
 

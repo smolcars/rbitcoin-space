@@ -83,13 +83,24 @@ impl Pages {
     async fn head(&self, path: &str, query: Option<&str>) -> Option<(Network, Head)> {
         let (network, rest) = split(path);
         let ctx = self.networks.iter().find(|c| c.config.network == network)?;
+        let on = chain(network);
+        // The one page four segments deep (docs/ARK.md).
+        if let Some(id) = rest.strip_prefix("/ark/bark/vtxo/") {
+            let id: bark::VtxoId = id.parse().ok()?;
+            let head = Head {
+                title: "Bark VTXO".into(),
+                description: format!(
+                    "Bark VTXO {id} on {on}: its amount, its expiry and its exit path, checked."
+                ),
+            };
+            return Some((network, head));
+        }
         let mut segs = rest.split('/');
         // `rest` is empty or starts with `/`, so the first segment is always empty.
         let s = [segs.next(), segs.next(), segs.next(), segs.next()];
         if segs.next().is_some() {
             return None;
         }
-        let on = chain(network);
         let head = match s {
             [_, None | Some(""), None, None] => Head {
                 title: "Blocks and mempool".into(),
@@ -189,6 +200,10 @@ impl Pages {
                 ),
             },
             [_, Some("lightning"), Some("rankings"), None] => rankings(on, query),
+            [_, Some("ark"), None, None] => Head {
+                title: "Ark VTXO".into(),
+                description: format!("Look up an Ark VTXO on {on} by its id."),
+            },
             _ => return None,
         };
         Some((network, head))

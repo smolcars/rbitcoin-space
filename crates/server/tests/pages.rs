@@ -489,6 +489,19 @@ async fn every_kind_of_page_on_every_network_says_what_it_is() {
                 ),
             ),
             (
+                "/ark".into(),
+                "Ark VTXO".into(),
+                format!("Look up an Ark VTXO on {chain} by its id."),
+            ),
+            (
+                format!("/ark/bark/vtxo/{}:7", "ab".repeat(32)),
+                "Bark VTXO".into(),
+                format!(
+                    "Bark VTXO {}:7 on {chain}: its amount, its expiry and its exit path, checked.",
+                    "ab".repeat(32)
+                ),
+            ),
+            (
                 "/lightning/search?q=acinq".into(),
                 "Lightning search".into(),
                 format!(

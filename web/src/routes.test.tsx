@@ -9,8 +9,12 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
-async function open(url: string, networks = ["mainnet", "signet", "testnet4"]) {
-  vi.stubGlobal("fetch", async () => Response.json({ networks, version: "0.1.0" }));
+async function open(
+  url: string,
+  networks = ["mainnet", "signet", "testnet4"],
+  ark: Record<string, string[]> = {},
+) {
+  vi.stubGlobal("fetch", async () => Response.json({ networks, version: "0.1.0", ark }));
   const history = memoryHistory(url);
   const Router = createRouter({ routes, history });
   const el = document.createElement("div");
@@ -30,6 +34,7 @@ describe("routes", () => {
     ["/address/bc1q", "Address"],
     ["/mining", "Mining"],
     ["/lightning", "Lightning"],
+    ["/ark", "Ark VTXO"],
     ["/nope", "Page not found"],
     ["/signet", "Blocks"],
     ["/signet/", "Blocks"],
@@ -66,6 +71,17 @@ describe("routes", () => {
       "/testnet5/mining",
     ]);
     expect(document.title).toBe("Testnet5: Transaction | rbitcoin.space");
+  });
+
+  it("offers Ark only on a network the server names an implementation for", async () => {
+    const hrefs = (el: HTMLElement) =>
+      [...el.querySelectorAll('nav[aria-label="Main"] a')].map((a) => a.getAttribute("href"));
+    const { el } = await open("/signet/tx/ab", undefined, { signet: ["bark"] });
+    await vi.waitFor(() => expect(hrefs(el)).toContain("/signet/ark"));
+    document.body.replaceChildren();
+    const other = await open("/testnet4/tx/ab", undefined, { signet: ["bark"] });
+    await vi.waitFor(() => expect(other.el.querySelectorAll(".network__option")).toHaveLength(3));
+    expect(hrefs(other.el)).not.toContain("/testnet4/ark");
   });
 
   it("offers the same page on every enabled network", async () => {

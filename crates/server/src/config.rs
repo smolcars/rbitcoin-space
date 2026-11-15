@@ -129,6 +129,8 @@ pub struct NetworkConfig {
     pub mempool: bool,
     /// The Lightning gossip peer, when `{NET}_LIGHTNING_ENABLED` is `true`.
     pub lightning: Option<LightningConfig>,
+    /// The Bark server VTXOs are looked up on (`{NET}_BARK_URL`, docs/ARK.md); unset is off.
+    pub bark: Option<bark::Endpoint>,
 }
 
 /// The network's Lightning gossip peer (docs/LIGHTNING.md). Its files live in
@@ -713,6 +715,12 @@ fn network_config(
         .map(|(n, _)| n.as_str())
         .collect();
     if missing.len() == names.len() {
+        if var(&format!("{p}_BARK_URL")).is_some() {
+            return Err(format!(
+                "{p}_BARK_URL is set but {} is not configured",
+                network.name()
+            ));
+        }
         return Ok(None);
     }
     if !missing.is_empty() {
@@ -760,6 +768,10 @@ fn network_config(
         Some(_) => return Err(format!("{p}_LIGHTNING_ENABLED must be true or false")),
     };
 
+    let bark = var(&format!("{p}_BARK_URL"))
+        .map(|u| bark::Endpoint::parse(&u).map_err(|e| format!("{p}_BARK_URL {e}")))
+        .transpose()?;
+
     Ok(Some(NetworkConfig {
         network,
         rpc: RpcEndpoint {
@@ -772,6 +784,7 @@ fn network_config(
         electrum,
         mempool,
         lightning,
+        bark,
     }))
 }
 
@@ -1306,5 +1319,27 @@ mod tests {
         let s = format!("{c:?} {:#?}", c.networks);
         assert!(!s.contains("hunter2"), "{s}");
         assert!(s.contains("redacted"));
+    }
+
+    #[test]
+    fn bark_url() {
+        let c = parse(&signet()).unwrap();
+        assert_eq!(c.networks[0].bark, None);
+        let mut v = signet();
+        v.push(("SIGNET_BARK_URL", "https://ark.signet.2nd.dev"));
+        let c = parse(&v).unwrap();
+        assert!(c.networks[0].bark.is_some());
+        for bad in [
+            "ark.signet.2nd.dev",
+            "https://u:p@ark.example",
+            "https://ark.example/x",
+        ] {
+            let mut v = signet();
+            v.push(("SIGNET_BARK_URL", bad));
+            let e = parse(&v).unwrap_err();
+            assert!(e.contains("SIGNET_BARK_URL") && !e.contains(bad), "{e}");
+        }
+        let e = parse(&[("MAINNET_BARK_URL", "https://ark.second.tech")]).unwrap_err();
+        assert!(e.contains("MAINNET_BARK_URL is set but"), "{e}");
     }
 }

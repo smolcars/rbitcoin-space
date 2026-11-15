@@ -108,6 +108,8 @@ pub struct NetworkEnabled<'a> {
     pub mempool: bool,
     /// Whether the Lightning gossip peer runs (`{NET}_LIGHTNING_ENABLED`).
     pub lightning: bool,
+    /// Whether VTXOs are looked up on a Bark server (`{NET}_BARK_URL`).
+    pub bark: bool,
 }
 event!(NetworkEnabled<'a>, "network_enabled", Info, keep);
 
@@ -1811,6 +1813,7 @@ mod tests {
                 electrum_addr: "node.example:3",
                 mempool: true,
                 lightning: false,
+                bark: true,
             }),
             both(&NoNetworks {}),
             both(&WebDirMissing {

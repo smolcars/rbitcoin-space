@@ -68,6 +68,7 @@ Read [`AGENTS.md`](AGENTS.md) before opening a pull request.
 | [`STORE.md`](docs/STORE.md) | The SQLite store: migrations, writes, reads, backup |
 | [`LOGGING.md`](docs/LOGGING.md) | Structured logging and its event catalogue |
 | [`LIGHTNING.md`](docs/LIGHTNING.md) | The Lightning explorer |
+| [`ARK.md`](docs/ARK.md) | Ark VTXO pages: Bark, its wire format and what the server checks |
 | [`DEPLOY.md`](docs/DEPLOY.md) | Running it in production |
 | [`DESIGN.md`](docs/DESIGN.md) | Visual design |
 | [`FRONTEND.md`](docs/FRONTEND.md) | Frontend structure, data layer and shared components |

@@ -7,7 +7,8 @@ rbitcoin.space is a sidecar: one Rust server beside a stock rbitcoin node, a sta
                         │   │   │  ──Electrum TCP──►   (unmodified)
                         │   │   └──JSON-RPC────────►
                         │   └── SQLite (derived data only)
-                        └── LDK gossip peer ──► Lightning network
+                        ├── LDK gossip peer ──► Lightning network
+                        └── gRPC over HTTPS ──► Bark server (Ark VTXOs)
 ```
 
 ## Principles
@@ -26,9 +27,10 @@ rbitcoin.space is a sidecar: one Rust server beside a stock rbitcoin node, a sta
 | `node` | `crates/node` | Typed clients for rbitcoin: Esplora (TCP and unix socket), Electrum with subscriptions, JSON-RPC |
 | `engine` | `crates/engine` | Mempool tracking, projected blocks, block summaries, the SQLite store. Pure logic is kept separate from I/O so it can be unit-tested |
 | `ln` | `crates/ln` | The gossip-only LDK peer and Lightning graph tracking |
+| `bark` | `crates/bark` | Bark VTXOs: the Bark server's `GetVtxo` call over HTTP/2 and TLS, our own decoder of its wire format, and the exit chain rebuilt and checked ([`ARK.md`](ARK.md)) |
 | `logging` | `crates/logging` | Typed log events, their catalogue and the non-blocking writer ([`LOGGING.md`](LOGGING.md)). Only the server emits; libraries report through values |
 
-Dependencies point one way: `server` → `engine` and `ln` → `node`, and only `server` uses `logging`. A crate may be split when it earns it, not before.
+Dependencies point one way: `server` → `engine` and `ln` → `node`, `server` → `bark`, and only `server` uses `logging`. A crate may be split when it earns it, not before.
 
 Runtime is tokio with axum. SQLite is accessed through `rusqlite` with the bundled library.
 

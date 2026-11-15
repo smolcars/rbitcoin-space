@@ -235,6 +235,8 @@ async fn app_config_lists_enabled_networks_at_the_root_only() {
         serde_json::json!(["mainnet", "signet", "testnet4", "testnet5"])
     );
     assert_eq!(json["version"], env!("CARGO_PKG_VERSION"));
+    // No network has an Ark implementation configured.
+    assert_eq!(json["ark"], serde_json::json!({}));
     assert_json_error(
         &get_path(&addr, "/signet/app/config").await,
         404,
@@ -244,10 +246,12 @@ async fn app_config_lists_enabled_networks_at_the_root_only() {
     // Still served when mainnet, which owns the root, is disabled.
     let mut c = config(limits());
     c.networks.retain(|n| n.network.name() == "signet");
+    c.networks[0].bark = Some(bark::Endpoint::parse("http://127.0.0.1:1").unwrap());
     let addr = start_with(c).await;
     let json: serde_json::Value =
         serde_json::from_str(&get_path(&addr, "/app/config").await.body).unwrap();
     assert_eq!(json["networks"], serde_json::json!(["signet"]));
+    assert_eq!(json["ark"], serde_json::json!({ "signet": ["bark"] }));
     assert_json_error(&get_path(&addr, "/app/other").await, 404, "not found");
 }
 

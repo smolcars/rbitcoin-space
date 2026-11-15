@@ -13,16 +13,25 @@ const NAV = [
   { href: "/mempool", label: "Mempool", match: (p: string) => /^\/(mempool|rbf)(\/|$)/.test(p) },
   { href: "/mining", label: "Mining", match: (p: string) => /^\/mining(\/|$)/.test(p) },
   { href: "/lightning", label: "Lightning", match: (p: string) => /^\/lightning(\/|$)/.test(p) },
+  { href: "/ark", label: "Ark", match: (p: string) => /^\/ark(\/|$)/.test(p) },
 ];
 
-export function Header(props: { networks: Accessor<readonly Network[] | undefined> }) {
+export function Header(props: {
+  networks: Accessor<readonly Network[] | undefined>;
+  /** The Ark implementations of each network, from the server; Ark shows only where there is one. */
+  ark: Accessor<Partial<Record<Network, string[]>> | undefined>;
+}) {
   const location = useLocation();
   const isRouting = useIsRouting();
   const page = () => stripNetwork(location.pathname);
-  const nav = () =>
-    hasLightning(networkFromPath(location.pathname))
-      ? NAV
-      : NAV.filter((item) => item.href !== "/lightning");
+  const nav = () => {
+    const network = networkFromPath(location.pathname);
+    const ark = (props.ark()?.[network]?.length ?? 0) > 0;
+    return NAV.filter(
+      (item) =>
+        (item.href !== "/lightning" || hasLightning(network)) && (item.href !== "/ark" || ark),
+    );
+  };
   let search: HTMLInputElement | undefined;
   let header: HTMLElement | undefined;
 

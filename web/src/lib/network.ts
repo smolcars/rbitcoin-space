@@ -44,6 +44,13 @@ export function apiBase(network: Network): string {
 
 const segment = (value: string | number) => encodeURIComponent(String(value));
 
+/** A VTXO id keeps its colon, which it needs to read as one; anything else in it is encoded. */
+const vtxoSegment = (id: string) =>
+  id
+    .split(":")
+    .map((part) => segment(part))
+    .join(":");
+
 /**
  * Network-free paths to each page. Chain data only ever lands in a path segment, encoded, so a
  * hostile value cannot change the scheme or the route (SECURITY.md rule 14).
@@ -78,6 +85,10 @@ export const paths = {
   /** The mempool's history, for an interval such as `1w` when given. */
   mempool: (interval?: string) =>
     interval === undefined ? "/mempool" : `/mempool?interval=${encodeURIComponent(interval)}`,
+  /** Looking up an Ark VTXO. */
+  ark: () => "/ark",
+  /** A Bark VTXO by its id, `<txid>:<vout>`. */
+  barkVtxo: (id: string) => `/ark/bark/vtxo/${vtxoSegment(id)}`,
   /** Recent replacements, newest first; only those that replaced without signalling when asked. */
   rbf: (fullRbf = false) => (fullRbf ? "/rbf?view=full-rbf" : "/rbf"),
 };

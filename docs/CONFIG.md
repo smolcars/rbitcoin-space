@@ -48,6 +48,16 @@ The gossip-only Lightning peer ([`LIGHTNING.md`](LIGHTNING.md#in-the-server)), p
 
 **The node's share:** the peer checks each channel's funding output against the node, at most two requests a second whatever gossip sends, and reads each new block once to find closes ([`LIGHTNING.md`](LIGHTNING.md#bounds-and-cost)). A first start on mainnet costs about 125 requests and 18 MB; after that a block costs one raw block (about 1.7 MB) and a request per close.
 
+### Ark
+
+VTXO pages for Ark implementations, per network ([`ARK.md`](ARK.md)). Off unless set; a network without one shows no Ark item in its header and its Ark pages say so. Setting it for a network that is not configured stops the server at startup.
+
+| Variable | Default | What it does |
+|---|---|---|
+| `{NET}_BARK_URL` | unset | The Bark server whose VTXOs the network's Bark pages look up: `https://host[:port]`, or `http://` for a test or a server of your own. No credentials and no path. Public servers: mainnet `https://ark.second.tech`, signet `https://ark.signet.2nd.dev` |
+
+**It connects out to the Bark server,** one HTTP/2 connection per lookup the server does not already hold (TCP 443 for the public servers), at most four at once per network and each within 6 s. Browsers never reach it: the Content-Security-Policy is unchanged. Behind a firewall that blocks outbound traffic, allow that host, or leave it unset.
+
 ## Broadcast
 
 | Variable | Default | What it does |

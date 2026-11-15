@@ -1,0 +1,74 @@
+@layer pages {
+  .ark-entry {
+    max-width: 40rem;
+    padding-block: var(--space-6) var(--space-8);
+  }
+
+  .ark-entry h1 {
+    margin-block-end: var(--space-4);
+  }
+
+  .ark-entry__panel--waiting {
+    min-height: 9.5rem;
+  }
+
+  .ark-entry__tabs {
+    display: flex;
+    gap: var(--space-4);
+    margin-block-end: var(--space-4);
+    border-block-end: 1px solid var(--color-line);
+  }
+
+  .ark-entry__tab {
+    min-height: var(--touch);
+    padding: 0;
+    border: 0;
+    border-block-end: 2px solid transparent;
+    background: none;
+    color: var(--color-text-muted);
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .ark-entry__tab[aria-pressed="true"] {
+    border-block-end-color: var(--color-accent);
+    color: var(--color-text);
+  }
+
+  .ark-entry__form {
+    display: grid;
+    gap: var(--space-2);
+    justify-items: start;
+  }
+
+  .ark-entry__label {
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+  }
+
+  .ark-entry__input {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: var(--touch);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--color-line-strong);
+    border-radius: var(--radius-m);
+    background: var(--color-surface-sunken);
+    color: var(--color-text);
+    font-size: var(--text-sm);
+  }
+
+  .ark-entry__input[aria-invalid="true"] {
+    border-color: var(--color-negative);
+  }
+
+  .ark-entry__bad {
+    margin: 0;
+    color: var(--color-negative);
+    font-size: var(--text-sm);
+  }
+
+  .ark-entry__open {
+    margin-block-start: var(--space-2);
+  }
+}

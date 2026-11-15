@@ -69,6 +69,8 @@ The network comes from the path. `useNetwork()` returns it; never keep it anywhe
 | Lightning search, rankings | `/lightning/search?q=`, `/lightning/rankings?by=capacity\|channels\|age` | `pages/lightning` | W11 |
 | Mempool history | `/mempool`, `/mempool?interval=2h\|24h\|1w\|1m\|3m\|6m\|1y\|2y\|3y\|4y\|all` | `pages/mempool` | FE9 |
 | Replacements | `/rbf`, `/rbf?view=full-rbf` | `pages/mempool` | G4 |
+| Ark VTXO lookup | `/ark` | `pages/ark` | Ark |
+| Bark VTXO | `/ark/bark/vtxo/:id` (`<txid>:<vout>`) | `pages/ark/bark` | Ark |
 | Not found | anything else | `pages/not-found` | shell |
 
 Every page is loaded lazily.
@@ -143,7 +145,7 @@ During development, `bun run dev` proxies `/api`, `/app` and `/healthz` to the R
 
 ### The app's own API
 
-`GET /app/config` answers `{"networks": ["mainnet", "signet"], "version": "0.1.0"}`: the enabled networks in server order, and the server version. It is server-wide, so it is served at the root only, whichever networks are enabled (`crates/server/src/app_config.rs`). The shell reads it once for the network switch and the footer. If the root's network (mainnet) is disabled, the shell moves to the same page on the first enabled network.
+`GET /app/config` answers `{"networks": ["mainnet", "signet"], "version": "0.1.0", "ark": {"signet": ["bark"]}}`: the enabled networks in server order, the server version, and the Ark implementations of each network that has one ([`ARK.md`](ARK.md)); the header shows Ark only on those. `loadConfig()` in `lib/config.ts` is the answer as the tab first read it, for pages that need it. It is server-wide, so it is served at the root only, whichever networks are enabled (`crates/server/src/app_config.rs`). The shell reads it once for the network switch and the footer. If the root's network (mainnet) is disabled, the shell moves to the same page on the first enabled network.
 
 #### Block summaries
 

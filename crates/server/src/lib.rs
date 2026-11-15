@@ -7,6 +7,7 @@
 pub mod answers;
 mod api_v1;
 mod app_config;
+pub mod ark_bark;
 mod audits;
 pub mod blocks;
 pub mod config;
@@ -137,6 +138,8 @@ pub struct NetworkContext {
     pub lightning: Option<Arc<lightning::Lightning>>,
     /// The guard on large-address joins, and the ledger when there is a store (`ledger`).
     pub guard: Arc<ledger::Guard>,
+    /// Bark VTXO lookups, when `{NET}_BARK_URL` is set (`ark_bark`).
+    pub bark: Option<ark_bark::Bark>,
 }
 
 impl std::fmt::Debug for NetworkContext {
@@ -216,6 +219,10 @@ impl NetworkContext {
             ledger,
         )?);
         Some(Self {
+            bark: config
+                .bark
+                .clone()
+                .map(|e| ark_bark::Bark::new(e, all.limits.max_tracked_clients)),
             guard,
             blocks: table,
             data_dir: all.data_dir.is_some(),
@@ -266,6 +273,7 @@ pub fn network_routes() -> Router<Arc<NetworkContext>> {
         .route("/app/fees/score", get(ws::fees::score::route))
         .route("/app/address/{address}/size", get(verdicts::size_route))
         .route("/app/address/{address}/ledger", get(ledger::route))
+        .route("/app/ark/bark/vtxo/{id}", get(ark_bark::route))
         .merge(statistics::app_routes())
         .merge(api_v1::routes())
         .merge(audits::routes())

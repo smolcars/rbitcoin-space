@@ -10,6 +10,7 @@ The server sits between the public internet and a Bitcoin node. A client must ne
 | Chain data (scripts, `OP_RETURN` text, coinbase tags) | **Untrusted content.** Valid on chain does not mean safe to render |
 | Lightning gossip (aliases, addresses, colors) | **Untrusted content** |
 | Price feeds and other third-party APIs | **Untrusted content** |
+| Bark servers (`{NET}_BARK_URL`) | **Untrusted content.** Asked only by the server, at an operator-configured address; an answer is shown only once its exit chain is rebuilt, anchored on the node and its signatures verified ([`ARK.md`](ARK.md#what-the-server-checks)) |
 | The rbitcoin node | Trusted for chain facts; its responses are still parsed defensively |
 | Operator configuration | Trusted |
 

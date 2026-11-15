@@ -139,6 +139,7 @@ fn started(config: &Config, log: logging::Settings) {
             electrum_addr: &n.electrum,
             mempool: n.mempool,
             lightning: n.lightning.is_some(),
+            bark: n.bark.is_some(),
         });
     }
     if config.networks.is_empty() {
