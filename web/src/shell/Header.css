@@ -282,8 +282,9 @@
       display: block;
     }
   }
-  /* A phone at a large text size (320 px at 20 px text and up): four names no longer fit a row
-     in Linux's wider fonts, so two to a row. A page zoomed to 150% (16.75em) keeps one. */
+  /* A phone at a large text size (320 px at 20 px text and up): two names to a row, before four
+     would leave the wider Linux fonts less than a few pixels. A page zoomed to 150% (16.75em)
+     keeps one row. */
   @media (max-width: 16.5em) {
     .nav {
       grid-template-columns: repeat(2, minmax(0, 1fr));
