@@ -65,7 +65,7 @@ test("the overview, a node and a channel, from mainnet's answers", async ({ page
   await expect(page.getByRole("heading", { level: 1 })).toContainText("Channel 811984x2037x0");
   // Back to where the reader came from: the node, by its name.
   await expect(page.locator(".ln-nav__back")).toHaveText("← ACINQ");
-  await expect(page.getByRole("heading", { name: "Its two ends" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Who charges what" })).toBeVisible();
   await expect(page.getByRole("link", { name: /^811\s984$/ })).toHaveAttribute(
     "href",
     /^\/regtest\/block\/0{18}/,

@@ -299,7 +299,7 @@ for (const input of ["mouse", "finger"] as const) {
     const path = "/regtest/lightning/channel/811984x2037x0";
     await page.goto(path);
     const open = page.locator(".exact:not([hidden])");
-    const about = page.locator("details.more", { hasText: "About these" });
+    const about = page.locator("details.more", { hasText: "Whose fee is whose" });
     const summary = about.locator("summary");
     const node = page.locator(`main a[href$="/lightning/node/${ACINQ}"]`).first();
     const theme = page.locator(".site-header button[aria-label^='Switch to']");
@@ -351,6 +351,9 @@ const COPIED: [RegExp, RegExp][] = [
   [/address$/, /^(?:bcrt1[02-9ac-hj-np-z]{8,87}|[1-9A-HJ-NP-Za-km-z]{25,35})$/],
   [/in BTC$/, /^-?\d+\.\d{8}$/],
   [/in msat$/, /^\d+$/],
+  [/channel id$/, /^\d+x\d+x\d+$/],
+  [/channel id as one number$/, /^\d+$/],
+  [/channel id in lnd's form$/, /^\d+:\d+:\d+$/],
   [/hex$|^Copy item \d+$/, /^(?:[0-9a-f]{2})+$/],
 ];
 

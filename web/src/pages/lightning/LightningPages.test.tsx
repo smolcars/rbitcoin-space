@@ -8,6 +8,7 @@ import ChannelPage from "./ChannelPage";
 import LightningPage from "./LightningPage";
 import NodePage from "./NodePage";
 import RankingsPage from "./RankingsPage";
+import type { ChannelDetail, Policy } from "./lightning";
 import { LightningNav } from "./parts";
 import SearchPage from "./SearchPage";
 import { TxLightning } from "./TxLightning";
@@ -18,8 +19,11 @@ import {
   BFX,
   channel,
   CLOSING,
+  closedChannel,
   closedOf,
+  EARLIER,
   FUNDING,
+  NEXT,
   opened,
   overview,
   series,
@@ -335,46 +339,147 @@ describe("a node", () => {
 });
 
 describe("a channel", () => {
-  it("shows both ends, their policies and the funding transaction and block", async () => {
-    replies["/app/lightning/channels/811984x2037x0"] = json(channel());
-    const el = open("/lightning/channel/811984x2037x0");
-    await shows(el, "Its two ends");
-    expect(text(el)).toContain("Active");
-    expect(text(el)).toContain("5.00000000 BTC");
-    expect(text(el)).toContain("2 499 ppm");
-    expect(text(el)).toContain("144 blocks");
+  const show = (c: ChannelDetail) => {
+    replies[`/app/lightning/channels/${c.id}`] = json(c);
+    return open(`/lightning/channel/${c.id}`);
+  };
+  const section = (el: HTMLElement, title: string) =>
+    [...el.querySelectorAll("section")].find((x) => x.querySelector("h2")?.textContent === title);
+  const titles = (el: HTMLElement) => [...el.querySelectorAll("h2")].map((h) => h.textContent);
+  const steps = (el: HTMLElement) =>
+    [...el.querySelectorAll(".ln-step__title strong")].map((x) => x.textContent);
+
+  it("shows an open channel: who charges what, the fee for a hop, the policies and its life", async () => {
+    const el = show(channel());
+    await shows(el, "Who charges what");
+    expect(titles(el)).toStrictEqual([
+      "Who charges what",
+      "Fee for this hop",
+      "Policies side by side",
+      "Life of the channel",
+    ]);
+    expect(text(el.querySelector("h1") as HTMLElement)).toBe("Channel 811984x2037x0");
+    expect(text(el)).toContain("Enabled");
+    expect(text(el)).toContain("500 000 000 sats");
+    expect(text(el)).toContain("892785849701564416");
+    expect(text(el)).toContain("811984:2037:0");
+    const lanes = text(section(el, "Who charges what") as HTMLElement);
+    expect(lanes).toContain("bfx-lnd0 charges to forward towards ACINQ1 ppm + 1 sat");
+    expect(lanes).toContain("ACINQ charges to forward towards bfx-lnd02 499 ppm + 1 sat");
+    expect(lanes).toContain("CLTV 144, max HTLC 20 000 000 sats");
+    // 100 000 sats by default: 1 sat + 0.1, and 1 sat + 249.9.
+    const hop = text(section(el, "Fee for this hop") as HTMLElement);
+    expect(hop).toContain("bfx-lnd0 → ACINQ1.1 sats");
+    expect(hop).toContain("ACINQ → bfx-lnd0250.9 sats");
+    const terms = text(section(el, "Policies side by side") as HTMLElement);
+    expect(terms).toContain("ACINQ +2 498 ppm");
+    expect(terms).toContain("bfx-lnd0 +999 msat");
+    expect(steps(el)).toStrictEqual(["Funded", "Open now"]);
     expect(links(el)).toContain(`/tx/${FUNDING}`);
     expect(links(el)).toContain(`/lightning/node/${BFX}`);
-    expect(text(el)).not.toContain("Close");
+    expect(text(el)).not.toContain("How it ended");
+  });
+
+  it("works out the fee for the amount typed, and says why it cannot", async () => {
+    const el = show(channel({ node_two: { ...channel().node_two, policy: null } }));
+    await shows(el, "Fee for this hop");
+    const hop = section(el, "Fee for this hop") as HTMLElement;
+    const input = hop.querySelector("input") as HTMLInputElement;
+    const type = (v: string) => {
+      input.value = v;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+    // A missing policy is not a disabled one.
+    expect(text(hop)).toContain("ACINQ → bfx-lnd0No policy");
+    expect(text(hop)).not.toContain("Disabled");
+    expect(text(el)).toContain("Enabled one way");
+    type("1 234 567");
+    await shows(hop, "1 sat + 1 234 567 × 1 ÷ 1 000 000, rounded down");
+    expect(text(hop)).toContain("2.234 sats");
+    type("30 000 000");
+    await shows(hop, "Over max HTLC (20 000 000 sats)");
+    expect(text(hop)).toContain("Would be 31 sats");
+    type("1.5");
+    await shows(hop, "Whole sats only.");
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+  });
+
+  it("calls a disabled end disabled, and a channel with no policy at all says so", async () => {
+    const off = { ...channel().node_two.policy, enabled: false } as Policy;
+    const el = show(channel({ node_two: { ...channel().node_two, policy: off } }));
+    await shows(el, "Fee for this hop");
+    expect(text(section(el, "Fee for this hop") as HTMLElement)).toContain(
+      "ACINQ → bfx-lnd0Disabled",
+    );
+    expect(text(section(el, "Policies side by side") as HTMLElement)).toContain("One way only");
+    const none = show(
+      channel({
+        id: "811984x2037x9",
+        node_one: { ...channel().node_one, policy: null },
+        node_two: { ...channel().node_two, policy: null },
+      }),
+    );
+    await shows(none, "Who charges what");
+    expect(text(none.querySelector(".ln-chan__title") as HTMLElement)).toContain("No policy");
+    // Nothing to work out or compare: the lanes say "No policy" each way, and that is all.
+    expect(titles(none)).toStrictEqual(["Who charges what", "Life of the channel"]);
+    expect(text(none)).not.toContain("Disabled");
   });
 
   it("says when the funding transaction is not looked up yet", async () => {
-    replies["/app/lightning/channels/811984x2037x0"] = json(
-      channel({ funding: { ...channel().funding, txid: null } }),
-    );
-    const el = open("/lightning/channel/811984x2037x0");
-    await shows(el, "Not looked up yet");
+    const el = show(channel({ funding: { ...channel().funding, txid: null } }));
+    await shows(el, "Transaction not looked up yet");
     expect(links(el).some((h) => (h ?? "").startsWith("/tx/"))).toBe(false);
   });
 
   it.each([
-    ["cooperative", "Cooperative close", "Likely", "splice"],
-    ["force", "Force close", "Certain", "commitment transaction"],
-    ["penalty", "Penalty", "Certain", "revocation key"],
-    ["other", "Other", "Certain it is not a plain close", "splice that added funds"],
-  ] as const)("says a %s close plainly, and how sure that is", async (kind, name, sure, why) => {
-    const c = closedOf(kind);
-    replies[`/app/lightning/channels/${c.id}`] = json(
-      channel({ id: c.id, state: "closed", closed: c.closed, penalty: c.penalty }),
+    ["cooperative", "Cooperative close", "Cooperative close · Likely"],
+    ["force", "Force close", "Force close · Certain"],
+    ["penalty", "Force close", "Penalty · Certain"],
+    ["other", "Other close", "Other · Certain it is not a plain close"],
+  ] as const)(
+    "says how a %s close ended, and leaves its policies out",
+    async (kind, shown, sure) => {
+      const el = show(closedChannel(kind));
+      await shows(el, "How it ended");
+      expect(titles(el)).toStrictEqual(["How it ended", "Life of the channel"]);
+      const ended = text(section(el, "How it ended") as HTMLElement);
+      expect(ended).toContain(shown);
+      expect(ended).toContain(sure);
+      expect(ended).toContain("fee 1 234 sats");
+      expect(links(el)).toContain(`/tx/${CLOSING}`);
+      expect(links(el).includes(`/tx/${SWEEP}`)).toBe(kind === "penalty");
+      expect(steps(el)).toStrictEqual(
+        kind === "penalty" ? ["Funded", "Closed", "Revoked state swept"] : ["Funded", "Closed"],
+      );
+      expect(text(el)).not.toContain("Open now");
+    },
+  );
+
+  it("tells a breach found after a force close as a penalty", async () => {
+    const el = show(closedChannel("force", { penalty: closedOf("penalty").penalty }));
+    await shows(el, "How it ended");
+    expect(text(el)).toContain("Closed: revoked state swept");
+    expect(text(section(el, "How it ended") as HTMLElement)).toContain("Penalty · Certain");
+    expect(steps(el)).toStrictEqual(["Funded", "Closed", "Revoked state swept"]);
+  });
+
+  it("links a channel to the one it continues and the one that continues it", async () => {
+    const el = show(closedChannel("cooperative", { continued_as: NEXT, continued_from: EARLIER }));
+    await shows(el, "How it ended");
+    expect(text(el)).toContain("Closed: continued as a new channel");
+    expect(text(section(el, "How it ended") as HTMLElement)).toContain(
+      "Continued as 975402x1310x1",
     );
-    const el = open(`/lightning/channel/${c.id}`);
-    await shows(el, name);
-    const close = el.querySelector(".ln-close") as HTMLElement;
-    expect(text(close)).toContain(`${name} · ${sure}`);
-    expect(text(close)).toContain(why);
-    expect(links(el)).toContain(`/tx/${CLOSING}`);
-    expect(text(el)).toContain("Closing fee1 234 sats");
-    expect(links(el).includes(`/tx/${SWEEP}`)).toBe(kind === "penalty");
+    expect(steps(el)).toStrictEqual([
+      "Continues an earlier channel",
+      "Funded",
+      "Closed",
+      "Continued as a new channel",
+    ]);
+    expect(links(el)).toContain(`/lightning/channel/${NEXT.id}`);
+    expect(links(el)).toContain(`/lightning/channel/${EARLIER.id}`);
+    expect(text(el)).not.toMatch(/splice[ds]/i);
   });
 
   it("says when this server knows no such channel, or the id is not one", async () => {

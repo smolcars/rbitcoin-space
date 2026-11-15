@@ -364,24 +364,6 @@
   .ln-close__title {
     font-weight: var(--weight-bold);
   }
-  .ln-sure {
-    font-size: var(--text-sm);
-    font-weight: var(--weight-medium);
-  }
-
-  .ln-badge {
-    display: inline-flex;
-    align-items: center;
-    padding: 0 var(--space-3);
-    border: 1px solid var(--color-line-strong);
-    border-radius: var(--radius-pill);
-    font-size: var(--text-sm);
-    font-weight: var(--weight-medium);
-    vertical-align: middle;
-  }
-  .ln-badge--closed {
-    border-style: dashed;
-  }
   .ln-tabs {
     display: flex;
     flex-wrap: wrap;
@@ -565,8 +547,7 @@
 }
 
 @layer pages {
-  /* A channel's two ends side by side under its capacity. */
-  /* A term in magnitude, a button that shows the exact msat in place: drawn as the figure. */
+  /* A term, a button that shows the exact msat in place: drawn as the figure. */
   .ln-msat {
     padding: 0;
     border: 0;
@@ -580,83 +561,11 @@
     text-decoration-thickness: 1px;
     text-underline-offset: 0.2em;
   }
-  .ln-range {
-    display: flex;
-    flex-wrap: wrap;
-    column-gap: var(--space-2);
-  }
-  /* On a phone a range takes two lines, a line apart: the first figure's target reaches up and the
-     last's down, so each is a thumb high and neither covers the other. */
   @media (pointer: coarse) {
     /* A term starts its cell, where the table's edge would cut a target round it: it reaches on. */
     .ln-msat::before {
       inset-inline: 0 min(0px, 100% - var(--touch));
     }
-    .ln-range > .ln-msat:first-of-type::before {
-      inset-block: calc(1lh - var(--touch)) 0;
-    }
-    .ln-range > .ln-msat:last-of-type::before {
-      inset-block: 0 calc(1lh - var(--touch));
-    }
-  }
-  .ln-range__to {
-    color: var(--color-text-muted);
-  }
-  .ln-between {
-    display: grid;
-    gap: var(--space-1);
-    font-size: var(--text-md);
-    font-weight: var(--weight-regular);
-  }
-  /* Two nodes, each a name over its key: room for each name's target (above). */
-  @media (pointer: coarse) {
-    .ln-between {
-      row-gap: var(--space-2);
-    }
-  }
-  /* The two ends' terms in one table, read across: fixed columns whose text wraps, so two long
-     names never widen it past a phone. */
-  .ln-policies {
-    table-layout: fixed;
-  }
-  .ln-policies :is(th, td) {
-    overflow-wrap: anywhere;
-    overflow: hidden;
-  }
-  /* A name and its key in a column narrower than they are: both cut, the whole in their titles. */
-  .ln-policies thead :is(.ln-node, .ln-node *, .hash, .hash__text) {
-    min-width: 0;
-    max-width: 100%;
-  }
-  .ln-policies thead .hash__text {
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  /* Each term's name, a row of its own above its two figures. */
-  .ln-policies__term th {
-    padding: var(--space-3) 0 0;
-    border-top: 1px solid var(--color-line);
-    color: var(--color-text-muted);
-    font-weight: var(--weight-regular);
-    white-space: normal;
-  }
-  .ln-policies__term + tr td {
-    padding-top: var(--space-1);
-    border-top: 0;
-  }
-  .ln-policies td {
-    white-space: normal;
-    vertical-align: top;
-    /* The exact msat opens above its figure, over the cells beside it. */
-    overflow: visible;
-  }
-  /* A figure and its unit stay one: "999 999 ppm", "2 016 blocks". */
-  .ln-policies td .num {
-    white-space: nowrap;
-  }
-  .ln-policies thead th {
-    vertical-align: bottom;
-    white-space: normal;
   }
 }
 
@@ -699,5 +608,590 @@
   .ln-nav__item:is([aria-current="page"], [aria-current="location"]) {
     color: var(--color-text);
     box-shadow: inset 0 -2px 0 var(--color-accent);
+  }
+}
+
+/* The channel page: its tags, the two lanes, the fee for a hop, the policies and its life. */
+@layer pages {
+  /* An icon in its tone, beside the word that says the same. */
+  .ln-icon {
+    flex: none;
+    width: 14px;
+    height: 14px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .ln-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    min-width: 0;
+    max-width: 100%;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-regular);
+    color: var(--color-text);
+  }
+  /* A long word may break, hyphenated, where nothing else fits; a figure never does. */
+  .ln-tag > span {
+    min-width: 0;
+    hyphens: auto;
+  }
+  .ln-tag--positive .ln-icon {
+    color: var(--color-positive);
+  }
+  .ln-tag--caution .ln-icon {
+    color: var(--ln-caution);
+  }
+  .ln-tag--negative .ln-icon {
+    color: var(--color-negative);
+  }
+  .ln-tag--muted .ln-icon {
+    color: var(--color-text-muted);
+  }
+  /* A closed channel's state: a dashed pill, as a projected block is provisional. */
+  .ln-tag--pill {
+    padding: 0 var(--space-3);
+    border: 1px dashed var(--color-line-strong);
+    border-radius: var(--radius-pill);
+    font-weight: var(--weight-medium);
+  }
+
+  /* A figure stays with its unit; only at the largest text sizes (below) may the unit take the
+     next line. Its digits never part: they are grouped with no-break spaces. */
+  :is(.ln-chan, .ln-lanes, .ln-hop, .ln-outcome, .ln-life) .num {
+    white-space: nowrap;
+  }
+  /* Names are the one thing here that may break anywhere: a figure never does. */
+  .ln bdi {
+    overflow-wrap: anywhere;
+  }
+
+  .ln-chan {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-3);
+  }
+  /* A name and key never wider than their room, at any text size: the name cut, whole in its title. */
+  .ln-chan :is(.ln-node, .ln-node__name),
+  .ln-end :is(.ln-node, .ln-node__name) {
+    max-width: 100%;
+  }
+  .ln-chan__title {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-4);
+  }
+  .ln-chan__title h1 {
+    margin: 0;
+    min-width: 0;
+  }
+  /* Tabular like a figure, but free to wrap after each "x" (ChannelId). */
+  .ln-chan__id {
+    font-variant-numeric: tabular-nums slashed-zero;
+  }
+  .ln-identity .ln-chan__line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-1) var(--space-5);
+    color: var(--color-text);
+  }
+  .ln-chan__line strong {
+    font-size: var(--text-lg);
+  }
+  .ln-chan__between {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-1) var(--space-2);
+    min-width: 0;
+  }
+  .ln-chan__ids {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-5);
+    /* Room for the copy button's "Copied" above it, clear of the figures. */
+    margin: var(--space-5) 0 0;
+    font-size: var(--text-xs);
+  }
+  .ln-chan__ids > div {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    column-gap: var(--space-2);
+    min-width: 0;
+  }
+  .ln-chan__ids dt {
+    color: var(--color-text-muted);
+  }
+  .ln-chan__ids dd {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    margin: 0;
+    min-width: 0;
+  }
+
+  /* How it ended: an item a close, a sweep or what came next. */
+  .ln-outcome {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-4);
+  }
+  .ln-outcome__item {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-1);
+    min-width: 0;
+    max-width: 80ch;
+    padding-left: var(--space-4);
+    border-left: 2px solid var(--color-line);
+  }
+  .ln-outcome__item p {
+    margin: 0;
+  }
+  .ln-outcome__what {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1) var(--space-4);
+    font-weight: var(--weight-medium);
+  }
+  .ln-outcome__what .ln-tag {
+    flex-wrap: wrap;
+  }
+  .ln-outcome__tx {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--text-sm);
+  }
+
+  /* Who charges what: the two ends at the sides, a lane each way between them. */
+  .ln-lanes {
+    display: grid;
+    grid-template-columns: minmax(8rem, 13rem) minmax(0, 1fr) minmax(8rem, 13rem);
+    grid-template-areas: "one lanes two";
+    align-items: center;
+    gap: var(--space-4);
+  }
+  .ln-end {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-1);
+    min-width: 0;
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-m);
+    background: var(--color-surface-sunken);
+  }
+  .ln-end > * {
+    min-width: 0;
+  }
+  .ln-end--one {
+    grid-area: one;
+  }
+  .ln-end--two {
+    grid-area: two;
+    text-align: right;
+  }
+  .ln-end--two .ln-node {
+    align-items: flex-end;
+  }
+  .ln-end__tag {
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+  }
+  .ln-lanes__list {
+    grid-area: lanes;
+    display: grid;
+    gap: var(--space-5);
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .ln-lane {
+    --lane: var(--series-1);
+    display: grid;
+    justify-items: center;
+    gap: 2px;
+    min-width: 0;
+    text-align: center;
+  }
+  .ln-lane--1 {
+    --lane: var(--series-1);
+  }
+  .ln-lane--2 {
+    --lane: var(--series-2);
+  }
+  .ln-lane p {
+    max-width: 100%;
+    margin: 0;
+  }
+  .ln-lane__track {
+    position: relative;
+    width: 100%;
+    height: 14px;
+    order: 2;
+  }
+  .ln-lane__line {
+    position: absolute;
+    top: 6px;
+    left: 0;
+    right: 10px;
+    border-top: 3px solid var(--lane);
+  }
+  .ln-lane__head {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 14px;
+    height: 14px;
+    background: var(--lane);
+    clip-path: polygon(0 0, 100% 50%, 0 100%);
+  }
+  .ln-lane--2 .ln-lane__line {
+    left: 10px;
+    right: 0;
+  }
+  .ln-lane--2 .ln-lane__head {
+    left: 0;
+    right: auto;
+    clip-path: polygon(100% 0, 0 50%, 100% 100%);
+  }
+  /* Not advertised as enabled: the lane dashed and grey. */
+  .ln-lane--shut .ln-lane__line {
+    border-top-style: dashed;
+    border-top-color: var(--color-line-strong);
+  }
+  .ln-lane--shut .ln-lane__head {
+    background: var(--color-line-strong);
+  }
+  .ln-lane__gate {
+    position: absolute;
+    top: -5px;
+    left: 50%;
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    margin-left: -12px;
+    border-radius: 50%;
+    background: var(--color-surface);
+    color: var(--ln-caution);
+  }
+  .ln-lane__gate .ln-icon {
+    width: 18px;
+    height: 18px;
+  }
+  .ln-lane__who {
+    order: 1;
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+  .ln-lane__who strong {
+    color: var(--color-text);
+    font-weight: var(--weight-bold);
+  }
+  .ln-lane__fee {
+    order: 3;
+    font-size: var(--text-xl);
+    font-weight: var(--weight-bold);
+    letter-spacing: var(--tracking-tight);
+  }
+  .ln-lane__plus {
+    color: var(--color-text-muted);
+    font-weight: var(--weight-regular);
+  }
+  .ln-lane__note {
+    order: 4;
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+  }
+  .ln-lane--shut .ln-lane__fee {
+    color: var(--color-text-muted);
+  }
+
+  /* The fee for one hop. */
+  .ln-hop {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-3);
+  }
+  .ln-hop > * {
+    min-width: 0;
+  }
+  .ln-hop__field {
+    display: grid;
+    gap: var(--space-1);
+    max-width: min(100%, 16rem);
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+  .ln-input {
+    width: 100%;
+    min-height: 36px;
+    padding: var(--space-1) var(--space-3);
+    border: 1px solid var(--color-line-strong);
+    border-radius: var(--radius-m);
+    background: var(--color-surface-sunken);
+    color: var(--color-text);
+    font: inherit;
+    font-size: var(--text-lg);
+    text-align: right;
+  }
+  @media (pointer: coarse) {
+    .ln-input {
+      min-height: var(--touch);
+    }
+  }
+  .ln-hop__error {
+    min-height: 1.5em;
+    margin: 0;
+    font-size: var(--text-sm);
+    color: var(--color-negative);
+  }
+  .ln-hop__error:empty {
+    min-height: 0;
+  }
+  .ln-hop__ways {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+    gap: var(--space-3);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .ln-hop__way {
+    display: grid;
+    justify-items: start;
+    gap: var(--space-1);
+    min-width: 0;
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-m);
+    background: var(--color-surface-sunken);
+    box-shadow: inset 3px 0 0 var(--lane);
+  }
+  .ln-hop__dir {
+    max-width: 100%;
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+  .ln-hop__fee {
+    font-size: var(--text-xl);
+  }
+  .ln-hop__none {
+    font-weight: var(--weight-medium);
+  }
+  .ln-hop__work {
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+  }
+  .ln-hop__limit {
+    align-items: flex-start;
+    font-weight: var(--weight-medium);
+  }
+  .ln-hop__limit .ln-icon {
+    margin-top: 0.2em;
+  }
+
+  /* The policies side by side, with their difference. */
+  .ln-terms thead th {
+    color: var(--color-text);
+  }
+  .ln-terms th[scope="row"] {
+    padding: var(--space-2) var(--space-2) var(--space-2) 0;
+    border-top: 1px solid var(--color-line);
+    font-weight: var(--weight-regular);
+    color: var(--color-text-muted);
+  }
+  .ln-terms__diff {
+    color: var(--color-text-muted);
+  }
+  .ln-terms__under {
+    display: none;
+  }
+
+  /* The channel's life: numbered steps down a rule; the step it is at ringed in the accent. */
+  .ln-life {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    counter-reset: step;
+  }
+  .ln-step {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-1);
+    /* The number's circle is drawn in px, so its indent does not grow with the text. */
+    padding: 0 0 var(--space-5) 48px;
+    counter-increment: step;
+  }
+  .ln-step::before {
+    content: counter(step);
+    position: absolute;
+    top: -1px;
+    left: 0;
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    border: 1.5px solid var(--color-line-strong);
+    border-radius: 50%;
+    background: var(--color-surface);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+  }
+  .ln-step::after {
+    content: "";
+    position: absolute;
+    top: 30px;
+    bottom: 2px;
+    left: 14px;
+    border-left: 1.5px solid var(--color-line);
+  }
+  .ln-step--last::after {
+    display: none;
+  }
+  .ln-step--current::before {
+    border-color: var(--color-accent);
+    border-style: dashed;
+  }
+  .ln-step--last {
+    padding-bottom: 0;
+  }
+  .ln-step__title {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 var(--space-3);
+    margin: 0;
+  }
+  .ln-step__time {
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+  .ln-step__body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: start;
+    gap: var(--space-1);
+    min-width: 0;
+    font-size: var(--text-sm);
+  }
+
+  /* The ends side by side over the lanes, which then have the panel's width for their figures. */
+  @media (max-width: 65em) {
+    .ln-lanes {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      grid-template-areas:
+        "one two"
+        "lanes lanes";
+      gap: var(--space-3);
+    }
+  }
+  @media (max-width: 40em) {
+    .ln-end {
+      padding: var(--space-2) var(--space-3);
+    }
+    .ln-lane__fee {
+      font-size: var(--text-lg);
+    }
+    /* No room for the fourth column: the difference sits under its term. */
+    .ln-terms__under {
+      display: block;
+      font-size: var(--text-xs);
+      white-space: normal;
+    }
+    .ln-terms th[scope="row"] {
+      white-space: normal;
+    }
+  }
+
+  /* A narrow phone, or a large text size: the ends stack, and each term is a row of its own over
+     its two values. */
+  @media (max-width: 22.5em) {
+    .ln-lanes {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas:
+        "one"
+        "two"
+        "lanes";
+    }
+    .ln-end--two {
+      text-align: left;
+    }
+    .ln-end--two .ln-node {
+      align-items: flex-start;
+    }
+    /* Each term a row of its own over its two values, one a line, each named for its node: two
+       columns cannot hold the longest limits (21 million BTC to the msat). */
+    .ln-terms thead {
+      display: none;
+    }
+    .ln-terms tbody tr {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .ln-terms tbody th {
+      border-top: 1px solid var(--color-line);
+    }
+    .ln-terms td {
+      border-top: 0;
+      padding-block: var(--space-1);
+      text-align: left;
+      white-space: normal;
+    }
+    .ln-terms td[data-end] {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0 var(--space-2);
+    }
+    .ln-terms td[data-end]::before {
+      content: attr(data-end);
+      max-width: 100%;
+      overflow-wrap: anywhere;
+      unicode-bidi: isolate;
+      color: var(--color-text-muted);
+      font-family: var(--font-sans);
+    }
+    /* A value a thumb high, so its exact amount's target never reaches over the next. */
+    @media (pointer: coarse) {
+      .ln-terms td[data-end] {
+        align-items: center;
+        min-height: var(--touch);
+        padding-block: 0;
+      }
+    }
+  }
+
+  /* Larger text still (a phone at 200%). */
+  @media (max-width: 15em) {
+    /* Each step's number beside its title, and what it says the whole width beneath. */
+    .ln-step {
+      padding-left: 0;
+    }
+    .ln-step::after {
+      display: none;
+    }
+    .ln-step__title {
+      min-height: 28px;
+      padding-left: 40px;
+    }
+    .ln-step__body .hash {
+      flex-wrap: wrap;
+    }
+    :is(.ln-chan, .ln-lanes, .ln-hop, .ln-outcome, .ln-life) .num {
+      white-space: normal;
+    }
   }
 }

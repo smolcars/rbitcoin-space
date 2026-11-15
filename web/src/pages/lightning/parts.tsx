@@ -1,7 +1,7 @@
 // Pieces every Lightning page shares: the gate that says whether there is anything to show,
 // names from gossip, links and figures.
 import { useLocation } from "@solidjs/router";
-import { Match, onSettled, Show, Switch } from "solid-js";
+import { For, Match, onSettled, Show, Switch } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { Amount } from "../../components/Amount";
 import { CopyButton } from "../../components/CopyButton";
@@ -16,16 +16,21 @@ import { useNetwork } from "../../lib/page";
 import {
   type BlockRef,
   cleanAlias,
+  type CloseKind,
   count,
   cut,
+  type IconName,
   isStatus,
+  KIND_SHORT,
+  KIND_TAG,
   msat,
-  msatShort,
+  msatAsSats,
   NAME_IN_LIST,
   type NodeRef,
   plainMsat,
   type RankedNode,
   type Status,
+  type Tone,
 } from "./lightning";
 import "./Lightning.css";
 
@@ -198,11 +203,106 @@ export function NodeName(props: { node: NodeRef }) {
   );
 }
 
+/** A channel id that wraps after an "x", never inside one of its numbers. */
+export function ChannelId(props: { id: string }) {
+  const parts = () => props.id.split("x");
+  return (
+    <For each={parts()}>
+      {(p, i) => (
+        <>
+          {p}
+          <Show when={i() < parts().length - 1}>
+            x<wbr />
+          </Show>
+        </>
+      )}
+    </For>
+  );
+}
+
 export function ChannelLink(props: { id: string }) {
   return (
     <Link class="ln-id num" href={paths.lightningChannel(props.id)}>
-      {props.id}
+      <ChannelId id={props.id} />
     </Link>
+  );
+}
+
+/** A 14 px drawn icon in its tag's tone; always beside a word that says the same. */
+export function Icon(props: { name: IconName }) {
+  return (
+    <svg class="ln-icon" viewBox="0 0 16 16" aria-hidden="true">
+      {ICONS[props.name]()}
+    </svg>
+  );
+}
+
+// Functions, not elements: one element can sit in one place only.
+const ICONS: Record<IconName, () => JSX.Element> = {
+  check: () => (
+    <>
+      <circle cx="8" cy="8" r="6.5" />
+      <path d="M5 8.2l2 2 4-4.4" />
+    </>
+  ),
+  pause: () => (
+    <>
+      <circle cx="8" cy="8" r="6.5" />
+      <path d="M6.5 5.5v5M9.5 5.5v5" />
+    </>
+  ),
+  off: () => (
+    <>
+      <circle cx="8" cy="8" r="6.5" />
+      <path d="M3.5 12.5l9-9" />
+    </>
+  ),
+  swap: () => <path d="M2.5 5.5h10l-2.5-2.5M13.5 10.5h-10l2.5 2.5" />,
+  warn: () => (
+    <>
+      <path d="M8 1.8l6.6 12H1.4z" />
+      <path d="M8 6.5v3.2M8 11.6v.2" />
+    </>
+  ),
+  cross: () => (
+    <>
+      <circle cx="8" cy="8" r="6.5" />
+      <path d="M5.5 5.5l5 5M10.5 5.5l-5 5" />
+    </>
+  ),
+  branch: () => <path d="M3 3v4.5c0 2 1.5 3 3.5 3H13M10.5 8l2.5 2.5-2.5 2.5M3 13v-1" />,
+  // A closed channel: a filled square, never the pause of a disabled direction.
+  stop: () => (
+    <>
+      <circle cx="8" cy="8" r="6.5" />
+      <rect x="5.5" y="5.5" width="5" height="5" fill="currentColor" stroke="none" />
+    </>
+  ),
+};
+
+/** A state as its icon, in the tone's colour, and its word. */
+export function Tag(props: {
+  icon: IconName;
+  tone: Tone;
+  children: JSX.Element;
+  class?: string | undefined;
+}) {
+  return (
+    <span class={["ln-tag", `ln-tag--${props.tone}`, props.class]}>
+      <Icon name={props.icon} />
+      <span>{props.children}</span>
+    </span>
+  );
+}
+
+/** A close's kind as a tag: `Force`, or `Force close` when `long`. */
+export function KindTag(props: { kind: CloseKind; long?: boolean }) {
+  const k = () => KIND_TAG[props.kind];
+  return (
+    <Tag icon={k().icon} tone={k().tone}>
+      {KIND_SHORT[props.kind]}
+      {props.long ? " close" : ""}
+    </Tag>
   );
 }
 
@@ -322,9 +422,9 @@ export function LightningNav(props: { here: "overview" | "rankings" | "search" |
 }
 
 /**
- * A channel term in millisatoshis, in magnitude (`0.190 BTC`), never broken inside: the exact
- * figure is its title, and a tap or a key opens it (`18 958 366 000 msat`) with a copy button that
- * copies it as plain digits, its unit in the button's label. `what` names the term in that label.
+ * A channel term in millisatoshis, as sats to the msat (`20 000 000 sats`), never broken inside:
+ * a tap or a key opens it in msat (`20 000 000 000 msat`) with a copy button that copies it as
+ * plain digits, its unit in the button's label. `what` names the term in that label.
  */
 export function Msat(props: { msat: number; what: string }) {
   return (
@@ -333,7 +433,7 @@ export function Msat(props: { msat: number; what: string }) {
       title={msat(props.msat)}
       figure={
         <>
-          {msatShort(props.msat)}
+          {msatAsSats(props.msat)}
           <span class="visually-hidden">, exactly {msat(props.msat)}</span>
         </>
       }

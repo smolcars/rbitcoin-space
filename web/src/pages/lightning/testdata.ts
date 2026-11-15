@@ -223,3 +223,34 @@ export const channel = (c: Partial<ChannelDetail> = {}): ChannelDetail => ({
   penalty: null,
   ...c,
 });
+
+/** The channel a close funds, or the one this channel's funding closed: the lineage fields. */
+export const NEXT = {
+  id: "975402x1310x1",
+  scid: "1072528709001609217",
+  capacity: 4_000_000,
+  state: "active" as const,
+};
+export const EARLIER = {
+  ...NEXT,
+  id: "948730x2215x0",
+  scid: "1043139666765086720",
+  state: "closed" as const,
+};
+
+/** A closed channel of a kind, as the channel route answers it. */
+export const closedChannel = (
+  kind: "cooperative" | "force" | "penalty" | "other",
+  c: Partial<ChannelDetail> = {},
+): ChannelDetail => {
+  const l = closedOf(kind);
+  return channel({
+    id: l.id,
+    state: "closed",
+    node_one: { ...channel().node_one, policy: null },
+    node_two: { ...channel().node_two, policy: null },
+    closed: l.closed,
+    penalty: l.penalty,
+    ...c,
+  });
+};

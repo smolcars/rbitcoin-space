@@ -45,6 +45,7 @@ const MARKS = [
   "color-focus",
   ...range("fee", 12),
   ...range("series", 3),
+  "ln-caution",
   ...range("pool", 12),
   "pool-other",
   "network-signet",

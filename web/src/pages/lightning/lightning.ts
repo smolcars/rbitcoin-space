@@ -2,7 +2,7 @@
 // pages say about them. Pure. Aliases are gossip, chosen by whoever runs the node (SECURITY.md
 // rule 14): they reach the page only as text, through cleanAlias.
 import { cap, recentMoment, share } from "../mempool/history";
-import { formatBtcShort, groupDigits, MISSING } from "../../lib/format";
+import { groupDigits, MISSING, NNBSP } from "../../lib/format";
 
 export type State = "off" | "starting" | "syncing" | "synced" | "failed" | "stopped";
 
@@ -188,6 +188,14 @@ export interface End extends NodeRef {
   policy: Policy | null;
 }
 
+/** A channel this one continues, or is continued by: the other side of one funding transaction. */
+export interface Lineage {
+  id: string;
+  scid: string;
+  capacity: number;
+  state: ChannelState;
+}
+
 export interface ChannelDetail {
   id: string;
   scid: string;
@@ -199,6 +207,10 @@ export interface ChannelDetail {
   funding: { txid: string | null; vout: number; block: BlockRef | null };
   closed: Close | null;
   penalty: Sweep | null;
+  /** The channel between the same two nodes that this one's closing transaction funds. */
+  continued_as?: Lineage | null;
+  /** The channel whose closing transaction funds this one. */
+  continued_from?: Lineage | null;
 }
 
 export interface SearchResult {
@@ -344,6 +356,8 @@ const isPolicy = (v: unknown): v is Policy =>
   num(v["cltv_delta"]) &&
   typeof v["enabled"] === "boolean";
 const isEnd = (v: unknown): v is End => obj(v) && nullable(v["policy"], isPolicy) && isNodeRef(v);
+const isLineage = (v: unknown): v is Lineage =>
+  obj(v) && str(v["id"]) && num(v["capacity"]) && str(v["state"]);
 
 export const isChannelDetail = (v: unknown): v is ChannelDetail => {
   if (!obj(v) || !obj(v["funding"])) return false;
@@ -357,7 +371,10 @@ export const isChannelDetail = (v: unknown): v is ChannelDetail => {
     nullable(f["txid"], str) &&
     nullable(f["block"], isBlock) &&
     nullable(v["closed"], isClose) &&
-    nullable(v["penalty"], isSweep)
+    nullable(v["penalty"], isSweep) &&
+    // Absent from a server older than the lineage fields: read as none.
+    nullable(v["continued_as"] ?? null, isLineage) &&
+    nullable(v["continued_from"] ?? null, isLineage)
   );
 };
 
@@ -451,20 +468,12 @@ export const STATE_WORDS: Record<ChannelState, string> = {
   closed: "Closed",
 };
 
-export const STATE_WHY: Record<ChannelState, string> = {
-  active: "At least one end has an enabled forwarding policy.",
-  inactive:
-    "Neither end has an enabled forwarding policy: both disabled it, or neither sent one in the last two weeks.",
-  closed: "Its funding output was spent on the chain.",
-};
-
 /** A count with its noun: `1 channel`, `1 807 channels`. */
 export const count = (n: number, one: string, many = `${one}s`): string =>
   `${groupDigits(n)} ${n === 1 ? one : many}`;
 
 /** Parts per million, as fee rates on Lightning are written. */
 export const ppm = (n: number): string => `${groupDigits(n)} ppm`;
-/** Millisatoshis: `1 000 msat`. */
 /** A capacity axis's ticks, in BTC: three significant digits below 100, never a power of ten. */
 export const btcAxis = (sats: number): string => {
   const btc = sats / 1e8;
@@ -474,6 +483,7 @@ export const btcAxis = (sats: number): string => {
   return String(Number(btc.toPrecision(3)));
 };
 
+/** Millisatoshis: `1 000 msat`. */
 export const msat = (n: number): string => `${groupDigits(n)} msat`;
 
 /**
@@ -482,20 +492,6 @@ export const msat = (n: number): string => `${groupDigits(n)} msat`;
  */
 export const plainMsat = (n: number): string =>
   Number.isFinite(n) ? Math.round(n).toString() : MISSING;
-
-/**
- * Millisatoshis in magnitude, as a reader compares limits: msat under a sat (`900 msat`), sats
- * under a million (`1 sat`, `1.5 sats`, `958 366 sats`), then BTC (`0.190 BTC`, `21 000 000 BTC`).
- * The exact figure is {@link msat}.
- */
-export function msatShort(n: number): string {
-  if (!Number.isFinite(n) || n < 1000) return msat(n);
-  const sats = n / 1000;
-  if (sats >= 1_000_000) return `${formatBtcShort(Math.round(sats))} BTC`;
-  const whole = Number.isInteger(sats);
-  const text = whole ? groupDigits(sats) : sats.toFixed(3).replace(/0+$/, "");
-  return `${text} ${sats === 1 ? "sat" : "sats"}`;
-}
 
 /** A channel id as the API writes it: `811984x2037x0`; or the 64-bit one in decimal. */
 export function isChannelId(v: string): boolean {
@@ -673,3 +669,192 @@ export function feeSentence(rows: FeeRow[]): string {
       : `its peers charge ${inc} towards it`;
   return `${charges}; ${charged}.`;
 }
+
+// A channel's policies, the fee for one hop, and its life.
+
+/** A grouped run of digits that never breaks: `20 000 000`. Takes digits past 2⁵³ as a string. */
+const group = (digits: string): string => digits.replaceAll(/\B(?=(\d{3})+(?!\d))/g, NNBSP);
+
+/**
+ * Millisatoshis as sats, exact to the msat, as operators write a policy: `1 sat`, `0.5 sat` is
+ * `500 msat` (under a sat, in msat), `1.001 sats`, `20 000 000 sats`. A bigint for a fee past 2⁵³.
+ */
+export function msatAsSats(n: number | bigint): string {
+  if (typeof n === "number" && !Number.isFinite(n)) return MISSING;
+  const big = typeof n === "bigint" ? n : BigInt(Math.round(n));
+  const sign = big < 0n ? "−" : "";
+  const m = big < 0n ? -big : big;
+  if (m > 0n && m < 1000n) return `${sign}${group(String(m))} msat`;
+  const frac = String(m % 1000n)
+    .padStart(3, "0")
+    .replace(/0+$/, "");
+  const whole = group(String(m / 1000n));
+  return `${sign}${whole}${frac === "" ? "" : `.${frac}`} ${m === 1000n ? "sat" : "sats"}`;
+}
+
+/** What an amount typed in sats reads as: whole sats above zero, grouping spaces allowed. */
+export function parseSats(text: string): { sats: number } | { error: string } {
+  const t = text.trim();
+  if (t === "") return { error: "Type an amount in sats." };
+  if (/^[-−]/.test(t)) return { error: "Not negative: whole sats only." };
+  const digits = t.replaceAll(/[\s,_]/g, "");
+  if (/^\d+\.\d*$/.test(digits)) return { error: "Whole sats only." };
+  if (!/^\d+$/.test(digits)) return { error: "Not an amount: whole sats only." };
+  const n = Number(digits);
+  if (n === 0) return { error: "Above zero." };
+  if (n > 2_100_000_000_000_000) return { error: "More than all bitcoin." };
+  return { sats: n };
+}
+
+/**
+ * The fee a policy advertises for forwarding `sats` over the channel: the base fee plus the
+ * amount in msat times the rate over a million, that part rounded down as nodes do (BOLT 7).
+ * In bigints, so a large amount at a large rate stays exact.
+ */
+export function hopFee(p: Policy, sats: number): { msat: bigint; exact: boolean } {
+  const part = BigInt(sats) * 1000n * BigInt(Math.round(p.fee_rate));
+  return {
+    msat: BigInt(Math.round(p.base_fee_msat)) + part / 1_000_000n,
+    exact: part % 1_000_000n === 0n,
+  };
+}
+
+/** Whether `sats` is past what the policy forwards: over its largest or under its smallest. */
+export function htlcLimit(p: Policy, sats: number): "over" | "under" | null {
+  if (sats * 1000 > p.max_htlc_msat) return "over";
+  if (sats * 1000 < p.min_htlc_msat) return "under";
+  return null;
+}
+
+/** How the two ends' terms differ: which end's is higher (or newer), by how much. */
+export interface Difference {
+  side: "one" | "two" | null;
+  text: string;
+}
+
+const by = (a: number, b: number, f: (n: number) => string): Difference =>
+  a === b
+    ? { side: null, text: "Same" }
+    : { side: a > b ? "one" : "two", text: `+${f(Math.abs(a - b))}` };
+
+const blocks = (n: number) => `${groupDigits(n)} ${n === 1 ? "block" : "blocks"}`;
+
+/** A policy's terms, as the side-by-side table reads them; `last_update` is drawn as a time. */
+export const TERMS: readonly {
+  key: keyof Policy;
+  label: string;
+  show: (p: Policy) => string;
+  diff: (a: Policy, b: Policy) => Difference;
+}[] = [
+  {
+    key: "fee_rate",
+    label: "Fee rate",
+    show: (p) => ppm(p.fee_rate),
+    diff: (a, b) => by(a.fee_rate, b.fee_rate, ppm),
+  },
+  {
+    key: "base_fee_msat",
+    label: "Base fee",
+    show: (p) => msatAsSats(p.base_fee_msat),
+    diff: (a, b) => by(a.base_fee_msat, b.base_fee_msat, msatAsSats),
+  },
+  {
+    key: "cltv_delta",
+    label: "CLTV delta",
+    show: (p) => blocks(p.cltv_delta),
+    diff: (a, b) => by(a.cltv_delta, b.cltv_delta, blocks),
+  },
+  {
+    key: "min_htlc_msat",
+    label: "Min HTLC",
+    show: (p) => msatAsSats(p.min_htlc_msat),
+    diff: (a, b) => by(a.min_htlc_msat, b.min_htlc_msat, msatAsSats),
+  },
+  {
+    key: "max_htlc_msat",
+    label: "Max HTLC",
+    show: (p) => msatAsSats(p.max_htlc_msat),
+    diff: (a, b) => by(a.max_htlc_msat, b.max_htlc_msat, msatAsSats),
+  },
+  {
+    key: "enabled",
+    label: "Forwarding",
+    show: (p) => (p.enabled ? "Enabled" : "Disabled"),
+    diff: (a, b) => ({
+      side: null,
+      text: a.enabled === b.enabled ? (a.enabled ? "Both" : "Neither") : "One way only",
+    }),
+  },
+  {
+    key: "last_update",
+    label: "Last update",
+    show: () => "",
+    diff: (a, b) =>
+      a.last_update === b.last_update
+        ? { side: null, text: "Same" }
+        : { side: a.last_update > b.last_update ? "one" : "two", text: "newer" },
+  },
+];
+
+export type Tone = "positive" | "caution" | "negative" | "muted";
+export type IconName = "check" | "pause" | "off" | "swap" | "warn" | "cross" | "branch" | "stop";
+
+/** A close as its own transaction shows it: a penalty's close is a revoked commitment, a force close. */
+export const closeShown = (kind: CloseKind): CloseKind => (kind === "penalty" ? "force" : kind);
+
+export const KIND_TAG: Record<CloseKind, { icon: IconName; tone: Tone }> = {
+  cooperative: { icon: "swap", tone: "muted" },
+  force: { icon: "warn", tone: "caution" },
+  penalty: { icon: "cross", tone: "negative" },
+  other: { icon: "branch", tone: "muted" },
+};
+
+/**
+ * A channel's state in a few words with its icon and tone. Open: what its two ends advertise
+ * (enabled is not routable, and a missing policy is not a disabled one). Closed: what was seen.
+ */
+export function channelTag(c: ChannelDetail): { word: string; icon: IconName; tone: Tone } {
+  if (c.closed) {
+    const word = c.penalty
+      ? "revoked state swept"
+      : c.continued_as
+        ? "continued as a new channel"
+        : `${KIND_SHORT[c.closed.kind].toLowerCase()} close`;
+    return { word: `Closed: ${word}`, icon: "stop", tone: "muted" };
+  }
+  const ends = [c.node_one.policy, c.node_two.policy];
+  const enabled = ends.filter((p) => p?.enabled === true).length;
+  if (enabled === 2) return { word: "Enabled", icon: "check", tone: "positive" };
+  if (enabled === 1) return { word: "Enabled one way", icon: "pause", tone: "caution" };
+  if (ends.every((p) => p === null)) return { word: "No policy", icon: "off", tone: "muted" };
+  return { word: "Disabled", icon: "pause", tone: "caution" };
+}
+
+/** The steps of a channel's life, in order, each with its moment when the chain gives one. */
+export type Step =
+  | { key: "from"; time: null; channel: Lineage }
+  | { key: "funded"; time: number | null }
+  | { key: "open"; time: null }
+  | { key: "closed"; time: number; kind: CloseKind }
+  | { key: "swept"; time: number; sweep: Sweep }
+  | { key: "continued"; time: number; channel: Lineage };
+
+export function lifeSteps(c: ChannelDetail): Step[] {
+  const steps: Step[] = [];
+  if (c.continued_from) steps.push({ key: "from", time: null, channel: c.continued_from });
+  steps.push({ key: "funded", time: c.funding.block?.time ?? null });
+  if (!c.closed) return [...steps, { key: "open", time: null }];
+  const t = c.closed.block.time;
+  steps.push({ key: "closed", time: t, kind: closeShown(c.closed.kind) });
+  if (c.penalty) steps.push({ key: "swept", time: c.penalty.block.time, sweep: c.penalty });
+  if (c.continued_as) steps.push({ key: "continued", time: t, channel: c.continued_as });
+  return steps;
+}
+
+/** Whole days between two moments, with the word: `1 day`, `1 127 days`. */
+export const days = (seconds: number): string =>
+  count(Math.max(0, Math.floor(seconds / 86_400)), "day");
+
+/** A node's name in a sentence or a heading: cleaned and cut to 24 characters, "No name" for none. */
+export const shortName = (n: { alias: string | null }): string =>
+  cut(cleanAlias(n.alias) ?? "No name", 24).text;

@@ -69,6 +69,10 @@
   --series-2: #9a6412;
   --series-3: #56616a;
 
+  /* Lightning's caution (a disabled direction, a force close, an amount past a limit): orange, as the
+     site's amber sits too close to the ochre of a channel's second lane (--series-2). */
+  --ln-caution: #c2410c;
+
   /* Mining pools, the six biggest, then the rest: the one small set of categories on the site,
      only in the pool-share charts, always with names beside them. */
   --pool-1: #2f6f9c;
@@ -187,6 +191,7 @@
     --series-1: #6cb0dc;
     --series-2: #d9a24c;
     --series-3: #9aa4ab;
+    --ln-caution: #fb923c;
     --pool-1: #6cb0dc;
     --pool-2: #d9a24c;
     --pool-3: #c193d6;
@@ -232,6 +237,7 @@
   --series-1: #6cb0dc;
   --series-2: #d9a24c;
   --series-3: #9aa4ab;
+  --ln-caution: #fb923c;
   --pool-1: #6cb0dc;
   --pool-2: #d9a24c;
   --pool-3: #c193d6;

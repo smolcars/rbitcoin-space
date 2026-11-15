@@ -3,7 +3,6 @@ import {
   btcAxis,
   cleanAlias,
   msat,
-  msatShort,
   plainMsat,
   coverageSentence,
   cut,
@@ -18,8 +17,26 @@ import {
   parseInterval,
   parseRanking,
   searchProblem,
+  channelTag,
+  hopFee,
+  htlcLimit,
+  lifeSteps,
+  msatAsSats,
+  parseSats,
+  type Policy,
+  TERMS,
 } from "./lightning";
-import { acinq, channel, closedOf, overview, series, T0 } from "./testdata";
+import {
+  acinq,
+  channel,
+  closedChannel,
+  closedOf,
+  EARLIER,
+  NEXT,
+  overview,
+  series,
+  T0,
+} from "./testdata";
 
 describe("cleanAlias", () => {
   it("keeps an ordinary name as it is", () => {
@@ -65,6 +82,8 @@ describe("shape checks", () => {
     expect(isNodeDetail(acinq())).toBe(true);
     expect(isChannelDetail(channel())).toBe(true);
     expect(isChannelDetail(channel({ closed: closedOf("penalty").closed }))).toBe(true);
+    expect(isChannelDetail(channel({ continued_as: NEXT, continued_from: EARLIER }))).toBe(true);
+    expect(isChannelDetail(channel({ continued_as: null, continued_from: null }))).toBe(true);
     expect(isSeries(series())).toBe(true);
   });
 
@@ -79,6 +98,7 @@ describe("shape checks", () => {
     );
     expect(isNodeDetail({ ...acinq(), features: [{ bit: "0" }] })).toBe(false);
     expect(isChannelDetail({ ...channel(), funding: null })).toBe(false);
+    expect(isChannelDetail({ ...channel(), continued_as: { id: "1x1x1" } })).toBe(false);
     expect(isSeries({ ...series(), step: 0 })).toBe(false);
   });
 });
@@ -125,17 +145,6 @@ describe("coverage", () => {
     expect(coverageSentence(s, T0)).toBe("89% recorded, with gaps while this server was off.");
     expect(dataFrom(s)).toBeUndefined();
     expect(coverageSentence({ ...s, complete: true }, T0)).toBeUndefined();
-  });
-});
-
-describe("msatShort", () => {
-  it("reads millisatoshis in magnitude: msat, then sats, then BTC", () => {
-    expect(msatShort(900)).toBe("900 msat");
-    expect(msatShort(1000)).toBe("1 sat");
-    expect(msatShort(1500)).toBe("1.5 sats");
-    expect(msatShort(958_366_000)).toBe("958\u202F366 sats");
-    expect(msatShort(18_958_366_000)).toBe("0.190 BTC");
-    expect(msatShort(2_100_000_000_000_000_000)).toBe("21\u202F000\u202F000 BTC");
   });
 });
 
@@ -219,5 +228,161 @@ describe("btcAxis", () => {
     expect(btcAxis(37_200)).toBe("0.000372");
     expect(btcAxis(5_500_000)).toBe("0.055");
     expect(btcAxis(28_500_000_000).replaceAll("\u202F", " ")).toBe("285");
+  });
+});
+
+// The tests write grouped figures with a plain space; the page groups with a narrow no-break one.
+const plain = (s: string) => s.replaceAll(" ", " ");
+
+describe("msatAsSats", () => {
+  it("writes msat as sats, exact to the msat, under a sat in msat", () => {
+    expect(msatAsSats(0)).toBe("0 sats");
+    expect(msatAsSats(1)).toBe("1 msat");
+    expect(msatAsSats(999)).toBe("999 msat");
+    expect(msatAsSats(1000)).toBe("1 sat");
+    expect(msatAsSats(1100)).toBe("1.1 sats");
+    expect(msatAsSats(1001)).toBe("1.001 sats");
+    expect(plain(msatAsSats(20_000_000_000))).toBe("20 000 000 sats");
+    expect(msatAsSats(-1000)).toBe("−1 sat");
+    // Past 2⁵³, as a bigint: every digit kept.
+    expect(plain(msatAsSats(8_400_000_000_000_000_123n))).toBe("8 400 000 000 000 000.123 sats");
+    expect(msatAsSats(Number.NaN)).toBe("–");
+  });
+
+  it("never lets a figure break inside its digits", () => {
+    // Groups are joined by a narrow no-break space; the only breakable space is before the unit.
+    expect(msatAsSats(2_000_000_000).split(" ")).toStrictEqual(["2 000 000", "sats"]);
+  });
+});
+
+describe("parseSats", () => {
+  it("reads whole sats, grouped or not", () => {
+    expect(parseSats("100000")).toStrictEqual({ sats: 100_000 });
+    expect(parseSats(" 100 000 ")).toStrictEqual({ sats: 100_000 });
+    expect(parseSats("100 000")).toStrictEqual({ sats: 100_000 });
+    expect(parseSats("1,000,000")).toStrictEqual({ sats: 1_000_000 });
+    expect(parseSats("2100000000000000")).toStrictEqual({ sats: 2_100_000_000_000_000 });
+  });
+
+  it("says why anything else is not an amount", () => {
+    expect(parseSats("")).toStrictEqual({ error: "Type an amount in sats." });
+    expect(parseSats("-5")).toStrictEqual({ error: "Not negative: whole sats only." });
+    expect(parseSats("1.5")).toStrictEqual({ error: "Whole sats only." });
+    expect(parseSats("abc")).toStrictEqual({ error: "Not an amount: whole sats only." });
+    expect(parseSats("1e6")).toStrictEqual({ error: "Not an amount: whole sats only." });
+    expect(parseSats("0")).toStrictEqual({ error: "Above zero." });
+    expect(parseSats("2100000000000001")).toStrictEqual({ error: "More than all bitcoin." });
+  });
+});
+
+const policy = (p: Partial<Policy> = {}): Policy => ({
+  fee_rate: 2499,
+  base_fee_msat: 1000,
+  cltv_delta: 144,
+  min_htlc_msat: 1,
+  max_htlc_msat: 20_000_000_000,
+  enabled: true,
+  last_update: T0,
+  ...p,
+});
+
+describe("hopFee", () => {
+  it("adds the base fee to the proportional part, rounded down to the msat", () => {
+    // 100 000 sats at 2 499 ppm: 249 900 msat, exactly.
+    expect(hopFee(policy(), 100_000)).toStrictEqual({ msat: 250_900n, exact: true });
+    // 1 sat at 2 499 ppm: 2.499 msat, rounded down to 2.
+    expect(hopFee(policy(), 1)).toStrictEqual({ msat: 1002n, exact: false });
+    expect(hopFee(policy({ fee_rate: 0, base_fee_msat: 0 }), 5)).toStrictEqual({
+      msat: 0n,
+      exact: true,
+    });
+  });
+
+  it("stays exact past 2⁵³", () => {
+    const all = 2_100_000_000_000_000;
+    expect(hopFee(policy({ fee_rate: 4_000_000_000, base_fee_msat: 0 }), all).msat).toBe(
+      8_400_000_000_000_000_000_000n,
+    );
+  });
+
+  it("knows an amount past what the policy forwards", () => {
+    expect(htlcLimit(policy(), 100_000)).toBeNull();
+    expect(htlcLimit(policy(), 20_000_001)).toBe("over");
+    expect(htlcLimit(policy({ min_htlc_msat: 1_000_000 }), 999)).toBe("under");
+    expect(htlcLimit(policy({ min_htlc_msat: 1_000_000 }), 1000)).toBeNull();
+  });
+});
+
+describe("the policies' differences", () => {
+  const diff = (key: string, a: Policy, b: Policy) => TERMS.find((t) => t.key === key)?.diff(a, b);
+  it("names the higher end and by how much, or says they are the same", () => {
+    const one = policy({ fee_rate: 1, min_htlc_msat: 1000, last_update: T0 - 60 });
+    const two = policy();
+    expect(diff("fee_rate", one, two)).toStrictEqual({ side: "two", text: "+2 498 ppm" });
+    expect(diff("base_fee_msat", one, two)).toStrictEqual({ side: null, text: "Same" });
+    expect(diff("min_htlc_msat", one, two)).toStrictEqual({ side: "one", text: "+999 msat" });
+    expect(diff("cltv_delta", policy({ cltv_delta: 80 }), two)).toStrictEqual({
+      side: "two",
+      text: "+64 blocks",
+    });
+    expect(diff("last_update", one, two)).toStrictEqual({ side: "two", text: "newer" });
+  });
+
+  it("says which ways forward", () => {
+    const off = policy({ enabled: false });
+    expect(diff("enabled", policy(), policy())?.text).toBe("Both");
+    expect(diff("enabled", off, off)?.text).toBe("Neither");
+    expect(diff("enabled", policy(), off)?.text).toBe("One way only");
+  });
+});
+
+describe("channelTag", () => {
+  const ends = (one: Policy | null, two: Policy | null) =>
+    channel({
+      node_one: { ...channel().node_one, policy: one },
+      node_two: { ...channel().node_two, policy: two },
+    });
+  it("says what the ends of an open channel advertise, missing apart from disabled", () => {
+    expect(channelTag(channel()).word).toBe("Enabled");
+    expect(channelTag(channel()).tone).toBe("positive");
+    expect(channelTag(ends(policy(), policy({ enabled: false }))).word).toBe("Enabled one way");
+    expect(channelTag(ends(policy(), null)).word).toBe("Enabled one way");
+    expect(channelTag(ends(policy({ enabled: false }), null)).word).toBe("Disabled");
+    expect(channelTag(ends(null, null)).word).toBe("No policy");
+  });
+
+  it("says what was seen of a closed channel", () => {
+    expect(channelTag(closedChannel("cooperative")).word).toBe("Closed: cooperative close");
+    expect(channelTag(closedChannel("force")).word).toBe("Closed: force close");
+    expect(channelTag(closedChannel("other")).word).toBe("Closed: other close");
+    expect(channelTag(closedChannel("penalty")).word).toBe("Closed: revoked state swept");
+    expect(channelTag(closedChannel("other", { continued_as: NEXT })).word).toBe(
+      "Closed: continued as a new channel",
+    );
+  });
+});
+
+describe("lifeSteps", () => {
+  const keys = (c: Parameters<typeof lifeSteps>[0]) => lifeSteps(c).map((s) => s.key);
+  it("runs from funding to open now, or to the close and what followed", () => {
+    expect(keys(channel())).toStrictEqual(["funded", "open"]);
+    expect(keys(closedChannel("force"))).toStrictEqual(["funded", "closed"]);
+    expect(keys(closedChannel("penalty"))).toStrictEqual(["funded", "closed", "swept"]);
+    expect(keys(closedChannel("cooperative", { continued_as: NEXT }))).toStrictEqual([
+      "funded",
+      "closed",
+      "continued",
+    ]);
+    expect(keys(channel({ continued_from: EARLIER }))).toStrictEqual(["from", "funded", "open"]);
+  });
+
+  it("shows a penalty's close as the force close it was, and times each step from its block", () => {
+    const steps = lifeSteps(closedChannel("penalty"));
+    expect(steps[1]).toMatchObject({ key: "closed", kind: "force", time: T0 + 600 });
+    expect(steps[2]).toMatchObject({ key: "swept", time: T0 + 1800 });
+    expect(lifeSteps(channel({ funding: { txid: null, vout: 0, block: null } }))[0]).toStrictEqual({
+      key: "funded",
+      time: null,
+    });
   });
 });
