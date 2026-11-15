@@ -698,11 +698,14 @@ export function msatAsSats(n: number | bigint, btcFrom = 100_000_000_000n): stri
   return `${sign}${whole}${frac === "" ? "" : `.${frac}`} ${m === 1000n ? "sat" : "sats"}`;
 }
 
+/** The same figure in magnitude from a sat (`0.200 BTC`, `0.0100 BTC`), for a very narrow room. */
+export const msatAsBtc = (n: number | bigint): string => msatAsSats(n, 1000n);
+
 /**
- * A fee in msat, as {@link msatAsSats} but in magnitude from a million sats (0.01 BTC), where no
- * routing fee is: an extreme base fee (u32 allows 4 294 967.295 sats) then fits a phone's line.
+ * Characters past which an msat figure also carries its magnitude, shown in its place where the
+ * room is narrowest (a phone at a large text size, `MsatFig`): there no longer figure fits whole.
  */
-export const feeAsSats = (n: number | bigint): string => msatAsSats(n, 1_000_000_000n);
+export const LONG_FIGURE = 12;
 
 /** What an amount typed in sats reads as: whole sats above zero, grouping spaces allowed. */
 export function parseSats(text: string): { sats: number } | { error: string } {
@@ -742,12 +745,17 @@ export function htlcLimit(p: Policy, sats: number): "over" | "under" | null {
 export interface Difference {
   side: "one" | "two" | null;
   text: string;
+  /** For an msat term, how much higher, so the page can write it as an msat figure. */
+  msat?: number;
 }
 
 const by = (a: number, b: number, f: (n: number) => string): Difference =>
   a === b
     ? { side: null, text: "Same" }
     : { side: a > b ? "one" : "two", text: `+${f(Math.abs(a - b))}` };
+
+const byMsat = (a: number, b: number): Difference =>
+  a === b ? by(a, b, msatAsSats) : { ...by(a, b, msatAsSats), msat: Math.abs(a - b) };
 
 const blocks = (n: number) => `${groupDigits(n)} ${n === 1 ? "block" : "blocks"}`;
 
@@ -767,8 +775,8 @@ export const TERMS: readonly {
   {
     key: "base_fee_msat",
     label: "Base fee",
-    show: (p) => feeAsSats(p.base_fee_msat),
-    diff: (a, b) => by(a.base_fee_msat, b.base_fee_msat, feeAsSats),
+    show: (p) => msatAsSats(p.base_fee_msat),
+    diff: (a, b) => byMsat(a.base_fee_msat, b.base_fee_msat),
   },
   {
     key: "cltv_delta",
@@ -780,13 +788,13 @@ export const TERMS: readonly {
     key: "min_htlc_msat",
     label: "Min HTLC",
     show: (p) => msatAsSats(p.min_htlc_msat),
-    diff: (a, b) => by(a.min_htlc_msat, b.min_htlc_msat, msatAsSats),
+    diff: (a, b) => byMsat(a.min_htlc_msat, b.min_htlc_msat),
   },
   {
     key: "max_htlc_msat",
     label: "Max HTLC",
     show: (p) => msatAsSats(p.max_htlc_msat),
-    diff: (a, b) => by(a.max_htlc_msat, b.max_htlc_msat, msatAsSats),
+    diff: (a, b) => byMsat(a.max_htlc_msat, b.max_htlc_msat),
   },
   {
     key: "enabled",

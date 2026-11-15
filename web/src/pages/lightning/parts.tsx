@@ -24,6 +24,8 @@ import {
   KIND_SHORT,
   KIND_TAG,
   msat,
+  LONG_FIGURE,
+  msatAsBtc,
   msatAsSats,
   NAME_IN_LIST,
   type NodeRef,
@@ -424,17 +426,16 @@ export function LightningNav(props: { here: "overview" | "rankings" | "search" |
 /**
  * A channel term in millisatoshis, as sats to the msat (`20 000 000 sats`), never broken inside:
  * a tap or a key opens it in msat (`20 000 000 000 msat`) with a copy button that copies it as
- * plain digits, its unit in the button's label. `what` names the term in that label; `figure`
- * is the term's own way of writing it, where it has one (a fee, `feeAsSats`).
+ * plain digits, its unit in the button's label. `what` names the term in that label.
  */
-export function Msat(props: { msat: number; what: string; figure?: string }) {
+export function Msat(props: { msat: number; what: string }) {
   return (
     <Exact
       class="ln-msat num tap"
       title={msat(props.msat)}
       figure={
         <>
-          {props.figure ?? msatAsSats(props.msat)}
+          <MsatFig msat={props.msat} />
           <span class="visually-hidden">, exactly {msat(props.msat)}</span>
         </>
       }
@@ -442,5 +443,26 @@ export function Msat(props: { msat: number; what: string; figure?: string }) {
       <span class="num">{msat(props.msat)}</span>
       <CopyButton value={plainMsat(props.msat)} label={`Copy the exact ${props.what}, in msat`} />
     </Exact>
+  );
+}
+
+/**
+ * An msat figure (`msatAsSats`), whole with its unit. One longer than `LONG_FIGURE` carries its
+ * magnitude too (`msatAsBtc`), which the narrowest room (a phone at a large text size) shows in
+ * its place; elsewhere it is the exact figure alone. `sign` goes before either (a difference).
+ */
+export function MsatFig(props: { msat: number | bigint; sign?: string }) {
+  const exact = () => `${props.sign ?? ""}${msatAsSats(props.msat)}`;
+  const long = () => exact().length > LONG_FIGURE;
+  return (
+    <span class={["num", { "ln-fig--long": long() }]}>
+      <span class="ln-fig__exact">{exact()}</span>
+      <Show when={long()}>
+        <span class="ln-fig__short">
+          {props.sign ?? ""}
+          {msatAsBtc(props.msat)}
+        </span>
+      </Show>
+    </span>
   );
 }

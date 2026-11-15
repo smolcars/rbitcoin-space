@@ -26,13 +26,11 @@ import {
   count,
   days,
   type End,
-  feeAsSats,
   hopFee,
   htlcLimit,
   isChannelDetail,
   isChannelId,
   lifeSteps,
-  msatAsSats,
   parseSats,
   type Policy,
   ppm,
@@ -51,6 +49,7 @@ import {
   KindTag,
   LightningNav,
   Msat,
+  MsatFig,
   NodeName,
   Tag,
 } from "./parts";
@@ -343,7 +342,7 @@ function Lane(props: { from: End; to: End; tone: 1 | 2 }) {
             <p class="ln-lane__fee">
               <span class="num">{ppm(pol().fee_rate)}</span>
               <span class="ln-lane__plus"> + </span>
-              <span class="num">{feeAsSats(pol().base_fee_msat)}</span>
+              <MsatFig msat={pol().base_fee_msat} />
             </p>
             <p class="ln-lane__note">
               <Show
@@ -356,7 +355,7 @@ function Lane(props: { from: End; to: End; tone: 1 | 2 }) {
               >
                 <span>
                   CLTV <span class="num">{groupDigits(pol().cltv_delta)}</span>, max HTLC{" "}
-                  <span class="num">{msatAsSats(pol().max_htlc_msat)}</span>
+                  <MsatFig msat={pol().max_htlc_msat} />
                 </span>
               </Show>
             </p>
@@ -449,20 +448,21 @@ function WayFee(props: { policy: Policy | null; sats: number | null }) {
                   {(l) => (
                     <>
                       <Tag icon="warn" tone="caution" class="ln-hop__limit">
-                        {l() === "over"
-                          ? `Over max HTLC (${msatAsSats(p().max_htlc_msat)})`
-                          : `Under min HTLC (${msatAsSats(p().min_htlc_msat)})`}
+                        {l() === "over" ? "Over max HTLC (" : "Under min HTLC ("}
+                        <MsatFig msat={l() === "over" ? p().max_htlc_msat : p().min_htlc_msat} />)
                       </Tag>
                       <span class="ln-hop__work">
-                        Would be <span class="num">{feeAsSats(fee().msat)}</span>
+                        Would be <MsatFig msat={fee().msat} />
                       </span>
                     </>
                   )}
                 </Match>
                 <Match when={true}>
-                  <strong class="ln-hop__fee num">{feeAsSats(fee().msat)}</strong>
+                  <strong class="ln-hop__fee">
+                    <MsatFig msat={fee().msat} />
+                  </strong>
                   <span class="ln-hop__work">
-                    <span class="num">{feeAsSats(p().base_fee_msat)}</span> +{" "}
+                    <MsatFig msat={p().base_fee_msat} /> +{" "}
                     <span class="num">{groupDigits(n())}</span> ×{" "}
                     <span class="num">{groupDigits(p().fee_rate)}</span> ÷{" "}
                     <span class="num">{groupDigits(1_000_000)}</span>
@@ -484,7 +484,7 @@ function term(t: (typeof TERMS)[number], p: Policy | null): JSX.Element {
   const k = t.key;
   if (k === "base_fee_msat" || k === "min_htlc_msat" || k === "max_htlc_msat") {
     const what = `${t.label[0]?.toLowerCase() ?? ""}${t.label.slice(1)}`;
-    return <Msat msat={p[k]} what={what} figure={t.show(p)} />;
+    return <Msat msat={p[k]} what={what} />;
   }
   if (k === "last_update") return <TimeAgo time={p.last_update} />;
   return <span class="num">{t.show(p)}</span>;
@@ -501,7 +501,12 @@ function Policies(props: { channel: ChannelDetail }) {
     if (d.side === null) return d.text;
     return (
       <>
-        <bdi>{shortName(d.side === "one" ? one() : two())}</bdi> <span class="num">{d.text}</span>
+        <bdi>{shortName(d.side === "one" ? one() : two())}</bdi>{" "}
+        {d.msat === undefined ? (
+          <span class="num">{d.text}</span>
+        ) : (
+          <MsatFig msat={d.msat} sign="+" />
+        )}
       </>
     );
   };

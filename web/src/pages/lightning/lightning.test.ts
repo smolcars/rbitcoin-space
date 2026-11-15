@@ -18,7 +18,7 @@ import {
   parseRanking,
   searchProblem,
   channelTag,
-  feeAsSats,
+  msatAsBtc,
   hopFee,
   htlcLimit,
   lifeSteps,
@@ -254,9 +254,11 @@ describe("msatAsSats", () => {
     expect(msatAsSats(523_456_789_000)).toBe("5.23 BTC");
     expect(plain(msatAsSats(2_100_000_000_000_000_000))).toBe("21 000 000 BTC");
     expect(plain(msatAsSats(-150_000_000_000_000))).toBe("−1 500 BTC");
-    // A fee from a million sats, where no routing fee is: the largest base fee u32 allows.
-    expect(plain(feeAsSats(999_999_999))).toBe("999 999.999 sats");
-    expect(feeAsSats(4_294_967_295)).toBe("0.0429 BTC");
+    // The magnitude a long figure carries for the narrowest room.
+    expect(msatAsBtc(99_999_999_999)).toBe("1.00 BTC");
+    expect(msatAsBtc(999_999_999)).toBe("0.01000 BTC");
+    expect(msatAsBtc(4_294_967_295)).toBe("0.0429 BTC");
+    expect(msatAsBtc(999)).toBe("999 msat");
     // A fee past 2⁵³, as a bigint.
     expect(plain(msatAsSats(8_400_000_000_000_000_000_123n))).toBe("84 000 000 000 BTC");
   });
@@ -332,7 +334,11 @@ describe("the policies' differences", () => {
     const two = policy();
     expect(diff("fee_rate", one, two)).toStrictEqual({ side: "two", text: "+2 498 ppm" });
     expect(diff("base_fee_msat", one, two)).toStrictEqual({ side: null, text: "Same" });
-    expect(diff("min_htlc_msat", one, two)).toStrictEqual({ side: "one", text: "+999 msat" });
+    expect(diff("min_htlc_msat", one, two)).toStrictEqual({
+      side: "one",
+      text: "+999 msat",
+      msat: 999,
+    });
     expect(diff("cltv_delta", policy({ cltv_delta: 80 }), two)).toStrictEqual({
       side: "two",
       text: "+64 blocks",

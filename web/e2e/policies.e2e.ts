@@ -39,12 +39,17 @@ function channelStates(): Record<string, unknown> {
   return {
     open: { ...real, ...ends(long, rtl) },
     // The longest terms a policy can hold: a limit of all bitcoin, a rate that takes the whole
-    // amount, and the largest base fee (u32 msat).
+    // amount.
     "largest limit": { ...real, ...ends(rtl, long, { ...base, max_htlc_msat: 2.1e18 }, null) },
     "largest rate": { ...real, ...ends(rtl, long, { ...base, fee_rate: 1_000_000 }, null) },
-    "largest base": {
+    // Just under where a term reads in magnitude at every size: the longest exact figures.
+    "longest exact limit": {
       ...real,
-      ...ends(rtl, long, { ...base, base_fee_msat: 4_294_967_295 }, null),
+      ...ends(rtl, long, { ...base, max_htlc_msat: 99_999_999_999 }, null),
+    },
+    "longest exact base": {
+      ...real,
+      ...ends(rtl, long, { ...base, base_fee_msat: 999_999_999 }, null),
     },
     "disabled one way": {
       ...real,
@@ -171,21 +176,23 @@ test("a channel page draws every state at a desktop's and a phone's width, light
 
 // The council's last defects: at 200% text on a 320 px phone a figure broke inside its digits,
 // and a long name widened the drawing past its panel.
-test("a channel page holds at 320 px and 200% text, in every state, with hostile names", async ({
+test("a channel page holds at 320 and 390 px with 200% text, in every state, with hostile names", async ({
   page,
   browserName,
 }) => {
   test.skip(browserName !== "chromium", "only Chromium lets a test set the browser's text size");
   const cdp = await page.context().newCDPSession(page);
   await cdp.send("Page.setFontSizes", { fontSizes: { standard: 32, fixed: 26 } });
-  await page.setViewportSize({ width: 320, height: 800 });
   const answer = await serveChannel(page);
   const faults: string[] = [];
-  for (const [name, channel] of Object.entries(channelStates())) {
-    answer(channel);
-    await page.goto("/regtest/lightning/channel/811984x2037x0");
-    await expect(page.getByRole("heading", { name: "Life of the channel" })).toBeVisible();
-    faults.push(...(await channelFaults(page)).map((f) => `${name}: ${f}`));
+  for (const width of [320, 390]) {
+    await page.setViewportSize({ width, height: 800 });
+    for (const [name, channel] of Object.entries(channelStates())) {
+      answer(channel);
+      await page.goto("/regtest/lightning/channel/811984x2037x0");
+      await expect(page.getByRole("heading", { name: "Life of the channel" })).toBeVisible();
+      faults.push(...(await channelFaults(page)).map((f) => `${width} px, ${name}: ${f}`));
+    }
   }
   expect(faults).toStrictEqual([]);
 });

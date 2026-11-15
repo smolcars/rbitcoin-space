@@ -664,6 +664,10 @@
   :is(.ln-chan, .ln-lanes, .ln-hop, .ln-outcome, .ln-life, .ln-terms) .num:not(time) {
     white-space: nowrap;
   }
+  /* A long msat figure's magnitude, shown in its place only where the room is narrowest (below). */
+  .ln-fig__short {
+    display: none;
+  }
   /* Names are the one thing here that may break anywhere: a figure never does. */
   .ln bdi {
     overflow-wrap: anywhere;
@@ -1200,6 +1204,13 @@
     }
     .ln-hop__way {
       padding-inline: var(--space-1);
+    }
+    /* No room for a long figure whole: its magnitude instead, the exact msat a press away. */
+    .ln-fig--long > .ln-fig__exact {
+      display: none;
+    }
+    .ln-fig--long > .ln-fig__short {
+      display: inline;
     }
   }
 }

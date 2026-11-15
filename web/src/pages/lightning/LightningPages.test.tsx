@@ -399,7 +399,9 @@ describe("a channel", () => {
     await shows(hop, "1 sat + 1 234 567 × 1 ÷ 1 000 000, rounded down");
     expect(text(hop)).toContain("2.234 sats");
     type("30 000 000");
-    await shows(hop, "Over max HTLC (20 000 000 sats)");
+    // A long figure carries its magnitude for the narrowest room, hidden by CSS elsewhere.
+    await shows(hop, "Over max HTLC (20 000 000 sats0.200 BTC)");
+    expect(hop.querySelector(".ln-fig--long .ln-fig__short")?.textContent).toBe("0.200 BTC");
     expect(text(hop)).toContain("Would be 31 sats");
     type("1.5");
     await shows(hop, "Whole sats only.");
