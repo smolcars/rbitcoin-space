@@ -313,6 +313,7 @@ fn transaction_messages_have_the_reference_shapes() {
         rate: 2000,
         vsize: 140,
         fee: 280,
+        flags: 0,
     };
     // The position is inside the block: what is ahead of it there, not in the blocks before.
     let mempool = TxState::Mempool {
@@ -742,6 +743,7 @@ async fn every_message_has_the_reference_shape() {
                 rate: 5_023,
                 vsize: 216,
                 fee: 1_085,
+                flags: 0,
             },
             ahead_vsize: 1_078,
             ahead_txs: 3,
@@ -755,11 +757,13 @@ async fn every_message_has_the_reference_shape() {
     // rate changed.
     let (tracker, projector) = ctx.track.engines().unwrap();
     let block = Arc::clone(&projector.current().blocks[0]);
+    // NO_RBF and V2, so the rows' flags are seen to be the record's.
     let placed = |rate| Placed {
         block: 0,
         rate,
         vsize: 141,
         fee: 300,
+        flags: 0x0a,
     };
     let (gone, added) = (
         Txid::from_byte_array([1; 32]),
@@ -772,6 +776,24 @@ async fn every_message_has_the_reference_shape() {
     new.txs.push((added, placed(2_000)));
     let drawn = whole(tracker, 0, 1, &block);
     let (delta, _) = changes(tracker, 0, 2, &old, &new).unwrap();
+    let d = |path: &str| delta.pointer(&format!("/projected-block-transactions/delta/{path}"));
+    assert_eq!(d("added/0/0"), Some(&json!(added)));
+    assert_eq!(d("added/0/5"), Some(&json!(0x0a)));
+    assert_eq!(d("changed/0/0"), Some(&json!(block.txs[0].0)));
+    assert_eq!(d("changed/0/2"), Some(&json!(block.txs[0].1.flags)));
+    // Flags that change alone, as context bits will, are a change too.
+    let mut flagged = ProjectedBlock::clone(&block);
+    flagged.txs[0].1.flags ^= 1 << 47;
+    let (moved, _) = changes(tracker, 0, 3, &block, &flagged).unwrap();
+    assert_eq!(
+        moved["projected-block-transactions"]["delta"]["changed"],
+        json!([[
+            block.txs[0].0,
+            f64::from(block.txs[0].1.rate) / 1000.0,
+            flagged.txs[0].1.flags,
+            0
+        ]])
+    );
 
     let mut c = Client::new();
     let c_conn = Arc::clone(&c.conn);
@@ -1109,7 +1131,7 @@ async fn table_blocks_go_out_once_each_in_order_and_a_reorg_sends_the_list() {
 const DRAWING: &str = "projected-block-transactions";
 
 /// A client's copy of one drawn block, built only from the messages, as the reference's frontend
-/// would: txid to `[fee, vsize, rate]`. Every message must be one `sequence` above the last.
+/// would: txid to `[fee, vsize, rate, flags]`. Every message must be one `sequence` above the last.
 #[derive(Default, Debug, PartialEq)]
 struct Drawn {
     sequence: Option<u64>,
@@ -1131,7 +1153,12 @@ impl Drawn {
                 .as_array()
                 .unwrap()
                 .iter()
-                .map(|r| (r[0].as_str().unwrap().to_owned(), json!([r[1], r[2], r[4]])))
+                .map(|r| {
+                    (
+                        r[0].as_str().unwrap().to_owned(),
+                        json!([r[1], r[2], r[4], r[5]]),
+                    )
+                })
                 .collect();
         } else {
             assert!(self.sequence.is_some(), "a change before the list: {msg}");
@@ -1140,15 +1167,16 @@ impl Drawn {
                 assert!(self.txs.remove(t.as_str().unwrap()).is_some(), "{msg}");
             }
             for r in d["added"].as_array().unwrap() {
-                let old = self
-                    .txs
-                    .insert(r[0].as_str().unwrap().to_owned(), json!([r[1], r[2], r[4]]));
+                let old = self.txs.insert(
+                    r[0].as_str().unwrap().to_owned(),
+                    json!([r[1], r[2], r[4], r[5]]),
+                );
                 assert!(old.is_none(), "{msg}");
             }
             for c in d["changed"].as_array().unwrap() {
                 let t = self.txs.get_mut(c[0].as_str().unwrap()).unwrap();
-                t[2] = c[1].clone();
-                assert_eq!((&c[2], &c[3]), (&json!(0), &json!(0)));
+                (t[2], t[3]) = (c[1].clone(), c[2].clone());
+                assert_eq!(c[3], json!(0));
             }
         }
         self.sequence = Some(sequence);
@@ -1181,7 +1209,7 @@ fn projected_block(server: &Server, i: usize) -> HashMap<String, Value> {
                 .map(|(t, p)| {
                     (
                         t.to_string(),
-                        json!([p.fee, p.vsize, f64::from(p.rate) / 1000.0]),
+                        json!([p.fee, p.vsize, f64::from(p.rate) / 1000.0, p.flags]),
                     )
                 })
                 .collect()
@@ -1218,6 +1246,7 @@ async fn a_drawn_block_is_its_list_then_its_changes_each_one_sequence_higher() {
     let rows = first[DRAWING]["blockTransactions"].as_array().unwrap();
     let (tracker, _) = server.ctx.track.engines().unwrap();
     let info = tracker.read(|m| m.get(&a).cloned()).unwrap();
+    assert_eq!(info.flags, engine::flags::NO_RBF | engine::flags::V2);
     assert_eq!(first[DRAWING]["index"], json!(0));
     assert_eq!(
         rows[0],
@@ -1227,7 +1256,7 @@ async fn a_drawn_block_is_its_list_then_its_changes_each_one_sequence_higher() {
             200,
             info.value.to_sat(),
             10.0,
-            0,
+            info.flags,
             mock.get(a).time
         ])
     );

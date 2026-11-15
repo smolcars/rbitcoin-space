@@ -86,6 +86,8 @@ export interface FakeRecord {
   rate: number;
   vsize: number;
   fee: number;
+  /** The transaction's flags; 0 when left out. */
+  flags?: bigint;
 }
 
 function writeRecord(view: DataView, bytes: Uint8Array, at: number, r: FakeRecord): void {
@@ -93,6 +95,7 @@ function writeRecord(view: DataView, bytes: Uint8Array, at: number, r: FakeRecor
   view.setUint32(at + 32, r.rate, true);
   view.setUint32(at + 36, r.vsize, true);
   view.setBigUint64(at + 40, BigInt(r.fee), true);
+  view.setBigUint64(at + 48, r.flags ?? 0n, true);
 }
 
 function writeTxid(bytes: Uint8Array, at: number, txid: string): void {
@@ -105,13 +108,13 @@ export function snapshotFrame(
   seq: number,
   records: readonly FakeRecord[],
 ): ArrayBuffer {
-  const buf = new ArrayBuffer(16 + 48 * records.length);
+  const buf = new ArrayBuffer(16 + 56 * records.length);
   const view = new DataView(buf);
   const bytes = new Uint8Array(buf);
-  bytes.set([1, 1, block, 0]);
+  bytes.set([1, 2, block, 0]);
   view.setUint32(4, records.length, true);
   view.setBigUint64(8, BigInt(seq), true);
-  for (const [i, r] of records.entries()) writeRecord(view, bytes, 16 + i * 48, r);
+  for (const [i, r] of records.entries()) writeRecord(view, bytes, 16 + i * 56, r);
   return buf;
 }
 
@@ -123,17 +126,17 @@ export function deltaFrame(
   removed: readonly string[],
   set: readonly FakeRecord[],
 ): ArrayBuffer {
-  const buf = new ArrayBuffer(32 + 32 * removed.length + 48 * set.length);
+  const buf = new ArrayBuffer(32 + 32 * removed.length + 56 * set.length);
   const view = new DataView(buf);
   const bytes = new Uint8Array(buf);
-  bytes.set([2, 1, block, 0]);
+  bytes.set([2, 2, block, 0]);
   view.setUint32(4, removed.length, true);
   view.setBigUint64(8, BigInt(seq), true);
   view.setBigUint64(16, BigInt(prev), true);
   view.setUint32(24, set.length, true);
   for (const [i, txid] of removed.entries()) writeTxid(bytes, 32 + i * 32, txid);
   const at = 32 + 32 * removed.length;
-  for (const [i, r] of set.entries()) writeRecord(view, bytes, at + i * 48, r);
+  for (const [i, r] of set.entries()) writeRecord(view, bytes, at + i * 56, r);
   return buf;
 }
 

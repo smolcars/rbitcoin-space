@@ -138,10 +138,19 @@ impl Mock {
     }
 
     fn add(&self, fee: u64, vsize: u64) -> Txid {
+        let tag = {
+            let mut n = self.node();
+            n.next_tag += 1;
+            n.next_tag
+        };
+        self.add_tx(tx(tag), fee, vsize)
+    }
+
+    /// Adds a given transaction, as the node would accept it.
+    fn add_tx(&self, tx: Transaction, fee: u64, vsize: u64) -> Txid {
         let mut n = self.node();
-        n.next_tag += 1;
         let t = MockTx {
-            tx: tx(n.next_tag),
+            tx,
             fee,
             vsize,
             time: 1_700_000_000 + u64::from(n.next_tag),
@@ -481,7 +490,7 @@ pub(crate) fn open(f: &Frame) -> (u8, &[u8]) {
     (b[0] & 0x0F, &b[at..])
 }
 
-type Records = HashMap<[u8; 32], (u32, u32, u64)>;
+type Records = HashMap<[u8; 32], (u32, u32, u64, u64)>;
 
 #[derive(Default)]
 struct Client {
@@ -499,10 +508,10 @@ fn u64_at(p: &[u8], at: usize) -> u64 {
     u64::from_le_bytes(p[at..at + 8].try_into().unwrap())
 }
 
-fn read_record(r: &[u8]) -> ([u8; 32], (u32, u32, u64)) {
+fn read_record(r: &[u8]) -> ([u8; 32], (u32, u32, u64, u64)) {
     (
         r[..32].try_into().unwrap(),
-        (u32_at(r, 32), u32_at(r, 36), u64_at(r, 40)),
+        (u32_at(r, 32), u32_at(r, 36), u64_at(r, 40), u64_at(r, 48)),
     )
 }
 
@@ -577,7 +586,7 @@ fn expected(p: &Projection, block: u8) -> Records {
         .map(|b| {
             b.txs
                 .iter()
-                .map(|(t, r)| (txid_bytes(t), (r.rate, r.vsize, r.fee)))
+                .map(|(t, r)| (txid_bytes(t), (r.rate, r.vsize, r.fee, r.flags)))
                 .collect()
         })
         .unwrap_or_default()
@@ -653,39 +662,79 @@ fn frames_have_the_documented_layout() {
     let mut b_bytes = [2; 32];
     b_bytes[0] = 0xab;
     let b = Txid::from_byte_array(b_bytes);
-    let placed = |rate, vsize, fee| projected::Placed {
+    let placed = |rate, vsize, fee, flags| projected::Placed {
         block: 3,
         rate,
         vsize,
         fee,
+        flags,
     };
+    // The highest bit the classifier sets, and one in each of the record's flag bytes 0 and 5.
+    let flags = (1 << 44) | (1 << 40) | 0x0a;
     let block = ProjectedBlock {
         summary: projected::BlockSummary::default(),
-        txs: vec![(a, placed(1500, 200, 300)), (b, placed(1000, 141, 141))],
+        txs: vec![
+            (a, placed(1500, 200, 300, 0)),
+            (b, placed(1000, 141, 141, flags)),
+        ],
     };
     let s = snapshot(3, 0x0102, &block);
-    assert_eq!(&s[..16], &[1, 1, 3, 0, 2, 0, 0, 0, 2, 1, 0, 0, 0, 0, 0, 0]);
-    assert_eq!(s.len(), 16 + 2 * 48);
+    assert_eq!(&s[..16], &[1, 2, 3, 0, 2, 0, 0, 0, 2, 1, 0, 0, 0, 0, 0, 0]);
+    assert_eq!(s.len(), 16 + 2 * 56);
     // The txid as it is written in hex: internal byte 0 comes last.
     assert_eq!(s[16..48], txid_bytes(&a));
-    assert_eq!(s[64 + 31], 0xab);
-    assert_eq!(hex(&s[64..96]), b.to_string());
+    assert_eq!(s[64..72], [0; 8]);
+    assert_eq!(s[72 + 31], 0xab);
+    assert_eq!(hex(&s[72..104]), b.to_string());
     assert_eq!(
-        &s[96..112],
-        &[0xe8, 3, 0, 0, 141, 0, 0, 0, 141, 0, 0, 0, 0, 0, 0, 0]
+        &s[104..128],
+        &[
+            0xe8, 3, 0, 0, 141, 0, 0, 0, 141, 0, 0, 0, 0, 0, 0, 0, 0x0a, 0, 0, 0, 0, 0x11, 0, 0
+        ]
     );
 
     let d = delta(3, 9, 7, &[&a], &[&block.txs[1]]);
     assert_eq!(
         &d[..32],
         &[
-            2, 1, 3, 0, 1, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 7, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0,
+            2, 2, 3, 0, 1, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 7, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0,
             0, 0, 0
         ]
     );
-    assert_eq!(d.len(), 32 + 32 + 48);
+    assert_eq!(d.len(), 32 + 32 + 56);
     assert_eq!(d[32..64], txid_bytes(&a));
-    assert_eq!(d[64..112], s[64..112]);
+    assert_eq!(d[64..120], s[72..128]);
+}
+
+/// A recorded mainnet transaction carries the reference's flags from the tracker to both sockets.
+#[tokio::test]
+async fn a_transactions_flags_reach_every_layer() {
+    // RBF, V2, P2WPKH, OP_RETURN, batch payment, SIGHASH_ALL: only bits the classifier sets.
+    let txid = "a4fafc60b41c07b2d829e6e58ccabf162a2b25a97aff4b1c264b2354267faf28";
+    let recorded: Vec<Value> =
+        serde_json::from_str(include_str!("../../../../../fixtures/flags/mainnet.json")).unwrap();
+    let r = recorded.iter().find(|r| r["txid"] == txid).unwrap();
+    let want = r["flags"].as_u64().unwrap();
+    assert_eq!(want, 1_116_708_278_281);
+    let tx: Transaction =
+        bitcoin::consensus::encode::deserialize_hex(r["hex"].as_str().unwrap()).unwrap();
+
+    let mock = Mock::new();
+    let id = mock.add_tx(tx, 1_000, 200);
+    let s = Server::start(&mock, Duration::from_millis(20));
+    let (conn, mut rx) = conn(1024);
+    subscribe_all(&s.ctx, &conn);
+    let mut client = Client::default();
+    converge(&s, &mut client, &mut rx).await;
+
+    assert_eq!(s.tracker.read(|m| m.get(&id).map(|i| i.flags)), Some(want));
+    let p = s.projector.current();
+    assert_eq!(p.blocks[0].txs, vec![(id, p.blocks[0].txs[0].1)]);
+    assert_eq!(p.blocks[0].txs[0].1.flags, want);
+    assert_eq!(client.blocks[&0].1[&txid_bytes(&id)].3, want);
+    let row = crate::ws::v1::whole(&s.tracker, 0, 1, &p.blocks[0]);
+    let row = &row["projected-block-transactions"]["blockTransactions"][0];
+    assert_eq!((&row[0], &row[5]), (&json!(txid), &json!(want)));
 }
 
 fn hex(b: &[u8]) -> String {
@@ -862,7 +911,7 @@ async fn subscribers_that_never_read_hold_at_most_their_queues() {
     const QUEUE: usize = 64; // `WS_SEND_QUEUE`
     let mock = Mock::new();
     // Small transactions, so frames are large for their count. A full block of the smallest
-    // makes a snapshot of about 800 KB; this one is a quarter of that, to run in a debug build.
+    // makes a snapshot of about 930 KB; this one is a quarter of that, to run in a debug build.
     for i in 0..4_000 {
         mock.add(2_000 + i % 1_000, 60);
     }

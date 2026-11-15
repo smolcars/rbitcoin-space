@@ -100,7 +100,7 @@ fn chunk_rate(fee: u64, adjusted_weight: u64) -> u64 {
     }
 }
 
-/// One transaction's place: 17 bytes after its 32-byte txid (`docs/MEMPOOL.md`).
+/// One transaction's place: 25 bytes after its 32-byte txid (`docs/MEMPOOL.md`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Placed {
     /// Projected block, 0 for the next one. The last block holds everything beyond the others.
@@ -111,6 +111,8 @@ pub struct Placed {
     pub vsize: u32,
     /// Its own base fee, in satoshis.
     pub fee: u64,
+    /// Its feature bits ([`crate::flags`]), as the tracker read them from its bytes.
+    pub flags: u64,
 }
 
 /// Totals of one projected block.
@@ -211,6 +213,7 @@ pub(crate) struct Packing {
 #[derive(Debug)]
 struct Tx {
     fee: u64,
+    flags: u64,
     vsize: u32,
     weight: u32,
     chunk: u64,
@@ -312,7 +315,7 @@ impl Model {
     }
 
     /// A new transaction, alone in its cluster until the node says otherwise.
-    pub fn add(&mut self, txid: Txid, fee: u64, vsize: u32, weight: u32) {
+    pub fn add(&mut self, txid: Txid, fee: u64, vsize: u32, weight: u32, flags: u64) {
         self.remove(&txid);
         let id = self.id();
         let key = Key {
@@ -338,6 +341,7 @@ impl Model {
             txid,
             Tx {
                 fee,
+                flags,
                 vsize,
                 weight,
                 chunk: id,
@@ -531,6 +535,7 @@ impl Model {
                         rate,
                         vsize: tx.vsize,
                         fee: tx.fee,
+                        flags: tx.flags,
                     };
                     if tx.pos.map(|p| p.placed) != Some(placed) {
                         changed.push((*t, placed));

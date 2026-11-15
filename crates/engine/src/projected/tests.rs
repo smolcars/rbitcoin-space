@@ -62,9 +62,9 @@ fn txids(block: &[(Txid, Placed)]) -> Vec<Txid> {
 #[test]
 fn orders_by_rate_with_sub_sat_resolution() {
     let mut m = Model::default();
-    m.add(id(1), 150, 1000, 4000); // 0.150 sat/vB
-    m.add(id(2), 2_345, 1000, 4000); // 2.345
-    m.add(id(3), 151, 1000, 4000); // 0.151
+    m.add(id(1), 150, 1000, 4000, 0); // 0.150 sat/vB
+    m.add(id(2), 2_345, 1000, 4000, 0); // 2.345
+    m.add(id(3), 151, 1000, 4000, 0); // 0.151
     let blocks = order(&mut m, ONE_BLOCK);
     assert_eq!(txids(&blocks[0]), vec![id(2), id(3), id(1)]);
     let rates: Vec<u32> = blocks[0].iter().map(|(_, p)| p.rate).collect();
@@ -75,8 +75,8 @@ fn orders_by_rate_with_sub_sat_resolution() {
 #[test]
 fn equal_rates_go_higher_fee_first() {
     let mut m = Model::default();
-    m.add(id(1), 100, 1000, 4000);
-    m.add(id(2), 200, 2000, 8000);
+    m.add(id(1), 100, 1000, 4000, 0);
+    m.add(id(2), 200, 2000, 8000, 0);
     assert_eq!(txids(&order(&mut m, ONE_BLOCK)[0]), vec![id(2), id(1)]);
 }
 
@@ -84,9 +84,9 @@ fn equal_rates_go_higher_fee_first() {
 fn a_child_lifts_its_parent() {
     let (parent, child, other) = (id(1), id(2), id(3));
     let mut m = Model::default();
-    m.add(parent, 100, 1000, 4000); // 0.1 sat/vB alone
-    m.add(child, 10_000, 200, 800);
-    m.add(other, 2_000, 1000, 4000); // 2 sat/vB
+    m.add(parent, 100, 1000, 4000, 0); // 0.1 sat/vB alone
+    m.add(child, 10_000, 200, 800, 0);
+    m.add(other, 2_000, 1000, 4000, 0); // 2 sat/vB
     // Before the node says they are one chunk, each stands alone.
     assert_eq!(
         txids(&order(&mut m, ONE_BLOCK)[0]),
@@ -125,7 +125,7 @@ fn a_child_lifts_its_parent() {
 #[test]
 fn a_cluster_with_unknown_members_asks_again() {
     let mut m = Model::default();
-    m.add(id(1), 100, 1000, 4000);
+    m.add(id(1), 100, 1000, 4000, 0);
     // id(2) arrived at the node after the tracker's listing.
     assert!(!m.apply_cluster(&cluster(&[(5_100, 4400, &[id(1), id(2)])])));
     let blocks = order(&mut m, ONE_BLOCK);
@@ -142,10 +142,10 @@ fn blocks_fill_by_raw_weight_and_skip_what_does_not_fit() {
         block_weight: 1000,
         min_rate: 1,
     };
-    m.add(id(1), 6000, 150, 600); // 40 sat/vB
-    m.add(id(2), 3000, 150, 600); // 20
-    m.add(id(3), 300, 75, 300); // 4: does not come next, but fits the gap
-    m.add(id(4), 0, 100, 400); // under the minimum rate: never in a real block
+    m.add(id(1), 6000, 150, 600, 0); // 40 sat/vB
+    m.add(id(2), 3000, 150, 600, 0); // 20
+    m.add(id(3), 300, 75, 300, 0); // 4: does not come next, but fits the gap
+    m.add(id(4), 0, 100, 400, 0); // under the minimum rate: never in a real block
     let blocks = order(&mut m, p);
     assert_eq!(txids(&blocks[0]), vec![id(1), id(3)]);
     assert_eq!(txids(&blocks[1]), vec![id(2)]);
@@ -156,8 +156,8 @@ fn blocks_fill_by_raw_weight_and_skip_what_does_not_fit() {
 #[test]
 fn a_negative_fee_chunk_is_never_mined_even_without_a_minimum_rate() {
     let mut m = Model::default();
-    m.add(id(1), 0, 100, 400);
-    m.add(id(2), 500, 100, 400);
+    m.add(id(1), 0, 100, 400, 0);
+    m.add(id(2), 500, 100, 400, 0);
     assert!(m.apply_cluster(&cluster(&[(-500, 400, &[id(2)])])));
     let free = Packing {
         min_rate: 0,
@@ -175,8 +175,8 @@ fn a_chunk_pulls_in_the_unplaced_chunks_before_it() {
     // fee so it sorts first, and selecting it must bring its parent chunk along, first.
     let (a, b) = (id(1), id(2));
     let mut m = Model::default();
-    m.add(a, 1000, 1000, 4000);
-    m.add(b, 2000, 2000, 8000);
+    m.add(a, 1000, 1000, 4000, 0);
+    m.add(b, 2000, 2000, 8000, 0);
     assert!(m.apply_cluster(&cluster(&[(1000, 4000, &[a]), (2000, 8000, &[b])])));
     assert_eq!(txids(&order(&mut m, ONE_BLOCK)[0]), vec![a, b]);
 }
@@ -199,9 +199,9 @@ fn summaries_band_by_printed_rate() {
     assert_eq!(band(u32::MAX), 11);
 
     let mut m = Model::default();
-    m.add(id(1), 150, 1000, 4000); // 0.15: band 2
-    m.add(id(2), 600, 2000, 8000); // 0.30: band 4
-    m.add(id(3), 5000, 500, 2000); // 10: band 11
+    m.add(id(1), 150, 1000, 4000, 0); // 0.15: band 2
+    m.add(id(2), 600, 2000, 8000, 0); // 0.30: band 4
+    m.add(id(3), 5000, 500, 2000, 0); // 10: band 11
     let (blocks, _) = m.pack(ONE_BLOCK);
     let mut bands = [0; super::BANDS];
     (bands[2], bands[4], bands[11]) = (1000, 2000, 500);
@@ -229,9 +229,9 @@ fn lookup_says_what_is_ahead() {
         block_weight: 4000,
         min_rate: 1,
     };
-    m.add(id(1), 3000, 1000, 4000);
-    m.add(id(2), 2000, 1000, 4000);
-    m.add(id(3), 1000, 1000, 4000);
+    m.add(id(1), 3000, 1000, 4000, 0);
+    m.add(id(2), 2000, 1000, 4000, 0);
+    m.add(id(3), 1000, 1000, 4000, 0);
     m.pack(p);
     let pos = m.position(&id(3)).unwrap();
     assert_eq!(
@@ -252,7 +252,7 @@ fn empty_and_small_mempools() {
     assert_eq!(blocks.len(), 8);
     assert!(changed.is_empty());
     assert!(blocks.iter().all(|b| b.txs.is_empty()));
-    m.add(id(1), 1000, 100, 400);
+    m.add(id(1), 1000, 100, 400, 0);
     let (blocks, changed) = m.pack(Packing {
         blocks: 8,
         ..ONE_BLOCK
@@ -276,7 +276,7 @@ fn a_large_cluster_keeps_its_linearization() {
     let members: Vec<Txid> = (1..=64).map(id).collect();
     let mut m = Model::default();
     for t in &members {
-        m.add(*t, 100, 100, 400);
+        m.add(*t, 100, 100, 400, 0);
     }
     let chunks: Vec<(i64, u64, &[Txid])> = members
         .chunks(8)
@@ -317,7 +317,7 @@ fn replays_a_mainnet_template_and_diagram() {
     let f: Fixture = serde_json::from_str(raw).unwrap();
     let mut m = Model::default();
     for (t, fee, vsize, weight) in &f.txs {
-        m.add(*t, *fee, *vsize, *weight);
+        m.add(*t, *fee, *vsize, *weight, 0);
     }
     for c in &f.clusters {
         assert!(m.apply_cluster(c));

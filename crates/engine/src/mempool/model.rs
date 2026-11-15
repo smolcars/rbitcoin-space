@@ -8,7 +8,7 @@ use bitcoin::{Amount, BlockHash, OutPoint, Transaction, Txid};
 use node::esplora::ChainTip;
 use node::rpc::model::MempoolEntry;
 
-/// What we keep for every mempool transaction: 56 bytes plus 8 per input.
+/// What we keep for every mempool transaction: 64 bytes plus 8 per input.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TxInfo {
     /// Base fee, without `prioritisetransaction` deltas.
@@ -25,6 +25,8 @@ pub struct TxInfo {
     /// Signals replaceability itself (BIP 125: an input's sequence below `0xfffffffe`). rbitcoin
     /// replaces regardless; kept for the `/api/v1` replacement trees' `rbf`. Fits in padding.
     pub rbf: bool,
+    /// Its feature bits from its own bytes ([`crate::flags::of`]), in the reference's layout.
+    pub flags: u64,
     /// Output count, to find children of a removed transaction.
     pub(crate) outputs: u32,
     /// Keyed 64-bit fingerprints of the outpoints it spends, to find what replaced it.
@@ -43,6 +45,7 @@ impl TxInfo {
             size: weight.div_ceil(4),
             time,
             rbf: false,
+            flags: 0,
             outputs: 0,
             spends: Box::new([]),
         }
@@ -135,6 +138,7 @@ impl Keys {
             size: sat(tx.total_size() as u64),
             time: sat(entry.time),
             rbf: tx.is_explicitly_rbf(),
+            flags: crate::flags::of(tx),
             outputs: sat(tx.output.len() as u64),
             spends: tx
                 .input

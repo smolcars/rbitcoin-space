@@ -59,10 +59,22 @@ describe("decodeFrame", () => {
     expect(decodeFrame(Uint8Array.of(9, 1, 0, 0).buffer)).toStrictEqual({ kind: "unknown" });
   });
 
-  it("names a newer format by its version", () => {
+  it("names another format by its version", () => {
     const buf = snapshotFrame(2, 1, [rec(1)]);
-    new Uint8Array(buf)[1] = 2;
+    new Uint8Array(buf)[1] = 3;
     expect(decodeFrame(buf)).toStrictEqual({ kind: "version", block: 2 });
+    new Uint8Array(buf)[1] = 1; // the 48-byte records before flags
+    expect(decodeFrame(buf)).toStrictEqual({ kind: "version", block: 2 });
+  });
+
+  it("steps over each record's flags", () => {
+    const flagged = (n: number) => ({ ...rec(n), flags: 2n ** 63n + 0x1a_0000_1000n });
+    expect(decodeFrame(snapshotFrame(0, 1, [flagged(1), flagged(2)]))).toStrictEqual(
+      decodeFrame(snapshotFrame(0, 1, [rec(1), rec(2)])),
+    );
+    expect(decodeFrame(deltaFrame(0, 2, 1, [fakeTxid(1)], [flagged(3)]))).toStrictEqual(
+      decodeFrame(deltaFrame(0, 2, 1, [fakeTxid(1)], [rec(3)])),
+    );
   });
 
   it("refuses truncated, overlong and padded frames, and counts that do not match the length", () => {
@@ -83,7 +95,7 @@ describe("decodeFrame", () => {
 
     const delta = deltaFrame(1, 6, 5, [fakeTxid(1)], [rec(3)]);
     malformed(delta.slice(0, 31));
-    malformed(delta.slice(0, delta.byteLength - 48)); // the set record is missing
+    malformed(delta.slice(0, delta.byteLength - 56)); // the set record is missing
     const moreRemoved = structuredClone(delta);
     new DataView(moreRemoved).setUint32(4, 2, true);
     malformed(moreRemoved);
@@ -114,7 +126,7 @@ describe("decodeFrame", () => {
           bytes[Math.floor(random() * bytes.length)] = Math.floor(random() * 256);
       }
       // Keep the kind and version readable half the time, so the deep paths are reached too.
-      if (i % 4 < 2 && bytes.length > 1) bytes.set([1 + (i % 2), 1]);
+      if (i % 4 < 2 && bytes.length > 1) bytes.set([1 + (i % 2), 2]);
       expect(() => decodeFrame(bytes.buffer)).not.toThrow();
     }
   });

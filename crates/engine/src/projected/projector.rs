@@ -281,7 +281,7 @@ enum Input {
     Snapshot {
         seq: u64,
         tip: Option<ChainTip>,
-        txs: Vec<(Txid, u64, u32, u32)>,
+        txs: Vec<(Txid, u64, u32, u32, u64)>,
     },
     /// Nothing new from the tracker: a retry, or the stale flag changed.
     Nothing,
@@ -311,7 +311,7 @@ impl<S: ClusterSource> Runner<S> {
             let ((mut seq, tip, txs), mut sub) = self.tracker.subscribe(|m| {
                 let txs: Vec<_> = m
                     .iter()
-                    .map(|(t, i)| (*t, i.fee.to_sat(), i.vsize, i.weight))
+                    .map(|(t, i)| (*t, i.fee.to_sat(), i.vsize, i.weight, i.flags))
                     .collect();
                 (m.seq(), m.tip(), txs)
             });
@@ -518,7 +518,7 @@ fn apply(s: &mut State, input: Input) -> (Vec<Txid>, Option<ChainTip>, u64, usiz
                     need.extend(s.model.remove(t));
                 }
                 for (t, i) in &d.added {
-                    s.model.add(*t, i.fee.to_sat(), i.vsize, i.weight);
+                    s.model.add(*t, i.fee.to_sat(), i.vsize, i.weight, i.flags);
                     need.push(*t);
                 }
             }
@@ -538,9 +538,9 @@ fn apply(s: &mut State, input: Input) -> (Vec<Txid>, Option<ChainTip>, u64, usiz
             for t in &gone {
                 s.model.remove(t);
             }
-            for (t, fee, vsize, weight) in txs {
+            for (t, fee, vsize, weight, flags) in txs {
                 if !s.model.contains(&t) {
-                    s.model.add(t, fee, vsize, weight);
+                    s.model.add(t, fee, vsize, weight, flags);
                 }
             }
             // Clusters may have changed in any way while we were behind: ask for all of them.

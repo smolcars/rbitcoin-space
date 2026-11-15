@@ -182,6 +182,8 @@ fn records_carry_fee_size_value_and_time() {
     assert_eq!(u64::from(r.weight), t.weight().to_wu());
     assert_eq!(r.time, 1_700_000_000);
     assert_eq!((r.outputs, r.spends.len()), (3, 2));
+    assert_eq!(r.flags, crate::flags::of(&t));
+    assert_eq!(r.flags, crate::flags::NO_RBF | crate::flags::V2);
     // The fingerprint is keyed per mempool: another instance hashes differently.
     assert_ne!(
         Mempool::default().keys().key(&coin(0)),

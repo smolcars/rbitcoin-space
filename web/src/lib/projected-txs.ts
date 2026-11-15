@@ -7,12 +7,13 @@ import type { Topic } from "./live";
 export const PROJECTED_TXS_TOPICS = 7;
 
 /** The frame format version this client reads. */
-export const FRAME_VERSION = 1;
+export const FRAME_VERSION = 2;
 const KIND_SNAPSHOT = 1;
 const KIND_DELTA = 2;
 const SNAPSHOT_HEADER = 16;
 const DELTA_HEADER = 32;
-const RECORD = 48;
+// txid 32, rate 4, vsize 4, fee 8, flags 8: the flags are not read yet.
+const RECORD = 56;
 const TXID = 32;
 
 /** One transaction, as the grid draws it: `rate` is the effective rate in sat/vB. */

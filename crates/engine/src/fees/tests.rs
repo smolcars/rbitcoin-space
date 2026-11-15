@@ -296,6 +296,7 @@ fn projection(pairs: &[(u32, u64)]) -> Projection {
                 rate,
                 vsize: u32::try_from(vsize).unwrap(),
                 fee: 0,
+                flags: 0,
             };
             (bitcoin::Txid::from_byte_array(id), placed)
         })

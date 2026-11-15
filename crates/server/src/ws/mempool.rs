@@ -39,9 +39,9 @@ pub const KIND_SNAPSHOT: u8 = 1;
 /// Byte 0 of a binary frame: changes to a projected block since the previous frame.
 pub const KIND_DELTA: u8 = 2;
 /// Byte 1 of both kinds. Bumped when their layout changes.
-pub const FORMAT_VERSION: u8 = 1;
-/// One transaction: txid 32, rate 4, vsize 4, fee 8.
-pub const RECORD: usize = 48;
+pub const FORMAT_VERSION: u8 = 2;
+/// One transaction: txid 32, rate 4, vsize 4, fee 8, flags 8.
+pub const RECORD: usize = 56;
 const SNAPSHOT_HEAD: usize = 16;
 const DELTA_HEAD: usize = 32;
 /// Changes kept after a topic's state for new subscribers before they are folded into a new
@@ -470,7 +470,7 @@ fn diff<'a>(
 
 /// Whether a record changed, as the client sees it (the block index is the topic's own).
 fn same(a: &Placed, b: &Placed) -> bool {
-    (a.rate, a.vsize, a.fee) == (b.rate, b.vsize, b.fee)
+    (a.rate, a.vsize, a.fee, a.flags) == (b.rate, b.vsize, b.fee, b.flags)
 }
 
 /// A txid as it is written in hex, which is the reverse of its internal byte order.
@@ -485,6 +485,7 @@ fn record(out: &mut Vec<u8>, (txid, p): &(Txid, Placed)) {
     out.extend_from_slice(&p.rate.to_le_bytes());
     out.extend_from_slice(&p.vsize.to_le_bytes());
     out.extend_from_slice(&p.fee.to_le_bytes());
+    out.extend_from_slice(&p.flags.to_le_bytes());
 }
 
 /// Kind 1: `[1, version, block, 0, count u32, seq u64]`, then `count` records in mining order.

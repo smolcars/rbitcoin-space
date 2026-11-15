@@ -40,6 +40,7 @@ One per mempool transaction, keyed by txid:
 | size | 4 | the raw transaction | the projected blocks' byte size (`/api/v1/fees/mempool-blocks`) |
 | accept time | 4 | `getmempoolentry` `time` | "first seen"; it is the node's, so it survives our restarts |
 | signals replaceability | 1, in padding | the raw transaction: an input's sequence below `0xfffffffe` (BIP 125) | the replacement trees' `rbf` ([`API.md`](API.md#transactions)). rbitcoin replaces regardless |
+| flags | 8 | the raw transaction ([`API.md`](API.md#transaction-flags)) | the projected blocks' records, so both sockets can tell transactions apart by kind |
 | output count | 4 | the raw transaction | finding children of a removed transaction |
 | input fingerprints | 16 + 8 per input | the raw transaction | finding what replaced it |
 
@@ -49,7 +50,7 @@ Input fingerprints are 64-bit SipHash values of each spent outpoint under a rand
 
 Everything else is fetched on demand from the node: ancestors, descendants and cluster chunks (`getmempoolcluster`), scripts and addresses (Esplora).
 
-**Cost.** The hash-map slot is 88 bytes. At 300,000 transactions the table has 524,288 slots (one control byte each), about 47 MB, plus the inputs on the heap: about 55 MB in all, or roughly 180 bytes a transaction. On mainnet at 55,000 transactions the whole process, runtime and HTTP clients included, measured 32–48 MB RSS over a 15-minute run.
+**Cost.** The hash-map slot is 96 bytes. At 300,000 transactions the table has 524,288 slots (one control byte each), about 51 MB, plus the inputs on the heap: about 59 MB in all, or roughly 195 bytes a transaction (computed from the 55 MB measured before the flags' 8 bytes). On mainnet at 55,000 transactions the whole process, runtime and HTTP clients included, measured 32–48 MB RSS over a 15-minute run.
 
 ## Initial sync
 
@@ -258,13 +259,13 @@ Same runs, the server and node on one private network.
 | Each block | one update for the block (about 17 clusters), then every cluster again: about 12 requests, 6 MB, 0.5 s |
 | Calls and bytes added to the node | 43 requests a minute and 340 KB a minute over 21 minutes with one block: about 40 KB a minute between blocks plus 6 MB a block. The tracker reads about 150 MB a minute |
 | Deltas | mean 199 records; the block's delta set 13,926 records and removed 2,664 |
-| Memory | the tracker alone 39 MB RSS; tracker and projector 80 MB at 56,469 transactions, so about 40 MB, or 700 bytes a transaction, the published projection included |
+| Memory | the tracker alone 39 MB RSS; tracker and projector 80 MB at 56,469 transactions, so about 40 MB, or 700 bytes a transaction, the published projection included. Measured before the flags, which add 32 bytes a transaction across the tracker, the model and the published records (computed) |
 
 Packing holds the projector's write lock, so a `position` lookup can wait for one pack. Nothing runs on the async runtime's threads but the network calls.
 
 ### The records and the stream
 
-One record per transaction, 49 bytes on the wire:
+One record per transaction, 57 bytes on the wire:
 
 | Field | Bytes | Is |
 |---|---|---|
@@ -273,12 +274,13 @@ One record per transaction, 49 bytes on the wire:
 | rate | 4 | effective fee rate in sat per 1,000 vB: the rate of its chunk, the node's own number |
 | vsize | 4 | sigop-adjusted virtual size |
 | fee | 8 | its own base fee in satoshis |
+| flags | 8 | the tracker's flags for it, copied so a change to them is a change to the record |
 
 Each block also has totals: transaction count, raw weight, vsize, fees, the lowest, median (at the middle vbyte) and highest effective rate, and the vsize in each of the 12 fee bands of `docs/DESIGN.md` (edges at 0.12, 0.15, 0.2, 0.3, 0.5, 1, 1.5, 2, 3, 5 and 10 sat/vB). A rate is banded as it prints, rounded to two decimals, so 0.1196 sat/vB takes band 2 (0.12–0.15) and 0.1996 band 4 (0.2–0.3). How the store keeps them is in [`STORE.md`](STORE.md#fee-bands).
 
 The stream works like the tracker's: `subscribe` returns the current projection and a subscription whose first delta is the next one, deltas are numbered without gaps, and a subscriber more than 64 deltas behind gets `Lagged` and subscribes again. A delta carries the records that entered, moved to another block or changed rate (`set`), the txids that left the mempool (`removed`), both sorted by txid, and every block's new totals. Applying `removed`, then `set`, to the previous projection's records gives the next one's; a test checks this against a running tracker. Order inside a block is not in the delta: it is by rate, and a client sorts by it. Ties keep no meaningful order (see below).
 
-A new block moves nearly every record in the projected blocks one block forward: 14,000 to 25,000 records (0.7 to 1.2 MB at 49 bytes), once per block. A WebSocket hub may prefer to send a fresh snapshot then.
+A new block moves nearly every record in the projected blocks one block forward: 14,000 to 25,000 records (0.8 to 1.4 MB at 57 bytes), once per block. A WebSocket hub may prefer to send a fresh snapshot then.
 
 When the tip moves, the first block of the last projection on the old tip is kept as `Expected` (six of them), so the block mined on that tip can be audited against what we expected ([Block audits](#block-audits)). With it are whether that projection was `stale`, the tip it gave way to (`next`) and when (`at`), and `left`: every transaction it held, in any block, that the first projection on `next` no longer holds, with the rate it was placed at. That list is about one block's transactions (some 4,000, 36 bytes each on mainnet), so the six cost under a megabyte.
 

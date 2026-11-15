@@ -115,6 +115,15 @@ describe("projected-block page", () => {
     expect(el.querySelector(".projected-core__change")?.textContent).toMatch(/1 came in, 1 left/);
   });
 
+  it("asks for a reload when the server sends a format this page does not read", () => {
+    const { el, ws } = live();
+    ws.receive(projected(100));
+    const newer = snapshotFrame(0, 1, [rec(1)]);
+    new Uint8Array(newer)[1] = 3;
+    ws.receive(newer);
+    expect(el.textContent).toContain("Reload the page to update it.");
+  });
+
   it("subscribes again when it loses its place, and starts over from the snapshot", () => {
     const { el, ws } = live();
     ws.receive(projected(100));

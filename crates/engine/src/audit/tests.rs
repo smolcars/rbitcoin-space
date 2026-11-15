@@ -28,6 +28,7 @@ fn expected(txs: &[(u32, u32, u32)]) -> ProjectedBlock {
                     rate,
                     vsize,
                     fee,
+                    flags: 0,
                 },
             )
         })

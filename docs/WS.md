@@ -66,7 +66,7 @@ Fed by the network's mempool tracker and projected blocks ([`MEMPOOL.md`](MEMPOO
 | `projected` | The block strip's projected tiles | JSON, the whole state each time | about 1.4 KB |
 | `transactions` | The home page's latest transactions | JSON, the whole list each time | about 1.4 KB |
 | `fees` | The home page's "Fee to pay now" panel | JSON, the whole state each time, only when it changed, and at once on a new block | about 390 bytes, one or two a minute |
-| `projected-txs:0` to `projected-txs:6` | One projected block's grid | Binary: a snapshot, then deltas | snapshot 48 bytes a transaction; see [Cost](#cost-of-the-mempool-topics) |
+| `projected-txs:0` to `projected-txs:6` | One projected block's grid | Binary: a snapshot, then deltas | snapshot 56 bytes a transaction; see [Cost](#cost-of-the-mempool-topics) |
 
 With `{NET}_MEMPOOL_ENABLED=false` every one of them but `fees` (and [`replacements`](#replacements) too) answers subscribe with `{"topic":"…","type":"off"}` and nothing else; `fees` then carries the node's own estimates.
 
@@ -148,7 +148,7 @@ The server keeps that order for every message it sends to subscribers. A mempool
 
 Integers are little-endian. A txid is 32 bytes in the order it is written in hex, so hex-encoding the bytes gives the usual txid string.
 
-**Record**, 48 bytes, one transaction:
+**Record**, 56 bytes, one transaction:
 
 | Offset | Bytes | Field |
 |---|---|---|
@@ -156,25 +156,26 @@ Integers are little-endian. A txid is 32 bytes in the order it is written in hex
 | 32 | 4 | effective fee rate, sat per 1,000 vB: the rate of the chunk it is mined in |
 | 36 | 4 | sigop-adjusted vsize |
 | 40 | 8 | its own fee, satoshis |
+| 48 | 8 | its flags: the bits of [`API.md`](API.md#transaction-flags) that its own bytes show |
 
 **Kind 1, snapshot**: the block's whole state.
 
 | Offset | Bytes | Field |
 |---|---|---|
 | 0 | 1 | kind, `1` |
-| 1 | 1 | version, `1` |
+| 1 | 1 | version, `2` |
 | 2 | 1 | block `N` |
 | 3 | 1 | zero |
 | 4 | 4 | record count |
 | 8 | 8 | `seq`: the projection this is |
-| 16 | 48 × count | records, in mining order |
+| 16 | 56 × count | records, in mining order |
 
 **Kind 2, delta**: changes since the previous frame of this topic.
 
 | Offset | Bytes | Field |
 |---|---|---|
 | 0 | 1 | kind, `2` |
-| 1 | 1 | version, `1` |
+| 1 | 1 | version, `2` |
 | 2 | 1 | block `N` |
 | 3 | 1 | zero |
 | 4 | 4 | removed count |
@@ -183,7 +184,9 @@ Integers are little-endian. A txid is 32 bytes in the order it is written in hex
 | 24 | 4 | set count |
 | 28 | 4 | zero |
 | 32 | 32 × removed | txids that left the block: confirmed, replaced, evicted, or moved to another block |
-| … | 48 × set | records that entered the block or changed rate, size or fee |
+| … | 56 × set | records that entered the block or changed rate, size, fee or flags |
+
+**Versions.** Version 2 added the flags; version 1's records were 48 bytes. A page that meets a version it does not read draws nothing from the frame and asks the reader to reload, which brings the frontend that matches the server ([`FRONTEND.md`](FRONTEND.md#live-data)).
 
 **Applying them.** Hold, per block, a map from txid to record and the `seq` of the last frame applied.
 
@@ -193,7 +196,7 @@ Integers are little-endian. A txid is 32 bytes in the order it is written in hex
 
 The server never skips a frame for a subscriber: one that cannot keep up is closed with `4003` instead. So a lost place means a client bug or a reconnect without a fresh subscribe, never a normal event. Draw the grid by sorting on rate, highest first; ties have no meaningful order ([`MEMPOOL.md`](MEMPOOL.md#limits)).
 
-**Falling behind.** A slow client is dropped, not resynchronised: its send queue fills (`WS_SEND_QUEUE` frames) and it is closed with `4003`, as on every topic. Resynchronising would mean holding, per client, what it has missed and sending a slow client a snapshot of up to 800 KB on top; dropping it costs nothing, and its reconnect gets one snapshot through the normal path. Frames are shared, so a full queue holds 64 references, not 64 copies.
+**Falling behind.** A slow client is dropped, not resynchronised: its send queue fills (`WS_SEND_QUEUE` frames) and it is closed with `4003`, as on every topic. Resynchronising would mean holding, per client, what it has missed and sending a slow client a snapshot of up to 930 KB on top; dropping it costs nothing, and its reconnect gets one snapshot through the normal path. Frames are shared, so a full queue holds 64 references, not 64 copies.
 
 ### Cost of the mempool topics
 
@@ -205,10 +208,12 @@ The server never skips a frame for a subscriber: one that cannot keep up is clos
 | `projected` | 654 | one per 2.1 s |
 | `transactions` | 671 | one per 2.1 s |
 | **The home page, all three** | **1.4 KB/s** | |
-| `projected-txs:0` | 321 after a 166 KB snapshot (3,458 transactions) | a delta per 2.1 s |
-| `projected-txs:1` | 582 after a 378 KB snapshot (7,880 transactions) | a delta per 2.1 s |
+| `projected-txs:0` | 321 after a 166 KB snapshot (3,458 transactions; 194 KB at today's 56 bytes, computed) | a delta per 2.1 s |
+| `projected-txs:1` | 582 after a 378 KB snapshot (7,880 transactions; 441 KB at 56 bytes, computed) | a delta per 2.1 s |
 
-A second run of 1,760 s, which included block 975,526 (3,663 transactions confirmed), gave the same rates (1.4 KB/s for the home page; 278 and 602 B/s for blocks 0 and 1). At the block each projected block's change was larger than its new state, so both topics sent a snapshot instead: 87 KB for block 0 (1,822 transactions) and 270 KB for block 1. A client watching a block pays that once per block. Throughout, our counts matched the node's `getmempoolinfo` to within 10 transactions (the ones that arrived between our cycle and the check), and our block 0 matched the node's template above 99.7% by weight, tie-aware, at every one of 46 checks.
+These runs sent 48-byte records, before the flags; a delta's records grow by a sixth with them.
+
+A second run of 1,760 s, which included block 975,526 (3,663 transactions confirmed), gave the same rates (1.4 KB/s for the home page; 278 and 602 B/s for blocks 0 and 1). At the block each projected block's change was larger than its new state, so both topics sent a snapshot instead: 87 KB for block 0 (1,822 transactions) and 270 KB for block 1 (102 KB and 315 KB at 56 bytes, computed). A client watching a block pays that once per block. Throughout, our counts matched the node's `getmempoolinfo` to within 10 transactions (the ones that arrived between our cycle and the check), and our block 0 matched the node's template above 99.7% by weight, tie-aware, at every one of 46 checks.
 
 **Server, at scale,** measured locally only: the release build against a regtest node taking 20 new transactions a second (a block every 3 minutes, mempool up to 3,600 transactions), clients in Python on the same machine (Apple M4, shared with other work). One client in ten also watched `projected-txs:0`.
 
@@ -343,7 +348,7 @@ Browsers answer pings on their own, so a live tab is never closed for silence. A
 
 A client closed for 1002 to 4002 has a bug; reconnecting will not help. After 4003 or 4004, reconnect with backoff. The close frame is written after any frame in progress and the queued messages are dropped. When a client has stopped reading, the close frame may never reach it: the write gives up after `REQUEST_TIMEOUT_SECS` without progress and the connection is dropped.
 
-**A client that never reads** holds, at most, its kernel socket buffers and `WS_SEND_QUEUE` (64) messages, for at most `REQUEST_TIMEOUT_SECS` after its buffers fill, even if it keeps sending pings so it is never idle. The messages are references to frames every subscriber shares, so what it pins is the frames its topics have moved past since: with a busy synthetic mempool replacing a quarter of a 4,000-transaction block every step, one such socket on two projected blocks and the other mempool topics held 1.3 MB in 64 messages (the largest 192 KB) when it was closed with `4003`, and sixteen of them, one address's allowance, stalled at the same moment, held the same 1.3 MB between them (`subscribers_that_never_read_hold_at_most_their_queues`). The largest message is a full projected block's snapshot, about 800 KB, so one socket can pin at most about 51 MB. Sockets add only the frames they do not share: ones that stall at different moments, or follow different projected blocks, can each pin frames the others do not, up to sixteen times that in the worst case, each for at most `REQUEST_TIMEOUT_SECS` after it stalls. Over TCP with a 4 KB receive window and a 2 s write timeout, a pinging client that never read 256 KB blocks, each sent as soon as the last was fetched, was dropped 3.4 to 3.7 s after the first (`a_client_that_never_reads_but_pings_is_dropped_once_its_writes_stall`).
+**A client that never reads** holds, at most, its kernel socket buffers and `WS_SEND_QUEUE` (64) messages, for at most `REQUEST_TIMEOUT_SECS` after its buffers fill, even if it keeps sending pings so it is never idle. The messages are references to frames every subscriber shares, so what it pins is the frames its topics have moved past since: with a busy synthetic mempool replacing a quarter of a 4,000-transaction block every step, one such socket on two projected blocks and the other mempool topics held 1.5 MB in 64 messages (the largest 224 KB) when it was closed with `4003`, and sixteen of them, one address's allowance, stalled at the same moment, held the same 1.5 MB between them (`subscribers_that_never_read_hold_at_most_their_queues`). The largest message is a full projected block's snapshot, about 930 KB, so one socket can pin at most about 60 MB. Sockets add only the frames they do not share: ones that stall at different moments, or follow different projected blocks, can each pin frames the others do not, up to sixteen times that in the worst case, each for at most `REQUEST_TIMEOUT_SECS` after it stalls. Over TCP with a 4 KB receive window and a 2 s write timeout, a pinging client that never read 256 KB blocks, each sent as soon as the last was fetched, was dropped 3.4 to 3.7 s after the first (`a_client_that_never_reads_but_pings_is_dropped_once_its_writes_stall`).
 
 ## The mempool.space-shaped socket (`/api/v1/ws`)
 
@@ -390,8 +395,8 @@ Every message is one JSON object in its own frame, with the key named here.
 | `{"txConfirmed":"<txid>"}` | It was mined | Also when a reorg's new block confirms a transaction that had been replaced |
 | `{"address-transactions":[…]}` | `track-address`: transactions paying or spending it entered the mempool | The node's Esplora JSON for each, as `GET /api/tx/:txid` serves it |
 | `{"block-transactions":[…]}` | `track-address`: transactions of it confirmed | As above |
-| `{"projected-block-transactions":{"index":0,"sequence":1,"blockTransactions":[…]}}` | `track-mempool-block`, and when a block found changes most of it | The block's transactions in mining order, each `[txid, fee, vsize, value, rate, flags, first seen]`: sats, the sigop-adjusted vsize, total output value in sats, effective rate in sat/vB, `0`, Unix seconds |
-| `{"projected-block-transactions":{"index":0,"sequence":2,"delta":{"added":[…],"removed":[…],"changed":[…]}}}` | Its changes, at most once per `WS_MEMPOOL_INTERVAL_MS` (2 s), at once on a new tip | `added` as above; `removed` txids; `changed` `[txid, rate, 0, 0]` for a transaction whose rate moved |
+| `{"projected-block-transactions":{"index":0,"sequence":1,"blockTransactions":[…]}}` | `track-mempool-block`, and when a block found changes most of it | The block's transactions in mining order, each `[txid, fee, vsize, value, rate, flags, first seen]`: sats, the sigop-adjusted vsize, total output value in sats, effective rate in sat/vB, the bits of [`API.md`](API.md#transaction-flags) that its own bytes show (a number), Unix seconds |
+| `{"projected-block-transactions":{"index":0,"sequence":2,"delta":{"added":[…],"removed":[…],"changed":[…]}}}` | Its changes, at most once per `WS_MEMPOOL_INTERVAL_MS` (2 s), at once on a new tip | `added` as above; `removed` txids; `changed` `[txid, rate, flags, 0]` for a transaction whose rate or flags moved |
 | `{"rbfLatest":[…]}` | `track-rbf`, then when the record of replacements changes, checked every `WS_MEMPOOL_INTERVAL_MS` (2 s) | The bytes `GET /api/v1/replacements` (or `/fullrbf/replacements`) answers at that moment: the 25 newest trees |
 | `{"rbfLatestSummary":[{"txid","mined","fullRbf","oldFee","oldVsize","newFee","newVsize"},…]}` | `track-rbf-summary`, then as `rbfLatest` | The 6 newest trees of `/replacements`, each its newest transaction (`txid`, `new…`, `mined` `false` when not mined) and the sums of fee and vsize of what it directly replaced (`old…`), as the reference adds them |
 | `{"multi-address-transactions":{"<address>":{"mempool":[…],"confirmed":[…],"removed":[]}}}` | `track-addresses`: the same events | One address per message, written as the server writes it (bech32 in lower case); `removed` is always empty |
@@ -487,7 +492,7 @@ Per socket, the parts wanted (four at most), the block drawn and the two replace
 | Transactions in address messages | The node's Esplora JSON, without the reference's own fields (`order`, `vsize`, `adjustedVsize`, `feePerVsize`, `adjustedFeePerVsize`, `effectiveFeePerVsize`, `firstSeen`, `cpfpDirty`, `clusterId`, `chunkIndex`, `cpfpChecked`, …) | Passed through from the node, never rebuilt |
 | `track-addresses` | 2 addresses per socket by default | Each address is a node subscription; raise `WS_MAX_TRACKED_ADDRESSES` to allow more |
 | `multi-address-transactions` | One address per message; `removed` always empty | Each address's message is encoded once for every socket following it |
-| `projected-block-transactions` | Flags always `0`, so the goggles' filters find nothing; vsize the sigop-adjusted integer; changes at most every 2 s and none when nothing changed; block 7 not served ([above](#projected-block-drawings)) | Flags are not computed yet. The reference sends a change about once a second, empty ones too |
+| `projected-block-transactions` | Flags only from the transaction's own bytes ([`API.md`](API.md#transaction-flags)): no bit that needs its parents, children or replacements; vsize the sigop-adjusted integer; changes at most every 2 s and none when nothing changed; block 7 not served ([above](#projected-block-drawings)) | Those bits are not computed yet. The reference sends a change about once a second, empty ones too |
 | Not served | `refresh-blocks`, `conversions`, `track-txs`, `track-mempool`, `track-mempool-txids`, `utxoSpent`, `address-removed-transactions`, `rbfTransaction`, `rbfInfo` | Status and reason per message in [`compat/websocket.md`](compat/websocket.md) |
 
 ### Cost of a compatible socket

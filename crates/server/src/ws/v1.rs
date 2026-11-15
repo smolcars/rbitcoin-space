@@ -1072,11 +1072,11 @@ impl Drawings {
 }
 
 /// A transaction as the reference draws it: txid, fee, vsize, total output value, effective rate
-/// in sat/vB, flags (not computed: always 0) and when the node accepted it.
+/// in sat/vB, flags and when the node accepted it.
 fn row(m: &Mempool, (txid, p): &(Txid, Placed)) -> Value {
     // Gone from the tracker since this projection: its value and time are no longer known.
     let (value, time) = m.get(txid).map_or((0, 0), |i| (i.value.to_sat(), i.time));
-    json!([txid, p.fee, p.vsize, value, rate(p.rate), 0, time])
+    json!([txid, p.fee, p.vsize, value, rate(p.rate), p.flags, time])
 }
 
 /// Sat per 1,000 vB to sat/vB.
@@ -1085,7 +1085,7 @@ fn rate(r: u32) -> f64 {
 }
 
 /// The block's whole list, in mining order.
-fn whole(tracker: &Tracker, index: u8, sequence: u64, b: &ProjectedBlock) -> Value {
+pub(super) fn whole(tracker: &Tracker, index: u8, sequence: u64, b: &ProjectedBlock) -> Value {
     let txs: Vec<Value> = tracker.read(|m| b.txs.iter().map(|t| row(m, t)).collect());
     json!({ "projected-block-transactions": {
         "index": index, "sequence": sequence, "blockTransactions": txs,
@@ -1113,8 +1113,10 @@ fn changes(
         for t in &new.txs {
             match before.get(&t.0) {
                 None => added.push(row(m, t)),
-                // A transaction's fee and size are its own: only its rate can change.
-                Some(b) if b.rate != t.1.rate => changed.push(json!([t.0, rate(t.1.rate), 0, 0])),
+                // A transaction's fee and size are its own: only its rate and flags can change.
+                Some(b) if (b.rate, b.flags) != (t.1.rate, t.1.flags) => {
+                    changed.push(json!([t.0, rate(t.1.rate), t.1.flags, 0]));
+                }
                 Some(_) => {}
             }
         }
