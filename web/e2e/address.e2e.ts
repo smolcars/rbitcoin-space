@@ -1,11 +1,41 @@
 import type { Page } from "@playwright/test";
 import { chain, expect, test } from "./fixtures";
+import { SILENT_PAYMENT } from "./pages";
 
 const box = (page: Page, label: string) =>
   page.locator(".address-stat", { has: page.getByText(label, { exact: true }) });
 /** The figure a total shows: in magnitude for an amount, the exact one a tap away. */
 const stat = (page: Page, label: string) =>
   box(page, label).locator("dd .amount, dd > .num").first();
+
+test("a silent payments address is read in the browser, and its address never sent", async ({
+  page,
+}) => {
+  const sent: string[] = [];
+  page.on("request", (r) => {
+    if (r.resourceType() !== "document" && r.url().toLowerCase().includes("tsp1"))
+      sent.push(r.url());
+  });
+  page.on("websocket", (ws) => {
+    ws.on("framesent", (f) => {
+      if (String(f.payload).toLowerCase().includes("tsp1")) sent.push(String(f.payload));
+    });
+  });
+  await page.goto(`/regtest/address/${SILENT_PAYMENT.toUpperCase()}`);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Address");
+  await expect(page.getByText("Silent payments", { exact: true })).toBeVisible();
+  await expect(page.getByText("Silent payments address for Regtest")).toBeVisible();
+  const keys = page.locator(".address-sp-fact .hash__text");
+  await expect(keys.nth(0)).toHaveText(
+    "0220bcfac5b99e04ad1a06ddfb016ee13582609d60b6291e98d01a9bc9a16c96d4",
+  );
+  await expect(keys.nth(1)).toHaveText(
+    "025cc9856d6f8375350e123978daac200c260cb5b5ae83106cab90484dcd8fcf36",
+  );
+  await page.getByText("How silent payments work").click();
+  await expect(page.getByText("The format is defined in BIP352.")).toBeVisible();
+  expect(sent).toStrictEqual([]);
+});
 
 test("a taproot address shows its totals, history and unspent outputs from the chain", async ({
   page,

@@ -10,6 +10,11 @@ import AddressPage from "./AddressPage";
 
 const ME = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4";
 const OTHER = "bc1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qccfmv3";
+/** BIP352's first test vector address, and the same keys on the test networks. */
+const SP =
+  "sp1qqgste7k9hx0qftg6qmwlkqtwuy6cycyavzmzj85c6qdfhjdpdjtdgqjuexzk6murw56suy3e0rd2cgqvycxttddwsvgxe2usfpxumr70xc9pkqwv";
+const TSP =
+  "tsp1qqgste7k9hx0qftg6qmwlkqtwuy6cycyavzmzj85c6qdfhjdpdjtdgqjuexzk6murw56suy3e0rd2cgqvycxttddwsvgxe2usfpxumr70xc3wk4yh";
 const txid = (n: number) => n.toString(16).padStart(64, "0");
 
 type Handler = (url: string) => Response | Promise<Response>;
@@ -604,6 +609,72 @@ describe("address page", () => {
       ["Open it on Signet", `/signet/address/${tb}`],
     ]);
     expect(calls).toStrictEqual(["/app/config"]);
+  });
+
+  describe("a silent payments address", () => {
+    it("shows its keys, read from the address without asking the server anything", async () => {
+      serve({});
+      const el = open(`/address/${SP}`);
+      expect(text(el.querySelector(".address-type") as Element)).toBe("Silent payments");
+      expect(text(el)).toContain("ValidSilent payments address for Mainnet");
+      expect(text(el)).toContain("There is no balance or history to show");
+      const facts = [...el.querySelectorAll(".address-sp-fact")].map((f) => [
+        text(f.querySelector("dt") as Element),
+        text(f.querySelector(".hash__text") ?? (f.querySelector("dd") as Element)),
+        f.querySelector(".copy")?.getAttribute("title"),
+      ]);
+      expect(facts).toStrictEqual([
+        ["Network", "Mainnet (sp)", undefined],
+        ["Version", "0", undefined],
+        [
+          "Scan key",
+          "0220bcfac5b99e04ad1a06ddfb016ee13582609d60b6291e98d01a9bc9a16c96d4",
+          "Copy the scan key, as hex",
+        ],
+        [
+          "Spend key",
+          "025cc9856d6f8375350e123978daac200c260cb5b5ae83106cab90484dcd8fcf36",
+          "Copy the spend key, as hex",
+        ],
+      ]);
+      await sleep(50);
+      expect(calls).toStrictEqual([]);
+      expect(FakeSocket.all).toStrictEqual([]);
+    });
+
+    it("reads an upper-case address as its lower-case form", () => {
+      serve({});
+      const el = open(`/address/${SP.toUpperCase()}`);
+      expect(text(el)).toContain("Silent payments address for Mainnet");
+      expect(text(el.querySelector(".address-head .hash__text") as Element)).toBe(SP);
+    });
+
+    it("decodes a test network address on a test network", () => {
+      serve({});
+      const el = open(`/signet/address/${TSP}`);
+      expect(text(el)).toContain("Silent payments address for Signet");
+      expect(text(el)).toContain("NetworkSignet (tsp)");
+    });
+
+    it("points a test network address on mainnet to the networks that serve it", async () => {
+      serve({ "/app/config": { networks: ["mainnet", "regtest"], version: "0" } });
+      const el = open(`/address/${TSP}`);
+      expect(text(el)).toContain("This is a Signet, Testnet4 or Regtest address");
+      await until(() => expect(el.querySelector(".address-elsewhere a")).not.toBeNull());
+      expect(el.querySelector(".address-elsewhere a")?.getAttribute("href")).toBe(
+        `/regtest/address/${TSP}`,
+      );
+      expect(el.querySelector(".address-sp-fact")).toBeNull();
+    });
+
+    it("says what is wrong with one that does not check out", () => {
+      serve({});
+      const el = open(`/address/${SP.slice(0, -1)}q`);
+      expect(text(el)).toContain("This is not a valid silent payments address");
+      expect(text(el)).toContain("Its checksum does not match");
+      expect(el.querySelector(".address-sp-fact")).toBeNull();
+      expect(calls).toStrictEqual([]);
+    });
   });
 
   it("says when no enabled network serves the address", async () => {

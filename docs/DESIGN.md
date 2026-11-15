@@ -424,6 +424,27 @@ time (or Unconfirmed)   txid   this address +/-   fee rate
 
 Incoming amounts are `+`, outgoing `−`, both in the text colour: the sign carries the direction. The live line sits below the address, never over it.
 
+A silent payments address (`sp1…`, `tsp1…`) has no balance or history to show, so its page has neither, and no live line:
+
+```text
+Address  (Silent payments)
+sp1qqgste 7k9hx0qf tg6qmwlk qtwuy6cy …   [copy]
+✓ Valid  Silent payments address for Mainnet
+┌ Pay this address ──────────────────────────────────┐
+│ Copy the address into a wallet that supports them. │
+│ Why there is no balance or history.                │
+│ ▸ How silent payments work                         │
+└────────────────────────────────────────────────────┘
+┌ What the address holds ────────────────────────────┐
+│ Network     Mainnet (sp)                           │
+│ Version     0                                      │
+│ Scan key    0220bcfa c5b99e04 …            [copy]  │
+│ Spend key   025cc985 6d6f8375 …            [copy]  │
+└────────────────────────────────────────────────────┘
+```
+
+One that does not check out says which check failed (checksum, version, length, or a key not on the curve) in a caution notice, in place of both panels.
+
 ### Mining (not in the prototype)
 
 ```text

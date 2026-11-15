@@ -27,6 +27,7 @@ import { LargeAddress } from "./Large";
 import { asksAgain, LEDGER_POLL_MS, readLedger, waiting } from "./ledger";
 import { AddingUp, KeptAddress } from "./Kept";
 import { Notice, settled } from "./parts";
+import { SilentPaymentAddress } from "./SilentPayment";
 import { Totals } from "./Totals";
 import "./AddressPage.css";
 
@@ -97,6 +98,10 @@ export default function AddressPage() {
         </Match>
         <Match when={key() === undefined}>
           <WrongNetwork found={found() as Recognised} network={network()} />
+        </Match>
+        {/* Read from the address alone: nothing is asked of the server for it. */}
+        <Match when={found()?.type === "sp"}>
+          <SilentPaymentAddress address={(found() as Recognised).address} network={network()} />
         </Match>
         <Match when={key()} keyed>
           {(k) => <AddressBody address={k.slice(k.indexOf(" ") + 1)} found={found()} />}

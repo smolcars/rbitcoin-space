@@ -1,5 +1,6 @@
 import type { Page } from "@playwright/test";
 import { chain, expect, test } from "./fixtures";
+import { SILENT_PAYMENT } from "./pages";
 
 // A regtest block hash has no leading zeros, so search asks for a transaction first and gets a 404.
 test.use({ consoleErrorsAllowed: [/status of 404/] });
@@ -23,6 +24,11 @@ const cases = [
     kind: "a bitcoin: URI",
     query: `bitcoin:${chain.addresses.p2pkh}?amount=1`,
     url: `/regtest/address/${chain.addresses.p2pkh}`,
+  },
+  {
+    kind: "a silent payments URI",
+    query: `bitcoin:?sp=${SILENT_PAYMENT.toUpperCase()}`,
+    url: `/regtest/address/${SILENT_PAYMENT}`,
   },
 ];
 

@@ -4,6 +4,10 @@ import type { Page } from "@playwright/test";
 import { chain, stubRetargets } from "./fixtures";
 import { KEPT, LARGE, stubLarge } from "./large-address";
 
+/** The keys of BIP352's first test vector as a test network silent payments address. */
+export const SILENT_PAYMENT =
+  "tsp1qqgste7k9hx0qftg6qmwlkqtwuy6cycyavzmzj85c6qdfhjdpdjtdgqjuexzk6murw56suy3e0rd2cgqvycxttddwsvgxe2usfpxumr70xc3wk4yh";
+
 const ACINQ = "03864ef025fde8fb587d989186ce6a4a186895ee44a926bfc370e2c366597a3f8f";
 const recorded = (name: string): unknown =>
   JSON.parse(
@@ -56,6 +60,8 @@ export const PAGES: { path: string; stub?: (page: Page) => Promise<void> }[] = [
     path: `/regtest/address/${LARGE}?ledger=adding`,
     stub: (page) => stubLarge(page, { ledger: () => ({ state: "seeding", seconds: 95 }) }),
   },
+  // Read in the browser: nothing to stub.
+  { path: `/regtest/address/${SILENT_PAYMENT}` },
   { path: "/regtest/mining", stub: stubRetargets },
   { path: "/regtest/mining/pool/unknown" },
   { path: "/regtest/mempool" },

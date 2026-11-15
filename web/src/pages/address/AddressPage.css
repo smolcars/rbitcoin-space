@@ -491,4 +491,70 @@
       animation: none;
     }
   }
+
+  /* ---- A silent payments address: read from the address, nothing loads ---- */
+  .address-sp-valid {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0 var(--space-2);
+    margin-top: var(--space-2);
+    color: var(--color-text-muted);
+    font-size: var(--text-sm);
+  }
+  .address-sp-valid__icon {
+    width: 14px;
+    height: 14px;
+    flex: none;
+    fill: none;
+    stroke: var(--color-positive);
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .address-sp-valid__label {
+    color: var(--color-positive);
+    font-weight: var(--weight-medium);
+  }
+  .address-sp {
+    max-width: 48rem;
+    margin-top: var(--space-5);
+  }
+  .address-sp__text {
+    display: grid;
+    gap: var(--space-2);
+    margin-bottom: var(--space-3);
+  }
+  .address-sp-facts {
+    display: grid;
+  }
+  .address-sp-fact {
+    display: grid;
+    grid-template-columns: 8rem minmax(0, 1fr);
+    gap: var(--space-1) var(--space-3);
+    /* A key wraps to two or three lines: one line height for label and value keeps the label
+       beside the first (a wrapping hash has no first baseline to align to). */
+    align-items: start;
+    line-height: 1.6rem;
+    padding: var(--space-2) 0;
+    border-bottom: 1px solid var(--color-line);
+  }
+  .address-sp-fact:last-child {
+    border-bottom: none;
+  }
+  .address-sp-fact dt {
+    color: var(--color-text-muted);
+    font-size: var(--text-sm);
+  }
+  .address-sp-fact dd {
+    min-width: 0;
+  }
+  .address-sp-fact .hash__text {
+    line-height: inherit;
+  }
+  @media (max-width: 40em) {
+    .address-sp-fact {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
 }
