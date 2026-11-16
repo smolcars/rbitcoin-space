@@ -56,7 +56,12 @@ fn dir(name: &str) -> Dir {
 /// turn by Foundry USA, AntPool and nobody known; difficulty 1 then 2 after the retarget at 2016.
 /// Written without a pool: the server's first pass attributes them.
 async fn fill(dir: &Path, heights: impl Iterator<Item = u32>) {
-    let base = now() - 60 - u64::from(TIP) * 600;
+    fill_to(dir, heights, now() - 60).await;
+}
+
+/// [`fill`] with the block at `TIP` stamped `tip_time`.
+async fn fill_to(dir: &Path, heights: impl Iterator<Item = u32>, tip_time: u64) {
+    let base = tip_time - u64::from(TIP) * 600;
     let rows: Vec<u32> = heights.collect();
     let store = Store::open(dir, "regtest", Options::default()).unwrap();
     store
@@ -623,18 +628,6 @@ async fn coverage_is_reported_on_a_half_filled_table() {
     let r = get(&addr, &format!("{V1}/reward-stats/2000")).await;
     assert_eq!(r.json()["startBlock"], 2000);
     assert_eq!(r.coverage(), (Some(2000), Some("false")));
-    let r = get(&addr, &format!("{V1}/hashrate/all")).await;
-    assert_eq!(r.coverage().1, Some("false"), "{r:?}");
-    // Only points whose whole window is stored: each one exact, none dragged down by the gap.
-    let points = r.json()["hashrates"].as_array().unwrap().clone();
-    assert!(!points.is_empty());
-    for p in points {
-        let h = p["avgHashrate"].as_f64().unwrap();
-        assert!(
-            (h / (2.0 * 4_294_967_296.0 / 600.0) - 1.0).abs() < 1e-6,
-            "{p}"
-        );
-    }
     let v = get(&addr, &format!("{V1}/pool/antpool/blocks/2010"))
         .await
         .json();
@@ -653,6 +646,44 @@ async fn coverage_is_reported_on_a_half_filled_table() {
             .await
             .status,
         404
+    );
+}
+
+/// The weekly points over the same half-filled table, its newest block a minute before each of
+/// these times on Monday 16 November 2026: where Monday 00:00 UTC falls in the history decides
+/// which blocks each week holds, so the test names its clock (`all` does not read the server's).
+#[tokio::test]
+async fn hashrate_points_on_a_half_filled_table_are_exact_at_any_hour() {
+    const MONDAY: u64 = 1_794_787_200;
+    const WEEK: u64 = 7 * 86_400;
+    let mut across_retarget = false;
+    for now in [30, 7 * 60, 9_000, 9_900, 43_200, 86_370].map(|s| MONDAY + s) {
+        let d = dir(&format!("hashrate-{now}"));
+        let tip_time = now - 60;
+        fill_to(&d.0, (0..100).chain(2000..=TIP), tip_time).await;
+        let (addr, _) = start(&d.0).await;
+        let r = get(&addr, &format!("{V1}/hashrate/all")).await;
+        assert_eq!(r.coverage().1, Some("false"), "{now}: {r:?}");
+        let time = |h: u32| tip_time - u64::from(TIP - h) * 600;
+        let last_before = |t: u64| (2000..=TIP).rev().find(|&h| time(h) < t);
+        // Only points whose whole window is stored, each the work of the week's blocks over the
+        // time since the last block before it: none dragged down by the gap.
+        let points = r.json()["hashrates"].as_array().unwrap().clone();
+        assert!(!points.is_empty(), "{now}");
+        for p in points {
+            let week = p["timestamp"].as_u64().unwrap();
+            let first = last_before(week).expect("a stored block before the week") + 1;
+            let last = last_before(week + WEEK).unwrap();
+            across_retarget |= first < 2016;
+            let work: f64 = (first..=last).map(|h| f64::from(1 + h / 2016)).sum();
+            let want = work * 4_294_967_296.0 / f64::from((last - first + 1) * 600);
+            let h = p["avgHashrate"].as_f64().unwrap();
+            assert!((h / want - 1.0).abs() < 1e-6, "{now}: {p} {want}");
+        }
+    }
+    assert!(
+        across_retarget,
+        "some hour puts a week across the retarget at 2016"
     );
 }
 
