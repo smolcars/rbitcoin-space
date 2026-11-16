@@ -631,6 +631,11 @@
     color: var(--color-text-muted);
     text-align: center;
   }
+  /* The figures behind the chart are on the history page: here they would open below it and push
+     the panel taller, which is fixed. The chart keeps its slider and summary for a screen reader. */
+  .home-flow .chart__figures {
+    display: none;
+  }
   .home-flow__frame {
     position: relative;
     flex: 1;

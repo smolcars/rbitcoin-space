@@ -37,8 +37,8 @@ const visuals = () => import("./visuals");
 const NextBlockMap = lazy(() => visuals().then((m) => ({ default: m.NextBlockMap })));
 const IncomingChart = lazy(() => visuals().then((m) => ({ default: m.IncomingChart })));
 
-/** The chart's plot, in px: its readout above names it, and its figures' toggle is below. */
-const CHART_HEIGHT = 140;
+/** The chart's plot, in px: with the readout above that names it, as tall as the map. */
+const CHART_HEIGHT = 168;
 const CHART_HEIGHT_PHONE = 160;
 
 /**

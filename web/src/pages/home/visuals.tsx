@@ -6,7 +6,7 @@ import { formatSi } from "../../components/chart/scale";
 import type { GridState } from "../../components/txgrid/TxGrid";
 import { fetchApp } from "../../lib/api";
 import { groupDigits } from "../../lib/format";
-import { useTopic } from "../../lib/live";
+import { useLiveStatus, useTopic } from "../../lib/live";
 import type { Network } from "../../lib/network";
 import { BlockTxs, type ProjectedTx, projectedTxsTopic } from "../../lib/projected-txs";
 import { flowSentence, type History, isHistory, pointTime, rateText } from "../mempool/history";
@@ -32,6 +32,7 @@ export function NextBlockMap() {
   const [off, setOff] = createSignal(false);
   const [outdated, setOutdated] = createSignal(false);
   const [grid, setGrid] = createSignal<GridState>();
+  const status = useLiveStatus();
   const restart = useTopic(projectedTxsTopic(0), {
     message(m) {
       if (m.kind === "off") {
@@ -53,9 +54,16 @@ export function NextBlockMap() {
         ? "Reload the page to see the map."
         : grid() === "unsupported"
           ? "The map needs WebGL2."
-          : txs()?.length === 0
-            ? "Nothing is waiting: the next block would hold only its coinbase."
-            : undefined;
+          : grid() === "lost"
+            ? "The map is back when the browser restores its drawing."
+            : txs()?.length === 0
+              ? "Nothing is waiting: the next block would hold only its coinbase."
+              : grid() === "drawn"
+                ? undefined
+                : // Its data comes only over the live connection: say so rather than stay blank.
+                  status() === "live" || status() === "connecting"
+                  ? "Loading the next block…"
+                  : "The map shows while the page is live.";
   const label = () =>
     `Map of the next block's ${groupDigits(txs()?.length ?? 0)} projected transactions, the dearest at the top left`;
   return (

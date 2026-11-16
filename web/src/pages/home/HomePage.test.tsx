@@ -830,36 +830,52 @@ const projectedTiles = (el: HTMLElement) => [
 ];
 const count = (path: string) => requests.filter((p) => p === path).length;
 
+/** A stand-in for the browser's observer: it reports the panel in view at once, or when told. */
+let reportView: (() => void) | undefined;
+class FakeObserver {
+  static atOnce = false;
+  readonly #notify: (entries: { isIntersecting: boolean }[]) => void;
+  #stopped = false;
+  constructor(notify: (entries: { isIntersecting: boolean }[]) => void) {
+    this.#notify = notify;
+  }
+  observe() {
+    reportView = () => {
+      if (!this.#stopped) this.#notify([{ isIntersecting: true }]);
+    };
+    if (FakeObserver.atOnce) reportView();
+  }
+  disconnect() {
+    this.#stopped = true;
+  }
+}
+
 describe("the mempool panel's pictures", () => {
+  beforeEach(() => {
+    reportView = undefined;
+    FakeObserver.atOnce = false;
+    vi.stubGlobal("IntersectionObserver", FakeObserver);
+  });
+
   it("wait until the panel comes near the view: no map topic and no history before", async () => {
-    let report: (() => void) | undefined;
-    vi.stubGlobal(
-      "IntersectionObserver",
-      class {
-        readonly #notify: (entries: { isIntersecting: boolean }[]) => void;
-        constructor(notify: (entries: { isIntersecting: boolean }[]) => void) {
-          this.#notify = notify;
-        }
-        #stopped = false;
-        observe() {
-          report = () => {
-            if (!this.#stopped) this.#notify([{ isIntersecting: true }]);
-          };
-        }
-        disconnect() {
-          this.#stopped = true;
-        }
-      },
-    );
     const { ws } = await open(true);
     const asked = () => JSON.stringify(ws.sent).includes("projected-txs:0");
     const history = () => requests.filter((p) => p.endsWith("/app/mempool/history/2h")).length;
-    await vi.waitFor(() => expect(report).toBeDefined());
+    await vi.waitFor(() => expect(reportView).toBeDefined());
     expect(asked()).toBe(false);
     expect(history()).toBe(0);
-    report?.();
+    reportView?.();
     await vi.waitFor(() => expect(asked()).toBe(true));
     await vi.waitFor(() => expect(history()).toBe(1));
+  });
+
+  it("say why the map is empty while its data cannot come, never a blank frame", async () => {
+    FakeObserver.atOnce = true;
+    const { el, ws } = await open(true);
+    const note = () => el.querySelector(".home-next__note")?.textContent;
+    await vi.waitFor(() => expect(note()).toBe("Loading the next block…"));
+    ws.drop(1006);
+    await vi.waitFor(() => expect(note()).toBe("The map shows while the page is live."));
   });
 });
 
