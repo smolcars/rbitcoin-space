@@ -376,10 +376,13 @@ pub struct InBlock {
 
 /// The channels block `hash` funded and closed, `limit` of each, largest first: through the
 /// hash indexes (`0019`), so a block that left the chain, whose rows were moved or cleared,
-/// finds none.
+/// finds none. All four reads from one snapshot.
 pub async fn in_block(store: &Store, hash: BlockHash, limit: usize) -> Result<InBlock, Error> {
     store
         .read(Read::Lightning, move |sql| {
+            // One snapshot, so the lists and the counts agree while history commits; the store
+            // ends the transaction after the read.
+            sql.prepare("BEGIN")?.execute([])?;
             let h = hash.to_byte_array().to_vec();
             let n = int(limit as u64);
             let opened = sql
