@@ -16,5 +16,14 @@
       "@jaonoctus"
     ],
     "link": "https://jaonoctus.dev"
+  },
+  {
+    "id": 10002,
+    "name": "⛏️ Sv2 plebhash ⚡",
+    "addresses": [],
+    "tags": [
+      "plebhash"
+    ],
+    "link": ""
   }
 ]

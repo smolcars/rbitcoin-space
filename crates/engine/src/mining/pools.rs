@@ -278,6 +278,8 @@ mod tests {
         assert_eq!((v2.id, v2.addresses.len()), (10000, 0));
         let jao = p.by_slug("jaonoctus").unwrap();
         assert_eq!((jao.id, jao.addresses.len()), (10001, 0));
+        let pleb = p.by_slug("sv2plebhash").unwrap();
+        assert_eq!((pleb.id, pleb.addresses.len()), (10002, 0));
         // Every address in the shipped list is a valid mainnet address.
         let listed: usize = p.all().iter().map(|p| p.addresses.len()).sum();
         assert_eq!(p.scripts.len(), listed);
@@ -349,6 +351,26 @@ mod tests {
                 .collect();
             assert_eq!(list().attribute(&hex(tag), &payouts), (10001, Method::Tag));
             assert_eq!(upstream.attribute(&hex(tag), &payouts).0, alone);
+        }
+    }
+
+    /// Testnet 5 blocks 129 (`…8ca630eb`) and 4363 (`…be35072e`): coinbase `/Sv2/⛏️ plebhash ⚡//`,
+    /// paying the pool's own address, which the list leaves out.
+    #[test]
+    fn plebhash_blocks_by_tag() {
+        let payouts = [ScriptBuf::from_bytes(hex(
+            "0014eb859601c3afef69055d0fc0e740aadfbc0d5fa1",
+        ))];
+        let upstream = Pools::parse(LIST).unwrap();
+        for tag in [
+            "028100195376322fe29b8fefb88f20706c65626861736820e29aa12f2f140100000000000000000000000000000000000000",
+            "020b11195376322fe29b8fefb88f20706c65626861736820e29aa12f2f140100000f00000000000000000000000000000000",
+        ] {
+            assert_eq!(list().attribute(&hex(tag), &payouts), (10002, Method::Tag));
+            assert_eq!(
+                upstream.attribute(&hex(tag), &payouts),
+                (UNKNOWN, Method::None)
+            );
         }
     }
 
