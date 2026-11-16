@@ -555,7 +555,7 @@ function RefundBody(props: { d: Refund }) {
             </Fact>
           )}
         </Show>
-        <Fact label="Items">{quantity(d().quantity)}</Fact>
+        <Fact label="Items">{groupDigits(d().quantity ?? 1)}</Fact>
         <Fact label="Payer key">
           <Hash value={d().payer_key} copyLabel="Copy the payer key" />
         </Fact>
