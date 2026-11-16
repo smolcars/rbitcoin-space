@@ -16,7 +16,8 @@
 //!   past that a request is answered `503` at once;
 //! - each client may start [`CLIENT_BURST`] computations, then one per [`CLIENT_EVERY`].
 //!
-//! A summary is fixed by the block's hash, so answers are cached for good by clients and proxies.
+//! A summary's transactions are fixed by the block's hash and cached for good; its facts name the
+//! miner and audit from our store, which a new pool list can change, so they are cached for a day.
 
 pub use engine::blocks::stats;
 

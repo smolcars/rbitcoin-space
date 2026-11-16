@@ -82,7 +82,7 @@ export function isSummary(v: unknown): v is BlockSummary {
   );
 }
 
-// shortcut: insertion-ordered, capped like api.ts's cache; summaries never change, so nothing goes stale.
+// shortcut: insertion-ordered, capped like api.ts's cache; kept for the page's life: only a release changes a miner.
 const KNOWN_MAX = 512;
 const known = new Map<string, BlockSummary>();
 const key = (network: Network, hash: string) => `${network}:${hash}`;
