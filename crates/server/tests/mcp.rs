@@ -377,6 +377,22 @@ async fn a_stateless_client_finds_and_calls_the_tools() {
             .starts_with("tb1"),
         "{raw}"
     );
+    // With another locktime it is a transaction the node has never seen: new to it, not confirmed.
+    let mut other = RAW.to_vec();
+    *other.last_mut().unwrap() ^= 1;
+    let other: String = other.iter().map(|b| format!("{b:02x}")).collect();
+    let raw = call(&addr, "decode_transaction", json!({ "hex": other }))
+        .await
+        .unwrap();
+    assert_ne!(raw["txid"], RAW_TXID);
+    assert_eq!(
+        (&raw["known"], &raw["confirmed"]),
+        (&json!(false), &json!(false))
+    );
+    assert_eq!(
+        (&raw["confirmations"], &raw["fee"]),
+        (&json!(0), &json!(107_000))
+    );
     // Not one whole transaction: the route's own words.
     let cut = json!({ "hex": &hex[..hex.len() - 2] });
     assert_eq!(
@@ -601,7 +617,9 @@ async fn a_stateless_client_finds_and_calls_the_tools() {
         let own = ["/blocks/tip/height", "/fee-estimates"].contains(&p.as_str())
             || p.starts_with("/block-height/")
             || p.starts_with("/blocks")
-            || p.starts_with("/block/");
+            || p.starts_with("/block/")
+            // The status of the raw transaction given another locktime, whose txid is its own.
+            || (p.starts_with("/tx/") && p.ends_with("/status"));
         assert!(own || named.contains(p), "{p}");
     }
     for p in &named {
