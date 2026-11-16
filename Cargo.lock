@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "arkade"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "bitcoin",
  "bytes",
@@ -82,7 +82,7 @@ dependencies = [
 
 [[package]]
 name = "bark"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "bitcoin",
  "bytes",
@@ -211,7 +211,7 @@ checksum = "d9468f1a08c50bd1e5ad91b151e11ce8e806f8fa1c1eb9b07f66c7011de45a2e"
 
 [[package]]
 name = "engine"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "bitcoin",
  "node",
@@ -560,7 +560,7 @@ dependencies = [
 
 [[package]]
 name = "ln"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "lightning",
  "lightning-net-tokio",
@@ -572,7 +572,7 @@ dependencies = [
 
 [[package]]
 name = "load"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "bytes",
  "http-body-util",
@@ -584,7 +584,7 @@ dependencies = [
 
 [[package]]
 name = "logging"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -631,7 +631,7 @@ dependencies = [
 
 [[package]]
 name = "node"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "bitcoin",
  "bytes",
@@ -697,7 +697,7 @@ dependencies = [
 
 [[package]]
 name = "rbitcoin-space"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "arkade",
  "axum",
