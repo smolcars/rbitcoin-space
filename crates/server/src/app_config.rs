@@ -34,6 +34,7 @@ pub fn routes(config: &Config) -> Router {
         "version": env!("CARGO_PKG_VERSION"),
         "ark": ark,
         "lightning": config.networks.iter().filter(|n| n.lightning.is_some()).map(|n| n.network.name()).collect::<Vec<_>>(),
+        "broadcast": config.broadcast,
     });
     Router::new().route(
         "/app/config",

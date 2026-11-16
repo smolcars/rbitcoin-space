@@ -1,6 +1,7 @@
 //! The `/api/v1` transaction routes over HTTP, against a mock Esplora on port 0: `POST /prevouts`
 //! and the node calls it makes, the limits in front of every route, and hostile input. The
-//! answers from the mempool engines are tested in `src/transactions/tests.rs`.
+//! answers from the mempool engines are tested in `src/transactions/tests.rs`. `POST
+//! /app/tx/check`, which reads spent outputs the same way, is tested here too.
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -28,6 +29,12 @@ const H1: &str = "0e3e2357e806b6cdb1f70b54c3a3a17b6714ee1f0e68bebb44a74b1efd5120
 const H2: &str = "1111111111111111111111111111111111111111111111111111111111111111";
 const H3: &str = "3333333333333333333333333333333333333333333333333333333333333333";
 const P2PK: &str = "410496b538e853519c726a2c91e61ec11600ae1390813a627c66fb8be7947be63c52da7589379515d4e0a604f8141781e62294721166bf621e73a82cbf2342c858eeac";
+/// A public mainnet transaction, its raw bytes and what Esplora says of it.
+const RAW: &[u8] = include_bytes!("../../../fixtures/esplora/mainnet/tx-segwit-opreturn.bin");
+const ESPLORA: &str = include_str!("../../../fixtures/esplora/mainnet/tx-segwit-opreturn.json");
+/// The output it spends, and its own txid, which the mock says is confirmed.
+const SPENT: &str = "2959afa2cc8a11d6e8a50e71e024203095155c869d549ef54b809015d32bdb51";
+const OWN: &str = "6033990087599ce3cc6fd6f90694736fb9d7912bf5b2eec973389adf29066634";
 const ASM: &str = "OP_PUSHBYTES_65 0496b538e853519c726a2c91e61ec11600ae1390813a627c66fb8be7947be63c52da7589379515d4e0a604f8141781e62294721166bf621e73a82cbf2342c858ee OP_CHECKSIG";
 
 #[derive(Default)]
@@ -82,6 +89,14 @@ fn answer(path: &str) -> Response {
             }],
             "size": 1, "weight": 4, "fee": 1, "status": {"confirmed": false},
         }));
+    }
+    if path == format!("/tx/{SPENT}/out/23") {
+        let tx: Value = serde_json::from_str(ESPLORA).unwrap();
+        return json(tx["vin"][0]["prevout"].clone());
+    }
+    if path == format!("/tx/{OWN}/status") {
+        let tx: Value = serde_json::from_str(ESPLORA).unwrap();
+        return json(tx["status"].clone());
     }
     if path.starts_with("/tx/4") {
         return (StatusCode::SERVICE_UNAVAILABLE, "unavailable").into_response();
@@ -384,4 +399,54 @@ async fn the_replacement_lists_answer_with_a_trailing_slash_as_without() {
         let doubled = send(&addr, &format!("GET {path}//"), b"").await;
         assert_eq!(doubled.status, 404, "{path}");
     }
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+#[tokio::test]
+async fn a_check_reads_what_the_transaction_spends_and_whether_the_node_has_it() {
+    let (addr, node) = start(Duration::ZERO).await;
+    // Whitespace around the hex, as broadcast takes it.
+    let body = format!("\n {} \n", hex(RAW));
+    let r = send(&addr, "POST /app/tx/check", body.as_bytes()).await;
+    assert_eq!(r.status, 200, "{}", r.body);
+    assert_eq!(r.header("cache-control"), Some("no-store"));
+    let ours: Value = serde_json::from_str(&r.body).unwrap();
+    let esplora: Value = serde_json::from_str(ESPLORA).unwrap();
+    for field in ["txid", "vin", "vout", "fee", "weight"] {
+        assert_eq!(ours["tx"][field], esplora[field], "{field}");
+    }
+    assert_eq!(ours["known"], esplora["status"]);
+    assert_eq!(
+        hits(&node),
+        vec![format!("/tx/{SPENT}/out/23"), format!("/tx/{OWN}/status")]
+    );
+}
+
+#[tokio::test]
+async fn a_check_refuses_what_is_not_one_transaction_before_asking_the_node() {
+    let (addr, node) = start(Duration::ZERO).await;
+    let one = "body must be one raw transaction in hex";
+    let raw = hex(RAW);
+    for (body, status, error) in [
+        (String::new(), 400, one),
+        ("zz".to_owned(), 400, one),
+        (raw[..raw.len() - 2].to_owned(), 400, one),
+        (format!("{raw}{raw}"), 400, one),
+        (format!("{raw}00"), 400, one),
+        ("00".repeat(400_001), 413, "body too large"),
+        ("00".repeat(600_000), 413, "body too large"),
+    ] {
+        let r = send(&addr, "POST /app/tx/check", body.as_bytes()).await;
+        assert_eq!(
+            (r.status, r.error()),
+            (status, error.to_owned()),
+            "{}",
+            &body[..body.len().min(80)]
+        );
+    }
+    assert!(hits(&node).is_empty());
+    assert_eq!(send(&addr, "GET /app/tx/check", b"").await.status, 405);
 }

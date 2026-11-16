@@ -38,7 +38,7 @@ pub const MAX_TIMES: usize = 100;
 pub const MAX_PREVOUTS: usize = 100;
 /// No read of a `prevouts` batch starts this long after the first: with each read's own limit,
 /// a batch holds its slot at most twice this.
-const BATCH_DEADLINE: std::time::Duration = esplora::HEAVY_CEILING;
+pub(crate) const BATCH_DEADLINE: std::time::Duration = esplora::HEAVY_CEILING;
 /// Trees in `/replacements` and `/fullrbf/replacements`, as the reference answers.
 pub const RECENT_TREES: usize = 25;
 /// An address's answer never changes; a day bounds the cost of a parser fix reaching caches.
@@ -566,13 +566,13 @@ struct Outpoint {
 
 /// An output as Esplora writes it, keeping only these fields, in this order.
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
-struct Prevout {
-    scriptpubkey: String,
+pub(crate) struct Prevout {
+    pub(crate) scriptpubkey: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    scriptpubkey_address: Option<String>,
-    scriptpubkey_asm: String,
-    scriptpubkey_type: String,
-    value: u64,
+    pub(crate) scriptpubkey_address: Option<String>,
+    pub(crate) scriptpubkey_asm: String,
+    pub(crate) scriptpubkey_type: String,
+    pub(crate) value: u64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -586,9 +586,9 @@ struct Confirmed {
     confirmed: bool,
 }
 
-#[derive(Debug, Serialize)]
-struct Found {
-    prevout: Prevout,
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct Found {
+    pub(crate) prevout: Prevout,
     unconfirmed: bool,
 }
 
@@ -673,16 +673,33 @@ async fn prevouts(
 }
 
 /// One answer per outpoint, in order: the output and whether its transaction is unconfirmed, or
-/// `null` when there is no such output. Reads one output by position (`/tx/:txid/out/:vout`,
-/// confirmed only) unless the tracker holds the transaction, and the whole transaction
-/// (`/tx/:txid`, once per txid) when that is not found: at most two calls per distinct outpoint,
-/// one at a time.
+/// `null` when there is no such output.
 async fn lookup(
     esplora: &Esplora,
     wanted: &[(Txid, u32)],
     held: &HashSet<Txid>,
     deadline: std::time::Instant,
 ) -> Answer {
+    let found = find(esplora, wanted, held, deadline).await?;
+    let body = serde_json::to_vec(&found).map_err(|e| Error::Decode(e.to_string()))?;
+    Ok(RawResponse {
+        status: StatusCode::OK,
+        content_type: Some(HeaderValue::from_static("application/json")),
+        tip: None,
+        body: body.into(),
+    })
+}
+
+/// The output each outpoint names, in order, `None` when there is no such output. Reads one
+/// output by position (`/tx/:txid/out/:vout`, confirmed only) unless the tracker holds the
+/// transaction, and the whole transaction (`/tx/:txid`, once per txid) when that is not found:
+/// at most two calls per distinct outpoint, one at a time.
+pub(crate) async fn find(
+    esplora: &Esplora,
+    wanted: &[(Txid, u32)],
+    held: &HashSet<Txid>,
+    deadline: std::time::Instant,
+) -> Result<Vec<Option<Found>>, Error> {
     let mut outs: HashMap<(Txid, u32), Option<Found>> = HashMap::new();
     let mut txs: HashMap<Txid, Option<TxOuts>> = HashMap::new();
     let late = || {
@@ -730,21 +747,16 @@ async fn lookup(
         });
         outs.insert((txid, vout), found);
     }
-    let answer: Vec<Option<&Found>> = wanted
+    Ok(wanted
         .iter()
-        .map(|k| outs.get(k).and_then(Option::as_ref))
-        .collect();
-    let body = serde_json::to_vec(&answer).map_err(|e| Error::Decode(e.to_string()))?;
-    Ok(RawResponse {
-        status: StatusCode::OK,
-        content_type: Some(HeaderValue::from_static("application/json")),
-        tip: None,
-        body: body.into(),
-    })
+        .map(|k| outs.get(k).and_then(Option::as_ref).cloned())
+        .collect())
 }
 
 /// A 200's body as `T`, `None` for a 404, an error for anything else.
-fn decode<T: serde::de::DeserializeOwned>(raw: &RawResponse) -> Result<Option<T>, Error> {
+pub(crate) fn decode<T: serde::de::DeserializeOwned>(
+    raw: &RawResponse,
+) -> Result<Option<T>, Error> {
     match raw.status {
         StatusCode::OK => serde_json::from_slice(&raw.body)
             .map(Some)

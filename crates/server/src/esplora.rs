@@ -284,7 +284,7 @@ async fn read_body(req: Request) -> Result<Bytes, ApiError> {
 }
 
 /// Raw transaction hex, optionally surrounded by whitespace, holding exactly one transaction.
-fn parse_tx(body: &[u8]) -> Result<Transaction, ApiError> {
+pub(crate) fn parse_tx(body: &[u8]) -> Result<Transaction, ApiError> {
     let bad = || ApiError::bad_request("body must be one raw transaction in hex");
     let hex = std::str::from_utf8(body).map_err(|_| bad())?.trim();
     if hex.len() > 2 * MAX_TX_BYTES {

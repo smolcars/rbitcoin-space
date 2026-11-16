@@ -251,6 +251,24 @@ Once a kept address's whole history is in the store, `/api/address/:a/txs`, `/tx
 - **Rejects** are `400` with a fixed reason: rbitcoin's own reason when it is on our list of known policy and consensus reasons (`min relay fee`, `dust`, `mempool double-spend`, `bad-txns-inputs-duplicate`, …), otherwise `transaction already in the mempool or chain`, `missing or spent inputs`, `script verification failed` or `transaction rejected`.
 - **Off switch:** `BROADCAST_ENABLED=false` turns it off for every network; it then answers `403 broadcast is disabled on this server`.
 
+### Checking a transaction
+
+`POST /app/tx/check` (each network's `/app`) is what the broadcast page shows before anyone sends: the body is a raw transaction, as `POST /tx` takes it, and the answer says what it does. It writes nothing and is served whether or not broadcast is on. The code is `crates/server/src/tx_check.rs`.
+
+```json
+{ "tx": { "txid": "6033…6634", "version": 2, "locktime": 799999,
+          "vin": [{ "txid": "2959…db51", "vout": 23, "prevout": { "scriptpubkey": "0014…", "scriptpubkey_address": "bc1q…", "scriptpubkey_asm": "OP_0 …", "scriptpubkey_type": "v0_p2wpkh", "value": 107374 },
+                    "scriptsig": "", "scriptsig_asm": "", "witness": ["3044…", "0295…"], "is_coinbase": false, "sequence": 4294967293 }],
+          "vout": [ … ], "size": 244, "weight": 649, "fee": 107000, "status": { "confirmed": false } },
+  "known": null }
+```
+
+- **`tx` is in Esplora's shape** (`GET /tx/:txid`), so the transaction page's parts can show it; a test holds it equal to the node's answer for a public transaction. `sigops` and the inner script fields are left out. Output forms and addresses are ours, for this network.
+- **What each input spends** is looked up as `POST /api/v1/prevouts` does ([Transactions](#transactions)): the first 100 distinct outputs, under the cost limit of the address and batch routes. `prevout` is the output, `null` when the node has no such output (spent and gone, or on another network), and absent past the first 100 or for a coinbase.
+- **`fee`** only when every input's output was found and they hold at least what it pays out.
+- **`known`** is the node's `GET /tx/:txid/status` when it already has this txid, in the mempool or a block, otherwise `null`.
+- **Requests:** the body is read as broadcast reads it, with the same size cap; `400 body must be one raw transaction in hex` and `413 body too large` come before any node call. The transaction is in no URL, so in no log line. `Cache-Control: no-store`.
+
 ## mempool.space-shaped routes (`/api/v1`)
 
 A subset of mempool.space's own API, for wallets and tools written against it, under each network's `/api/v1` (`/api/v1`, `/signet/api/v1`, …). Which routes exist is the `served` rows of [`compat/api-v1.md`](compat/api-v1.md). Any other path under `/api/v1` is a `404`. Its WebSocket, `/api/v1/ws`, is in [`WS.md`](WS.md#the-mempoolspace-shaped-socket-apiv1ws).

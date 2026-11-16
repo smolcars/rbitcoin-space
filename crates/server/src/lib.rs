@@ -32,6 +32,7 @@ mod serve;
 pub mod statistics;
 pub mod summary;
 mod transactions;
+mod tx_check;
 mod v1_blocks;
 pub mod verdicts;
 pub mod ws;
@@ -281,6 +282,10 @@ pub fn network_routes() -> Router<Arc<NetworkContext>> {
         .route("/app/blocks/summary", get(summary::batch))
         .route("/app/tx/{txid}/relatives", get(relatives::route))
         .route("/app/tx/{txid}/replacements", get(replacements::route))
+        .route(
+            "/app/tx/check",
+            post(tx_check::route).layer(DefaultBodyLimit::max(esplora::MAX_BROADCAST_BODY)),
+        )
         .route("/app/fees/score", get(ws::fees::score::route))
         .route("/app/address/{address}/size", get(verdicts::size_route))
         .route("/app/address/{address}/ledger", get(ledger::route))

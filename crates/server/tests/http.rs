@@ -238,6 +238,7 @@ async fn app_config_lists_enabled_networks_at_the_root_only() {
     // No network has an Ark implementation configured.
     assert_eq!(json["ark"], serde_json::json!({}));
     assert_eq!(json["lightning"], serde_json::json!([]));
+    assert_eq!(json["broadcast"], true);
     assert_json_error(
         &get_path(&addr, "/signet/app/config").await,
         404,
