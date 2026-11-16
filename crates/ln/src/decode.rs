@@ -570,9 +570,13 @@ fn onion(host: &str) -> bool {
 }
 
 /// An absolute URL's host (lower case, no user info or port) and its query's `tag` and `k1`.
-/// `None` when it has no host or holds a space or a control character.
+/// `None` when it has no host or holds a space, a control character or a backslash, which a
+/// browser reads as `/`: `https://evil\@good/` goes to `evil`, while splitting at `@` says `good`.
 fn read_url(url: &str) -> Option<(String, Option<String>, Option<String>)> {
-    if url.chars().any(|c| c.is_whitespace() || c.is_control()) {
+    if url
+        .chars()
+        .any(|c| c.is_whitespace() || c.is_control() || c == '\\')
+    {
         return None;
     }
     let (_, rest) = url.split_once("://")?;

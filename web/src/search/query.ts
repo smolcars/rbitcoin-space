@@ -54,7 +54,8 @@ export function payment(input: string): Query | null {
   for (const [form, label] of PAYMENT_FORMS) {
     if (form.test(label === "LNURL" ? bare : joined)) return { kind: "payment", label, text };
   }
-  const address = /^([a-z0-9._+-]+)@([a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,})$/i.exec(bare);
+  // `@domain` is LUD-16's short form of the domain's default name.
+  const address = /^([a-z0-9._+-]*)@([a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,})$/i.exec(bare);
   if (address && !/^[0-9a-f]{66}$/i.test(address[1] ?? "")) {
     return { kind: "payment", label: "Lightning address", text };
   }

@@ -139,6 +139,14 @@ test("the keyboard reaches the box, decodes with Enter and reaches each copy but
   await expect(page.getByRole("button", { name: "Decode" })).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(page.getByRole("button", { name: "Copy the server key" })).toBeFocused();
+
+  // Skipping the header keeps the string in the fragment, and on the page.
+  const url = page.url();
+  await page.locator("a.skip").focus();
+  await page.keyboard.press("Enter");
+  await expect(page.locator("main")).toBeFocused();
+  expect(page.url()).toBe(url);
+  await expect(page.getByRole("heading", { level: 2, name: "Arkade address" })).toBeVisible();
 });
 
 // Nothing scrolls sideways and no figure parts from its unit, at every width and text size, on a

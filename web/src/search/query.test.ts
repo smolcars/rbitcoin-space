@@ -354,6 +354,7 @@ describe("classify: payment strings go to the decoder", () => {
     ["keyauth://site.com/login?tag=login&k1=00", "LNURL"],
     ["satoshi@bitcoin.org", "Lightning address"],
     ["Sat.O-shi+tips@Sub.Bitcoin.ORG", "Lightning address"],
+    ["@bitcoin.org", "Lightning address"],
     [ARK, "Ark address"],
     [ARK.slice(1), "Ark address"],
   ])("%j is a %s", (q, kind) => {

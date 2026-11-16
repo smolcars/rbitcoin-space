@@ -320,6 +320,15 @@ fn lud17_urls() {
         decode("lnurlp://bad host/x").unwrap_err(),
         Failure::Malformed
     );
+    // A backslash is a path separator to a browser: the host shown would not be the one reached.
+    assert_eq!(
+        decode("lnurlp://evil.example\\@trusted.example/pay").unwrap_err(),
+        Failure::Malformed
+    );
+    assert_eq!(
+        decode(&encode_lnurl("https://evil.example\\@trusted.example/pay")).unwrap_err(),
+        Failure::Malformed
+    );
 }
 
 #[test]

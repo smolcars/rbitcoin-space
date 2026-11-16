@@ -1206,7 +1206,7 @@ One answer of each kind is [`fixtures/decode/answers.json`](../fixtures/decode/a
 | 400 | `not recognised` | No kind above, an unknown BOLT 11 currency, or not UTF-8 |
 | 400 | `bad checksum` | A known kind whose bech32 or bech32m checksum fails |
 | 400 | `bad signature` | A BOLT 11 signature that does not verify against `n` or recover |
-| 400 | `malformed` | A known kind that breaks its own rules (a missing field, a bad length, an `http://` LNURL to a clearnet host, a BOLT 11 string over LDK's 7,089 characters) |
+| 400 | `malformed` | A known kind that breaks its own rules (a missing field, a bad length, an `http://` LNURL to a clearnet host, a URL with a backslash (which a browser reads as `/`, so its host would not be the one shown), a BOLT 11 string over LDK's 7,089 characters) |
 | 413 | `too long` | A body over 8,192 bytes |
 | 429 | `too many requests` | This client decoded 30 at once, then more than 2 a second |
 

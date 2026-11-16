@@ -70,8 +70,17 @@ export function Shell(props: { children?: JSX.Element }) {
 
   return (
     <>
-      {/* rel="external" keeps the router out, so the browser moves focus to main itself. */}
-      <a class="skip" href="#main" rel="external">
+      {/* rel="external" keeps the router out; focus moves here without touching the fragment,
+          which some pages read as their input (the decoder, a Bark VTXO's hex). */}
+      <a
+        class="skip"
+        href="#main"
+        rel="external"
+        onClick={(e) => {
+          e.preventDefault();
+          main?.focus();
+        }}
+      >
         Skip to content
       </a>
       <Show when={network() !== "mainnet"}>
