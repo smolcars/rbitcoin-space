@@ -55,6 +55,31 @@ pub struct Block {
     pub clearing: Option<u32>,
 }
 
+/// Steps of 0.001 sat/vB above the cheapest clearing rate of the last day that the day-long
+/// level pays at least: a block's clearing rate plus one is what got in, and over three days on
+/// mainnet the next day's cheapest block cleared up to two steps above the last day's
+/// (`docs/MEMPOOL.md`, "The day-long level").
+pub const DAY_FLOOR_STEPS: u32 = 3;
+
+/// The day-long level's floor: [`DAY_FLOOR_STEPS`] above the cheapest clearing rate among
+/// `blocks` in the 144 heights to the highest. `None` when none of them has one.
+pub fn day_floor(blocks: &[Block]) -> Option<u32> {
+    let tip = blocks.iter().map(|b| b.height).max()?;
+    let from = tip.saturating_sub(DAY_BLOCKS - 1);
+    blocks
+        .iter()
+        .filter(|b| b.height >= from)
+        .filter_map(|b| b.clearing)
+        .min()
+        .map(|c| c.saturating_add(DAY_FLOOR_STEPS))
+}
+
+/// The day-long level's horizon: the last of [`LEVELS`].
+const DAY_BLOCKS: u32 = {
+    let [.., day] = LEVELS;
+    day.blocks
+};
+
 /// Spans whose outcome means nothing: a gap between two recorded blocks (sorted by time)
 /// longer than `max_gap`, and the [`AFTERMATH_SECS`] after it.
 pub fn outages(blocks: &[Block], max_gap: u64) -> Vec<(u64, u64)> {
@@ -305,6 +330,11 @@ impl Record {
     /// The highest height recorded.
     pub fn last_height(&self) -> Option<u32> {
         self.blocks.iter().map(|b| b.height).max()
+    }
+
+    /// [`day_floor`] of the blocks recorded.
+    pub fn day_floor(&self) -> Option<u32> {
+        day_floor(&self.blocks)
     }
 
     /// A sample at or after the last one; one from a clock that went back is dropped.

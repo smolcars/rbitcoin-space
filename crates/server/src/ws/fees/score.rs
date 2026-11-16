@@ -8,7 +8,7 @@
 //! projection before them. The fee task is not touched: the served answer is read from
 //! [`super::Fees::current`].
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -59,6 +59,20 @@ pub struct Scores {
     bodies: Mutex<Option<Arc<[Bytes; WINDOWS.len()]>>>,
     /// Writes dropped (queue full) or failed since the last daily line.
     unsaved: AtomicU64,
+    /// The day-long level's floor from the blocks recorded (`fees::score::day_floor`), 0 for none.
+    day_floor: AtomicU32,
+}
+
+impl Scores {
+    /// The day-long level's floor now, `None` before a block with a clearing rate is recorded.
+    pub fn day_floor(&self) -> Option<u32> {
+        Some(self.day_floor.load(Ordering::Relaxed)).filter(|f| *f > 0)
+    }
+
+    fn set_day_floor(&self, record: &Record) {
+        let f = record.day_floor().unwrap_or(0);
+        self.day_floor.store(f, Ordering::Relaxed);
+    }
 }
 
 fn unix_now() -> u64 {
@@ -140,6 +154,7 @@ pub(crate) async fn run(
     let mut chain = Chain::default();
     let found = chain.projection(current, record.last_height(), unix_now());
     record_blocks(&mut record, found, &send);
+    ctx.fees.score.set_day_floor(&record);
     let mut tick = tokio::time::interval(every);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let midnight = || Duration::from_secs(DAY - unix_now() % DAY);
@@ -162,6 +177,7 @@ pub(crate) async fn run(
                 }
                 let found = chain.projection(projector.current(), record.last_height(), unix_now());
                 record_blocks(&mut record, found, &send);
+                ctx.fees.score.set_day_floor(&record);
             }
             _ = tick.tick() => {
                 let now = unix_now();

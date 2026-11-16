@@ -363,7 +363,7 @@ The mempool totals' `min_fee_rate` is the node's `mempoolminfee` from the tracke
 | Method | `crates/engine/src/fees.rs` | Depth, arrivals, the search, smoothing, the node's fallback. Pure: no I/O, no clock |
 | In the server | `crates/server/src/ws/fees.rs` | Feeds it from the tracker and projector, falls back, publishes, holds the answers |
 | Proof | `crates/engine/examples/fee_watch.rs` | Records our answers, the node's and the reference's against a live node, and scores each against the blocks that follow |
-| The score | `crates/engine/src/fees/score.rs`, `crates/engine/src/fees/db.rs` | The clearing rate, the scorer (shared with `fee_watch`) and the record the server keeps. Pure but for `db.rs` |
+| The score | `crates/engine/src/fees/score.rs`, `crates/engine/src/fees/db.rs` | The clearing rate, the scorer (shared with `fee_watch`), the record the server keeps and the day-long level's floor. Pure but for `db.rs` |
 | The score in the server | `crates/server/src/ws/fees/score.rs` | Records what was served and every block, stores it, serves `/app/fees/score`, logs `fees_score` |
 
 ### Levels
@@ -396,6 +396,7 @@ Why each part is as it is:
 - **Never an absurd rate.** One transaction paying 10,000 sat/vB adds its own size, at most 100 kvB, to the depth of every rate below it: it cannot fill a block. The answer is the minimum or one step above a rate some transaction pays, and only where more than the level's room pays that rate or more; it is never above one step over the highest rate seen. A test puts one in the mempool and one in the arrivals and shows nothing moves.
 - **Never below the node's minimum.** Every level is at least `mempoolminfee` and at least 0.1 sat/vB, rbitcoin's relay floor, and a faster level is never below a slower one. The construction already guarantees both; the result is still put in order, as a guard.
 - **Stable.** Recomputed every 2 s, each level is the highest of the last 60 seconds since the tip last moved: it rises at once and falls only after a minute, so it does not flicker with every arrival at a block's edge. The cost is freshness on the way down: after the mempool thins, a level can stay up to 60 seconds too high. A new block clears the history, because it changes the picture for real.
+- **The day-long level has a floor from the blocks.** `no_rush` is never below the cheapest rate that got into a block of the last day, plus two steps, and never above `low` ([The day-long level](#the-day-long-level)): the flow above cannot see a queue that does not drain.
 - **Five minutes of warm-up.** Until five whole minutes of arrivals were watched, the arrival term cannot be trusted, and the node's estimates stand in, no higher than the mempool and the arrivals watched so far justify ([below](#while-warming-up)). Only time with a current projection counts: after the projection was stale or missing for a minute or more (the node was down), the arrivals are thrown away and the warm-up starts over, so an outage is never taken for quiet minutes.
 
 ### When ours cannot be served
@@ -560,7 +561,7 @@ The recordings above needed a recorder of their own, with its own tracker pollin
 - **Every 30 s, what was served:** our four levels when ours was served, or only which stood in: the node's estimates (warming up, or the projection stale) or nothing. 30 s is what the recordings used, so the scores compare; samples waiting for the same block share its fate, so more would add rows, not evidence. The answer is read from the fee task's own (`Fees::current`), so the task that refreshes it every 2 s is not touched.
 - **Every block, its clearing rate**, defined as `fee_watch` defines it and by the same code (`fees::score::held` and `clearing`): the 1st percentile by vsize of the effective rates the last projection on its parent gave the block's transactions. The block's transactions come from the tracker's own window of recent blocks, which every tracker delta carries (`Delta::blocks`), so nothing is asked of the node. Blocks are recorded as `fee_watch` records them: every height from the old tip to the new one, the new tip alone after a reorg (its row replaces the old block's), each seen at the time the projection moved. A block the window does not hold, or that came while the server was down, has no clearing rate. At start, the blocks since the highest one stored are recorded that way, up to 144 of them, so samples taken before a restart are judged against the right heights.
 
-**What it costs.** No node request: a test on a mock node that counts every call (`the_fee_score_asks_the_node_nothing_and_survives_a_restart`) samples some fifty times with the counts of block, transaction and cluster requests unchanged, and a block costs exactly the one fetch the tracker makes anyway. The fee task is not changed; on regtest, two servers on one node under the same load refreshed in the same time with the score kept and without (means of 213 to 692 µs against 228 to 716 µs, debug build). Scoring a full month of samples, every window and level, takes about 32 ms on a blocking thread every 30 s. Storage is about 65 KB a day on mainnet ([`STORE.md`](STORE.md#fee_samples-and-fee_blocks)).
+**What it costs.** No node request: a test on a mock node that counts every call (`the_fee_score_asks_the_node_nothing_and_survives_a_restart`) samples some fifty times with the counts of block, transaction and cluster requests unchanged, and a block costs exactly the one fetch the tracker makes anyway. The fee task was not changed by it (it now reads one number from the keeper, [the day-long floor](#the-day-long-level)); on regtest, two servers on one node under the same load refreshed in the same time with the score kept and without (means of 213 to 692 µs against 228 to 716 µs, debug build). Scoring a full month of samples, every window and level, takes about 32 ms on a blocking thread every 30 s. Storage is about 65 KB a day on mainnet ([`STORE.md`](STORE.md#fee_samples-and-fee_blocks)).
 
 **What the score is.** `fees::score::Record::report` scores each sample's levels with the scorer the recordings used (`fees::score::outcome`, `Tally`): met when the level paid at least one step above the clearing rate of one of the next `N` blocks after it was given; overpay over the cheapest such rate when met, shortfall when missed; a 95% interval that is the wider of one clustered on the block each sample waited for and Wilson's for as many outcomes as blocks. Left out and counted, as the recordings left them out:
 
@@ -576,6 +577,48 @@ The recordings above needed a recorder of their own, with its own tracker pollin
 
 **Read it** at `/app/fees/score` ([`API.md`](API.md#the-score-kept)), and in the `fees_score` line logged once a day per network at midnight UTC for the day before ([`LOGGING.md`](LOGGING.md#the-live-mempool)).
 
+#### Three days of it
+
+Mainnet, from 2026-11-13 14:51 UTC, read on 2026-11-16 at 15:30 UTC (window `all`, 435 blocks), before the day-long floor:
+
+| Level | Met its horizon | 95% interval | Overpay when met, mean (median) | Shortfall when missed |
+|---|---|---|---|---|
+| `high`, next block | 89.1% | 85.5–92.7% | 0.911 (0.893) sat/vB | 0.681 sat/vB |
+| `medium`, 3 blocks | 92.2% | 88.3–96.1% | 0.586 (0.849) | 0.578 |
+| `low`, 6 blocks | 92.5% | 89.4–95.7% | 0.270 (0.011) | 0.532 |
+| `no_rush`, 144 blocks | **31.2%** | 25.0–37.4% | 0.062 (0.000) | 0.015 |
+
+Left out: 6, 90, 147 and 2,410 samples whose horizon had not ended, 3 (next block) with no clearing rate, none for an outage. 428 of 8,671 samples were not ours: 245 nothing and 183 the node's estimates, all from about 45 restarts for deployments.
+
+- **The next block's 85% is now shown.** The three-hour run could not show it (83% on 13 blocks); this interval is above 85% on 436 blocks.
+- **The 6-block level costs less than it did.** Its mean overpay was 0.270 sat/vB over the three days (0.124 in the last 24 hours), against 0.437 on the three-hour run, where the reference paid 0.213 (0.442 over its 24-hour run). The reference was not sampled during these three days, so the comparison is with its earlier figures.
+- **The day-long level missed its horizon.** Why, and the fix, are [below](#the-day-long-level).
+
+### The day-long level
+
+**What the three days showed.** In 456 recorded blocks nothing under 0.120 sat/vB got in (clearing rates: lowest 0.120, 10th percentile 0.122, median 0.124). The mempool holds some 25 MvB at 0.12 sat/vB and below, and about a block's worth arrives above it every ten minutes, so that sea does not drain. Every scored sample needed 0.121 to 0.123 sat/vB to get into one of its next 144 blocks, and the method's answer was 0.100, the minimum, for 2,255 of 5,861 of them and 0.121 for 2,401, flipping between the two. It reasoned that the whole mempool plus a day of arrivals fits in 144 blocks; that holds for a flow, not for a queue that the blocks never reach the bottom of. A transaction paying it waited days.
+
+**The rule.** `no_rush` is at least the cheapest clearing rate among the blocks recorded in the last 144 heights, plus three steps of 0.001 sat/vB (`fees::score::day_floor`, `DAY_FLOOR_STEPS`), and never above `low` (`Rates::no_rush_at_least`). One step is what the scorer counts as getting in; the other two cover the cheapest block of the next day clearing above the cheapest of the last, which on these three days it did by up to two steps. The server's score keeper already holds each block's clearing rate, stored, so it works the floor out after each block and leaves it for the fee task, which applies it to our own answer after smoothing. The node's estimates, when they stand in, are served as they are.
+
+- **No history** (start-up without a store, before the first block with a clearing rate): no floor, and the method's answer as it is. With a store the blocks are loaded at start, so a restart keeps it.
+- **A quiet network, or regtest,** where blocks take everything: `low` is the minimum there, so `no_rush` is too, whatever the floor says. A floor from one expensive block at start-up is likewise bounded by `low`.
+- **No flipping without cause.** The floor moves at most once a block. Between blocks, replayed on the three days, the level changed 125 times against 365 before: 85 times following `low` where it caps the floor, and 40 where the method's own answer rose above it. The flip between 0.100 and 0.121 is gone, since both are under the floor.
+
+**Replayed on the stored tables** (each sample's floor from the blocks recorded before it; 5,861 samples, 298 outcomes; the tables score the served answers at 31.0%, the route's read a little later at 31.2%):
+
+| Rule | Met | 95% interval | Overpay when met, mean (median) | Raised on average |
+|---|---|---|---|---|
+| As served | 31.0% | 24.9–37.2% | 0.062 (0.000) sat/vB | |
+| Cheapest of the last 144 blocks + 0.001 | 71.6% | 64.9–78.3% | 0.028 (0.000) | 0.011 sat/vB |
+| + 0.002 | 86.9% | 82.0–91.8% | 0.024 (0.001) | 0.012 |
+| **+ 0.003 (chosen)** | **99.8%** | **98.3–100%** | **0.021 (0.002)** | **0.013** |
+| Cheapest of the last 36 + 0.002 | 99.8% | 98.3–100% | 0.047 (0.001) | 0.039 |
+| Cheapest of the last 6 + 0.001 | 94.8% | 91.3–98.4% | 0.298 (0.003) | 0.274 |
+
+The 14 misses left are samples where `low` was under the floor and capped it. Taking the second to fifth cheapest of the last 144 or 36 blocks instead of the cheapest did no better (71 to 82%): the misses come from the day's cheapest block drifting up, not from one outlier. Two steps is under 85% at the bottom of its interval; three costs 0.001 sat/vB more on average. `fees::score::tests::the_day_floor_meets_the_day_long_horizon_on_three_days_of_mainnet` replays every tenth sample (`fixtures/fees/score-days.json`): 181 of 587 met as served, 584 with the floor, the other three levels' answers unchanged.
+
+**What it changes on the routes.** `economyFee` in `/api/v1/fees/precise` reads 0.123 where it read 0.100 or 0.121; in `/api/v1/fees/recommended` it stays `1`, the whole number of anything under 1 sat/vB. `fastestFee`, `halfHourFee`, `hourFee` and `minimumFee` are untouched, and `economyFee` is never above `hourFee`.
+
 ### Against the node and the reference
 
 The same moments, the three sources side by side (sat/vB; next block / 3 blocks / 6 blocks / no rush / minimum):
@@ -589,7 +632,7 @@ The same moments, the three sources side by side (sat/vB; next block / 3 blocks 
 | 975,530 | 2.626 / 1.193 / 0.141 / 0.1 / 0.1 | 4.425 / 2.001 / 1.644 / 0.128 / 0.1 | 3.527 / 2.367 / 1.56 / 0.2 / 0.1 |
 | 975,533 | 1.001 / 0.125 / 0.121 / 0.1 / 0.1 | 2.152 / 0.472 / 0.472 / 0.128 / 0.1 | 1.016 / 0.571 / 0.223 / 0.2 / 0.1 |
 
-Ours and the reference's next-block numbers are close; below that they part. The mempool at the time held about three blocks above 0.125 sat/vB and then some 25 MvB of transactions at 0.12 sat/vB and below, so a transaction at 0.126 sat/vB is ahead of all of those and, unless more than three blocks' worth arrives above it, mined within six blocks: that is our `low`, where the reference said 0.4 to 1.6. `no_rush` is the minimum because the whole mempool plus a day of arrivals at the observed pace fits in 144 blocks; the reference's economy level read 0.2 (twice its minimum) at every moment. Neither longer level could be scored in this run.
+Ours and the reference's next-block numbers are close; below that they part. The mempool at the time held about three blocks above 0.125 sat/vB and then some 25 MvB of transactions at 0.12 sat/vB and below, so a transaction at 0.126 sat/vB is ahead of all of those and, unless more than three blocks' worth arrives above it, mined within six blocks: that is our `low`, where the reference said 0.4 to 1.6. `no_rush` was the minimum because the whole mempool plus a day of arrivals at the observed pace fits in 144 blocks; three days of the server's own score showed that reasoning wrong (nothing under 0.12 got in) and gave the level a floor ([The day-long level](#the-day-long-level)). The reference's economy level read 0.2 (twice its minimum) at every moment. Neither longer level could be scored in this run.
 
 A recorded moment of this run (the projection's rates and sizes, 30 minutes of arrivals and the answer) is `fixtures/fees/mainnet.json`, replayed by a test.
 
@@ -600,7 +643,8 @@ What the method cannot know, and what it assumes:
 - **A miner's floor.** Some pools at times take nothing under 1 sat/vB even when their block has room: 4 blocks in 100 on 2026-11-12 (Ocean twice, ViaBTC, BTC.com). Nothing in the mempool says which pool finds the next block, so a rate under 1 sat/vB can miss a block it would have fitted in. Over 3 or 6 blocks this seldom matters. For the next block it is part of what is missed.
 - **The pace of blocks.** The method takes blocks to come every ten minutes. Between retargets they do not: 10.87 minutes on average in the difficulty period of these recordings, 11.5 in the week before. The 90% allowance was chosen on data from that slow stretch, so it errs towards being met when blocks are faster. The server already measures the period's pace for `/difficulty-adjustment`; counting with it is a possible next step, not taken because a choice made on slow blocks already covers them.
 - **Bursts in the stream.** Arrivals are a 30-minute average less the busiest minute. A rise in demand is followed within half an hour, not foreseen: the misses of 16:00 to 18:00 UTC on 2026-11-12 were such a rise.
-- **The evidence is a day and three hours:** 100 blocks scored from the first, 13 from the second. The rule that chose the tuning is written above, so a longer recording can be replayed against it.
+- **The tuning's evidence is a day and three hours:** 100 blocks scored from the first, 13 from the second. The rule that chose it is written above, so a longer recording can be replayed against it. The server's own score has added three days and 435 blocks since ([Three days of it](#three-days-of-it)).
+- **The day-long floor is three days of one regime:** a sea at 0.12 sat/vB that never drained. Its margin of two steps was the drift seen there; a market where the day's cheapest block moves more would need more. The score shows it if so.
 
 ## When a block is found
 

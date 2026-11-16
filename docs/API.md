@@ -328,7 +328,7 @@ What to pay to be mined within a horizon, and the projected blocks behind it. Co
 | `fastestFee` | `high` | the next block |
 | `halfHourFee` | `medium` | within 3 blocks, about half an hour |
 | `hourFee` | `low` | within 6 blocks, about an hour |
-| `economyFee` | `no_rush` | within 144 blocks, about a day |
+| `economyFee` | `no_rush` | within 144 blocks, about a day. Ours is never below the cheapest rate that got into a block of the last day plus 0.002 sat/vB, nor above `hourFee` ([`MEMPOOL.md`](MEMPOOL.md#the-day-long-level)) |
 | `minimumFee` | | the lowest rate the node accepts now (`mempoolminfee`, never under 0.1 sat/vB) |
 
 A faster level is never lower than a slower one, and none is below `minimumFee`.

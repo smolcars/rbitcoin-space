@@ -31,3 +31,14 @@ Rates above 0.2 sat/vB are rounded down to two significant figures throughout (d
 | `minutes` | One list per minute from `start`: arrivals as flattened pairs |
 | `samples` | `[time, minimum, depth]`, depth as flattened pairs |
 | `blocks` | `[time seen, clearing rate or null]` |
+
+## `score-days.json`
+
+Three days of the live server's own fee score on mainnet, 2026-11-13 14:51 to 2026-11-16 15:30 UTC, as its `fee_samples` and `fee_blocks` tables stored them. Replayed in `fees::score::tests::the_day_floor_meets_the_day_long_horizon_on_three_days_of_mainnet` ([`docs/MEMPOOL.md`](../../docs/MEMPOOL.md#the-day-long-level)).
+
+| Field | Holds |
+|---|---|
+| `blocks` | Every block recorded, by the time seen: `[height, time seen, clearing rate or null]` |
+| `samples` | Every tenth sample where our own answer was served (587 of them scored at 144 blocks): `[time, high, medium, low, no_rush]` |
+
+Rates are sat per 1,000 vB.

@@ -254,7 +254,10 @@ pub(crate) async fn run(ctx: Arc<NetworkContext>, engines: Option<Engines>, mut 
                             blocks_seq = Some(p.seq);
                             ctx.fees.set_blocks(mempool_blocks(&p, &e.tracker, now));
                         }
-                        let own = floor.and_then(|f| rec.update(unix(now), &p, f));
+                        // The day-long level no lower than the last day's blocks took (`fees::score::day_floor`).
+                        let own = floor
+                            .and_then(|f| rec.update(unix(now), &p, f))
+                            .map(|r| r.no_rush_at_least(ctx.fees.score.day_floor()));
                         // Before the first projection the engine is still syncing: warming up too.
                         let (reason, limit) = match p.stale && p.tip.is_some() {
                             true => ("stale", Limit::AsTheyAre),

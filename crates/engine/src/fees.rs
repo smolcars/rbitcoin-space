@@ -128,6 +128,16 @@ impl Rates {
         self.ordered()
     }
 
+    /// The day-long level at least `floor` ([`score::day_floor`]), but never above the 6-block
+    /// level: a mempool that clears within six blocks needs no more for a day. Without a floor,
+    /// unchanged.
+    pub fn no_rush_at_least(mut self, floor: Option<u32>) -> Self {
+        if let (Some(f), [.., low, no_rush]) = (floor, &mut self.levels) {
+            *no_rush = (*no_rush).max(f).min(*low);
+        }
+        self
+    }
+
     /// Every level at least the minimum, and a faster level never below a slower one.
     fn ordered(mut self) -> Self {
         let mut below = self.minimum;

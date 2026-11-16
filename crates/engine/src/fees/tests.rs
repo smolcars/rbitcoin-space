@@ -187,6 +187,29 @@ fn a_higher_minimum_seen_later_lifts_every_level() {
 }
 
 #[test]
+fn the_day_long_floor_raises_only_no_rush_and_never_past_low() {
+    let r = Rates {
+        levels: [3_000, 1_000, 130, 100],
+        minimum: 100,
+    };
+    // No block history: unchanged.
+    assert_eq!(r.no_rush_at_least(None), r);
+    let raised = r.no_rush_at_least(Some(123));
+    assert_eq!(
+        (levels(raised), raised.minimum),
+        ([3_000, 1_000, 130, 123], 100)
+    );
+    // Never above the 6-block level: a quiet mempool keeps the minimum.
+    let quiet = Rates {
+        levels: [100; 4],
+        minimum: 100,
+    };
+    assert_eq!(quiet.no_rush_at_least(Some(1_003)), quiet);
+    // A floor under the answer changes nothing.
+    assert_eq!(raised.no_rush_at_least(Some(110)), raised);
+}
+
+#[test]
 fn inflow_counts_whole_minutes_and_quiet_ones_as_zero() {
     let mut i = Inflow::default();
     i.record(1_000, 2_000, 400);

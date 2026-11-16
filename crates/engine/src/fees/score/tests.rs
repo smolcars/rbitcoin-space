@@ -174,6 +174,88 @@ fn outages_reorgs_and_age_are_handled() {
 }
 
 #[test]
+fn the_day_floor_is_three_steps_over_the_last_days_cheapest_block() {
+    assert_eq!(day_floor(&[]), None);
+    assert_eq!(day_floor(&[block(10, 0, None)]), None);
+    let mut rec = Record::default();
+    rec.block(block(1_000, 0, Some(120)));
+    rec.block(block(1_001, 600, Some(2_000)));
+    assert_eq!(rec.day_floor(), Some(123));
+    // 1,000 is 144 heights below 1,144: out of the day.
+    rec.block(block(1_144, 86_400, Some(125)));
+    assert_eq!(rec.day_floor(), Some(128));
+    // A block with no clearing rate is no evidence; the highest height sets the day.
+    rec.block(block(1_200, 90_000, None));
+    assert_eq!(rec.day_floor(), Some(128));
+    assert_eq!(day_floor(&[block(1, 0, Some(u32::MAX))]), Some(u32::MAX));
+}
+
+/// `fixtures/fees/score-days.json`, three days of the live server's own answers on mainnet
+/// (every tenth sample of ours) and every block it recorded: served, the day-long level met its
+/// horizon about 31% of the time; with each sample's floor taken from the blocks recorded before
+/// it, at least 85%, and the other levels' answers are untouched.
+#[test]
+fn the_day_floor_meets_the_day_long_horizon_on_three_days_of_mainnet() {
+    let f: serde_json::Value =
+        serde_json::from_str(include_str!("../../../../../fixtures/fees/score-days.json")).unwrap();
+    let rate = |v: &serde_json::Value| u32::try_from(v.as_u64().unwrap()).unwrap();
+    let blocks: Vec<Block> = f["blocks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|b| {
+            block(
+                rate(&b[0]),
+                b[1].as_u64().unwrap(),
+                b[2].as_u64().map(|c| c as u32),
+            )
+        })
+        .collect();
+    let (mut served, mut floored) = (Vec::new(), Vec::new());
+    for s in f["samples"].as_array().unwrap() {
+        let t = s[0].as_u64().unwrap();
+        let levels = [rate(&s[1]), rate(&s[2]), rate(&s[3]), rate(&s[4])];
+        let seen = blocks.partition_point(|b| b.t <= t);
+        let r = crate::fees::Rates {
+            levels,
+            minimum: 100,
+        }
+        .no_rush_at_least(day_floor(&blocks[..seen]));
+        assert_eq!(r.levels[..3], levels[..3]);
+        assert!(r.levels[3] <= r.levels[2] && r.levels[3] >= levels[3]);
+        served.push(Sample {
+            t,
+            served: Served::Ours(levels),
+        });
+        floored.push(Sample {
+            t,
+            served: Served::Ours(r.levels),
+        });
+    }
+    let score = |samples| {
+        Record::new(samples, blocks.clone())
+            .report(&[(0, u64::MAX)])
+            .pop()
+            .unwrap()
+    };
+    let (before, after) = (score(served), score(floored));
+    let (b, a) = (&before.levels[3], &after.levels[3]);
+    assert_eq!((b.met, b.total), (181, 587));
+    assert_eq!((a.met, a.total), (584, 587));
+    assert!(
+        a.blocks() >= MIN_BLOCKS && a.interval().0 >= 0.85,
+        "{:?}",
+        a.interval()
+    );
+    // What it costs: under 0.03 sat/vB over what sufficed, on average.
+    assert!(a.mean_over() < 0.03, "{}", a.mean_over());
+    for l in 0..3 {
+        assert_eq!(before.levels[l].met, after.levels[l].met);
+        assert_eq!(before.levels[l].total, after.levels[l].total);
+    }
+}
+
+#[test]
 fn the_clearing_rate_is_the_first_percentile_by_size() {
     // One cheap outlier under 1% of the block does not set it.
     let mut rates = vec![(10, 5), (1_000, 600), (2_000, 400)];
