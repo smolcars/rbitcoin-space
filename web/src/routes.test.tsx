@@ -59,6 +59,8 @@ describe("routes", () => {
     expect(el.querySelector('nav[aria-label="Main"] a:nth-child(3)')?.getAttribute("href")).toBe(
       "/testnet4/mining",
     );
+    // The decoder is one page for every network.
+    expect(el.querySelector(".site-footer a[href='/decode']")?.textContent).toBe("Decoder");
     expect(document.title).toBe("Testnet4: Transaction | rbitcoin.space");
   });
 

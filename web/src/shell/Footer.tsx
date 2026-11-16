@@ -1,4 +1,6 @@
 import { type Accessor, Show } from "solid-js";
+import { Link } from "../components/Link";
+import { paths } from "../lib/network";
 import "./Footer.css";
 
 export function Footer(props: { version: Accessor<string | undefined> }) {
@@ -6,6 +8,12 @@ export function Footer(props: { version: Accessor<string | undefined> }) {
     <footer class="site-footer">
       <div class="site-footer__inner">
         <p>rbitcoin.space, a block explorer for rbitcoin.</p>
+        {/* The same page from every network: `onNetwork` leaves `/decode` unprefixed. */}
+        <p>
+          <Link class="tap" href={paths.decode()}>
+            Decoder
+          </Link>
+        </p>
         <p>
           <a
             class="tap"

@@ -183,4 +183,45 @@ test.describe("on a touch screen", () => {
       expect(faults).toStrictEqual([]);
     });
   }
+
+  // The footer's link to the decoder, from a test network's page: whole, a thumb's target, in the
+  // window, at the narrowest width and the largest text.
+  test("the footer's decoder link holds at 320 px with 32 px text", async ({
+    page,
+    browserName,
+  }) => {
+    test.skip(browserName !== "chromium", "only Chromium lets a test set the browser's text size");
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("Page.setFontSizes", { fontSizes: { standard: 32, fixed: 26 } });
+    await page.setViewportSize({ width: 320, height: 800 });
+    await page.goto("/regtest/blocks");
+    const link = page.locator(".site-footer").getByRole("link", { name: "Decoder" });
+    await expect(link).toHaveAttribute("href", "/decode");
+    await link.scrollIntoViewIfNeeded();
+    const box = await link.boundingBox();
+    expect((box?.x ?? -1) >= 0 && (box?.x ?? 0) + (box?.width ?? 0) <= 320).toBe(true);
+    // A thumb's target (`.tap`): a tap anywhere 44 px across round its middle reaches it.
+    const reached = await link.evaluate((a) => {
+      const r = a.getBoundingClientRect();
+      const [x, y] = [r.left + r.width / 2, r.top + r.height / 2];
+      return [
+        [0, -21],
+        [0, 21],
+        [-21, 0],
+        [21, 0],
+      ].every(([dx = 0, dy = 0]) => document.elementFromPoint(x + dx, y + dy)?.closest("a") === a);
+    });
+    expect(reached).toBe(true);
+    // The footer itself (the blocks page's own content is not this test's): nothing of it past
+    // the window, and it does not scroll inside itself.
+    const footer = await page.locator(".site-footer").evaluate((f) => ({
+      past: [...f.querySelectorAll("*")].filter((e) => e.getBoundingClientRect().right > 320.5)
+        .length,
+      scrolls: f.scrollWidth > f.clientWidth,
+    }));
+    expect(footer).toStrictEqual({ past: 0, scrolls: false });
+    await link.click();
+    await expect(page).toHaveURL(/\/decode$/);
+    await expect(page.getByRole("heading", { level: 1, name: "Decode" })).toBeVisible();
+  });
 });

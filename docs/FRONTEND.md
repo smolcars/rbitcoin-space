@@ -364,7 +364,7 @@ A mainnet server 18 minutes after its first sample (keys are sent in another ord
 
 #### Decoder
 
-`pages/decode/DecodePage.tsx` sends the fragment's string to `POST /app/decode` ([`API.md`](API.md#decoding)) and reads the answer strictly (`isDecoded` in `decode.ts`). A node or channel is a link to its page on the network the answer's `names` gives, only when that graph knows it; otherwise its key or id is text with a copy button. A decoded URL is text, never a link, its host set apart. Only the expiry's words follow the clock. Search sends a payment string here by its form alone (`payment` in `search/query.ts`: a prefix, or for a Lightning address an email's shape with a dotted domain), from any network, and its field takes 8,192 characters for them; everything else it reads is still capped at 512.
+`pages/decode/DecodePage.tsx` sends the fragment's string to `POST /app/decode` ([`API.md`](API.md#decoding)) and reads the answer strictly (`isDecoded` in `decode.ts`). A node or channel is a link to its page on the network the answer's `names` gives, only when that graph knows it; otherwise its key or id is text with a copy button. A decoded URL is text, never a link, its host set apart. Only the expiry's words follow the clock. The footer links here from every network's pages. Search sends a payment string here by its form alone (`payment` in `search/query.ts`: a prefix, or for a Lightning address an email's shape with a dotted domain), from any network, and its field takes 8,192 characters for them; everything else it reads is still capped at 512.
 
 ### Live data
 

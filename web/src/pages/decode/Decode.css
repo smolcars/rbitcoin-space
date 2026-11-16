@@ -89,6 +89,10 @@
     border: 1px solid var(--dec-net);
   }
 
+  /* An address has no figure row: its facts keep the same room under the heading. */
+  .dec-result__head + .dec-facts {
+    margin-top: var(--space-4);
+  }
   .dec-top {
     display: flex;
     flex-wrap: wrap;
