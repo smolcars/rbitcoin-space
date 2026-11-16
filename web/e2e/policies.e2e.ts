@@ -137,67 +137,72 @@ async function feesDrawn(page: Page, open: boolean) {
     await more.click();
 }
 
-test("a channel page draws every state at a desktop's and a phone's width, light and dark", async ({
-  page,
-}) => {
-  const answer = await serveChannel(page);
-  const views = [
-    { width: 1280, colorScheme: "light" },
-    { width: 390, colorScheme: "dark" },
-  ] as const;
-  for (const [name, channel] of Object.entries(channelStates())) {
-    answer(channel, feesOf(name));
-    const closed = ["cooperative", "force", "penalty", "other, continued"].includes(name);
-    const hasFees = !closed && name !== "no policy either way";
-    for (const view of views) {
-      await page.setViewportSize({ width: view.width, height: 900 });
-      await page.emulateMedia({ colorScheme: view.colorScheme });
+// A test a view: one test of both loaded the page 26 times and ran past its 30 s on CI's runners.
+// What each state says and the last link do not change with the view, so the desktop checks them.
+for (const view of [
+  { width: 1280, colorScheme: "light" },
+  { width: 390, colorScheme: "dark" },
+] as const) {
+  const desktop = view.width === 1280;
+  test(`a channel page draws every state at ${view.width} px, ${view.colorScheme}`, async ({
+    page,
+  }) => {
+    const answer = await serveChannel(page);
+    await page.setViewportSize({ width: view.width, height: 900 });
+    await page.emulateMedia({ colorScheme: view.colorScheme });
+    for (const [name, channel] of Object.entries(channelStates())) {
+      answer(channel, feesOf(name));
+      const closed = ["cooperative", "force", "penalty", "other, continued"].includes(name);
+      const hasFees = !closed && name !== "no policy either way";
       await page.goto("/regtest/lightning/channel/811984x2037x0");
       await expect(page.getByRole("heading", { name: "Life of the channel" })).toBeVisible();
       await feesDrawn(page, hasFees);
-      const label = `${name} at ${view.width} px, ${view.colorScheme}`;
-      expect(await pageFaults(page), label).toStrictEqual([]);
-      expect(await tablesScrolling(page, "#fee-history"), label).toStrictEqual([]);
+      expect(await pageFaults(page), name).toStrictEqual([]);
+      expect(await tablesScrolling(page, "#fee-history"), name).toStrictEqual([]);
       if (name === "longest exact base") {
         // A long fee is exact in a wide well, in magnitude only where its well is narrow.
         await expect(page.locator(".ln-hop__fee").first()).toHaveText(
-          view.width === 1280 ? "1\u202F000\u202F000.099 sats" : "0.0100 BTC",
+          desktop ? "1\u202F000\u202F000.099 sats" : "0.0100 BTC",
           { useInnerText: true },
         );
       }
+      if (!desktop) continue;
+      await expect(page.getByRole("heading", { name: "Fee rate over time" })).toHaveCount(
+        hasFees ? 1 : 0,
+      );
+      await expect(page.getByRole("heading", { name: "How it ended" })).toHaveCount(closed ? 1 : 0);
+      await expect(page.getByRole("heading", { name: "Fee for this hop" })).toHaveCount(
+        closed || name === "no policy either way" ? 0 : 1,
+      );
     }
-    // What each state says, once.
-    await expect(page.getByRole("heading", { name: "Fee rate over time" })).toHaveCount(
-      hasFees ? 1 : 0,
-    );
-    await expect(page.getByRole("heading", { name: "How it ended" })).toHaveCount(closed ? 1 : 0);
-    await expect(page.getByRole("heading", { name: "Fee for this hop" })).toHaveCount(
-      closed || name === "no policy either way" ? 0 : 1,
-    );
-  }
-  await expect(page.getByRole("link", { name: "975402x1310x1" }).first()).toHaveAttribute(
-    "href",
-    "/regtest/lightning/channel/975402x1310x1",
-  );
-});
+    if (desktop)
+      await expect(page.getByRole("link", { name: "975402x1310x1" }).first()).toHaveAttribute(
+        "href",
+        "/regtest/lightning/channel/975402x1310x1",
+      );
+  });
+}
 
 // The council's last defects: at 200% text on a 320 px phone a figure broke inside its digits,
 // and a long name widened the drawing past its panel. 20 and 24 px text sit between the normal
-// size and 200%, where a fee once outgrew its well. A test a size: each is a visitor of its own,
-// under the server's per-client limits.
-for (const text of [20, 24, 32]) {
-  test(`a channel page holds at 320 and 390 px with ${text} px text, in every state, with hostile names`, async ({
-    page,
-    browserName,
-  }) => {
-    test.skip(browserName !== "chromium", "only Chromium lets a test set the browser's text size");
-    const cdp = await page.context().newCDPSession(page);
-    await cdp.send("Page.setFontSizes", {
-      fontSizes: { standard: text, fixed: Math.round((text * 13) / 16) },
-    });
-    const answer = await serveChannel(page);
-    const faults: string[] = [];
-    for (const width of [320, 390]) {
+// size and 200%, where a fee once outgrew its well. A test a size and width: each is a visitor of
+// its own, under the server's per-client limits, and both widths in one took 22 s of 30 on CI.
+for (const text of [20, 24, 32])
+  for (const width of [320, 390]) {
+    test(`a channel page holds at ${width} px with ${text} px text, in every state, with hostile names`, async ({
+      page,
+      browserName,
+    }) => {
+      test.skip(
+        browserName !== "chromium",
+        "only Chromium lets a test set the browser's text size",
+      );
+      const cdp = await page.context().newCDPSession(page);
+      await cdp.send("Page.setFontSizes", {
+        fontSizes: { standard: text, fixed: Math.round((text * 13) / 16) },
+      });
+      const answer = await serveChannel(page);
+      const faults: string[] = [];
       await page.setViewportSize({ width, height: 800 });
       for (const [name, channel] of Object.entries(channelStates())) {
         answer(channel, feesOf(name));
@@ -209,12 +214,11 @@ for (const text of [20, 24, 32]) {
           ...(await pageFaults(page)),
           ...(await tablesScrolling(page, "#fee-history")),
         ];
-        faults.push(...found.map((f) => `${width} px, ${name}: ${f}`));
+        faults.push(...found.map((f) => `${name}: ${f}`));
       }
-    }
-    expect(faults).toStrictEqual([]);
-  });
-}
+      expect(faults).toStrictEqual([]);
+    });
+  }
 
 // A fee holds until it changes: the chart steps, and draws nothing across time the server was not
 // recording. A node's fee change opens the channel at this chart.
