@@ -64,11 +64,11 @@ import {
   BlockLink,
   ChannelId,
   ChannelLink,
-  Fig,
   InboundFig,
   inboundName,
   MsatFig,
   PpmFig,
+  SatsFig,
   Tag,
   usePhone,
 } from "./parts";
@@ -77,15 +77,6 @@ import {
 export const FILTER_WAIT_MS = 280;
 
 const days = (seconds: number) => groupDigits(Math.max(0, Math.floor(seconds / 86_400)));
-
-/** Sats whole with their unit, in magnitude where the room is too narrow for them (`Fig`). */
-export const SatsFig = (props: { sats: number }) => (
-  <Fig
-    exact={groupDigits(props.sats)}
-    unit={props.sats === 1 ? "sat" : "sats"}
-    short={`${formatBtcShort(props.sats)} BTC`}
-  />
-);
 
 interface ListProps {
   node: NodeDetail;

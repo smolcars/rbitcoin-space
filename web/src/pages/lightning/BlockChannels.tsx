@@ -3,11 +3,11 @@
 import { For, Show } from "solid-js";
 import { type Column, DataTable } from "../../components/DataTable";
 import { Link } from "../../components/Link";
-import { formatBtcShort, groupDigits } from "../../lib/format";
+import { groupDigits } from "../../lib/format";
 import { paths } from "../../lib/network";
 import type { BlockChannel, BlockChannels as Found } from "./BlockLightning";
 import type { CloseKind } from "./lightning";
-import { ChannelId, Ends, Fig, KindTag, Tag, usePhone } from "./parts";
+import { ChannelId, Ends, KindTag, SatsFig, Tag, usePhone } from "./parts";
 import "./BlockChannels.css";
 
 type Row = BlockChannel & { kind?: CloseKind };
@@ -64,11 +64,7 @@ export default function BlockChannels(props: { found: Found }) {
                 <li class="blk-ln__card">
                   <p class="blk-ln__head">
                     <What row={r} />
-                    <Fig
-                      exact={groupDigits(r.capacity)}
-                      unit={r.capacity === 1 ? "sat" : "sats"}
-                      short={`${formatBtcShort(r.capacity)} BTC`}
-                    />
+                    <SatsFig sats={r.capacity} />
                   </p>
                   <Channel row={r} />
                   <Ends one={r.node_one} two={r.node_two} />

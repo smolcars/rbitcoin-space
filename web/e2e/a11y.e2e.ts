@@ -17,7 +17,7 @@ import {
 } from "./ark-answers";
 import { chain, expect, stubRetargets, test } from "./fixtures";
 import { KEPT, LARGE, stubLarge } from "./large-address";
-import { ACINQ, mainnet, serve } from "./lightning-answers";
+import { ACINQ, mainnet, penalties, serve } from "./lightning-answers";
 
 // axe-core is a development dependency only: read from node_modules and run in the page through
 // Playwright, never bundled or served.
@@ -387,6 +387,12 @@ const PAGES: PageType[] = [
     path: "/regtest/lightning/rankings",
     ready: (p) => p.getByRole("table").first(),
     before: (p) => serve(p, mainnet()),
+  },
+  {
+    name: "Lightning penalties",
+    path: "/regtest/lightning/penalties",
+    ready: (p) => p.getByRole("table").first(),
+    before: (p) => serve(p, { ...mainnet(), penalties: penalties(3) }),
   },
   {
     name: "Lightning search",

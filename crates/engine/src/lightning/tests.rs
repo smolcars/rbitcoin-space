@@ -173,11 +173,84 @@ async fn only_changes_the_table_did_not_hold_are_written() {
         [false, false]
     );
     assert_eq!(channel(s, A).await.unwrap().unwrap().penalty, Some(penalty));
-    let swept = penalties(s, 10).await.unwrap();
+    let (total, swept) = penalties(s, 0, 10).await.unwrap();
+    assert_eq!(total, 1);
     assert_eq!(swept.iter().map(|c| c.open.scid).collect::<Vec<_>>(), [A]);
     // Another closing transaction is news.
     let other = Change::Closed(open(A, 2), close(800_010, Kind::Cooperative, 8));
     assert_eq!(wrote(vec![other]).await.unwrap(), [true]);
+}
+
+#[tokio::test]
+async fn penalties_page_newest_sweep_first_and_a_reorg_takes_one_out() {
+    let t = temp();
+    let s = &t.store;
+    assert_eq!(penalties(s, 0, 25).await.unwrap(), (0, vec![]));
+    // Five breaches swept at heights 800_100 to 800_104, and one force close never swept. Two
+    // sweeps share a height, so the channel id orders them.
+    let scids: Vec<u64> = (0..6).map(|n| (799_000 + n) << 40).collect();
+    let mut changes = Vec::new();
+    for (n, scid) in scids.iter().enumerate() {
+        let h = 800_000 + u32::try_from(n).unwrap();
+        changes.push(Change::Closed(open(*scid, 1), close(h, Kind::Force, 7)));
+        if n < 5 {
+            let at = if n == 4 {
+                800_103
+            } else {
+                800_100 + h - 800_000
+            };
+            let txid = Txid::from_byte_array([u8::try_from(n).unwrap(); 32]);
+            changes.push(Change::Penalty(
+                *scid,
+                Penalty {
+                    block: block(at, 0xd0),
+                    txid,
+                },
+            ));
+        }
+    }
+    apply(s, changes).await.unwrap();
+    let page = |offset, limit| async move {
+        let (total, rows) = penalties(s, offset, limit).await.unwrap();
+        (
+            total,
+            rows.iter().map(|c| c.open.scid >> 40).collect::<Vec<_>>(),
+        )
+    };
+    assert_eq!(
+        page(0, 25).await,
+        (5, vec![799_004, 799_003, 799_002, 799_001, 799_000])
+    );
+    assert_eq!(page(1, 2).await, (5, vec![799_003, 799_002]));
+    assert_eq!(page(5, 2).await, (5, vec![]));
+    assert_eq!(page(1_000_000, 2).await, (5, vec![]));
+    // A reorg undoes one sweep: its close stays, a force close again, and it leaves the list.
+    apply(s, vec![Change::PenaltyUndone(scids[3])])
+        .await
+        .unwrap();
+    assert_eq!(
+        page(0, 25).await,
+        (4, vec![799_004, 799_002, 799_001, 799_000])
+    );
+    let undone = channel(s, scids[3]).await.unwrap().unwrap();
+    assert_eq!(
+        (undone.close.map(|c| c.kind), undone.penalty),
+        (Some(Kind::Force), None)
+    );
+    // The list reads through the partial index, not the whole table.
+    let plan = s
+        .read(crate::store::Read::Lightning, |sql| {
+            let mut q = sql.prepare(
+                "EXPLAIN QUERY PLAN SELECT scid FROM ln_channels WHERE penalty_txid IS NOT NULL \
+                 ORDER BY penalty_height DESC, scid DESC LIMIT 25",
+            )?;
+            let rows = q.query_map([], |r| r.get::<_, String>(3))?;
+            Ok(rows.collect::<Result<Vec<_>, _>>()?.join("; "))
+        })
+        .await
+        .unwrap();
+    assert!(plan.contains("ln_channels_penalties"), "{plan}");
+    assert!(!plan.contains("TEMP B-TREE"), "{plan}");
 }
 
 #[tokio::test]

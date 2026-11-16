@@ -449,7 +449,7 @@ The overview page's live feed, movers and closes by day ([`API.md`](API.md#appli
 
 ### Still missing
 
-- `/api/v1/lightning/penalties`: its rows are the reference's database records of a closed channel (each end's last policy, balances, outputs, resolution state), which we do not keep ([`compat/api-v1.md`](compat/api-v1.md#lightning)). Breaches show in our closed-channel lists.
+- `/api/v1/lightning/penalties`: its rows are the reference's database records of a closed channel (each end's last policy, balances, outputs, resolution state), which we do not keep ([`compat/api-v1.md`](compat/api-v1.md#lightning)). Breaches show in our closed-channel lists and in our own penalties list (`/app/lightning/penalties`, [`API.md`](API.md#applightning)): the channel, its ends, the close and the sweep, without the swept value, which the watcher does not hold.
 - A channel's close is lost when the history store falls past the peer's memory ([`STORE.md`](STORE.md#ln_channels)), and channels the peer stops watching (pruned) keep their row as open.
 
 ### Measured in the server

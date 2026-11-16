@@ -548,7 +548,7 @@ function CloseBars(props: { days: DayCloses[]; sum: string; first: number | null
       </p>
       <p class="ln-aside">
         {partial() ? `Recorded from ${formatDay(props.first ?? 0)}` : `In ${CLOSE_DAYS} days`}:{" "}
-        {props.sum}.
+        {props.sum}. <Link href={paths.lightningPenalties()}>Every penalty seen</Link>
       </p>
       <details class="more" onToggle={(e) => setFigures(e.currentTarget.open)}>
         <summary class="more__summary">Show the figures</summary>
