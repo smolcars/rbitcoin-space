@@ -10,6 +10,7 @@ import { SectionHeader } from "../../components/SectionHeader";
 import { ErrorState, Loading } from "../../components/States";
 import { ApiError, createApi, createRequest, postApp } from "../../lib/api";
 import { loadConfig } from "../../lib/config";
+import type { Outspend } from "../../lib/esplora";
 import { formatSize, groupDigits, MISSING } from "../../lib/format";
 import { NETWORK_NAMES, paths } from "../../lib/network";
 import { useNetwork, usePageTitle } from "../../lib/page";
@@ -128,6 +129,14 @@ function Result(props: { c: Checked; hex: string; enabled: boolean }) {
   const [sending, setSending] = createSignal(false);
   /** The txid the node accepted. */
   const [sent, setSent] = createSignal<string>();
+  // Nothing can spend a transaction the node does not have; one it has may be spent already.
+  const [spends] = createApi<Outspend[]>(() =>
+    props.c.known ? `/tx/${tx().txid}/outspends` : false,
+  );
+  const outspends = (): Outspend[] | null | undefined => {
+    if (!props.c.known) return tx().vout.map(() => ({ spent: false }));
+    return spends.state === "errored" ? null : spends.latest;
+  };
   /** Why the last press did not send it. */
   const [why, setWhy] = createSignal<string>();
   let controller: AbortController | undefined;
@@ -186,27 +195,30 @@ function Result(props: { c: Checked; hex: string; enabled: boolean }) {
         <div class="tx-summary__item">
           <dt>Fee</dt>
           <dd>
+            {/* A fee of zero is a fee: only an unknown one falls back. */}
             <Show
-              when={rate()}
+              when={rate() !== undefined}
               fallback={
                 <>
                   <span class="tx-summary__value">{MISSING}</span>
                   <span class="tx-summary__sub">
-                    {warn().missing > 0 ? "Inputs not found" : "Inputs not all looked up"}
+                    {warn().missing > 0
+                      ? "Inputs not found"
+                      : warn().unchecked > 0
+                        ? "Inputs not all looked up"
+                        : "Pays out more than it spends"}
                   </span>
                 </>
               }
             >
-              {(r) => (
-                <>
-                  <span class="tx-summary__value">
-                    <FeeRate rate={r()} />
-                  </span>
-                  <span class="tx-summary__sub">
-                    <Sats sats={tx().fee ?? 0} />
-                  </span>
-                </>
-              )}
+              <>
+                <span class="tx-summary__value">
+                  <FeeRate rate={rate() ?? 0} />
+                </span>
+                <span class="tx-summary__sub">
+                  <Sats sats={tx().fee ?? 0} />
+                </span>
+              </>
             </Show>
           </dd>
         </div>
@@ -333,13 +345,13 @@ function Result(props: { c: Checked; hex: string; enabled: boolean }) {
             {groupDigits(tx().vout.length)} output{tx().vout.length === 1 ? "" : "s"}
           </span>
         </SectionHeader>
-        <Flow tx={tx()} outspends={() => undefined} selected={selected()} onSelect={select} />
+        <Flow tx={tx()} outspends={outspends} selected={selected()} onSelect={select} />
         <Show when={selected()} keyed>
           {(s) => (
             <Inspector
               tx={tx()}
               selected={s}
-              outspends={() => undefined}
+              outspends={outspends}
               onClose={() => setSelected(null)}
               ref={(el) => {
                 inspectorHeading = el;

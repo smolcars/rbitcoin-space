@@ -44,6 +44,8 @@ test("a pasted transaction is read before anything is sent, and one press sends 
   await expect(page.getByText("In block 106.")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Inputs and outputs" })).toBeVisible();
   await expect(button).toHaveCount(0);
+  // Its outputs as the node has them: the scenario spent two of them.
+  await expect(page.getByRole("link", { name: /^Spent in transaction/ })).toHaveCount(2);
 
   // A dear one asks for a second thought before it can go.
   await box.fill(dear);
@@ -54,6 +56,8 @@ test("a pasted transaction is read before anything is sent, and one press sends 
   await box.fill(send.hex.replaceAll(/(.{64})/g, "$1\n"));
   await expect(page.getByText("2.00 sat/vB").first()).toBeVisible();
   await expect(page.getByText("Check before you send")).toHaveCount(0);
+  // Nothing can have spent what was never sent.
+  await expect(page.locator(".tx-flow").getByText("Unspent")).toHaveCount(2);
   await expect(button).toHaveText("Broadcast");
   await button.click();
   await expect(page.getByText("Sent", { exact: true })).toBeVisible();
