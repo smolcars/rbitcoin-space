@@ -41,6 +41,10 @@ describe("what is asked", () => {
 
   it("never asks a login link, nor anything but a decoded LNURL or address", () => {
     expect(plan(lnurl("https://site.example/auth?tag=login&k1=00", "login"))).toBeNull();
+    // However the tag is written, as the service will read it.
+    expect(plan(lnurl("https://site.example/auth?tag=%6cogin&k1=00", "%6cogin"))).toBeNull();
+    expect(plan(lnurl("https://site.example/auth?tag=LOGIN&k1=00", "LOGIN"))).toBeNull();
+    expect(plan(lnurl("https://site.example/a?tag=payRequest&tag=login", "payRequest"))).toBeNull();
     expect(plan(ANSWERS.lnurl_withdraw as Decoded)).toHaveProperty("ask");
     expect(plan(ANSWERS.bolt11 as Decoded)).toBeNull();
     expect(plan(ANSWERS.arkade as Decoded)).toBeNull();
@@ -54,6 +58,7 @@ describe("what is asked", () => {
     "https://localhost/p",
     "https://router.local/p",
     "https://nas.internal/p",
+    "https://router.home.arpa/p",
     "https://user:pw@pay.example.com/p",
   ])("does not ask %s", (url) => {
     expect(plan(lnurl(url))).toStrictEqual({ skip: "not-public" });
@@ -160,7 +165,11 @@ describe("the one GET", () => {
     const answer = await ask("https://pay.example.com/p", new AbortController().signal);
     expect(read(answer, "pay.example.com").tag).toBe("payRequest");
     expect(calls.map(([u]) => u)).toStrictEqual(["https://pay.example.com/p"]);
-    expect(calls[0]?.[1]).toMatchObject({ credentials: "omit", referrerPolicy: "no-referrer" });
+    expect(calls[0]?.[1]).toMatchObject({
+      credentials: "omit",
+      referrerPolicy: "no-referrer",
+      redirect: "error",
+    });
   });
 
   it("gives up after its time, and says so", async () => {

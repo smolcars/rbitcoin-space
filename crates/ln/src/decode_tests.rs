@@ -316,6 +316,9 @@ fn lud17_urls() {
     assert_eq!(j["url"], "http://examplennnnnnnn.onion/path");
     let j = json(&decode("keyauth://site.com/a?k1=00").unwrap());
     assert_eq!(j["tag"], "login");
+    // A query cannot make a keyauth:// link anything but a login.
+    let j = json(&decode("keyauth://site.com/a?tag=payRequest&k1=00").unwrap());
+    assert_eq!(j["tag"], "login");
     assert_eq!(
         decode("lnurlp://bad host/x").unwrap_err(),
         Failure::Malformed

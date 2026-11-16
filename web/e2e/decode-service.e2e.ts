@@ -99,6 +99,22 @@ test.describe("failing", () => {
     });
   });
 
+  test("a redirect is not followed: one request, never the callback", async ({ page }) => {
+    const asked: string[] = [];
+    page.on("request", (r) => {
+      if (!r.url().startsWith("http://127.0.0.1")) asked.push(r.url());
+    });
+    await stub(page, (route) =>
+      route.fulfill({
+        status: 302,
+        headers: { ...CORS, location: "https://pay.example.com/cb?amount=1000" },
+      }),
+    );
+    await open(page);
+    await expect(page.getByText("Could not ask pay.example.com")).toBeVisible();
+    expect(asked).toStrictEqual([SERVICE]);
+  });
+
   test("a service the browser does not let the page ask", async ({ page }) => {
     // A stand-in's answer skips the browser's cross-origin check, so the refusal is simulated.
     await stub(page, (route) => route.abort("blockedbyresponse"));

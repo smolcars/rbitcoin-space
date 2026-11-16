@@ -116,14 +116,17 @@ export default function DecodePage() {
           <Match when={answer.loading || answer.latest === undefined}>
             <Loading label="Decoding" />
           </Match>
-          <Match when={answer.latest}>{(d) => <Result d={d()} />}</Match>
+          <Match when={answer.latest}>
+            {(d) => <Result d={d()} current={() => text().trim() === pasted()} />}
+          </Match>
         </Switch>
       </Show>
     </div>
   );
 }
 
-function Result(props: { d: Decoded }) {
+/** `current`: the box still holds the decoded string; an edit stops asking its service. */
+function Result(props: { d: Decoded; current: () => boolean }) {
   return (
     <article class="dec-result" aria-label="Decoded">
       <header class="dec-result__head">
@@ -136,7 +139,9 @@ function Result(props: { d: Decoded }) {
         <Match when={props.d.kind === "bolt11" && props.d}>{(d) => <InvoiceBody d={d()} />}</Match>
         <Match when={props.d.kind === "offer" && props.d}>{(d) => <OfferBody d={d()} />}</Match>
         <Match when={props.d.kind === "refund" && props.d}>{(d) => <RefundBody d={d()} />}</Match>
-        <Match when={props.d.kind === "lnurl" && props.d}>{(d) => <LnurlBody d={d()} />}</Match>
+        <Match when={props.d.kind === "lnurl" && props.d}>
+          {(d) => <LnurlBody d={d()} current={props.current} />}
+        </Match>
         <Match when={props.d.kind === "lightning_address" && props.d}>
           {(d) => (
             <>
@@ -148,7 +153,9 @@ function Result(props: { d: Decoded }) {
                   <Url url={d().url} host={d().domain} />
                 </Fact>
               </Facts>
-              <FromService d={d()} />
+              <Show when={props.current()}>
+                <FromService d={d()} />
+              </Show>
             </>
           )}
         </Match>
@@ -572,7 +579,7 @@ function RefundBody(props: { d: Refund }) {
   );
 }
 
-function LnurlBody(props: { d: Lnurl }) {
+function LnurlBody(props: { d: Lnurl; current: () => boolean }) {
   const d = () => props.d;
   return (
     <>
@@ -591,7 +598,9 @@ function LnurlBody(props: { d: Lnurl }) {
           )}
         </Show>
       </Facts>
-      <FromService d={d()} />
+      <Show when={props.current()}>
+        <FromService d={d()} />
+      </Show>
     </>
   );
 }

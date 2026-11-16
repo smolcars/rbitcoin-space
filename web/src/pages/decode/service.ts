@@ -23,20 +23,23 @@ export type Plan =
  */
 export function plan(d: Decoded): Plan | null {
   if (d.kind !== "lnurl" && d.kind !== "lightning_address") return null;
-  if (d.kind === "lnurl" && d.tag === "login") return null;
+  if (d.kind === "lnurl" && d.tag?.toLowerCase() === "login") return null;
   let url: URL;
   try {
     url = new URL(d.url);
   } catch {
     return { skip: "not-public" };
   }
+  // The tag as the service will read it, percent-decoded (`tag=%6cogin` is a login too).
+  if (url.searchParams.getAll("tag").some((t) => t.toLowerCase() === "login")) return null;
   const host = url.hostname;
   // A name in public DNS only: no address literal, no local name (a pasted string must not make
   // a visitor's browser ask their own network).
   const named =
     /^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(host) &&
     !/^[\d.]+$/.test(host) &&
-    !/\.(local|localhost|internal|lan|home|onion)$/.test(host);
+    !/\.(local|localhost|internal|lan|home|onion)$/.test(host) &&
+    !/(^|\.)home\.arpa$/.test(host);
   return url.protocol === "https:" && url.username === "" && url.password === "" && named
     ? { ask: url.href, host }
     : { skip: "not-public" };
@@ -95,6 +98,8 @@ export async function ask(url: string, signal: AbortSignal, ms = ASK_MS): Promis
     const res = await fetch(url, {
       credentials: "omit",
       referrerPolicy: "no-referrer",
+      // One request: a redirect (to the callback, say) is a failure, never followed.
+      redirect: "error",
       signal: own.signal,
     });
     return JSON.parse(await readCapped(res, MAX_ANSWER)) as unknown;

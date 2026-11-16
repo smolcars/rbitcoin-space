@@ -206,6 +206,33 @@ describe("asking the service an LNURL names", () => {
     expect(sent.map((r) => r.url)).toStrictEqual(["/app/decode", url]);
   });
 
+  it("stops asking when the box is edited, and asks again when it holds the string again", async () => {
+    reply = json(ANSWERS.lightning_address);
+    const url = "https://bitcoin.org/.well-known/lnurlp/satoshi";
+    let aborted = 0;
+    vi.stubGlobal("fetch", (u: string, init?: RequestInit) => {
+      sent.push({ url: u, method: init?.method, body: init?.body });
+      if (u !== url) return Promise.resolve(reply());
+      return new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          aborted += 1;
+          reject(new DOMException("", "AbortError"));
+        });
+      });
+    });
+    const el = open("satoshi@bitcoin.org");
+    await shows(el, "Asking bitcoin.org");
+    const box = el.querySelector("textarea") as HTMLTextAreaElement;
+    box.value = "satoshi@bitcoin.or";
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+    await vi.waitFor(() => expect(aborted).toBe(1));
+    expect(text(el)).not.toContain("From the service");
+    box.value = "satoshi@bitcoin.org";
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+    await shows(el, "Asking bitcoin.org");
+    expect(sent.filter((r) => r.url === url)).toHaveLength(2);
+  });
+
   it("never asks a login link", async () => {
     reply = json({ ...ANSWERS.lnurl, tag: "login", k1: "00" });
     const el = open("keyauth://x");

@@ -550,11 +550,11 @@ fn lud17(s: &str) -> Result<Decoded, Failure> {
     let (host, tag, k1) = read_url(s).ok_or(Failure::Malformed)?;
     let url = format!("{}://{rest}", if onion(&host) { "http" } else { "https" });
     // keyauth:// is a login link, whatever its query says.
-    let tag = tag.or_else(|| {
-        scheme
-            .eq_ignore_ascii_case("keyauth")
-            .then(|| "login".to_owned())
-    });
+    let tag = if scheme.eq_ignore_ascii_case("keyauth") {
+        Some("login".to_owned())
+    } else {
+        tag
+    };
     Ok(Decoded::Lnurl(Lnurl {
         network: None,
         form: "url",
