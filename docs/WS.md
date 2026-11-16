@@ -228,6 +228,8 @@ The server never skips a frame for a subscriber: one that cannot keep up is clos
 
 These runs sent 48-byte records, before the flags; a delta's records grow by a sixth with them.
 
+The home page takes `projected-txs:0` too, for its next-block map, once its mempool panel nears the view. Measured on mainnet, 2026-11-16, a cold page in Chromium at 1440 px with 72,000 to 75,000 transactions waiting: the socket brought about 24 KB in its first 15 s before the map and 140 to 225 KB with it (the snapshot of about 3,300 transactions), and 269 KB in its first 60 s, about 1.9 KB/s after the snapshot for every topic together.
+
 The context bits (paid for by a child, pays for a parent) flip as chunks change, and each flip is a set record. Measured on mainnet, 2026-11-15, 75,000 transactions, two servers side by side for the same 240 s with no block: `projected-txs:0` sent 4,727 B/s and 110 records a delta with them, 4,693 B/s and 112 without. No measurable cost, and that was before the 10% margin, which flags far fewer.
 
 A second run of 1,760 s, which included block 975,526 (3,663 transactions confirmed), gave the same rates (1.4 KB/s for the home page; 278 and 602 B/s for blocks 0 and 1). At the block each projected block's change was larger than its new state, so both topics sent a snapshot instead: 87 KB for block 0 (1,822 transactions) and 270 KB for block 1 (102 KB and 315 KB at 56 bytes, computed). A client watching a block pays that once per block. Throughout, our counts matched the node's `getmempoolinfo` to within 10 transactions (the ones that arrived between our cycle and the check), and our block 0 matched the node's template above 99.7% by weight, tie-aware, at every one of 46 checks.
