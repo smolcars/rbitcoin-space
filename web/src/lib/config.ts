@@ -9,6 +9,8 @@ export interface AppConfig {
   ark: Partial<Record<Network, string[]>>;
   /** The networks whose operator switched Lightning on; the Lightning tab shows on these alone. */
   lightning: Network[];
+  /** Whether the server sends transactions (`BROADCAST_ENABLED`); the broadcast page needs it. */
+  broadcast: boolean;
 }
 
 /** The `ark` map: known networks, each with a list of short lower-case names. */
@@ -32,7 +34,8 @@ export function parseConfig(body: unknown): AppConfig | null {
   const ark = parseArk("ark" in body ? body.ark : undefined);
   const lightning = "lightning" in body && Array.isArray(body.lightning) ? body.lightning : [];
   const known = (list: unknown[]) => list.filter((n) => isNetwork(n));
-  return { networks: known(networks), version, ark, lightning: known(lightning) };
+  const broadcast = "broadcast" in body && body.broadcast === true;
+  return { networks: known(networks), version, ark, lightning: known(lightning), broadcast };
 }
 
 /**

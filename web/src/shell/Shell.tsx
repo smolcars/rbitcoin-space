@@ -113,7 +113,7 @@ export function Shell(props: { children?: JSX.Element }) {
           </Pending>
         </Errored>
       </main>
-      <Footer version={() => config()?.version} />
+      <Footer version={() => config()?.version} broadcast={() => config()?.broadcast} />
     </>
   );
 }

@@ -10,7 +10,13 @@ import { mount } from "./test-utils";
 /** The networks the faked server config has Lightning on; each test sets it through `server`. */
 const config = vi.hoisted(() => ({ lightning: [] as Network[] }));
 vi.mock(import("../lib/config"), () => ({
-  loadConfig: async () => ({ networks: [], version: "", ark: {}, lightning: config.lightning }),
+  loadConfig: async () => ({
+    networks: [],
+    version: "",
+    ark: {},
+    lightning: config.lightning,
+    broadcast: false,
+  }),
 }));
 
 const TXID = "65428488a6202f1d681d053b3ff5d8ea9f5b0e5e1e0dcf7bf2e4c1e5a3f9c2e1";

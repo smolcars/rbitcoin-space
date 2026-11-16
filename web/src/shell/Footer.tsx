@@ -3,7 +3,10 @@ import { Link } from "../components/Link";
 import { paths } from "../lib/network";
 import "./Footer.css";
 
-export function Footer(props: { version: Accessor<string | undefined> }) {
+export function Footer(props: {
+  version: Accessor<string | undefined>;
+  broadcast: Accessor<boolean | undefined>;
+}) {
   return (
     <footer class="site-footer">
       <div class="site-footer__inner">
@@ -14,6 +17,14 @@ export function Footer(props: { version: Accessor<string | undefined> }) {
             Decoder
           </Link>
         </p>
+        {/* On the page's own network, and only where the server sends transactions. */}
+        <Show when={props.broadcast()}>
+          <p>
+            <Link class="tap" href={paths.push()}>
+              Broadcast
+            </Link>
+          </p>
+        </Show>
         <p>
           <a
             class="tap"

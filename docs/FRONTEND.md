@@ -63,6 +63,7 @@ The network comes from the path. `useNetwork()` returns it; never keep it anywhe
 | Blocks | `/blocks`, `/blocks/:from` (paging back from a height) | `pages/blocks` | W3 |
 | Projected block | `/block/next`, `/block/next/:n` (2 to 8 places from now; 8 is the rest of the mempool) | `pages/projected` | W8 |
 | Transaction | `/tx/:txid` | `pages/tx` | W4 |
+| Broadcast | `/tx/push` (the hex is never in the URL); listed before `/tx/:txid` | `pages/push` | BX2 |
 | Address | `/address/:address` | `pages/address` | W5 |
 | Mining | `/mining`, `/mining?period=24h\|1w\|1m\|1y\|all` | `pages/mining` | W9 |
 | Mining pool | `/mining/pool/:slug` | `pages/mining` | W9 |
@@ -372,6 +373,17 @@ A mainnet server 18 minutes after its first sample (keys are sent in another ord
 `pages/decode/DecodePage.tsx` sends the fragment's string to `POST /app/decode` ([`API.md`](API.md#decoding)) and reads the answer strictly (`isDecoded` in `decode.ts`). A node or channel is a link to its page on the network the answer's `names` gives, only when that graph knows it; otherwise its key or id is text with a copy button. A decoded URL is text, never a link, its host set apart. Only the expiry's words follow the clock.
 
 **The service an LNURL or Lightning address names** is asked from the browser, once, as soon as the result shows (`service.ts`, allowed by `connect-src 'self' https:`, [`SECURITY.md`](SECURITY.md) rule 15): a pay, withdraw, channel or untagged LNURL, or a Lightning address; never a login link. One `GET` of the decoded URL, only over HTTPS to a public name (no address literal, no `.local`, `.home.arpa`, `.onion` and the like: those read "Not asked"), with no cookies and no referrer, no redirect followed, 8 s to answer whole, at most 64 KB read; it is aborted when the box is edited away from the decoded string, or the page is left. A login link is known by its tag as the service reads it (percent-decoded, any case), and every `keyauth://` link is one. The callback, the second step that would ask for an invoice or a withdrawal, is never called. Every field is read strictly and shown as text: the kind, the least and most in sats, the `text/plain` description (or `defaultDescription`), the long description and identifier, the comment length, the callback's host (with "Other host" when it is not the one asked), a channel request's node; images, HTML and links in the answer are not shown. A service's `{"status":"ERROR"}` shows its reason. Failures are one line each: asking, no answer in time, "Could not ask <host>" (a refusal to answer another site's page and a network fault look the same to the page). The footer links here from every network's pages. Search sends a payment string here by its form alone (`payment` in `search/query.ts`: a prefix, or for a Lightning address an email's shape with a dotted domain), from any network, and its field takes 8,192 characters for them; everything else it reads is still capped at 512.
+
+#### Broadcast
+
+`pages/push/PushPage.tsx` reads a signed transaction pasted as hex and sends it only when the reader presses the button. The hex stays in the page: in no URL, in a `POST` body each time.
+
+- **Read as soon as it is pasted** (`readPasted` in `push.ts`): whitespace anywhere is dropped, so wrapped hex works; not hex, an odd number of digits or more than 800,000 digits is said under the box with nothing asked. A paste is read at once, typing after a 400 ms pause. Then `POST /app/tx/check` ([`API.md`](API.md#checking-a-transaction)), read strictly (`readChecked`); the last answer is never shown beside a box that holds another transaction.
+- **Shown with the transaction page's parts**: the summary (fee, amount, size), the flow and the inspector from `pages/tx`, fed the check's Esplora-shaped `tx` with no spends.
+- **Warnings** (`warnings`): a fee rate above ten times the next block's (`/api/v1/fees/recommended`), never below 100 sat/vB, and 1,000 sat/vB when the next block's rate is not known; sats in `OP_RETURN` outputs; inputs whose output the node does not have. The first two make the button "Broadcast anyway", unfilled; the third only warns, as the node's refusal will say it too.
+- **Known to the node**: "Already in the mempool" or "Already confirmed", a link to its page, and no button.
+- **Sending** (`broadcast`): one `POST /api/tx`, never retried by itself. "Sent" links to the transaction's page, which follows it live; a refusal is one line (`refusal`): the node's reason, the seconds to wait after a `429`, or that the server does not broadcast.
+- **When the server does not broadcast** (`broadcast: false` in `/app/config`): the page still reads a transaction and says so, with no button, and the footer has no link to it.
 
 ### Live data
 

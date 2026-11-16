@@ -591,6 +591,22 @@ Decided while building it:
 - **The channel page is for the operators at its ends.** Each direction is drawn as a lane, coloured `--series-1` and `--series-2` across the lanes, the calculator and nothing else, saying in words which end charges what. What gossip says is said as advertised: "Enabled" is not "routable", and a missing policy reads "No policy", never "Disabled", which is only an advertised disabled flag. A closed channel has no policy to show, so it shows how it ended and its life, not empty drawings; one with no policy either way shows its lanes and no calculator or table. "Continued as" a new channel is inferred from the closing transaction, and said so. A figure is one piece at every text size: never broken inside its digits (its groups are joined by no-break spaces) nor parted from its unit, the line breaking between figures ("1 ppm" + "1 sat"); at the largest sizes (below 15em: 320 or 390 px at 200% text) the page's gutters and panel padding halve, the display figures stop growing past the text round them, and a figure longer than 12 characters (an msat term, the capacity) reads in magnitude (`0.200 BTC`); so does one in a hop fee's well narrower than 22em of its own text, at any size; so each fits whole in any reader's fonts. A name breaks anywhere, or is cut with its whole in the title. On a phone each policy term is a row over its two values, under the two ends' names; below 22.5em (a 320 px phone, or larger text) the values go one a line, each named for its node.
 - **Switched off is a sentence,** not an empty chart: a network without Lightning says so, and a peer still syncing shows how far it has come and fills the page when done.
 
+### Broadcast (not in the prototype)
+
+```text
+Broadcast a transaction
+[Paste a signed transaction in hex                          ]
+37d0355b…f83b66c6 [copy]
+┌ summary: Fee · Amount · Size ────────────────────────────────────┐
+└──────────────────────────────────────────────────────────────────┘
+[notice, caution: Check before you send — what is wrong, one line each]
+[Broadcast]  or  [Broadcast anyway]  or  ✓ Sent: follow it on its page
+┌ Inputs and outputs (the transaction page's flow) ────────────────┐
+└──────────────────────────────────────────────────────────────────┘
+```
+
+It is read as soon as it is pasted, so the answer comes before the button: what it pays and where its coins go. The button is the accent only when nothing needs a second thought; with a warning it is outlined and reads "Broadcast anyway". A transaction the node already has gets a positive notice and a link instead of a button. On a phone the fee and the size share a row and the amount has its own, as on the transaction page.
+
 ### Ark (not in the prototype)
 
 ```text

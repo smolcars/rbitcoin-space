@@ -38,10 +38,10 @@ One table per group, each on its own page:
 | Esplora REST (`/api`) | [`compat/esplora.md`](compat/esplora.md) | 56 | 44 | 0 | 0 | 12 | 48 |
 | mempool.space REST (`/api/v1`) | [`compat/api-v1.md`](compat/api-v1.md) | 74 | 53 | 4 | 2 | 15 | 73 |
 | WebSocket | [`compat/websocket.md`](compat/websocket.md) | 48 | 28 | 1 | 3 | 16 | 43 |
-| Pages and visible features | [`compat/pages.md`](compat/pages.md) | 55 | 33 | 8 | 6 | 8 | 31 |
-| **Total** | | **233** | **158** | **13** | **11** | **51** | **195** |
+| Pages and visible features | [`compat/pages.md`](compat/pages.md) | 55 | 33 | 8 | 7 | 7 | 31 |
+| **Total** | | **233** | **158** | **13** | **12** | **50** | **195** |
 
-Every row's status was checked against `master` on 2026-11-12 (task C1), and the rows of `vBytesPerSecond`, `live-2h-chart` and `backend-info` again when they were built (task G1), the Lightning node's fee histogram and history when they were (task G3), the three mining rows of the pages when they were (task G2), the two replacements rows of the pages when they were (task G4), the five rows of broadcast, test-accept and package submission when the owner decided on them (2026-11-13), the socket's `init`, `backend` and block rows when they were built (task WS3, 2026-11-15), its `track-mempool-block` and `projected-block-transactions` rows when they were (task WS4, 2026-11-15), its replacement feeds and `init` rows when they were (task WS5, 2026-11-15), the Lightning `channels`, `isp-ranking` and `channels-geo` rows when they were (task WS7, 2026-11-15), and the goggles row when they were built (task GG5, 2026-11-15): routes by request to a server on regtest and, read-only, on mainnet, signet and testnet4; pages by loading them in headless Chromium on each network. A page is `served` only when it shows everything its row names; a part it lacks has a row of its own.
+Every row's status was checked against `master` on 2026-11-12 (task C1), and the rows of `vBytesPerSecond`, `live-2h-chart` and `backend-info` again when they were built (task G1), the Lightning node's fee histogram and history when they were (task G3), the three mining rows of the pages when they were (task G2), the two replacements rows of the pages when they were (task G4), the five rows of broadcast, test-accept and package submission when the owner decided on them (2026-11-13), the broadcast page's row when it was built (2026-11-16), the socket's `init`, `backend` and block rows when they were built (task WS3, 2026-11-15), its `track-mempool-block` and `projected-block-transactions` rows when they were (task WS4, 2026-11-15), its replacement feeds and `init` rows when they were (task WS5, 2026-11-15), the Lightning `channels`, `isp-ranking` and `channels-geo` rows when they were (task WS7, 2026-11-15), and the goggles row when they were built (task GG5, 2026-11-15): routes by request to a server on regtest and, read-only, on mainnet, signet and testnet4; pages by loading them in headless Chromium on each network. A page is `served` only when it shows everything its row names; a part it lacks has a row of its own.
 
 Each row gives the feature, what it returns, where our answer comes from (an rbitcoin Esplora route or RPC method, our engine, our store, or Lightning), its status, its milestone from [`PLAN.md`](PLAN.md) and how it was checked.
 
@@ -69,7 +69,7 @@ Every `planned` row, as of the count above, and the rows the owner has decided. 
 | Units | BTC or sats | Nothing: one setting read by the amount component | A day | Build later |
 | Clock `/clock` | Full-screen tip height, fee and mempool size | Nothing, without the price | A few hours | Build later; leave the price out |
 | TV `/tv` | Full-screen block strip and mempool chart | Nothing | A day | Skip: the home page in full screen is the same view |
-| Preview `/tx/preview` | Decodes a pasted transaction or PSBT | A transaction and PSBT parser in the browser, for untrusted input | Several days | An idea for later: with no broadcast page (the owner's decision), nothing is scheduled |
+| Preview `/tx/preview` | Decodes a pasted transaction or PSBT | A PSBT parser for untrusted input: a raw transaction is already read and drawn by the broadcast page | A few days | An idea for later |
 
 ### REST routes
 
@@ -83,9 +83,9 @@ Every `planned` row, as of the count above, and the rows the owner has decided. 
 | Item | Rows | Decision |
 |---|---|---|
 | Fiat prices | `/v1/prices`, `/v1/historical-price`, `conversions`, fiat currency choice, the calculator, block fees in fiat | Parked: a price feed is a new outside source with its own trust and off switch. The rows stay `planned` |
-| Broadcast page `/tx/push` | Pages: broadcast | No broadcast page for now (2026-11-13). `POST /api/tx` stays served under its rules ([`SECURITY.md`](SECURITY.md) rule 5). Skipped |
-| Package submission | `POST /api/txs/package`, `POST /api/v1/txs/package`, packages on `/tx/push` | Not served, with no broadcast page to use it (2026-11-13). Skipped |
-| Test-accept | `POST /api/txs/test`, `/tx/test` | Not served, for the same reason (2026-11-13). Skipped |
+| Broadcast page `/tx/push` | Pages: broadcast | No broadcast page for now (2026-11-13), then one (2026-11-16): one transaction, read before it is sent, through `POST /api/tx` under its rules ([`SECURITY.md`](SECURITY.md) rule 5). Different |
+| Package submission | `POST /api/txs/package`, `POST /api/v1/txs/package`, packages on `/tx/push` | Not served (2026-11-13, kept on 2026-11-16): the page sends one transaction. Skipped |
+| Test-accept | `POST /api/txs/test`, `/tx/test` | Not served (2026-11-13, kept on 2026-11-16). Skipped |
 
 ## mempool.space's frontend on this server
 

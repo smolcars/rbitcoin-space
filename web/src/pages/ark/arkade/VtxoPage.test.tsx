@@ -16,6 +16,7 @@ vi.mock(import("../../../lib/config"), () => ({
     version: "1",
     ark: { signet: ark.signet },
     lightning: [],
+    broadcast: false,
   }),
 }));
 

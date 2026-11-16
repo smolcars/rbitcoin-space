@@ -70,6 +70,8 @@ export const paths = {
   projected: (position: number) =>
     position <= 1 ? "/block/next" : `/block/next/${segment(position)}`,
   tx: (txid: string) => `/tx/${segment(txid)}`,
+  /** Broadcasting a transaction pasted as hex. The hex is never in the path. */
+  push: () => "/tx/push",
   address: (address: string) => `/address/${segment(address)}`,
   /** The mining page, for a period such as `1m` when given. */
   mining: (period?: string) =>

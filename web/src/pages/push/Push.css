@@ -1,0 +1,87 @@
+@layer pages {
+  .push {
+    display: grid;
+    gap: var(--space-4);
+    max-width: 64rem;
+    padding-block: var(--space-6) var(--space-8);
+  }
+  .push h1 {
+    margin: 0;
+  }
+  .push__input {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: calc(var(--touch) * 2);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--color-line-strong);
+    border-radius: var(--radius-m);
+    background: var(--color-surface-sunken);
+    color: var(--color-text);
+    font-size: var(--text-sm);
+    resize: vertical;
+    overflow-wrap: anywhere;
+    word-break: break-all;
+  }
+  .push__line {
+    margin: 0;
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+
+  .push-result {
+    display: grid;
+    gap: var(--space-4);
+    min-width: 0;
+  }
+  .push-result__id {
+    min-width: 0;
+  }
+  /* Three figures, not the transaction page's four. */
+  .push .tx-summary {
+    grid-template-columns: repeat(3, minmax(min-content, 1fr));
+  }
+
+  .push-notice--positive {
+    color: var(--color-positive);
+  }
+  .push-notice--caution {
+    color: var(--color-caution);
+  }
+  .push-warnings {
+    display: grid;
+    gap: var(--space-2);
+  }
+  .push-warnings p {
+    margin: 0;
+  }
+
+  /* On a phone the fee and the size share a row; the amount has its own (as on the transaction page). */
+  @media (max-width: 40em) {
+    .push .tx-summary__item--amount {
+      order: 1;
+    }
+  }
+
+  .push-flow {
+    min-width: 0;
+  }
+
+  .push-send {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
+  }
+  .push-send .tx-notice {
+    flex: 1 1 100%;
+  }
+  .push-send__go {
+    min-height: var(--touch);
+    min-width: 10rem;
+  }
+  .push-send__why {
+    margin: 0;
+    color: var(--color-negative);
+    overflow-wrap: anywhere;
+  }
+}

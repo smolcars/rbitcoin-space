@@ -227,7 +227,13 @@ describe("createSearch and Lightning", () => {
     const asked: string[] = [];
     const searches: { signal: AbortSignal; release: (v: unknown) => void }[] = [];
     const config = () =>
-      Promise.resolve({ networks: [], version: "", ark: {}, lightning: on ? [...NETWORKS] : [] });
+      Promise.resolve({
+        networks: [],
+        version: "",
+        ark: {},
+        lightning: on ? [...NETWORKS] : [],
+        broadcast: true,
+      });
     const app: Get = (_network, path, signal) => {
       asked.push(path);
       return new Promise((resolve, reject) => {

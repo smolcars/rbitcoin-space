@@ -14,7 +14,13 @@ import BlockPage from "./BlockPage";
 const config = vi.hoisted(() => ({ lightning: [] as Network[] }));
 vi.mock(import("../../lib/config"), () => ({
   loadConfig: () =>
-    Promise.resolve({ networks: ["mainnet" as const], version: "", ark: {}, ...config }),
+    Promise.resolve({
+      networks: ["mainnet" as const],
+      version: "",
+      ark: {},
+      broadcast: false,
+      ...config,
+    }),
 }));
 
 const HASH = "00000000000000000001b0e1f2c63fd0a1ec0d0b4f50f1c1e2f9b8c1d2e3f4a5";
