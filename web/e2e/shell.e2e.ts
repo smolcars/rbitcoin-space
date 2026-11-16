@@ -198,6 +198,15 @@ test.describe("the main nav", () => {
   test.use({ consoleErrorsAllowed: [/due to access control checks/] });
   test("marks the current section on every page under it, whatever the query", async ({ page }) => {
     await lightningOn(page);
+    // Lightning is listed but off on this server: the block page's panel gets a block with none.
+    await page.route(/\/regtest\/app\/lightning\/block\//, (route) =>
+      route.fulfill({
+        json: {
+          opened: { count: 0, capacity: 0, channels: [] },
+          closed: { count: 0, forced: 0, channels: [] },
+        },
+      }),
+    );
     const routes: [string, string][] = [
       ["/regtest/blocks", "Blocks"],
       [`/regtest/block/${chain.blocks[106]}`, "Blocks"],
