@@ -360,6 +360,7 @@ async fn with_lightning_off_the_routes_say_so() {
         "/regtest/app/lightning/feed",
         "/regtest/app/lightning/movers?period=1m",
         "/regtest/app/lightning/closes?days=90",
+        "/regtest/app/lightning/penalties",
         "/regtest/app/lightning/search?q=acinq",
         "/regtest/app/lightning/channels/1x1x1",
         "/regtest/api/v1/lightning/nodes/rankings",
@@ -785,6 +786,7 @@ async fn nodes_channels_search_and_rankings_answer_exactly_in_both_shapes() {
     for p in [
         format!("/app/lightning/nodes/{one}"),
         "/api/v1/lightning/nodes/rankings".to_owned(),
+        "/app/lightning/penalties".to_owned(),
     ] {
         let r = get(&addr, &format!("/regtest{p}")).await;
         assert_eq!((r.status, r.header("retry-after")), (503, Some("1")), "{p}");
@@ -1142,6 +1144,14 @@ async fn nodes_channels_search_and_rankings_answer_exactly_in_both_shapes() {
         ("/app/lightning/closes?days=91".to_owned(), 400),
         ("/app/lightning/closes?days=01".to_owned(), 400),
         ("/app/lightning/closes?days=-1".to_owned(), 400),
+        // The penalties: a page 0 to 4000, written plainly, once; nothing else.
+        ("/app/lightning/penalties?page=4000".to_owned(), 200),
+        ("/app/lightning/penalties?page=4001".to_owned(), 400),
+        ("/app/lightning/penalties?page=-1".to_owned(), 400),
+        ("/app/lightning/penalties?page=01".to_owned(), 400),
+        ("/app/lightning/penalties?page=1&page=1".to_owned(), 400),
+        ("/app/lightning/penalties?limit=10".to_owned(), 400),
+        ("/app/lightning/penalties?page=%FF".to_owned(), 400),
         // The reference's location routes are not served: 404 like any route we do not serve,
         // not a malformed key, while anything else in a key's place is still checked strictly.
         ("/api/v1/lightning/nodes/countries".to_owned(), 404),
@@ -1189,6 +1199,118 @@ async fn nodes_channels_search_and_rankings_answer_exactly_in_both_shapes() {
         .await
         .unwrap()
         .unwrap();
+}
+
+#[tokio::test]
+async fn penalties_are_listed_newest_sweep_first_a_page_at_a_time() {
+    use engine::lightning::{GraphNode, Index, Penalty};
+    let d = dir("penalties");
+    let (addr, calls, _server, _stop, ln) = start(&d.0, true).await;
+    let ln = ln.unwrap();
+    let store = Store::open(&d.0, "regtest", Options::default()).unwrap();
+    let past = lightning::past(&store).await.unwrap();
+    let nodes = vec![GraphNode {
+        id: [2; 33],
+        announcement: None,
+    }];
+    ln.set_index(Index::build(nodes, Vec::new(), &past));
+    let list = |q: &'static str| {
+        let addr = addr.clone();
+        async move { get(&addr, &format!("/regtest/app/lightning/penalties{q}")).await }
+    };
+    // None yet: an empty list and its count, not a refusal.
+    let none = list("").await;
+    assert_eq!(none.status, 200);
+    assert_eq!(
+        none.json(),
+        serde_json::json!({ "page": 0, "per_page": 25, "total": 0, "from": null, "channels": [] })
+    );
+    // 31 breaches, each swept ten blocks after its close, and a reorg that undoes the newest.
+    let mut changes = Vec::new();
+    for n in 0..31u32 {
+        let c = open(u64::from(n));
+        changes.push(Change::Closed(
+            c,
+            Close {
+                block: block(800_500 + n),
+                txid: Txid::from_byte_array([9; 32]),
+                kind: Kind::Force,
+                fee: None,
+            },
+        ));
+        changes.push(Change::Penalty(
+            c.scid,
+            Penalty {
+                block: block(800_510 + n),
+                txid: Txid::from_byte_array([u8::try_from(n).unwrap(); 32]),
+            },
+        ));
+    }
+    changes.push(Change::PenaltyUndone(open(30).scid));
+    lightning::apply(&store, changes).await.unwrap();
+    store.close().await;
+    let first = list("").await.json();
+    assert_eq!(
+        (first["total"].as_u64(), first["page"].as_u64()),
+        (Some(30), Some(0))
+    );
+    let rows = first["channels"].as_array().unwrap();
+    assert_eq!(rows.len(), 25);
+    let row = &rows[0];
+    assert_eq!(row["id"], "800029x3x0");
+    assert_eq!(row["closed"]["block"]["height"], 800_529);
+    assert_eq!(row["penalty"]["block"]["height"], 800_539);
+    assert_eq!(
+        row["penalty"]["txid"],
+        Txid::from_byte_array([29; 32]).to_string()
+    );
+    // Both ends as `{id, alias}`: a node without an announcement, one the graph does not hold.
+    assert_eq!(
+        row["node_one"],
+        serde_json::json!({ "id": "02".repeat(33), "alias": null })
+    );
+    assert_eq!(row["node_two"]["alias"], Value::Null);
+    let second = list("?page=1").await.json();
+    let ids: Vec<&str> = second["channels"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        ids,
+        [
+            "800004x3x0",
+            "800003x3x0",
+            "800002x3x0",
+            "800001x3x0",
+            "800000x3x0"
+        ]
+    );
+    for q in ["?page=2", "?page=4000"] {
+        let r = list(q).await;
+        assert_eq!(r.status, 200, "{q}");
+        assert_eq!(
+            (
+                r.json()["total"].as_u64(),
+                r.json()["channels"].as_array().map(Vec::len)
+            ),
+            (Some(30), Some(0)),
+            "{q}"
+        );
+    }
+    for q in [
+        "?page=4001",
+        "?page=",
+        "?page=1.5",
+        "?per_page=50",
+        "?page=0&page=0",
+    ] {
+        let r = list(q).await;
+        assert_eq!(r.status, 400, "{q}");
+        assert!(r.json()["error"].is_string(), "{q}");
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 0, "the list called the node");
 }
 
 #[tokio::test]
@@ -1285,6 +1407,7 @@ async fn mainnet_size_routes() -> (Duration, (Duration, String)) {
         format!("/api/v1/lightning/channels?public_key={hub}&status=open&index=700"),
         "/api/v1/lightning/nodes/rankings/connectivity".to_owned(),
         "/api/v1/lightning/search?searchText=node".to_owned(),
+        "/app/lightning/penalties".to_owned(),
     ] {
         let t = std::time::Instant::now();
         let r = get(&addr, &format!("/regtest{p}")).await;

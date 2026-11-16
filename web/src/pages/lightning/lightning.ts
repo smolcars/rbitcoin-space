@@ -339,6 +339,19 @@ export interface Rankings {
   nodes: RankedNode[];
 }
 
+/** A breach swept: a closed channel with its sweep. */
+export type Penalty = ListedChannel & { closed: Close; penalty: Sweep };
+
+/** A page of the penalties this server saw, newest sweep first (`/app/lightning/penalties`). */
+export interface Penalties {
+  page: number;
+  per_page: number;
+  total: number;
+  /** When this server's record starts; null before its first snapshot. */
+  from: number | null;
+  channels: Penalty[];
+}
+
 export interface TxChannels {
   opened: ListedChannel[];
   closed: ListedChannel[];
@@ -414,6 +427,25 @@ export const isListedChannel = (v: unknown): v is ListedChannel =>
   nullable(v["opened"], isBlock) &&
   nullable(v["closed"], isClose) &&
   nullable(v["penalty"] ?? null, isSweep);
+
+const isPenalty = (v: unknown): v is Penalty =>
+  isListedChannel(v) && v.closed !== null && v.penalty !== null && v.penalty !== undefined;
+
+export const isPenalties = (v: unknown): v is Penalties =>
+  obj(v) &&
+  num(v["page"]) &&
+  num(v["per_page"]) &&
+  v["per_page"] > 0 &&
+  num(v["total"]) &&
+  nullable(v["from"], num) &&
+  list(v["channels"], isPenalty);
+
+/** A page number from the address, from 1 to the server's last; anything else reads as the first. */
+export function readPage(value: unknown): number {
+  const v: unknown = Array.isArray(value) ? (value as unknown[])[0] : value;
+  const n = typeof v === "string" && /^[1-9]\d{0,3}$/.test(v) ? Number(v) : 1;
+  return n <= LAST_PAGE + 1 ? n : 1;
+}
 
 const isRanked = (v: unknown): v is RankedNode =>
   obj(v) && num(v["capacity"]) && num(v["channels"]) && isNodeRef(v);

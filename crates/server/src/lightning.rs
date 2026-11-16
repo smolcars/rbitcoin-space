@@ -1101,6 +1101,7 @@ pub fn routes() -> Router<Arc<NetworkContext>> {
         .merge(fees::routes())
         .merge(feed::routes())
         .merge(movers::routes())
+        .merge(penalties::routes())
 }
 
 fn json_response(body: Bytes, route: &'static str, cache: &'static str) -> Response {
@@ -1555,5 +1556,6 @@ mod fees;
 mod index;
 mod movers;
 pub(crate) mod nodes;
+mod penalties;
 #[cfg(test)]
 mod tests;

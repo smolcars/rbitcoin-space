@@ -1,0 +1,12 @@
+@layer pages {
+  /* A card's links side by side; on a touch screen a wrapped row sits a thumb below the last, so
+     no target lies over another. */
+  .ln-pen-go {
+    gap: 0 var(--space-5);
+  }
+  @media (pointer: coarse) {
+    .ln-pen-go {
+      row-gap: calc(var(--touch) - 1lh);
+    }
+  }
+}

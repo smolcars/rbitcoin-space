@@ -302,7 +302,7 @@ async fn stored(
     let closed = store_ln::closed(store, KEPT).await?;
     for c in closed
         .into_iter()
-        .chain(store_ln::penalties(store, KEPT).await?)
+        .chain(store_ln::penalties(store, 0, KEPT).await?.1)
     {
         match (c.close, c.penalty) {
             (_, Some(p)) => out.push(Event::penalty(&c, &p)),

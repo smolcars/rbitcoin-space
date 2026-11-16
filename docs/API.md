@@ -929,7 +929,7 @@ Answered from an index of the verified graph that the server rebuilds every 30 s
 | `:txid`, `txId[]` | 64 hex digits; `txId[]` at most 100 times | `400 invalid txid` / `invalid txId` |
 | `q`, `searchText` | 3 to 66 characters once percent-decoded and trimmed, valid UTF-8, no control character | `400 search text is 3 to 66 characters, without control characters` |
 | `status` | `open` (the default) or `closed` | `400` |
-| `page` (ours) | 0 to 4,000, 25 channels a page | `400` |
+| `page` (ours: a node's channels, the penalties) | 0 to 4,000, 25 channels a page | `400` |
 | `index` (reference) | An offset, 0 to 100,000, 10 channels a page | `400` |
 | `limit` (rankings) | 1 to 100, default 25, as for the channel lists above | `400` |
 | `limit` (a node's fee changes) | 1 to 50, default 10, written plainly | `400 limit is 1 to 50` |
@@ -943,7 +943,7 @@ Answered from an index of the verified graph that the server rebuilds every 30 s
 | `period` (movers) | `24h`, `1w` or `1m` | `400 period is 24h, 1w or 1m` |
 | `days` (closes) | 1 to 90, written plainly | `400 days is 1 to 90` |
 
-A parameter given twice is `400`, and so is `state` or `fee` with `status=closed`, `kind` with open channels, and a `sort` of the other status. `/app` routes that take parameters (search, rankings, a node's channels, a node's fee changes, movers, closes, and the overview, the feed and a channel's fee history, which take none) refuse unknown ones, and the others ignore a query string; `/api/v1` routes ignore unknown parameters, like every `/api/v1` query, so cache-busting works. A node or channel we do not hold is `404` (`node not found`, `channel not found`); a page past the end is an empty list. A node is held while it has an open channel in the graph.
+A parameter given twice is `400`, and so is `state` or `fee` with `status=closed`, `kind` with open channels, and a `sort` of the other status. `/app` routes that take parameters (search, rankings, a node's channels, a node's fee changes, movers, closes, the penalties, and the overview, the feed and a channel's fee history, which take none) refuse unknown ones, and the others ignore a query string; `/api/v1` routes ignore unknown parameters, like every `/api/v1` query, so cache-busting works. A node or channel we do not hold is `404` (`node not found`, `channel not found`); a page past the end is an empty list. A node is held while it has an open channel in the graph.
 
 **Search** matches public keys by prefix (hex, any case) in key order, then aliases by substring (Unicode lowercase on both sides), most capacity first: at most 10 nodes. A query that parses as a channel id also returns that channel, open or closed. Its cost is a binary search and one pass over at most 13,600 aliases of at most 32 bytes, whatever the query: 0.5 ms on mainnet.
 
@@ -968,6 +968,7 @@ What the Lightning pages read; one request for each page's main content. Real ma
 | `GET /channels/:id/fees` | `{id, scid, node_one, node_two, watched}`: the channel's [fee history](#fee-history), each end's records oldest first |
 | `GET /nodes/:key/fees?limit=` | `{changes}`: the newest fee changes on the node's open channels, either end's, newest first ([below](#fee-history)) |
 | `GET /tx/:txid` | `{opened, closed}`: the channels this transaction funded and closed, each as in the channel lists above. For the transaction page |
+| `GET /penalties?page=` | `{page, per_page, total, from, channels}`: the force closes this server saw swept with the revocation key, newest sweep first, 25 a page, each as in the channel lists above (`closed` and `penalty` never `null`), and how many there are; `from` is when our history starts, as for a node's history. One indexed read of the breached rows ([`STORE.md`](STORE.md#reading)); a penalty undone by a reorg leaves the list. Only what this server watched happen ([`LIGHTNING.md`](LIGHTNING.md#how-a-close-is-classified)), so usually none or a handful |
 
 `state` is `active` (some direction has an enabled policy), `inactive` (none: disabled, or no policy received within LDK's two weeks) or `closed`. `fee_rate` in a node's channel list is that node's own policy on the channel, ppm. Times are Unix seconds; `first_seen` is the oldest funding block time among the node's channels we hold, open or closed.
 

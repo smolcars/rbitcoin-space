@@ -1,7 +1,16 @@
 // Pieces every Lightning page shares: the gate that says whether there is anything to show,
 // names from gossip, links and figures.
 import { useLocation } from "@solidjs/router";
-import { For, Match, onSettled, Show, Switch } from "solid-js";
+import {
+  type Accessor,
+  createSignal,
+  For,
+  Match,
+  onCleanup,
+  onSettled,
+  Show,
+  Switch,
+} from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { Amount } from "../../components/Amount";
 import { CopyButton } from "../../components/CopyButton";
@@ -10,7 +19,7 @@ import type { Column } from "../../components/DataTable";
 import { Link } from "../../components/Link";
 import { Empty, ErrorState, Loading } from "../../components/States";
 import { ApiError, createRequest, fetchApp } from "../../lib/api";
-import { formatPowerOfTen, groupDigits, truncateMiddle } from "../../lib/format";
+import { formatBtcShort, formatPowerOfTen, groupDigits, truncateMiddle } from "../../lib/format";
 import { hasLightning, NETWORK_NAMES, type Network, paths } from "../../lib/network";
 import { useNetwork } from "../../lib/page";
 import {
@@ -415,7 +424,9 @@ export function rememberList(href: string, label: string): void {
  * row of links, and on a node
  * or channel a way back to the list the reader came from. One line, never a tall band.
  */
-export function LightningNav(props: { here: "overview" | "rankings" | "search" | "detail" }) {
+export function LightningNav(props: {
+  here: "overview" | "rankings" | "search" | "penalties" | "detail";
+}) {
   const back = () => (props.here === "detail" ? lastList : undefined);
   // One current destination: the overview at its top, its chart once the address says so.
   const location = useLocation();
@@ -549,3 +560,22 @@ export function InboundFig(props: { fee: InboundFee }) {
 /** "Inbound discount", "Inbound surcharge" or "Inbound fee", by the fee's sign. */
 export const inboundName = (f: InboundFee): string =>
   inboundWord(f) === "fee" ? "Inbound fee" : `Inbound ${inboundWord(f)}`;
+
+/** Sats whole with their unit, in magnitude where the room is too narrow for them (`Fig`). */
+export const SatsFig = (props: { sats: number }) => (
+  <Fig
+    exact={groupDigits(props.sats)}
+    unit={props.sats === 1 ? "sat" : "sats"}
+    short={`${formatBtcShort(props.sats)} BTC`}
+  />
+);
+
+/** Whether the viewport is a phone's (the 40em breakpoint), kept current. */
+export function usePhone(): Accessor<boolean> {
+  const media = window.matchMedia("(max-width: 40em)");
+  const [phone, setPhone] = createSignal(media.matches);
+  const change = () => setPhone(media.matches);
+  media.addEventListener("change", change);
+  onCleanup(() => media.removeEventListener("change", change));
+  return phone;
+}

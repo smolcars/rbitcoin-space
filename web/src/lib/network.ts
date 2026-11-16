@@ -82,6 +82,9 @@ export const paths = {
   /** The largest, best-connected or oldest Lightning nodes. */
   lightningRankings: (by?: string) =>
     by === undefined ? "/lightning/rankings" : `/lightning/rankings?by=${encodeURIComponent(by)}`,
+  /** The Lightning penalties this server saw, a page from 1. */
+  lightningPenalties: (page?: number) =>
+    page === undefined || page <= 1 ? "/lightning/penalties" : `/lightning/penalties?page=${page}`,
   /** The mempool's history, for an interval such as `1w` when given. */
   mempool: (interval?: string) =>
     interval === undefined ? "/mempool" : `/mempool?interval=${encodeURIComponent(interval)}`,
