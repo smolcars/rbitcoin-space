@@ -436,7 +436,7 @@ const ORIGIN_REFUSED: ApiError = ApiError::new(
 /// every host name the site answers to, as long as the proxy passes `Host` through. A request
 /// without `Origin` is not from a browser, which always sends it, so no third party can make a
 /// visitor send one; it is allowed. On refusal, the origin and host, cut short, for the log.
-fn same_origin(h: &HeaderMap) -> Result<(), (String, String)> {
+pub(crate) fn same_origin(h: &HeaderMap) -> Result<(), (String, String)> {
     let mut origins = h.get_all(ORIGIN).iter();
     let Some(origin) = origins.next() else {
         return Ok(());

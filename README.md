@@ -62,6 +62,7 @@ Read [`AGENTS.md`](AGENTS.md) before opening a pull request.
 | [`MEMPOOL.md`](docs/MEMPOOL.md) | Mempool tracking, removals and projected blocks |
 | [`SECURITY.md`](docs/SECURITY.md) | Threat model and its rules |
 | [`WS.md`](docs/WS.md) | The WebSocket protocol at `/app/ws` |
+| [`MCP.md`](docs/MCP.md) | The MCP server at `/mcp`, for chat bots and coding agents |
 | [`CONFIG.md`](docs/CONFIG.md) | Every environment variable and its default |
 | [`CI.md`](docs/CI.md) | CI speed budget and test layers |
 | [`REGTEST.md`](docs/REGTEST.md) | The private regtest node and its known chain |

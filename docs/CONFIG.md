@@ -67,6 +67,12 @@ VTXO pages for Ark implementations, per network ([`ARK.md`](ARK.md)). Off unless
 |---|---|---|
 | `BROADCAST_ENABLED` | `true` | `false` turns off `POST /api/tx` and `POST /api/blindbit/v1/forward-tx` on every network (it answers `403`), and the footer's link to the broadcast page; the page still reads a pasted transaction and says the server does not broadcast. Broadcast is the only write the server makes to the node; its size cap and per-client rate limit are fixed ([`API.md`](API.md#broadcast)) |
 
+## MCP
+
+| Variable | Default | What it does |
+|---|---|---|
+| `MCP_ENABLED` | `false` | `true` serves `POST /mcp`, a read-only Model Context Protocol server for chat bots and coding agents ([`MCP.md`](MCP.md)). Its tools ask routes this server already serves, under those routes' limits; it needs no sign-in |
+
 ## Cloudflare Web Analytics
 
 | Variable | Default | What it does |

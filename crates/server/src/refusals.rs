@@ -220,7 +220,8 @@ fn route_class(path: &str) -> usize {
     };
     if p == "app/ws" || p == "api/v1/ws" {
         2
-    } else if p == "api" || p.starts_with("api/") {
+    } else if p == "api" || p.starts_with("api/") || p == "mcp" {
+        // `/mcp` is a public API too: its tools ask the routes under `/api`.
         0
     } else if p == "app" || p.starts_with("app/") {
         1
@@ -355,6 +356,7 @@ mod tests {
     fn routes_are_classed_by_path() {
         let class = |p| ROUTES[route_class(p)];
         assert_eq!(class("/api/tx/ab"), "api");
+        assert_eq!(class("/mcp"), "api");
         assert_eq!(class("/signet/api"), "api");
         assert_eq!(class("/nope/api/x"), "api");
         assert_eq!(class("/app/config"), "app");

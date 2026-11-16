@@ -291,12 +291,12 @@ pub(crate) fn client_addr(
 
 /// Static files and pages: the app shell and the content-hashed files under `/assets`, served from
 /// memory or disk with no node work behind them. Everything a handler answers (`/api`, `/app`,
-/// `/healthz`, `/readyz`, under any network prefix or none) is not.
+/// under any network prefix or none, and `/healthz`, `/readyz` and `/mcp`) is not.
 pub fn is_static(path: &str) -> bool {
     let mut segs = path.trim_start_matches('/').split('/');
     let first = segs.next().unwrap_or_default();
     let second = segs.next();
-    !(matches!(first, "api" | "app" | "healthz" | "readyz")
+    !(matches!(first, "api" | "app" | "healthz" | "readyz" | "mcp")
         || matches!(second, Some("api" | "app")))
 }
 
@@ -745,6 +745,7 @@ mod tests {
             "/app/config",
             "/healthz",
             "/readyz",
+            "/mcp",
             "/signet/api/x",
             "/regtest/app/ws",
             "/nope/api/x",

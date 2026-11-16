@@ -21,6 +21,7 @@ mod kept;
 pub mod ledger;
 pub mod lightning;
 pub mod limits;
+pub mod mcp;
 pub mod mining;
 mod pages;
 mod refusals;
@@ -435,6 +436,18 @@ impl App {
         // `/<anything>/api/...` is an API call for a network we do not know, never a page.
         for path in API_PATHS {
             app = app.route(&format!("/{{network}}{path}"), any(not_found));
+        }
+
+        // Every route above, for the tools to ask: built before `/mcp` itself is added.
+        if config.mcp {
+            let enabled = contexts.iter().map(|c| c.config.network).collect();
+            let mcp = Arc::new(mcp::Mcp::new(app.clone(), enabled));
+            app = app.route(
+                "/mcp",
+                post(mcp::route)
+                    .layer(DefaultBodyLimit::max(mcp::MAX_BODY))
+                    .with_state(mcp),
+            );
         }
 
         let cache =

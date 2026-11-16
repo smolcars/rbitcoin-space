@@ -46,6 +46,7 @@ pub struct ServerStarting<'a> {
     pub log_client_addr: bool,
     pub log_max_bytes_per_sec: u64,
     pub broadcast_enabled: bool,
+    pub mcp_enabled: bool,
     pub cloudflare_web_analytics: bool,
     /// `ONION_LOCATION`, or null when unset. The onion address is public.
     pub onion_location: Option<&'a str>,
@@ -1801,6 +1802,7 @@ mod tests {
                 log_client_addr: false,
                 log_max_bytes_per_sec: 262_144,
                 broadcast_enabled: true,
+                mcp_enabled: false,
                 cloudflare_web_analytics: false,
                 onion_location: None,
                 max_body_bytes: 1,

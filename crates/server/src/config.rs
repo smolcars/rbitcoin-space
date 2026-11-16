@@ -399,6 +399,8 @@ pub struct Config {
     pub ws: WsLimits,
     /// Whether `POST /api/tx` is served (`BROADCAST_ENABLED`).
     pub broadcast: bool,
+    /// Whether `POST /mcp` is served (`MCP_ENABLED`).
+    pub mcp: bool,
     pub log_requests: RequestLog,
     /// Whether request events carry the client address (`LOG_CLIENT_ADDR`).
     pub log_client_addr: bool,
@@ -611,6 +613,12 @@ impl Config {
             Some(_) => return Err("BROADCAST_ENABLED must be true or false".into()),
         };
 
+        let mcp = match var("MCP_ENABLED").as_deref() {
+            None | Some("false") => false,
+            Some("true") => true,
+            Some(_) => return Err("MCP_ENABLED must be true or false".into()),
+        };
+
         let log_requests = match var("LOG_REQUESTS").as_deref() {
             None | Some("all") => RequestLog::All,
             Some("failures") => RequestLog::Failures,
@@ -647,6 +655,7 @@ impl Config {
             limits,
             ws,
             broadcast,
+            mcp,
             log_requests,
             log_client_addr,
             cloudflare_web_analytics,
@@ -1158,6 +1167,9 @@ mod tests {
         assert!(parse(&[]).unwrap().broadcast);
         assert!(!parse(&[("BROADCAST_ENABLED", "false")]).unwrap().broadcast);
         assert!(parse(&[("BROADCAST_ENABLED", "no")]).is_err());
+        assert!(!parse(&[]).unwrap().mcp);
+        assert!(parse(&[("MCP_ENABLED", "true")]).unwrap().mcp);
+        assert!(parse(&[("MCP_ENABLED", "yes")]).is_err());
         let c = parse(&[]).unwrap();
         assert_eq!(
             (c.log_requests, c.log_client_addr),

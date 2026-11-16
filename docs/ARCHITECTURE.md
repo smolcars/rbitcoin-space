@@ -59,6 +59,7 @@ A network is enabled by setting its variables (`.env.example`). Mainnet is serve
 | `/app/*` | Private API for our frontend | May change in any release; the frontend and server ship together |
 | `/app/ws` | WebSocket for live updates | See below |
 | `/api/v1/ws` | mempool.space-shaped WebSocket | For wallets and bots; the same hub ([`WS.md`](WS.md#the-mempoolspace-shaped-socket-apiv1ws)) |
+| `/mcp` | Model Context Protocol, for chat bots and coding agents | Off by default. Read-only tools that ask the routes above ([`MCP.md`](MCP.md)) |
 | `/healthz` | Liveness | No upstream calls |
 | everything else | The frontend | Static files from a configured directory, with the app shell as fallback; the shell's head names the page for link previews ([`FRONTEND.md`](FRONTEND.md#link-previews)) |
 
