@@ -36,9 +36,9 @@ import {
   readView,
   weekAgo,
 } from "./lightning";
-import { ClosedList, OpenList, SatsFig } from "./NodeChannels";
+import { ClosedList, OpenList } from "./NodeChannels";
 import { FeeFigures, NodeFees, NodeHistory, RecentChanges } from "./NodeCharts";
-import { ask, Gate, LightningNav, rememberList, Stat, Tag } from "./parts";
+import { ask, Gate, LightningNav, rememberList, SatsFig, Stat, Tag } from "./parts";
 
 export default function NodePage() {
   const params = useParams<{ key: string }>();

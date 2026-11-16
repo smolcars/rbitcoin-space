@@ -16,6 +16,7 @@ import {
 import { withInvoice } from "./decode-answers";
 import { chain, stubRetargets } from "./fixtures";
 import { KEPT, LARGE, stubLarge } from "./large-address";
+import { penalties } from "./lightning-answers";
 
 /** The keys of BIP352's first test vector as a test network silent payments address. */
 export const SILENT_PAYMENT =
@@ -43,6 +44,7 @@ async function lightning(page: Page) {
     [`nodes/${ACINQ}/fees`]: recorded("node-acinq-fees"),
     "search?q=acinq": recorded("search-acinq"),
     "rankings/capacity?limit=100": recorded("rankings-capacity"),
+    penalties: penalties(3),
   };
   await page.route(/\/regtest\/app\/lightning\//, async (route) => {
     const url = new URL(route.request().url());
@@ -90,6 +92,7 @@ export const PAGES: { path: string; stub?: (page: Page) => Promise<void> }[] = [
   { path: `/regtest/lightning/node/${ACINQ}`, stub: lightning },
   { path: "/regtest/lightning/channel/811984x2037x0", stub: lightning },
   { path: "/regtest/lightning/search?q=acinq", stub: lightning },
+  { path: "/regtest/lightning/penalties", stub: lightning },
   { path: "/regtest/ark", stub: withBoth },
   // The lookup with an outpoint both implementations know (which should not happen): its one state
   // with controls of its own, and one with no 404 from a stub, which the sweeps count as an error.

@@ -228,7 +228,8 @@ impl Rpc {
         let calls: Vec<Request<P>> = params
             .enumerate()
             .map(|(id, params)| Request {
-                jsonrpc: "1.0",
+                // JSON-RPC 2.0 defines batches; 1.0 has none.
+                jsonrpc: "2.0",
                 id,
                 method,
                 params,

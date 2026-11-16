@@ -18,3 +18,4 @@
 0016_ledger_history_taken.sql 8a45e3b480ecf367
 0017_lightning_closes.sql 34fc6cdf3df8d943
 0018_lightning_fees.sql bca5a98c9756d566
+0019_lightning_penalties.sql b85f793526bcd167

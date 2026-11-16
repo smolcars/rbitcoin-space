@@ -195,3 +195,47 @@ export const tablesScrolling = (page: Page, sel: string) =>
         }),
     sel,
   );
+
+/** Names made to break a row: 32 bytes of one wide letter, right to left, emoji, none, a key. */
+export const HOSTILE_NAMES = [
+  "﷽﷽﷽﷽﷽﷽﷽﷽﷽﷽",
+  "عقدةالبرقالسريعة‮",
+  "⚡🐙🦀⚡🐙🦀⚡🐙",
+  null,
+  "0256ccca46170ff4b1ef0256ccca4617",
+];
+
+/**
+ * A page of `/app/lightning/penalties` as the server sends it: `rows` sweeps from the newest, of
+ * `total`, each with hostile names at both ends and the longest figures. Real servers hold few or
+ * none, so the filled list is stubbed.
+ */
+export function penalties(rows: number, total = rows, page = 0) {
+  const key = (n: number) => `02${n.toString(16).padStart(64, "0")}`;
+  const node = (n: number) => ({
+    id: key(n),
+    alias: HOSTILE_NAMES[n % HOSTILE_NAMES.length] ?? null,
+  });
+  const block = (height: number) => ({
+    height,
+    hash: `00000000000000000000${height.toString(16).padStart(44, "0")}`,
+    time: 1_794_780_000 - (975_999 - height) * 600,
+  });
+  const txid = (n: number) => n.toString(16).padStart(64, "a");
+  const channels = Array.from({ length: rows }, (_, i) => {
+    const n = page * 25 + i;
+    const close = 975_900 - n * 3;
+    return {
+      id: `${close - 1_000}x${1000 + n}x1`,
+      scid: String(1_072_000_000_000 + n),
+      node_one: node(n),
+      node_two: node(n + 1),
+      capacity: n % 2 === 0 ? 1_000_000_000 : 16_777_215,
+      opened: block(close - 1_000),
+      closed: { block: block(close), txid: txid(n * 2 + 1), kind: "force", fee: null },
+      // From the block that confirmed it to the 2 016th after it, the longest a sweep is watched.
+      penalty: { block: block(close + (n === 0 ? 2_016 : 1 + n)), txid: txid(n * 2 + 2) },
+    };
+  });
+  return { page, per_page: 25, total, from: 1_790_000_000, channels };
+}

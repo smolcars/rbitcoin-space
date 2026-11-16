@@ -4,7 +4,6 @@
 // reader works the list holds still: the old rows stay until the new ones arrive.
 import { useSearchParams } from "@solidjs/router";
 import {
-  type Accessor,
   createEffect,
   createMemo,
   createSignal,
@@ -65,37 +64,19 @@ import {
   BlockLink,
   ChannelId,
   ChannelLink,
-  Fig,
   InboundFig,
   inboundName,
   MsatFig,
   PpmFig,
+  SatsFig,
   Tag,
+  usePhone,
 } from "./parts";
-
-/** Whether the viewport is a phone's (the 40em breakpoint), kept current. */
-function usePhone(): Accessor<boolean> {
-  const media = window.matchMedia("(max-width: 40em)");
-  const [phone, setPhone] = createSignal(media.matches);
-  const change = () => setPhone(media.matches);
-  media.addEventListener("change", change);
-  onCleanup(() => media.removeEventListener("change", change));
-  return phone;
-}
 
 /** How long typing must pause before the filter asks, as the header's search waits. */
 export const FILTER_WAIT_MS = 280;
 
 const days = (seconds: number) => groupDigits(Math.max(0, Math.floor(seconds / 86_400)));
-
-/** Sats whole with their unit, in magnitude where the room is too narrow for them (`Fig`). */
-export const SatsFig = (props: { sats: number }) => (
-  <Fig
-    exact={groupDigits(props.sats)}
-    unit={props.sats === 1 ? "sat" : "sats"}
-    short={`${formatBtcShort(props.sats)} BTC`}
-  />
-);
 
 interface ListProps {
   node: NodeDetail;

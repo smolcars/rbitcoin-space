@@ -262,20 +262,28 @@ pub async fn closed(store: &Store, limit: usize) -> Result<Vec<Channel>, Error> 
         .await
 }
 
-/// Up to `limit` channels whose force close was a breach, newest sweep first. No index: a pass
-/// over the table, done once per start for the overview's feed.
-pub async fn penalties(store: &Store, limit: usize) -> Result<Vec<Channel>, Error> {
+/// Channels whose force close was a breach, newest sweep first: `limit` of them from `offset`, and
+/// how many there are. Through the breached rows' partial index (`0019`), so it reads only them.
+pub async fn penalties(
+    store: &Store,
+    offset: usize,
+    limit: usize,
+) -> Result<(u64, Vec<Channel>), Error> {
     store
         .read(Read::Lightning, move |sql| {
-            Ok(sql
+            let total = sql
+                .prepare("SELECT count(*) FROM ln_channels WHERE penalty_txid IS NOT NULL")?
+                .query_row([], |r| get(r, 0))?;
+            let rows = sql
                 .prepare(concat!(
                     "SELECT ",
                     channel_columns!(),
                     " FROM ln_channels WHERE penalty_txid IS NOT NULL ",
-                    "ORDER BY penalty_height DESC, scid DESC LIMIT ?1"
+                    "ORDER BY penalty_height DESC, scid DESC LIMIT ?1 OFFSET ?2"
                 ))?
-                .query_map(params![int(limit as u64)], row)?
-                .collect::<Result<Vec<_>, _>>()?)
+                .query_map(params![int(limit as u64), int(offset as u64)], row)?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok((total, rows))
         })
         .await
 }

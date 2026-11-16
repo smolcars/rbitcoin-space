@@ -8,6 +8,7 @@ import { FakeSocket } from "../../lib/fakes";
 import ChannelPage from "./ChannelPage";
 import LightningPage from "./LightningPage";
 import NodePage from "./NodePage";
+import PenaltiesPage from "./PenaltiesPage";
 import RankingsPage from "./RankingsPage";
 import type { ChannelDetail, Policy } from "./lightning";
 import { LightningNav } from "./parts";
@@ -1188,6 +1189,119 @@ describe("search and rankings", () => {
     await shows(el, "Binance");
     expect(el.querySelector(".ln-picker [aria-current=page]")?.textContent).toBe("Age");
     expect(text(el)).toContain("27 Nov 2019");
+  });
+});
+
+describe("the penalties", () => {
+  const LIST = "/app/lightning/penalties";
+  const penalty = (n: number) => ({ ...closedOf("penalty"), id: `975574x${n}x1` });
+  const answer = (o: Record<string, unknown> = {}) => ({
+    page: 0,
+    per_page: 25,
+    total: 2,
+    from: T0,
+    channels: [penalty(1), penalty(2)],
+    ...o,
+  });
+
+  it("lists each sweep with its channel, both ends, its transactions and its block", async () => {
+    replies[LIST] = json(answer());
+    const el = mount(() => <PenaltiesPage />, "/lightning/penalties");
+    await shows(el, "2 seen on chain; who broadcast them is unknown.");
+    const rows = el.querySelectorAll("tbody tr");
+    expect(rows).toHaveLength(2);
+    const row = text(rows[0] as HTMLElement);
+    for (const part of ["975574x1x1", "Penumbra", "lnd.lnfi.network", "10 000 000", "975 592"])
+      expect(row).toContain(part);
+    // Swept two blocks after the close (975 590 to 975 592).
+    expect([...(rows[0] as HTMLElement).querySelectorAll("td")].map((td) => text(td))).toContain(
+      "2",
+    );
+    expect(links(el)).toContain(`/tx/${CLOSING}`);
+    expect(links(el)).toContain(`/tx/${SWEEP}`);
+    expect(links(el)).toContain("/lightning/channel/975574x1x1");
+    expect(el.querySelector(".pagination")).toBeNull();
+    expect(text(el)).toContain("How penalties are identified");
+  });
+
+  it("says in one line that none were seen, and since when", async () => {
+    replies[LIST] = json(answer({ total: 0, channels: [] }));
+    const el = mount(() => <PenaltiesPage />, "/lightning/penalties");
+    await shows(el, "None seen since 12 Nov 2026, when this server began watching.");
+    expect(el.querySelector("table")).toBeNull();
+    expect(text(el)).not.toContain("seen on chain");
+  });
+
+  it("says none were seen yet before the record has a start", async () => {
+    replies[LIST] = json(answer({ total: 0, from: null, channels: [] }));
+    const el = mount(() => <PenaltiesPage />, "/lightning/penalties");
+    await shows(el, "None seen yet.");
+    expect(el.querySelector("table")).toBeNull();
+  });
+
+  it("pages through the server, the page in the address from 1", async () => {
+    replies[`${LIST}?page=1`] = json(answer({ page: 1, total: 27, channels: [penalty(26)] }));
+    replies[LIST] = json(answer({ total: 27 }));
+    const el = mount(() => <PenaltiesPage />, "/lightning/penalties?page=2");
+    await shows(el, "Page 2 of 2");
+    expect(requests).toContain(`${LIST}?page=1`);
+    await shows(el, "975574x26x1");
+    const previous = [...el.querySelectorAll("button")].find((b) => b.textContent === "Previous");
+    previous?.click();
+    await vi.waitFor(() => expect(requests).toContain(LIST));
+    await shows(el, "Page 1 of 2");
+    await shows(el, "975574x1x1");
+  });
+
+  it("reads an unreadable page in the address as the first", async () => {
+    replies[LIST] = json(answer());
+    const el = mount(() => <PenaltiesPage />, "/lightning/penalties?page=4002");
+    await shows(el, "2 seen on chain");
+    expect(requests).toStrictEqual(["/app/lightning/status", LIST]);
+  });
+
+  it("shows cards on a phone", async () => {
+    vi.stubGlobal("matchMedia", (q: string) => ({
+      matches: q.includes("max-width"),
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    }));
+    replies[LIST] = json(answer());
+    const el = mount(() => <PenaltiesPage />, "/lightning/penalties");
+    await vi.waitFor(() => expect(el.querySelectorAll(".ln-node-card")).toHaveLength(2));
+    expect(el.querySelector("table")).toBeNull();
+    const card = text(el.querySelector(".ln-node-card") as HTMLElement);
+    expect(card).toContain("swept after 2\u00A0blocks");
+    expect(card).toContain("Closing transaction");
+  });
+
+  it("says the list could not load, and a network with Lightning off says that instead", async () => {
+    replies[LIST] = json({ error: "broken" }, 404);
+    const el = mount(() => <PenaltiesPage />, "/lightning/penalties");
+    await shows(el, "Could not load the penalties");
+    replies["/app/lightning/status"] = json({ state: "off" });
+    requests = [];
+    const off = mount(() => <PenaltiesPage />, "/regtest/lightning/penalties");
+    await shows(off, "Lightning is switched off on Regtest");
+    expect(requests).toStrictEqual(["/regtest/app/lightning/status"]);
+  });
+
+  it("is reached from the overview's closes by kind", async () => {
+    replies["/app/lightning/overview"] = json(overview());
+    replies["/app/lightning/statistics/1w"] = json(series());
+    replies["/app/lightning/movers?period=1w"] = json(movers());
+    replies["/app/lightning/closes?days=30"] = json(closes());
+    replies["/app/lightning/feed"] = json({ events: [] });
+    const el = mount(() => <LightningPage />, "/regtest/lightning");
+    const section = await vi.waitFor(() => {
+      const s = el.querySelector("[aria-labelledby=ln-closes-title]") as HTMLElement;
+      expect(s.querySelector("a")).not.toBeNull();
+      return s;
+    });
+    const link = [...section.querySelectorAll("a")].find(
+      (a) => a.textContent === "Every penalty seen",
+    );
+    expect(link?.getAttribute("href")).toBe("/regtest/lightning/penalties");
   });
 });
 
