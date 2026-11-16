@@ -16,6 +16,7 @@ const NAMES = [
   "⚡🐙🦀⚡🐙🦀⚡🐙",
   null,
   "0256ccca46170ff4b1ef0256ccca4617",
+  "OpenMarketSquare.com",
 ];
 const chan = (n: number, capacity: number) => ({
   id: `16777215x${16_777_000 + n}x65535`,
@@ -76,6 +77,21 @@ test("the panel is one closed line that opens to the channels, at a desktop's an
   const panel = page.locator("details.blk-ln");
   await expect(panel).not.toHaveAttribute("open");
   await expect(panel.getByRole("table")).toBeHidden();
+  // Under the facts, above the map and the transactions.
+  const order = await page.evaluate(() => {
+    const at = (s: string) => document.querySelector(s)?.getBoundingClientRect().top ?? -1;
+    return [at(".block-side"), at("details.blk-ln"), at(".block-core"), at(".block-txs")];
+  });
+  expect(order[1]).toBeGreaterThan(order[0] ?? 0);
+  expect(order[3]).toBeGreaterThan(order[1] ?? 0);
+  await page.setViewportSize({ width: 390, height: 900 });
+  expect(
+    await page.evaluate(() => {
+      const top = (s: string) => document.querySelector(s)?.getBoundingClientRect().top ?? -1;
+      return top("details.blk-ln") < top(".block-core");
+    }),
+  ).toBe(true);
+  await page.setViewportSize({ width: 1280, height: 900 });
   await summary(page).click();
   const table = panel.getByRole("table", { name: "Channels this block opened and closed" });
   await expect(table.locator("tbody tr")).toHaveCount(17);
@@ -181,6 +197,18 @@ test.describe("on a touch screen", () => {
         if (width <= 390) {
           for (const f of await smallTargets(page, ".blk-ln")) faults.push(`${width} px: ${f}`);
         }
+        // A card's name is cut only when it already takes the card's whole width.
+        const cut = await page.evaluate(() =>
+          [...document.querySelectorAll<HTMLElement>(".blk-ln__card .ln-node__name")]
+            .filter((n) => {
+              const card = n.closest(".blk-ln__card")?.getBoundingClientRect().width ?? 0;
+              return (
+                n.scrollWidth > n.clientWidth + 1 && n.getBoundingClientRect().width < card - 2
+              );
+            })
+            .map((n) => n.textContent ?? ""),
+        );
+        for (const name of cut) faults.push(`${width} px: "${name}" cut with room to spare`);
       }
       expect(faults).toStrictEqual([]);
     });

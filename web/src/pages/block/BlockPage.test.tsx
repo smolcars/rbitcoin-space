@@ -863,14 +863,21 @@ describe("BlockPage's Lightning panel", () => {
     );
     const details = el.querySelector("details.blk-ln") as HTMLDetailsElement;
     expect(details.open).toBe(false);
-    // The panel comes after everything the block page shows of its own.
-    const txs = el.querySelector(".block-txs") as Element;
-    expect(txs.compareDocumentPosition(details) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
-      Node.DOCUMENT_POSITION_FOLLOWING,
-    );
+    // Directly under the facts, before the map and the transactions.
+    const side = el.querySelector(".block-side") as Element;
+    for (const [a, b] of [
+      [side, details],
+      [details, el.querySelector(".block-core") as Element],
+      [details, el.querySelector(".block-txs") as Element],
+    ] as const) {
+      expect(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      );
+    }
     // Opened first, then closed, each tagged; aliases are text.
+    // The list inside is the lazy part's, drawn once it has loaded.
+    await until(() => expect(details.querySelectorAll("tbody tr")).toHaveLength(17));
     const rows = [...details.querySelectorAll("tbody tr")];
-    expect(rows).toHaveLength(17);
     expect(text(rows[0] as Element)).toContain("Opened");
     expect(text(rows[12] as Element)).toContain("Force");
     expect(text(rows[13] as Element)).toContain("Penalty");
@@ -878,6 +885,25 @@ describe("BlockPage's Lightning panel", () => {
     expect(text(details)).toContain("<img src=x onerror=alert(1)>");
     expect(text(details)).toContain("Public channels only.");
     expect(text(details)).not.toContain("not listed");
+  });
+
+  it("asks together with the block, not after it", async () => {
+    config.lightning = ["mainnet"];
+    serve({
+      ...normal(),
+      // The block's own reply never comes.
+      [`/block/${HASH}`]: () => new Promise<Reply>(() => {}),
+      [lnPath]: { body: answer([1_000_000], [], 0, 1_000_000) },
+    });
+    const el = open(`/block/${HASH}`);
+    await until(() => expect(summary(el)).toContain("1 channel opened"));
+  });
+
+  it("asks once a block opened by height has its hash", async () => {
+    withLightning({ body: answer([], ["force"], 1) });
+    const el = open("/block/975411");
+    await until(() => expect(el.querySelector(".blk-ln")).not.toBeNull());
+    expect(calls.indexOf("/block-height/975411")).toBeLessThan(calls.indexOf(lnPath));
   });
 
   it("says one channel in the singular, leaves out none forced, and counts what it left out", async () => {
