@@ -109,6 +109,12 @@ fn answer(pq: &str) -> Response {
 /// Mainnet and signet on the stand-in node, the mempool engine off, no store. Clients are told
 /// apart by `X-Real-IP`.
 async fn start(mcp: bool) -> (String, Seen) {
+    start_with(mcp, 10_000, 10_000).await
+}
+
+/// As [`start`], with the per-client burst and rate given: the address routes allow a client a
+/// quarter of the burst at once, then a tenth of the rate.
+async fn start_with(mcp: bool, client_burst: u32, client_rate: u32) -> (String, Seen) {
     capture();
     let (url, seen) = node().await;
     let mut vars: HashMap<String, String> = HashMap::new();
@@ -132,8 +138,8 @@ async fn start(mcp: bool) -> (String, Seen) {
     }
     let mut config = Config::from_vars(|k| vars.get(k).cloned()).unwrap();
     config.web_dir = None;
-    config.limits.client_rate_per_sec = 10_000;
-    config.limits.client_burst = 10_000;
+    config.limits.client_rate_per_sec = client_rate;
+    config.limits.client_burst = client_burst;
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap().to_string();
     tokio::spawn(App::new(&config).serve(listener, std::future::pending()));
@@ -578,6 +584,20 @@ async fn requests_that_break_the_protocol_are_told_how() {
         -32020
     );
 
+    // A name encoded, and one whose encoding is broken.
+    let fees = |name: &'static str| {
+        let headers = [
+            ("MCP-Protocol-Version", MODERN),
+            ("Mcp-Method", "tools/call"),
+            ("Mcp-Name", name),
+        ];
+        let (addr, body) = (addr.clone(), wrong_name.clone());
+        async move { post(&addr, &headers, &body, ip).await }
+    };
+    assert_eq!(fees("=?base64?Z2V0X2ZlZXM=?=").await.status, 200);
+    let r = fees("=?base64?Z2V0X2ZlZXM==!!!?=").await;
+    assert_eq!((r.status, r.error_code()), (400, -32020));
+
     // No `_meta`: 400 and invalid params.
     let bare = json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" });
     let r = post(&addr, &good, &bare, ip).await;
@@ -809,6 +829,39 @@ async fn a_tool_spends_its_routes_budget_and_the_log_names_no_argument() {
     for secret in ["satoshi", "bitcoin.org"] {
         assert!(!log.contains(secret), "{secret} was logged");
     }
+}
+
+#[tokio::test]
+async fn a_refused_route_is_counted_though_the_tool_answers_without_it() {
+    // Three address calls at once for a client: a lookup asks two routes, totals then history.
+    let (addr, _) = start_with(true, 12, 10).await;
+    let params = json!({ "name": "get_address", "arguments": { "address": ADDRESS } });
+    let mut partial = None;
+    for _ in 0..4 {
+        let r = modern(&addr, "tools/call", params.clone(), "198.51.100.9").await;
+        // The totals were answered and the history refused: the tool answers with what it has.
+        if let Ok(a) = r.tool()
+            && a["recent_transactions"].is_null()
+        {
+            assert_eq!(a["balance"], 500);
+            partial = Some(r);
+            break;
+        }
+    }
+    let r = partial.expect("no lookup was answered without its history");
+    let id = r
+        .head
+        .lines()
+        .find_map(|l| l.strip_prefix("x-request-id: "))
+        .unwrap();
+    logging::flush(Duration::from_secs(1));
+    let log = String::from_utf8(capture().0.lock().unwrap().clone()).unwrap();
+    let line = log.lines().find(|l| l.contains(id));
+    let line = line.unwrap_or_else(|| panic!("{id} is not in the log"));
+    assert!(
+        line.contains("\"refused\":\"route_rate\"") && line.contains("\"status\":200"),
+        "{line}"
+    );
 }
 
 #[tokio::test]

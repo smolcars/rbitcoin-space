@@ -2,6 +2,7 @@
 //! the few fields a model needs: a tool is a named route, never a way to the node of its own.
 
 use std::borrow::Cow;
+use std::sync::{Mutex, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::body::{Body, Bytes};
@@ -144,15 +145,20 @@ pub(super) fn list(networks: &[Network]) -> Value {
     ])
 }
 
-/// Runs the tool `name`, or `None` when there is none.
+/// Runs the tool `name`, or `None` when there is none. With its answer, the limit that refused
+/// a route it asked, if one did.
 pub(super) async fn call(
     mcp: &Mcp,
     client: &Client,
     name: &str,
     args: &Args,
-) -> Option<Result<Value, Failed>> {
-    let from = Asker { mcp, client };
-    Some(match name {
+) -> Option<(Result<Value, Failed>, Option<Refused>)> {
+    let from = Asker {
+        mcp,
+        client,
+        refused: Mutex::default(),
+    };
+    let outcome = match name {
         "decode" => decode(&from, args).await,
         "get_fees" => fees(&from, args).await,
         "get_mempool" => mempool(&from, args).await,
@@ -162,13 +168,21 @@ pub(super) async fn call(
         "get_difficulty_adjustment" => difficulty(&from, args).await,
         "get_lightning_node" => lightning_node(&from, args).await,
         _ => return None,
-    })
+    };
+    let refused = from
+        .refused
+        .into_inner()
+        .unwrap_or_else(PoisonError::into_inner);
+    Some((outcome, refused))
 }
 
 /// Asks this server's own routes for one caller.
 struct Asker<'a> {
     mcp: &'a Mcp,
     client: &'a Client,
+    /// The first limit that refused one of the routes asked, whatever the tool then answers:
+    /// a tool may go on without that route's part.
+    refused: Mutex<Option<Refused>>,
 }
 
 /// A route's answer, read whole.
@@ -176,7 +190,6 @@ struct Answer {
     status: StatusCode,
     headers: HeaderMap,
     body: Bytes,
-    refused: Option<Refused>,
 }
 
 impl Asker<'_> {
@@ -196,7 +209,10 @@ impl Asker<'_> {
             Ok(res) => res,
             Err(never) => match never {},
         };
-        let refused = res.extensions().get::<Refused>().copied();
+        if let Some(refused) = res.extensions().get::<Refused>() {
+            let mut first = self.refused.lock().unwrap_or_else(PoisonError::into_inner);
+            first.get_or_insert(*refused);
+        }
         let (parts, body) = res.into_parts();
         let Ok(body) = axum::body::to_bytes(body, MAX_ANSWER).await else {
             return Err("the answer is too large to summarise here".into());
@@ -205,7 +221,6 @@ impl Asker<'_> {
             status: parts.status,
             headers: parts.headers,
             body,
-            refused,
         })
     }
 }
@@ -228,10 +243,7 @@ impl Answer {
             (None, StatusCode::NOT_FOUND) => Cow::Borrowed("not found"),
             (None, _) => Cow::Borrowed("request failed"),
         };
-        Err(Failed {
-            message,
-            refused: self.refused,
-        })
+        Err(Failed { message })
     }
 
     fn json<T: DeserializeOwned>(&self) -> Result<T, Failed> {
@@ -270,7 +282,6 @@ fn network(mcp: &Mcp, args: &Args) -> Result<Network, Failed> {
         let names: Vec<&str> = mcp.networks.iter().map(|n| n.name()).collect();
         Failed {
             message: format!("network must be one of: {}", names.join(", ")).into(),
-            refused: None,
         }
     })
 }

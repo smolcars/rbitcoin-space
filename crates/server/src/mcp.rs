@@ -21,7 +21,7 @@ use axum::response::{IntoResponse, Response};
 use axum::{Extension, Router};
 use serde_json::{Map, Value, json};
 
-use crate::limits::{Client, Refused};
+use crate::limits::Client;
 use crate::{ApiError, Network};
 
 /// The largest request read: the decoder's 8 KiB string and the envelope around it.
@@ -230,10 +230,11 @@ pub async fn route(
                 Some(Value::Object(a)) => a,
                 Some(_) => return bad.respond(Some(id)),
             };
-            let Some(outcome) = tools::call(&mcp, &client, name, arguments).await else {
+            let Some((outcome, limit)) = tools::call(&mcp, &client, name, arguments).await else {
                 return Failure::new(StatusCode::OK, INVALID_PARAMS, "unknown tool")
                     .respond(Some(id));
             };
+            refused = limit;
             // What went wrong is the model's to read and put right, so it is a result too.
             match outcome {
                 Ok(value) => json!({
@@ -242,7 +243,6 @@ pub async fn route(
                     "isError": false,
                 }),
                 Err(failed) => {
-                    refused = failed.refused;
                     json!({
                         "content": [{ "type": "text", "text": failed.message }],
                         "isError": true,
@@ -354,7 +354,8 @@ fn text<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
 }
 
 /// A mirrored header's value: as written, or the text inside `=?base64?…?=`, which a client uses
-/// for a value a header cannot carry.
+/// for a value a header cannot carry. `None` for an encoding that is not whole, padded Base64 of
+/// UTF-8: a malformed header is a mismatch.
 fn mirrored(value: &str) -> Option<Cow<'_, str>> {
     let Some(encoded) = value
         .strip_prefix("=?base64?")
@@ -362,16 +363,19 @@ fn mirrored(value: &str) -> Option<Cow<'_, str>> {
     else {
         return Some(Cow::Borrowed(value));
     };
-    let mut bytes = Vec::with_capacity(encoded.len() / 4 * 3);
+    let data = encoded.trim_end_matches('=');
+    if encoded.len() % 4 != 0 || encoded.len() - data.len() > 2 {
+        return None;
+    }
+    let mut bytes = Vec::with_capacity(data.len() / 4 * 3 + 2);
     let (mut acc, mut bits) = (0u32, 0u32);
-    for b in encoded.bytes() {
+    for b in data.bytes() {
         let six = match b {
             b'A'..=b'Z' => b - b'A',
             b'a'..=b'z' => b - b'a' + 26,
             b'0'..=b'9' => b - b'0' + 52,
             b'+' => 62,
             b'/' => 63,
-            b'=' => break,
             _ => return None,
         };
         acc = (acc << 6 | u32::from(six)) & 0xffff;
@@ -381,21 +385,23 @@ fn mirrored(value: &str) -> Option<Cow<'_, str>> {
             bytes.push(u8::try_from(acc >> bits & 0xff).ok()?);
         }
     }
+    // Bits left over must be the zeros the padding stands for.
+    if acc & ((1 << bits) - 1) != 0 {
+        return None;
+    }
     String::from_utf8(bytes).ok().map(Cow::Owned)
 }
 
-/// What a tool could not do, as text for the model, and the limit that refused it if one did.
+/// What a tool could not do, as text for the model.
 #[derive(Debug)]
 struct Failed {
     message: Cow<'static, str>,
-    refused: Option<Refused>,
 }
 
 impl From<&'static str> for Failed {
     fn from(message: &'static str) -> Self {
         Self {
             message: Cow::Borrowed(message),
-            refused: None,
         }
     }
 }
@@ -503,7 +509,25 @@ mod tests {
             mirrored("=?base64?PT9iYXNlNjQ/bGl0ZXJhbD89?=").unwrap(),
             "=?base64?literal?="
         );
-        assert_eq!(mirrored("=?base64?!!!?="), None);
-        assert_eq!(mirrored("=?base64?/w==?="), None);
+        assert_eq!(mirrored("=?base64??=").unwrap(), "");
+        // Not Base64, not UTF-8, text after the padding, padding missing or too long, and bits
+        // the padding does not account for.
+        for malformed in [
+            "!!!!",
+            "/w==",
+            "ZGVjb2Rl=!!!",
+            "ZGVjb2Rl=",
+            "ZGVjb2R",
+            "ZGVjbw",
+            "ZA===",
+            "ZGVjbx==",
+            "ZG=j",
+        ] {
+            assert_eq!(
+                mirrored(&format!("=?base64?{malformed}?=")),
+                None,
+                "{malformed}"
+            );
+        }
     }
 }
