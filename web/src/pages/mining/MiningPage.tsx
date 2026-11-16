@@ -352,8 +352,8 @@ function Pools(props: {
               <More>
                 <p>
                   A pool's hashrate is its share of the blocks times the network's hashrate over the
-                  same blocks. Blocks are credited by the payout address first, then by the coinbase
-                  tag; ones that name no pool on the list are counted as Unknown.
+                  same blocks. Blocks are credited by the coinbase tag first, then by the payout
+                  address; ones that name no pool on the list are counted as Unknown.
                 </p>
               </More>
             </div>

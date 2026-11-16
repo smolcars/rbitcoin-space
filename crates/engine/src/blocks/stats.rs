@@ -58,8 +58,8 @@ impl Miner {
         slug: "unknown",
     };
 
-    /// The pool [`pools::Pools::attribute`] gives this coinbase: its payout address first, then
-    /// its tag.
+    /// The pool [`pools::Pools::attribute`] gives this coinbase: its tag first, then its payout
+    /// address.
     pub fn of(coinbase: &Coinbase) -> Self {
         let list = pools::list();
         let (id, _) = list.attribute(&coinbase.tag, &coinbase.payouts);
@@ -322,13 +322,14 @@ mod tests {
     }
 
     #[test]
-    fn the_miner_is_a_listed_name_payout_first() {
+    fn the_miner_is_a_listed_name_tag_first() {
         const ELSEWHERE: &str = "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq";
-        // Tagged ViaBTC but paying Foundry USA's listed address: Foundry USA's.
-        let m = mined(
-            b"\x03\x97\xe2\x0e/ViaBTC/",
-            "12KKDt4Mj7N5UAkQMN7LtPZMayenXHa8KL",
-        );
+        const FOUNDRY: &str = "12KKDt4Mj7N5UAkQMN7LtPZMayenXHa8KL";
+        // Tagged ViaBTC but paying Foundry USA's listed address: ViaBTC's.
+        let m = mined(b"\x03\x97\xe2\x0e/ViaBTC/", FOUNDRY);
+        assert_eq!((m.name, m.slug), ("ViaBTC", "viabtc"));
+        // No listed tag: the payout names the pool.
+        let m = mined(b"\x03\x97\xe2\x0e", FOUNDRY);
         assert_eq!((m.name, m.slug), ("Foundry USA", "foundryusa"));
         // A tag alone names its pool, by the list's spelling.
         let m = mined(b"\x03\x97\xe2\x0e/viabtc/", ELSEWHERE);

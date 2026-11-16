@@ -362,11 +362,8 @@ async fn facts_records_and_batches_are_served_and_cached_for_good() {
         .map(|v| v.as_u64().unwrap())
         .sum();
     assert_eq!(bands, 9_900);
-    // Tagged ViaBTC, paid to Foundry USA's address: the payout decides, by the list's name.
-    assert_eq!(
-        f["miner"],
-        json!({"name": "Foundry USA", "slug": "foundryusa"})
-    );
+    // Tagged ViaBTC, paid to Foundry USA's address: the tag decides, by the list's name.
+    assert_eq!(f["miner"], json!({"name": "ViaBTC", "slug": "viabtc"}));
     let e = request_event(&r).await;
     assert_eq!(
         (e["endpoint"].as_str(), e["source"].as_str()),
@@ -420,10 +417,10 @@ async fn facts_records_and_batches_are_served_and_cached_for_good() {
         all[0]["miner"],
         json!({"name": "Unknown", "slug": "unknown"})
     );
-    assert_eq!(all[1]["miner"]["slug"], "foundryusa");
+    assert_eq!(all[1]["miner"]["slug"], "viabtc");
     let body = String::from_utf8_lossy(&r.body);
     assert!(
-        !body.contains("onerror") && !body.contains("ViaBTC"),
+        !body.contains("onerror") && !body.contains("/ViaBTC/"),
         "{body}"
     );
 
@@ -508,7 +505,7 @@ async fn a_block_in_the_table_is_answered_without_the_node() {
     assert_eq!(r.body, computed.body, "the same answer, byte for byte");
     assert_eq!(
         r.json()["miner"]["slug"],
-        "foundryusa",
+        "viabtc",
         "from the stored coinbase"
     );
     assert_eq!(request_event(&r).await["source"], "stored");
