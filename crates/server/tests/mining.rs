@@ -651,7 +651,7 @@ async fn coverage_is_reported_on_a_half_filled_table() {
 
 /// The weekly points over the same half-filled table, its newest block a minute before each of
 /// these times on Monday 16 November 2026: where Monday 00:00 UTC falls in the history decides
-/// which blocks each week holds, so the test names its clock (`all` does not read the server's).
+/// which blocks each week holds, so the test names its clock (`all` starts at 0 whatever the server's).
 #[tokio::test]
 async fn hashrate_points_on_a_half_filled_table_are_exact_at_any_hour() {
     const MONDAY: u64 = 1_794_787_200;
