@@ -28,6 +28,15 @@ const recorded = (name: string): unknown =>
     readFileSync(new URL(`../../fixtures/lightning/app/${name}.json`, import.meta.url), "utf8"),
   );
 
+/** The recorded feed made 22 h 15 min to 23 h old, so its rows read their longest ("22 h 44 min ago"). */
+function agedFeed(): unknown {
+  const feed = recorded("feed") as { events: { time: number }[] };
+  const shift =
+    Math.floor(Date.now() / 1000) - 80_100 - Math.max(...feed.events.map((e) => e.time));
+  for (const e of feed.events) e.time += shift;
+  return feed;
+}
+
 /** Lightning on regtest from mainnet's recorded answers (as in lightning.e2e.ts). */
 async function lightning(page: Page) {
   const answers: Record<string, unknown> = {
@@ -36,7 +45,7 @@ async function lightning(page: Page) {
     "statistics/1w": recorded("statistics-1w"),
     "movers?period=1w": recorded("movers-1w"),
     "closes?days=30": recorded("closes-30"),
-    feed: recorded("feed"),
+    feed: agedFeed(),
     [`nodes/${ACINQ}`]: recorded("node-acinq"),
     [`nodes/${ACINQ}/history`]: recorded("node-acinq-history"),
     "channels/811984x2037x0": recorded("channel-811984x2037x0"),

@@ -279,26 +279,32 @@ function FeedRow(props: { ev: FeedEvent }) {
   const ev = untrack(() => props.ev);
   return (
     <>
-      <span class="ln-feed__kind">
-        <Switch>
-          <Match when={ev.event === "opened"}>
-            <Tag icon="plus" tone="positive">
-              Opened
-            </Tag>
-          </Match>
-          <Match when={ev.event === "closed" && ev}>
-            {(c) => (
-              <Tag icon={KIND_TAG[c().kind].icon} tone={KIND_TAG[c().kind].tone}>
-                {CLOSE_WORD[c().kind]}
+      {/* What happened and when: on a narrow row the time drops below when the two do not fit. */}
+      <span class="ln-feed__head">
+        <span class="ln-feed__kind">
+          <Switch>
+            <Match when={ev.event === "opened"}>
+              <Tag icon="plus" tone="positive">
+                Opened
               </Tag>
-            )}
-          </Match>
-          <Match when={ev.event === "fee"}>
-            <Tag icon="fee" tone="muted">
-              Fee change
-            </Tag>
-          </Match>
-        </Switch>
+            </Match>
+            <Match when={ev.event === "closed" && ev}>
+              {(c) => (
+                <Tag icon={KIND_TAG[c().kind].icon} tone={KIND_TAG[c().kind].tone}>
+                  {CLOSE_WORD[c().kind]}
+                </Tag>
+              )}
+            </Match>
+            <Match when={ev.event === "fee"}>
+              <Tag icon="fee" tone="muted">
+                Fee change
+              </Tag>
+            </Match>
+          </Switch>
+        </span>
+        <span class="ln-feed__time">
+          <TimeAgo time={ev.time} />
+        </span>
       </span>
       <span class="ln-feed__what">
         <ChannelLink id={ev.id} />
@@ -333,9 +339,6 @@ function FeedRow(props: { ev: FeedEvent }) {
             </>
           )}
         </Show>
-      </span>
-      <span class="ln-feed__time">
-        <TimeAgo time={ev.time} />
       </span>
     </>
   );

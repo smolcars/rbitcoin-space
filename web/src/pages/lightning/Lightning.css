@@ -2078,6 +2078,9 @@
       background: var(--color-accent-soft);
     }
   }
+  .ln-feed__head {
+    display: contents;
+  }
   .ln-feed__kind {
     grid-area: kind;
   }
@@ -2137,16 +2140,34 @@
     .ln-feed__row {
       grid-template-columns: auto minmax(0, 1fr);
       grid-template-areas:
-        "kind time"
+        "head head"
         "what fig"
         "ends ends";
+    }
+    /* The longest kind and time ("Cooperative close", "23 h 59 min ago") overflow 320 px together. */
+    .ln-feed__head {
+      grid-area: head;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: var(--space-1) var(--space-4);
+    }
+    .ln-feed__time {
+      margin-inline-start: auto;
     }
   }
   /* Large text on a phone: everything one under another, each the row's width. */
   @media (max-width: 15em) {
     .ln-feed__row {
       grid-template-columns: minmax(0, 1fr);
-      grid-template-areas: "kind" "time" "what" "fig" "ends";
+      grid-template-areas: "head" "what" "fig" "ends";
+    }
+    .ln-feed__head {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+    .ln-feed__time {
+      margin-inline-start: 0;
     }
     .ln-feed__fig,
     .ln-feed__time {
