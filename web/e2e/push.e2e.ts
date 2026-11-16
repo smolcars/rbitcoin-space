@@ -51,7 +51,7 @@ test("a pasted transaction is read before anything is sent, and one press sends 
   await expect(button).toHaveText("Broadcast anyway");
 
   // Hex wrapped over lines reads the same. Pressing sends it, and the node has it.
-  await box.fill(send.hex.replace(/(.{64})/g, "$1\n"));
+  await box.fill(send.hex.replaceAll(/(.{64})/g, "$1\n"));
   await expect(page.getByText("2.00 sat/vB").first()).toBeVisible();
   await expect(page.getByText("Check before you send")).toHaveCount(0);
   await expect(button).toHaveText("Broadcast");

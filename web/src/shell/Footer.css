@@ -13,4 +13,10 @@
     flex-wrap: wrap;
     gap: var(--space-2) var(--space-5);
   }
+  /* Rows a thumb apart on a touch screen, so a link's target never reaches the row above or below. */
+  @media (pointer: coarse) {
+    .site-footer__inner {
+      row-gap: calc(var(--touch) - 1lh);
+    }
+  }
 }
