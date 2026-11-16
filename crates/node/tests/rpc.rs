@@ -482,7 +482,8 @@ async fn too_many_outpoints_are_refused_before_sending() {
         .unwrap();
 }
 
-/// Answers a JSON-RPC array from the fixtures, in reverse order, with `-5` for unknown txids.
+/// Answers a JSON-RPC 2.0 array from the fixtures, in reverse order, with `-5` for unknown txids.
+/// As in 2.0, an answer carries either `result` or `error`, never both.
 fn batch_mainnet(req: &Req) -> Reply {
     let known = "000007b8d962b31541e6929d58b4be23835f5fe229437074287bfc4107ea1efd";
     let result = |name: &str| -> Value {
@@ -499,10 +500,10 @@ fn batch_mainnet(req: &Req) -> Reply {
             if call["params"][0] != known {
                 let error =
                     serde_json::json!({"code": -5, "message": "Transaction not in mempool"});
-                return serde_json::json!({"result": null, "error": error, "id": id});
+                return serde_json::json!({"jsonrpc": "2.0", "error": error, "id": id});
             }
             let r = result(call["method"].as_str().unwrap());
-            serde_json::json!({"result": r, "error": null, "id": id})
+            serde_json::json!({"jsonrpc": "2.0", "result": r, "id": id})
         })
         .collect();
     answers.reverse();
@@ -523,6 +524,13 @@ async fn batches_answer_each_txid_in_order() {
     assert_eq!(txs[0].as_ref().unwrap().compute_txid(), known);
     assert!(matches!(txs[1], Err(Error::Rpc { code: -5, .. })));
     let sent = log.reqs.lock().unwrap()[1].body.clone();
+    // Batches are a JSON-RPC 2.0 feature; a node may refuse 1.0 calls inside one.
+    assert!(
+        sent.as_array()
+            .unwrap()
+            .iter()
+            .all(|c| c["jsonrpc"] == "2.0")
+    );
     assert_eq!(sent[0]["method"], "getrawtransaction");
     assert_eq!(
         sent[0]["params"],
