@@ -204,7 +204,8 @@ test("the fee panel follows the fees topic: an update, the node's fallback, then
 
   send?.(levels([1031, 500, 200, 100], "projected"));
   await expect(high).toHaveText("1.04 sat/vB");
-  await expect(panel).toContainText("later arrivals don't outbid you");
+  // Separate answers of the server's own need no line under them.
+  await expect(panel.locator(".home-fees__note")).toHaveCount(0);
   // The mempool filled up: the next message is the new answer.
   send?.(levels([2501, 1031, 200, 100], "projected"));
   await expect(high).toHaveText("2.51 sat/vB");
@@ -212,7 +213,7 @@ test("the fee panel follows the fees topic: an update, the node's fallback, then
   await expect(high).toHaveText("3.00 sat/vB");
   await expect(panel).toContainText("The node's own estimates");
   // Merging equal answers, or splitting them again, never changes the panel's height; one answer
-  // for every wait is one row, the panel no taller than it.
+  // for every wait is one row, so a phone's two rows become one (wider, they are one row already).
   const four = await height();
   for (const rates of [
     [3000, 100, 100, 100],
@@ -225,7 +226,9 @@ test("the fee panel follows the fees topic: an update, the node's fallback, then
   }
   send?.(levels([100, 100, 100, 100], "projected"));
   await expect(panel.locator(".home-fees__item")).toHaveCount(1);
-  await expect.poll(height).toBeLessThan(four * 0.6);
+  await ((page.viewportSize()?.width ?? 0) > 640
+    ? expect.poll(height).toBeCloseTo(four, 0)
+    : expect.poll(height).toBeLessThan(four * 0.6));
   send?.({ topic: "fees", type: "unavailable" });
   await expect(panel).toContainText("No recommendation right now");
   await expect(panel).not.toContainText("3.00");

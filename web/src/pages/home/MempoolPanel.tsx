@@ -1,4 +1,4 @@
-import { createMemo, Show, For } from "solid-js";
+import { createMemo, createSignal, lazy, Loading as Pending, onSettled, Show } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { Amount } from "../../components/Amount";
 import { FeeRate } from "../../components/FeeRate";
@@ -6,7 +6,7 @@ import { Link } from "../../components/Link";
 import { SectionHeader } from "../../components/SectionHeader";
 import { ErrorState } from "../../components/States";
 import { formatSize, groupDigits } from "../../lib/format";
-import { paths } from "../../lib/network";
+import { type Network, paths } from "../../lib/network";
 import type { Feed } from "./feeds";
 import {
   depthRows,
@@ -32,22 +32,45 @@ export function rangeLabel(b: FeeBandShare): string {
   return `${b.from}–${b.to}`;
 }
 
-/** How deep the queue is, in blocks: `< 0.1`, `0.4`, `31`. */
-function deepText(deep: number): string {
-  if (deep <= 0) return "–";
-  if (deep < 0.1) return "< 0.1";
-  return deep < 10 ? deep.toFixed(1) : groupDigits(deep);
-}
+/** The pictures' code, one lazy file for both (visuals.tsx). */
+const visuals = () => import("./visuals");
+const NextBlockMap = lazy(() => visuals().then((m) => ({ default: m.NextBlockMap })));
+const IncomingChart = lazy(() => visuals().then((m) => ({ default: m.IncomingChart })));
+
+/** The chart's plot, in px: its readout above names it, and its figures' toggle is below. */
+const CHART_HEIGHT = 140;
+const CHART_HEIGHT_PHONE = 160;
 
 /**
- * Mempool: four figures, the fee rate the next block's worth reaches down to, then each fee band,
- * dearest first: its size against one block (a band past a block fills its bar) and how many
- * blocks deep the queue is by its end.
+ * Mempool: the next projected block's map, headed by the fee rate its worth reaches down to, four
+ * figures, and what has been arriving over the last two hours, side by side where they fit, each
+ * a fixed height. The pictures load once the panel comes near the view.
  */
-export function MempoolPanel(props: { feed: Feed<MempoolFigures> }) {
+export function MempoolPanel(props: { feed: Feed<MempoolFigures>; network: Network }) {
   const m = () => props.feed.data();
   const rows = createMemo(() => depthRows(m()?.bands ?? sharesOf([])));
-  const wide = typeof matchMedia === "function" && matchMedia("(min-width: 40.0625em)").matches;
+  const phone = typeof matchMedia === "function" && matchMedia("(max-width: 40em)").matches;
+  const [near, setNear] = createSignal(false);
+  let pictures: HTMLDivElement | undefined;
+  onSettled(() => {
+    if (!pictures) return undefined;
+    // Without the observer (an old browser, the unit tests' document), the pictures load at once.
+    if (typeof IntersectionObserver !== "function") {
+      setNear(true);
+      return undefined;
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setNear(true);
+          io.disconnect();
+        }
+      },
+      { rootMargin: "200px" },
+    );
+    io.observe(pictures);
+    return () => io.disconnect();
+  });
 
   return (
     <section class="home-mempool" aria-labelledby="mempool-title">
@@ -96,82 +119,49 @@ export function MempoolPanel(props: { feed: Feed<MempoolFigures> }) {
             </Show>
           </Stat>
         </dl>
-        <div class="home-depth" aria-busy={m() ? "false" : "true"}>
-          <p class="home-depth__answer">
-            <Show when={m()} fallback={<span class="home-bone" />}>
+      </Show>
+      <figure class="home-next" ref={pictures}>
+        <figcaption class="home-picture__head">
+          <Link class="home-picture__title tap" href={paths.projected(1)}>
+            Next block
+          </Link>
+          <span class="home-picture__meta" aria-busy={m() ? "false" : "true"}>
+            <Show when={m()} fallback={<span class="home-bone home-bone--short" />}>
               {(s) => (
                 <Show
                   when={nextBlockReach(rows())}
-                  fallback={
-                    s().vsize === 0
-                      ? "Nothing is waiting. The next block would hold only its coinbase."
-                      : "All of it would fit in the next block."
-                  }
+                  fallback={s().vsize === 0 ? "Nothing waiting" : "Everything fits"}
                 >
                   {(reach) => (
                     <>
-                      The next block's worth reaches down to{" "}
-                      <strong class="num">{rangeLabel(reach())} sat/vB</strong>.
+                      down to <span class="num">{rangeLabel(reach())}</span> sat/vB
                     </>
                   )}
                 </Show>
               )}
             </Show>
-          </p>
-          {/* Open on wide screens; a phone shows the answer and keeps the rows one tap away. */}
-          <details class="home-depth__more" open={wide}>
-            <summary class="home-depth__summary">By fee rate</summary>
-            <table class="home-depth__table">
-              <caption class="visually-hidden">
-                Waiting by fee rate, dearest first, each band's size and how many blocks deep the
-                queue is by its end
-              </caption>
-              <thead>
-                <tr>
-                  <th scope="col">sat/vB</th>
-                  <th scope="col">
-                    <span class="visually-hidden">Size against one block, log scale</span>
-                  </th>
-                  <th scope="col" class="home-depth__num">
-                    Size
-                  </th>
-                  <th scope="col" class="home-depth__num">
-                    Blocks deep
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                <For each={rows()}>
-                  {(r) => (
-                    <tr
-                      class={[
-                        "home-depth__row",
-                        {
-                          "home-depth__row--none": r.vsize === 0,
-                          "home-depth__row--full": r.blocks > 1,
-                        },
-                      ]}
-                      style={{ "--w": String(r.bar), "--c": `var(--fee-${r.band})` }}
-                    >
-                      <td class="home-depth__range num">{rangeLabel(r)}</td>
-                      <td class="home-depth__barcell" aria-hidden="true">
-                        <span class="home-depth__bar" />
-                      </td>
-                      <td class="home-depth__num num">
-                        {m() ? (r.vsize > 0 ? formatSize(r.vsize) : "–") : ""}
-                      </td>
-                      <td class="home-depth__num num">{m() ? deepText(r.deep) : ""}</td>
-                    </tr>
-                  )}
-                </For>
-              </tbody>
-            </table>
-            <p class="home-depth__note">
-              Bars on a log scale, from 100 vB to one block's worth, which fills a bar.
-            </p>
-          </details>
+          </span>
+        </figcaption>
+        <div class="home-next__frame">
+          <Show when={near()}>
+            <Pending>
+              <NextBlockMap />
+            </Pending>
+          </Show>
         </div>
-      </Show>
+      </figure>
+      <div class="home-flow">
+        <div class="home-flow__frame">
+          <Show when={near()}>
+            <Pending>
+              <IncomingChart
+                network={props.network}
+                height={phone ? CHART_HEIGHT_PHONE : CHART_HEIGHT}
+              />
+            </Pending>
+          </Show>
+        </div>
+      </div>
     </section>
   );
 }

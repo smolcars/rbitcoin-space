@@ -11,8 +11,8 @@ import { createReplacements, type Story } from "../../lib/replacements";
 import { MinedStatus } from "./Status";
 import "./RecentReplacements.css";
 
-/** Rows shown, and held while the first answer is on its way. */
-const ROWS = 5;
+/** Rows shown, and held while the first answer is on its way: as many as the latest transactions. */
+const ROWS = 6;
 /** The panel is a glance, not the page: it asks again at most this often. */
 const GAP_MS = 10_000;
 

@@ -317,6 +317,8 @@ A mainnet server 18 minutes after its first sample (keys are sent in another ord
 - **Coverage.** `first` is the oldest time stored (`null` with none): history begins when the server first ran with its mempool engine on. `from` and `to` are the period answered; `minutes` is how many whole minutes it owes and `sampled` how many it has; `complete` is `true` only when none is missing. The same is in `X-Data-From-Time` and `X-Data-Complete`. Say "since …" when `first` is after `from`, and show holes as holes.
 - A new sample lands each minute, about a second after the minute turns; polling a chart every minute is plenty. The first minute after the server starts is never stored (its flow was not watched whole), so the first point appears 60 to 120 s after a start. `Cache-Control: public, max-age=1`. `503` with `Retry-After: 1` when the server has no data directory (`mempool history needs a data directory on this server`; no retry helps) or its store is busy; an empty `points` with `first: null` when it has stored nothing yet.
 
+**The home page** draws what arrived over the last two hours (`2h`, `in_vsize / 60`) beside the next block's map, asked again a few seconds after each minute turns, from the first record when recording began inside the period (`pages/home/incoming.ts`).
+
 **In the frontend** (`pages/mempool/`): `history.ts` has the type, `isHistory`, the intervals, the coverage and flow sentences, and `seriesOf`, which turns an answer into the charts' arrays; the page and its tests are beside it.
 
 - **The page is `/mempool`**, the interval in `?interval=` (24 hours by default), so a link reproduces the view. The header's Mempool section and the home page's mempool panel link to it. Its foot is the recent replacements panel ([below](#replacements)), the way to `/rbf`. With no interval in the address, a view whose records begin inside it starts where they do (`fit`), says "Recorded since …", and the picker marks a "Recorded" choice as current; a chosen interval keeps its whole width and hatches the time before the records.
@@ -328,7 +330,7 @@ A mainnet server 18 minutes after its first sample (keys are sent in another ord
 
 #### Replacements
 
-`/rbf` and the recent replacements panel (the home page's last panel, and the foot of `/mempool`) read the public `/api/v1/replacements` and `/api/v1/fullrbf/replacements` ([`API.md`](API.md#replacement-trees)); `pages/mempool/` holds the page (`RbfPage.tsx`), the panel (`RecentReplacements.tsx`) and the mined status they share (`Status.tsx`), and `lib/replacements.ts` the rest. The home page loads the panel's code lazily: it is the last panel, below the fold at every width, and its list waits for the topic anyway, so a cold home page stays at ten files.
+`/rbf` and the recent replacements panel (beside the home page's latest transactions, and the foot of `/mempool`) read the public `/api/v1/replacements` and `/api/v1/fullrbf/replacements` ([`API.md`](API.md#replacement-trees)); `pages/mempool/` holds the page (`RbfPage.tsx`), the panel (`RecentReplacements.tsx`) and the mined status they share (`Status.tsx`), and `lib/replacements.ts` the rest. The home page loads the panel's code lazily: it is the last panel on a phone and the lowest on a desktop, and its list waits for the topic anyway, so a cold home page stays at ten files.
 
 - **A tree is read as a story** (`storyOf`): its line of versions, oldest first, following from the newest back the replaced transaction whose own history runs deepest (the earliest on a tie), so a chain of bumps is one line; everything else the tree removed (children that left with a replaced parent, other conflicts) is listed as also replaced. Each version carries how long it stood (the tree's `interval`). `rise` is the newest rate less the oldest. `mined` is `mined`, `waiting` (the field absent) or `unknown` (`null`: a reorg took its block away). `readTree` drops a list entry it cannot read; it reads trees as deep as the server sends them (at most 100 transactions).
 - **Live** (`createReplacements`): the page subscribes to the `replacements` topic ([`WS.md`](WS.md#replacements)) and asks for the list when the version changes, from the server, never the browser's cache ([Following live data](#following-live-data)), and no sooner than `gapMs` after that list was last asked for or answered by any feed on the page (1.5 s on `/rbf`, 10 s for the panel, a glance), so a burst of replacements costs one ask; the topic's next version after `off` (a restart with the engine on) clears the switched-off state; with no topic message after 3 s, or while the socket is down (every 30 s), it asks anyway. A story that did not change keeps its object, so its row keeps its element; a new one flashes once. On `/rbf`, a reader scrolled into the list keeps their place: the first story in sight stays at the same height on screen as stories come in above it (the browser's own scroll anchoring is off there, so it is not done twice); with the list's top in sight, new stories come in at the top.
@@ -481,7 +483,7 @@ For a figure without a component, use `lib/format.ts` directly: `formatBtc`, `fo
 
 ## Transaction grid
 
-`components/txgrid/` draws transactions as a packed map of rectangles in WebGL2: area by virtual size, colour by fee band, the dearest at the top left, one clean block on the floor of the frame as high as the block is full ([`DESIGN.md`](DESIGN.md#the-transaction-grid)). The block page and the projected-block page use it.
+`components/txgrid/` draws transactions as a packed map of rectangles in WebGL2: area by virtual size, colour by fee band, the dearest at the top left, one clean block on the floor of the frame as high as the block is full ([`DESIGN.md`](DESIGN.md#the-transaction-grid)). The block page, the projected-block page and the home page (the next block, read-only) use it.
 
 | File | Holds |
 |---|---|
@@ -524,7 +526,7 @@ const TxGrid = lazy(() => import("../../components/txgrid/TxGrid"));
 
 ### Goggles
 
-"Highlight", under the map on the block page and the projected-block pages (not the home page, whose tiles are fee strata): the reader picks kinds of transaction, read from each one's flags ([`API.md`](API.md#transaction-flags)), and the map keeps those lit ([`DESIGN.md`](DESIGN.md#the-goggles)).
+"Highlight", under the map on the block page and the projected-block pages (not the home page, whose next-block map is read-only): the reader picks kinds of transaction, read from each one's flags ([`API.md`](API.md#transaction-flags)), and the map keeps those lit ([`DESIGN.md`](DESIGN.md#the-goggles)).
 
 | File | Holds |
 |---|---|
@@ -675,7 +677,7 @@ How the build splits the code decides how many files a cold page waits for. `vit
 
 - **In `app`:** the entry module and the shell it imports (Solid's runtime among it), the live channel and the topics the home page reads (`live.ts`, `blocks-topic.ts`, `projected-topic.ts`), the clock, and the small components most pages use (`Amount`, `DataTable`, `FeeRate`, `Hash`, `SectionHeader`, `Strata`, `Time`). Left to the bundler, the components split by which pages share them into 14 more files of under 1.5 KB each on a cold page.
 - **One stylesheet for the shell.** With the entry module in the group, the tokens, the global styles and every style the group imports land in `app`'s stylesheet, the only one `index.html` links. It opens with the layer order from `global.css`; layers are ordered by where each first appears, so a stylesheet linked before it that opened with `@layer components` would make every component lose to the reset. `bun run size` checks it.
-- **Everything else stays lazy:** each page with what only it uses, and the heavy parts (the transaction grid, the charts, the audit list, the Lightning pages) only where they are used. A cold home page is 10 files ([`CONFIG.md`](CONFIG.md#per-client-defaults) has every page).
+- **Everything else stays lazy:** each page with what only it uses, and the heavy parts (the transaction grid, the charts, the audit list, the Lightning pages) only where they are used. A cold home page is 10 files ([`CONFIG.md`](CONFIG.md#per-client-defaults) has every page). The home mempool panel's map and incoming-rate chart (`pages/home/visuals.tsx`, with the grid and the chart) load only once the panel nears the view, after those ten.
 - **The cost:** a page loads the whole group, used or not. The transaction page loads `DataTable` and `Strata` (about 2 KB) without drawing them; that is less than the headers of the files it no longer asks for. And the components' styles now come with the shell's stylesheet, which, like the shell's styles before, is not asked for again if it fails to download ([above](#when-a-pages-files-fail-to-load) covers a page's own files).
 
 Add a component to the group only when most pages use it and it would otherwise be a file of its own on their first load.

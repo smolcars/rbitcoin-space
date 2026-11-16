@@ -337,8 +337,8 @@ Decided while building it, where the rest of this document left it open. The pag
 | Block tile | Projected (dashed) or mined (solid). Height or label, median fee, fee range, total fees (in magnitude), its fee layers, transaction count and age. Mined tiles link to the block and show the pool below |
 | Tile layers | The block's capacity as a box, its fee bands settled from the floor, cheapest at the bottom, each as thick as the virtual size paying it (`strataLayers`); the room above is room the block left. Until the block's facts arrive, a neutral gauge of the same height stands in |
 | Block strip | Projected lane, "now" line, mined lane. Scrolls sideways inside itself and starts centred on the line; the mined lane goes on into the past down to block 0, and "← Now" in its head brings the line back ([`FRONTEND.md`](FRONTEND.md#the-block-strips-past)) |
-| Fee answers | "Fee to pay now": up to four plainly labelled rates, slowest first (No rush, Low, Medium, High), each with its unit and what it promises (within a day, within an hour, within 30 min, next block), rounded up. Levels next to each other that print the same rate are one answer ("No rush or low"), never stacked labels, laid out in the same two rows of two whatever merges: Low and Medium alone are never merged, a lone answer beside three takes its row, and one answer for every wait ("Any wait") is one tile across the row, the panel no taller than it, its line of text saying the next block has room at that rate. In sunken wells |
-| Waiting by fee rate | The home page's mempool: one line saying the fee rate the next block's worth reaches down to, then, behind "By fee rate" (open on wide screens, closed on a phone), a row per band, dearest first: its range, a bar on a log scale from 100 vB to one block's worth (a band past a block fills its bar, the end cut), its size, and how many blocks deep the queue is by the end of that band |
+| Fee answers | "Fee to pay now": up to four plainly labelled rates, slowest first (No rush, Low, Medium, High), each with its unit and what it promises (within a day, within an hour, within 30 min, next block), rounded up. Levels next to each other that print the same rate are one answer ("No rush or low"), never stacked labels. Wide, one row of four, an answer for several levels as wide as they are; on a phone two rows of two whatever merges: Low and Medium alone are never merged, a lone answer beside three takes its row, and one answer for every wait ("Any wait") is one tile across the row. A line under them only when it changes what they mean: the node's estimates, or one answer for every wait (the next block has room at that rate). In sunken wells |
+| Mempool panel | The home page's mempool, each part a fixed height: the next projected block's map, read-only (no Highlight), headed by a link to its page and the fee rate the next block's worth reaches down to; the four figures, two by two; and what has been arriving, in vB a second over the last two hours, as a line chart. Side by side on wide screens, stacked on narrower ones. The map and chart load once the panel nears the view. The size by fee band is on `/mempool` |
 | Fee key | Twelve swatches with lower bounds, in one row where their labels fit and two rows of six where they do not (the test is in the labels' own font). Beside a drawing that needs one (the block map, a projected block), never repeated where the figures already name the bands |
 | Fee chip | A number and its unit, with a swatch only where it is the key to a drawing (`FeeRate swatch`) |
 | Amount | BTC with dimmed trailing zeros, sats on hover; `short` for a summary's magnitude |
@@ -367,21 +367,24 @@ Decided while building it, where the rest of this document left it open. The pag
 │ Blocks   ┆ projected ▭ mined ■                                 Live │
 │ [+11][~30m][~20m][Next] ┆now┆ [975411][975410][975409][975408] …   │
 ├─────────────────────────────────────────────────────────────────────┤
-│ ┌ Fee to pay now ──────────┐  ┌ Mempool ─────────────────────────┐ │
-│ │ No rush       Low        │  │ Transactions  Size  Fees  Lowest │ │
-│ │ 0.14 sat/vB   0.22 sat/vB│  │ Waiting, by fee rate             │ │
-│ │ Medium        High       │  │ 10+      ▏           16.59 kvB   │ │
-│ │ 0.27 sat/vB   3.29 sat/vB│  │ …                                │ │
-│ └──────────────────────────┘  │ < 0.2    ██████████  28.72 MvB   │ │
-│ ┌ Difficulty adjustment ───┐  └──────────────────────────────────┘ │
-│ │ [██████████████░░┃░░]    │  ┌ Latest transactions ─────────────┐ │
-│ └──────────────────────────┘  └──────────────────────────────────┘ │
+│ ┌ Fee to pay now ───────────────┐ ┌ Difficulty adjustment ────────┐ │
+│ │ No rush  Low    Medium  High  │ │ [████████░┃░░░░░░] 398/2016   │ │
+│ │ 0.14     0.22   0.27    3.29  │ │ ↑ Up 14.9%  in 9 days  ↓ 9.1% │ │
+│ └───────────────────────────────┘ └───────────────────────────────┘ │
+│ ┌ Mempool ─────────────────────────────────────── Mempool history ┐ │
+│ │ Next block  1–1.5   │ Transactions Size │ Arriving 902 vB/s     │ │
+│ │ ┌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┐ │ 74 179  31.77 MvB │   ╲__/‾‾╲___          │ │
+│ │ ╎ next block map  ╎ │ Fees    Lowest    │                       │ │
+│ │ └╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┘ │ 0.079   0.10      │ 14:57       15:06     │ │
+│ └─────────────────────────────────────────────────────────────────┘ │
+│ ┌ Latest transactions ──────────┐ ┌ Recent replacements ──────────┐ │
+│ └───────────────────────────────┘ └───────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-The fee to pay is the first panel after the blocks, so a phone shows it on its first screen. The difficulty bar is neutral (never a fee colour); its mark is where the period would be at one block every ten minutes. Changes read as an arrow and a word ("Down 7.05%"). On a network that never retargets (regtest) the section says so instead.
+The fee to pay is the first panel after the blocks, so a phone shows it on its first screen. The difficulty bar is neutral (never a fee colour); its mark is where the period would be at one block every ten minutes, and the sentence saying how far ahead or behind is the bar's title, not a line of its own. Changes read as an arrow and a word ("Down 7.05%"). On a network that never retargets (regtest) the section says so instead.
 
-Wide screens: the fee answer and the difficulty stacked beside the mempool, about its height, and the latest transactions across the width below. Phones: one column, in the order fees, mempool, latest transactions, difficulty; the strip scrolls sideways; stats in two columns.
+Wide screens: the fee answers and the difficulty in one short row, the mempool across the width, then the latest transactions beside the recent replacements, six rows each with ids cut in the middle, so the top of every panel is on a 1440 × 900 screen's first view. Phones: one column, in the order fees, mempool, latest transactions, difficulty, replacements; the strip scrolls sideways; stats in two columns.
 
 ### Block
 

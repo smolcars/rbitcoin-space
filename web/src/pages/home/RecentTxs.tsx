@@ -11,8 +11,11 @@ import { paths } from "../../lib/network";
 import type { Feed } from "./feeds";
 import { enqueueTxs } from "./mempool";
 
-/** Rows shown, and while the first answer is on its way, so the section keeps its height. */
-const ROWS = 10;
+/**
+ * Rows shown, and while the first answer is on its way, so the section keeps its height: as many
+ * as the replacements beside it show, so the two panels end together.
+ */
+const ROWS = 6;
 /** New rows enter one at a time, at most this often, so each can be read on a busy day. */
 export const PACE_MS = 700;
 

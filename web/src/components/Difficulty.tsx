@@ -125,6 +125,10 @@ function Adjustment(props: { network: Network; tip: Accessor<string | undefined>
   const expected = () => change(d()?.difficultyChange ?? 0);
   const previous = () => change(d()?.previousRetarget ?? 0);
   const progress = () => Math.min(1, Math.max(0, (d()?.progressPercent ?? 0) / 100));
+  const paceTitle = () => {
+    const a = d();
+    return a ? paceText(a) : undefined;
+  };
   const pace = () => Math.min(1, Math.max(0, (d()?.expectedBlocks ?? 0) / PERIOD));
 
   return (
@@ -134,7 +138,8 @@ function Adjustment(props: { network: Network; tip: Accessor<string | undefined>
         <ErrorState title="Could not load the difficulty adjustment" error={error()} retry={load} />
       }
     >
-      <figure class="difficulty__period">
+      {/* The home page shows the count and figures only: the sentence stays in the title. */}
+      <figure class="difficulty__period" title={paceTitle()}>
         <div class="difficulty__bar">
           <span
             class={["difficulty__done", { "difficulty__done--loading": !d() }]}

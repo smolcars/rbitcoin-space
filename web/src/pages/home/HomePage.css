@@ -472,32 +472,25 @@
   }
 
   /* ---------- Below the strip ---------- */
-  /* The fee answer and the difficulty stacked beside the mempool, about its height, so no panel
-     is stretched far past its content; the latest transactions take the width below. */
+  /* One short row of the fee answer and the difficulty, the mempool across the width, then the
+     latest transactions beside the replacements: the top of every panel above a desktop's fold. */
   .home-grid {
     display: grid;
-    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     grid-template-areas:
-      "fees mempool"
-      "difficulty mempool"
-      "recent recent"
-      "rbf rbf";
+      "fees difficulty"
+      "mempool mempool"
+      "recent rbf";
     align-items: stretch;
-    gap: var(--space-5);
-    padding-top: var(--space-5);
+    gap: var(--space-3);
+    padding-top: var(--space-4);
     padding-bottom: var(--space-7);
-  }
-  /* One answer for every wait: the fee panel as tall as its one tile and line, not the mempool
-     panel's share beside it; the difficulty panel sits under it at its own height. */
-  .home-grid:has(.home-fees__item--all) {
-    grid-template-rows: auto 1fr;
-  }
-  .home-grid:has(.home-fees__item--all) .home-difficulty {
-    align-self: start;
   }
   .home-mempool,
   .home-fees,
-  .home-recent {
+  .home-recent,
+  .home-difficulty,
+  .home-rbf {
     min-width: 0;
   }
   .home-fees {
@@ -512,9 +505,43 @@
   .home-difficulty {
     grid-area: difficulty;
   }
-  /* Last on every width: below everything the council placed, so it pushes nothing down. */
   .home-rbf {
     grid-area: rbf;
+  }
+
+  /* ---------- Mempool ---------- */
+  /* Three of a height side by side: the map, the four figures two by two, the incoming rate. */
+  .home-mempool {
+    display: grid;
+    grid-template-columns: minmax(0, 4fr) minmax(min-content, 3fr) minmax(0, 5fr);
+    grid-template-rows: auto 1fr;
+    grid-template-areas:
+      "head head head"
+      "next stats flow";
+    column-gap: var(--space-5);
+  }
+  .home-mempool > .section__head {
+    grid-area: head;
+  }
+  .home-mempool > .home-stats,
+  .home-mempool > .state {
+    grid-area: stats;
+  }
+  .home-next {
+    grid-area: next;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .home-flow {
+    grid-area: flow;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .home-mempool > .home-stats {
+    grid-template-columns: repeat(2, minmax(min-content, 1fr));
+    align-content: start;
   }
 
   /* Equal columns, each at least as wide as its figure: a wider face widens it, not overruns it. */
@@ -560,140 +587,73 @@
     color: var(--color-text-muted);
   }
 
-  .home-depth {
-    margin-top: var(--space-4);
-  }
-  .home-depth__answer {
-    min-height: 1.5em;
+  /* A picture's one line: its name, and a muted figure or unit at the right. */
+  .home-picture__head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-3);
+    /* Room for the title link's thumb target (.tap) above the frame. */
+    margin-bottom: var(--space-3);
     font-size: var(--text-sm);
   }
-  .home-depth__answer strong {
-    font-weight: var(--weight-bold);
+  .home-picture__title {
+    font-weight: var(--weight-medium);
   }
-  .home-depth__more {
-    margin-top: var(--space-2);
-  }
-  .home-depth__summary {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-2);
-    min-height: var(--touch);
-    font-size: var(--text-sm);
-    color: var(--color-text-muted);
-    cursor: pointer;
-    list-style: none;
-    text-decoration: underline;
-    text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
-    text-underline-offset: 0.2em;
-  }
-  .home-depth__summary::-webkit-details-marker {
-    display: none;
-  }
-  .home-depth__summary::before {
-    content: "";
-    width: 6px;
-    height: 6px;
-    border-right: 1.5px solid currentColor;
-    border-bottom: 1.5px solid currentColor;
-    transform: rotate(-45deg);
-    transition: transform var(--dur-quick) var(--ease-out);
-  }
-  .home-depth__more[open] > .home-depth__summary::before {
-    transform: rotate(45deg);
-  }
-  .home-depth__table {
-    width: 100%;
-    font-size: var(--text-sm);
-  }
-  .home-depth__table th {
-    padding: 0 0 var(--space-1);
-    font-weight: var(--weight-regular);
-    font-size: var(--text-xs);
-    color: var(--color-text-muted);
-    text-align: left;
-  }
-  .home-depth__table td {
-    padding: 3px 0;
-  }
-  .home-depth__table :is(th, td) + :is(th, td) {
-    padding-left: var(--space-3);
-  }
-  .home-depth__table .home-depth__num {
-    text-align: right;
-    white-space: nowrap;
-  }
-  .home-depth__range {
-    width: 4.5rem;
+  .home-picture__meta {
     color: var(--color-text-muted);
     white-space: nowrap;
   }
-  .home-depth__barcell {
-    width: 100%;
+  .home-picture__meta .home-bone {
+    width: 6rem;
   }
-  /* A track one block long on a log scale: each band's size against it, past a block filling it. */
-  .home-depth__bar {
+  /* Projected, so dashed and open, as on the projected block's page; a fixed height, so the panel
+     never grows with the mempool. */
+  .home-next__frame {
     position: relative;
-    display: block;
-    height: 10px;
-    overflow: hidden;
-    border-radius: var(--radius-s);
-    background: var(--color-surface-sunken);
+    flex: 1;
+    min-height: 12rem;
+    border: 1.5px dashed var(--color-line-strong);
+    border-radius: var(--radius-m);
   }
-  .home-depth__bar::before {
-    content: "";
+  .home-next__grid {
     position: absolute;
-    inset: 0 auto 0 0;
-    width: max(3px, calc(var(--w, 0) * 100%));
-    background: var(--c);
+    inset: var(--space-2);
   }
-  .home-depth__row--none .home-depth__bar::before {
-    display: none;
-  }
-  /* Past one block: the bar's end is cut, so a capped row never reads as exactly one block. */
-  .home-depth__row--full .home-depth__bar::after {
-    content: "";
+  .home-next__note,
+  .home-flow__note {
     position: absolute;
-    top: 0;
-    bottom: 0;
-    right: 6px;
-    width: 3px;
-    background: var(--color-surface);
-    transform: skewX(-20deg);
-  }
-  .home-depth__note {
-    margin-top: var(--space-2);
-    font-size: var(--text-xs);
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding: var(--space-4);
+    font-size: var(--text-sm);
     color: var(--color-text-muted);
+    text-align: center;
+  }
+  .home-flow__frame {
+    position: relative;
+    flex: 1;
+    min-height: 10rem;
   }
 
   /* ---------- Fee to pay now ---------- */
-  /* Two rows of two in every grouping, each row at least an answer's height, so an update that
-     merges or splits answers never moves what follows. */
+  /* One row of four, an answer for several levels as wide as they are. A phone keeps two rows of
+     two in every grouping, so an update that merges or splits answers never moves what follows. */
   .home-fees__list {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    grid-template-rows: repeat(2, minmax(6.75rem, auto));
-    gap: var(--space-3);
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--space-2);
   }
   .home-fees__item {
+    grid-column: span var(--span, 1);
     display: flex;
     flex-direction: column;
     justify-content: space-between;
-    gap: var(--space-2);
-    padding: var(--space-3);
+    gap: var(--space-1);
+    padding: var(--space-2) var(--space-3);
     border-radius: var(--radius-m);
     background: var(--color-surface-sunken);
-  }
-  .home-fees__item--row {
-    grid-column: span 2;
-  }
-  /* One answer for every wait (signet's usual): one tile like the others across the row, and the
-     panel no taller than it. */
-  .home-fees__item--all {
-    grid-column: span 2;
-  }
-  .home-fees__list:has(.home-fees__item--all) {
-    grid-template-rows: minmax(6.75rem, auto);
   }
   .home-fees__item dt {
     display: flex;
@@ -705,7 +665,7 @@
     font-weight: var(--weight-medium);
   }
   .home-fees__when {
-    font-size: var(--text-sm);
+    font-size: var(--text-xs);
     color: var(--color-text-muted);
   }
   .home-fees__rate {
@@ -721,9 +681,41 @@
   .home-fees__note,
   .home-fees__none {
     max-width: 60ch;
-    margin-top: var(--space-3);
+    margin-top: var(--space-2);
     font-size: var(--text-sm);
     color: var(--color-text-muted);
+  }
+
+  /* ---------- Difficulty adjustment: the bar and its count on one line, the figures under it ---------- */
+  .home-difficulty .difficulty__period {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-bottom: var(--space-3);
+  }
+  .home-difficulty .difficulty__bar {
+    flex: 1;
+  }
+  .home-difficulty .difficulty__caption {
+    display: block;
+    margin-top: 0;
+    white-space: nowrap;
+  }
+  /* The sentence and the sub-lines stay for a screen reader; the figure's title has the sentence. */
+  .home-difficulty :is(.difficulty__pace-text, .difficulty__sub) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .home-difficulty .difficulty__count {
+    min-height: 0;
+  }
+  .home-difficulty .difficulty__value {
+    min-height: calc(var(--text-xl) * 1.3);
   }
 
   /* ---------- Latest transactions ---------- */
@@ -768,6 +760,24 @@
     .home-rbf {
       grid-area: auto;
     }
+    .home-mempool > .home-stats {
+      grid-template-columns: repeat(4, minmax(min-content, 1fr));
+    }
+    .home-mempool {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-rows: none;
+      grid-template-areas:
+        "head"
+        "stats"
+        "next"
+        "flow";
+    }
+    .home-next {
+      margin-top: var(--space-4);
+    }
+    .home-flow {
+      margin-top: var(--space-4);
+    }
   }
   @media (max-width: 40em) {
     .home-strip {
@@ -796,6 +806,16 @@
     .home-stat {
       flex: 1 1 calc(50% - var(--space-4));
     }
+    .home-fees__list {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .home-fees__item {
+      grid-column: auto;
+    }
+    .home-fees__item--row,
+    .home-fees__item--all {
+      grid-column: span 2;
+    }
     .home-grid {
       gap: var(--space-4);
       padding-top: var(--space-4);
@@ -808,13 +828,6 @@
   }
 }
 
-/* ---------- Difficulty adjustment: the panel's body is components/Difficulty.css ---------- */
-@layer pages {
-  .home-difficulty {
-    min-width: 0;
-  }
-}
-
 @layer pages {
   /* Narrower than any phone held upright: a page zoomed in or set in a large text size. */
   @media (max-width: 18.75em) {
@@ -822,12 +835,9 @@
     .home-stats {
       grid-template-columns: minmax(0, 1fr);
     }
-    /* The bars repeat the sizes beside them; the figures need the room. */
-    .home-depth__table :is(th, td):nth-child(2) {
-      display: none;
-    }
-    .home-depth__table .home-depth__num {
-      white-space: normal;
+    .home-fees__item--row,
+    .home-fees__item--all {
+      grid-column: auto;
     }
   }
 }

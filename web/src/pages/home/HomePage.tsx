@@ -13,8 +13,9 @@ import { RecentTxs } from "./RecentTxs";
 import { DifficultyPanel } from "./DifficultyPanel";
 import "./HomePage.css";
 
-// The last panel, below the fold everywhere, and its list waits for the live topic anyway: its
-// code comes after the page's, so a cold home page still needs ten files (docs/FRONTEND.md).
+// Beside the latest transactions on a wide screen and last on a phone, and its list waits for the
+// live topic anyway: its code comes after the page's, so a cold home page still needs ten files
+// (docs/FRONTEND.md).
 const RecentReplacements = lazy(() => import("../mempool/RecentReplacements"));
 
 /** A failure that means the node, not the request, is the problem. */
@@ -66,7 +67,7 @@ function Home(props: { network: Network }) {
       />
       <div class="home-grid wrap">
         <FeePanel answer={fees} />
-        <MempoolPanel feed={live.mempool} />
+        <MempoolPanel feed={live.mempool} network={props.network} />
         <RecentTxs feed={live.recent} />
         <DifficultyPanel network={props.network} tip={() => blocks.data()?.[0]?.id} />
         <Pending>
