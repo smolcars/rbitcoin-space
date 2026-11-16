@@ -4,7 +4,6 @@
 // reader works the list holds still: the old rows stay until the new ones arrive.
 import { useSearchParams } from "@solidjs/router";
 import {
-  type Accessor,
   createEffect,
   createMemo,
   createSignal,
@@ -71,17 +70,8 @@ import {
   MsatFig,
   PpmFig,
   Tag,
+  usePhone,
 } from "./parts";
-
-/** Whether the viewport is a phone's (the 40em breakpoint), kept current. */
-function usePhone(): Accessor<boolean> {
-  const media = window.matchMedia("(max-width: 40em)");
-  const [phone, setPhone] = createSignal(media.matches);
-  const change = () => setPhone(media.matches);
-  media.addEventListener("change", change);
-  onCleanup(() => media.removeEventListener("change", change));
-  return phone;
-}
 
 /** How long typing must pause before the filter asks, as the header's search waits. */
 export const FILTER_WAIT_MS = 280;

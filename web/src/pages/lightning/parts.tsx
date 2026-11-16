@@ -1,7 +1,16 @@
 // Pieces every Lightning page shares: the gate that says whether there is anything to show,
 // names from gossip, links and figures.
 import { useLocation } from "@solidjs/router";
-import { For, Match, onSettled, Show, Switch } from "solid-js";
+import {
+  type Accessor,
+  createSignal,
+  For,
+  Match,
+  onCleanup,
+  onSettled,
+  Show,
+  Switch,
+} from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { Amount } from "../../components/Amount";
 import { CopyButton } from "../../components/CopyButton";
@@ -549,3 +558,13 @@ export function InboundFig(props: { fee: InboundFee }) {
 /** "Inbound discount", "Inbound surcharge" or "Inbound fee", by the fee's sign. */
 export const inboundName = (f: InboundFee): string =>
   inboundWord(f) === "fee" ? "Inbound fee" : `Inbound ${inboundWord(f)}`;
+
+/** Whether the viewport is a phone's (the 40em breakpoint), kept current. */
+export function usePhone(): Accessor<boolean> {
+  const media = window.matchMedia("(max-width: 40em)");
+  const [phone, setPhone] = createSignal(media.matches);
+  const change = () => setPhone(media.matches);
+  media.addEventListener("change", change);
+  onCleanup(() => media.removeEventListener("change", change));
+  return phone;
+}

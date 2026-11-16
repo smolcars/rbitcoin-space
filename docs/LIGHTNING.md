@@ -355,7 +355,7 @@ All are written with `try_write`: when the store's queue is full the Lightning s
 
 ### What is served
 
-The peer's status, the latest statistics (until the first snapshot after a start is stored, up to ten minutes after the sync, the totals taken once when the first index is built: one read of the whole graph, as a snapshot is) and the series over an interval, the newest opens and closes, and nodes, channels, search and rankings ([Routes](#routes)), under `/app/lightning/…` and in the reference's shapes under `/api/v1/lightning/…` ([`API.md`](API.md#lightning)). Every answer comes from the store or the server's memory; none asks the node, and none takes the graph's lock.
+The peer's status, the latest statistics (until the first snapshot after a start is stored, up to ten minutes after the sync, the totals taken once when the first index is built: one read of the whole graph, as a snapshot is) and the series over an interval, the newest opens and closes, a block's opens and closes, and nodes, channels, search and rankings ([Routes](#routes)), under `/app/lightning/…` and in the reference's shapes under `/api/v1/lightning/…` ([`API.md`](API.md#lightning)). Every answer comes from the store or the server's memory; none asks the node, and none takes the graph's lock.
 
 ### Routes
 

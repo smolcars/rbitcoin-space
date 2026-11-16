@@ -72,6 +72,7 @@ import {
 } from "./chain";
 import "./BlockPage.css";
 import { failed, ready, Skel } from "./parts";
+import { BlockLightning } from "../lightning/BlockLightning";
 
 // WebGL and its layout load only when a block page draws them.
 const TxGrid = lazy(() => import("../../components/txgrid/TxGrid"));
@@ -814,6 +815,7 @@ function BlockView(props: { hash?: string | undefined; height?: number | undefin
             </div>
           </Show>
         </section>
+        <Show when={b()}>{(blk) => <BlockLightning hash={blk().id} />}</Show>
       </div>
     </Show>
   );

@@ -344,6 +344,21 @@ export interface TxChannels {
   closed: ListedChannel[];
 }
 
+/** A channel a block opened: its id, size and two ends. */
+export interface BlockChannel {
+  id: string;
+  scid: string;
+  capacity: number;
+  node_one: NodeRef;
+  node_two: NodeRef;
+}
+
+/** The channels a block opened and closed: some of each, and the counts over all of them. */
+export interface BlockChannels {
+  opened: { count: number; capacity: number; channels: BlockChannel[] };
+  closed: { count: number; forced: number; channels: (BlockChannel & { kind: CloseKind })[] };
+}
+
 // Shape checks: enough that a page never renders an object where it expects a figure. Text
 // fields are rendered as text whatever they hold.
 
@@ -604,6 +619,46 @@ export const isRankings = (v: unknown): v is Rankings => obj(v) && list(v["nodes
 
 export const isTxChannels = (v: unknown): v is TxChannels =>
   obj(v) && list(v["opened"], isListedChannel) && list(v["closed"], isListedChannel);
+
+const isBlockChannel = (v: unknown): v is BlockChannel =>
+  obj(v) &&
+  str(v["id"]) &&
+  num(v["capacity"]) &&
+  isNodeRef(v["node_one"]) &&
+  isNodeRef(v["node_two"]);
+const isClosedInBlock = (v: unknown): v is BlockChannel & { kind: CloseKind } =>
+  isBlockChannel(v) && KINDS.has((v as unknown as Obj)["kind"]);
+
+export const isBlockChannels = (v: unknown): v is BlockChannels => {
+  if (!obj(v) || !obj(v["opened"]) || !obj(v["closed"])) return false;
+  const o = v["opened"];
+  const c = v["closed"];
+  return (
+    num(o["count"]) &&
+    num(o["capacity"]) &&
+    list(o["channels"], isBlockChannel) &&
+    num(c["count"]) &&
+    num(c["forced"]) &&
+    list(c["channels"], isClosedInBlock)
+  );
+};
+
+/** What a block did, in a line: `12 channels opened (3.40 BTC), 5 closed (2 forced)`. */
+export function blockWords(b: BlockChannels): string {
+  const said: string[] = [];
+  if (b.opened.count > 0) {
+    said.push(
+      `${count(b.opened.count, "channel")} opened (${formatBtcShort(b.opened.capacity)}${NNBSP}BTC)`,
+    );
+  }
+  if (b.closed.count > 0) {
+    // A count and its word stay on one line: "(2 forced)", never "(2" then "forced)".
+    const forced = b.closed.forced > 0 ? ` (${groupDigits(b.closed.forced)}\u00A0forced)` : "";
+    const n = b.opened.count > 0 ? groupDigits(b.closed.count) : count(b.closed.count, "channel");
+    said.push(`${n}\u00A0closed${forced}`);
+  }
+  return said.join(", ");
+}
 
 // Names from gossip.
 

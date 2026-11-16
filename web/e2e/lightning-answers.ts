@@ -65,12 +65,14 @@ export const mainnet = (): Record<string, unknown> => ({
  * apart from its unit or out of its box: what a Lightning page must hold at every text size
  * (policies.e2e.ts, policies-node.e2e.ts).
  */
-export const pageFaults = (page: Page) =>
-  page.evaluate(() => {
-    for (const d of document.querySelectorAll("details")) d.open = true;
+export const pageFaults = (page: Page, scope = "main") =>
+  page.evaluate((within) => {
+    for (const d of document.querySelectorAll(`${within} details, ${within}:is(details)`)) {
+      (d as HTMLDetailsElement).open = true;
+    }
     const width = document.documentElement.clientWidth;
     const out: string[] = [];
-    for (const e of document.querySelectorAll("main *")) {
+    for (const e of document.querySelectorAll(`${within} *`)) {
       const box = e.getBoundingClientRect();
       if (box.width === 0 || (box.right <= width + 1 && box.left >= -1)) continue;
       let clipped = false;
@@ -83,7 +85,7 @@ export const pageFaults = (page: Page) =>
       }
     }
     // Names, ids, keys and addresses may break; a figure never breaks inside its digits.
-    const walk = document.createTreeWalker(document.querySelector("main") as Node, 4);
+    const walk = document.createTreeWalker(document.querySelector(within) as Node, 4);
     for (let n = walk.nextNode(); n; n = walk.nextNode()) {
       // An announced address (`3.33.236.230:9735`) is not a figure either.
       if (n.parentElement?.closest("bdi, .hash, .mono, .ln-key, .ln-chips--mono, .visually-hidden"))
@@ -99,7 +101,7 @@ export const pageFaults = (page: Page) =>
       }
     }
     // A figure is one piece with its unit ("1 sat", never "1" then "sat"); a time is a phrase.
-    for (const el of document.querySelectorAll<HTMLElement>("main :is(.num, .ln-msat)")) {
+    for (const el of document.querySelectorAll<HTMLElement>(`${within} :is(.num, .ln-msat)`)) {
       // A channel id wraps after an "x" by design (ChannelId).
       // A chart's reading of its time is a phrase too.
       if (el.querySelector(".num") || el.closest("time, .chart__when, .visually-hidden, .ln-id"))
@@ -137,7 +139,7 @@ export const pageFaults = (page: Page) =>
     }
     if (document.documentElement.scrollWidth > width) out.push("the page scrolls sideways");
     return out.slice(0, 6);
-  });
+  }, scope);
 
 /** The most negative and the largest an inbound fee's signed 32-bit fields hold. */
 export const I32_MIN = -2_147_483_648;
