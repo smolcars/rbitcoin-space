@@ -1,0 +1,48 @@
+@layer pages {
+  /* Closed, it is one line: the summary is the panel. */
+  .blk-ln {
+    padding-block: var(--space-2);
+  }
+  .blk-ln__summary {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-height: var(--touch);
+    cursor: pointer;
+    list-style: none;
+  }
+  .blk-ln__summary::-webkit-details-marker {
+    display: none;
+  }
+  .blk-ln__summary > span {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .blk-ln__summary::after {
+    content: "";
+    flex: none;
+    width: 8px;
+    height: 8px;
+    margin-inline-end: var(--space-1);
+    border-right: 1.5px solid var(--color-text-muted);
+    border-bottom: 1.5px solid var(--color-text-muted);
+    transform: rotate(45deg);
+    transition: transform var(--dur-base) var(--ease-out);
+  }
+  .blk-ln[open] > .blk-ln__summary {
+    margin-bottom: var(--space-3);
+  }
+  .blk-ln[open] > .blk-ln__summary::after {
+    transform: rotate(-135deg);
+  }
+  .blk-ln__icon {
+    flex: none;
+    width: 1em;
+    height: 1em;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+}

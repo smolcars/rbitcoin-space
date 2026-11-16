@@ -149,6 +149,48 @@ fn shipped_migrations_are_numbered_and_unchanged() {
     }
 }
 
+/// A file a build before `0020` left at `0019` (the penalties index) takes the shipped list from
+/// there: only `0020` runs, and the block hash indexes exist.
+#[tokio::test]
+async fn a_file_at_0019_takes_only_0020() {
+    let dir = TempDir::new();
+    let at = MIGRATIONS
+        .iter()
+        .position(|(n, _)| *n == "0020_lightning_blocks.sql")
+        .unwrap();
+    let old = open(&dir.0, MIGRATIONS.get(..at).unwrap()).unwrap();
+    assert_eq!(version(&old).await, 19);
+    old.close().await;
+    let applied = Arc::new(Mutex::new(Vec::new()));
+    let seen = applied.clone();
+    let options = Options {
+        observer: Arc::new(move |e| {
+            if let Event::MigrationApplied { name, .. } = e {
+                seen.lock().unwrap().push(name.to_string());
+            }
+        }),
+        ..Options::default()
+    };
+    let store = Store::open_with(&dir.0, "regtest", options, MIGRATIONS).unwrap();
+    assert_eq!(*applied.lock().unwrap(), ["0020_lightning_blocks.sql"]);
+    assert_eq!(version(&store).await, 20);
+    let indexes: Vec<String> = store
+        .read(Read::Blocks, |sql| {
+            Ok(sql
+                .prepare(
+                    "SELECT name FROM sqlite_master WHERE type = 'index' \
+                     AND name IN ('ln_channels_open_hash', 'ln_channels_close_hash', \
+                     'ln_channels_penalties') ORDER BY name",
+                )?
+                .query_map([], |r| r.get(0))?
+                .collect::<Result<_, _>>()?)
+        })
+        .await
+        .unwrap();
+    store.close().await;
+    assert_eq!(indexes.len(), 3, "{indexes:?}");
+}
+
 /// `build.rs` reruns when a migration is added or changed: the compiled-in list is the directory
 /// as it is now, names and text. A stale build-script output fails here.
 #[test]

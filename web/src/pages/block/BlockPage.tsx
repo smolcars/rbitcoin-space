@@ -72,6 +72,7 @@ import {
 } from "./chain";
 import "./BlockPage.css";
 import { failed, ready, Skel } from "./parts";
+import { BlockLightning } from "../lightning/BlockLightning";
 
 // WebGL and its layout load only when a block page draws them.
 const TxGrid = lazy(() => import("../../components/txgrid/TxGrid"));
@@ -490,137 +491,143 @@ function BlockView(props: { hash?: string | undefined; height?: number | undefin
         </Show>
 
         <div class="block-layout">
-          <div class="block-side panel">
-            <dl class="block-facts">
-              <Fact
-                label="Mined"
-                wide="phone"
-                value={b() ? <TimeUtc time={b()?.timestamp ?? 0} /> : undefined}
-                sub={b() && <TimeAgo time={b()?.timestamp ?? 0} />}
-              />
-              <Fact
-                label="Miner"
-                value={
-                  failed(summary) === undefined ? (
-                    sum() === undefined ? undefined : (
-                      <Show
-                        when={sum()?.miner}
-                        fallback={
-                          sum() ? (
-                            <span class="block-fact__pending">Not known on this server</span>
-                          ) : (
-                            MISSING
-                          )
-                        }
-                      >
-                        {(m) => (
-                          <Link
-                            class="block-fact__line tap-line"
-                            href={paths.pool(m().slug)}
-                            title={m().name}
-                          >
-                            {m().name}
-                          </Link>
-                        )}
-                      </Show>
+          {/* The facts, and under them the block's Lightning channels where it has some. */}
+          <div class="block-lead">
+            <div class="block-side panel">
+              <dl class="block-facts">
+                <Fact
+                  label="Mined"
+                  wide="phone"
+                  value={b() ? <TimeUtc time={b()?.timestamp ?? 0} /> : undefined}
+                  sub={b() && <TimeAgo time={b()?.timestamp ?? 0} />}
+                />
+                <Fact
+                  label="Miner"
+                  value={
+                    failed(summary) === undefined ? (
+                      sum() === undefined ? undefined : (
+                        <Show
+                          when={sum()?.miner}
+                          fallback={
+                            sum() ? (
+                              <span class="block-fact__pending">Not known on this server</span>
+                            ) : (
+                              MISSING
+                            )
+                          }
+                        >
+                          {(m) => (
+                            <Link
+                              class="block-fact__line tap-line"
+                              href={paths.pool(m().slug)}
+                              title={m().name}
+                            >
+                              {m().name}
+                            </Link>
+                          )}
+                        </Show>
+                      )
+                    ) : (
+                      summaryRetry()
                     )
-                  ) : (
-                    summaryRetry()
-                  )
-                }
-                sub={
-                  sum()?.miner && (
-                    <span class="block-fact__line">
-                      {sum()?.miner?.slug === "unknown"
-                        ? "No listed address or tag"
-                        : "By payout address or tag"}
-                    </span>
-                  )
-                }
-              />
-              <Fact
-                label="Transactions"
-                value={b() ? <span class="num">{groupDigits(b()?.tx_count ?? 0)}</span> : undefined}
-              />
-              <Fact
-                label="Fullness"
-                value={
-                  b() ? <span class="num">{percent(fullness(b()?.weight ?? 0))}</span> : undefined
-                }
-                sub={b() && `${formatSize(b()?.weight ?? 0, "WU")} of 4 MWU`}
-              />
-              <Fact
-                label="Median fee rate"
-                value={
-                  failed(summary) === undefined ? (
-                    sum() === undefined ? undefined : (
-                      <Show when={rates()} fallback={sum() ? "None" : MISSING}>
-                        {(r) => <FeeRate rate={r().median} />}
-                      </Show>
+                  }
+                  sub={
+                    sum()?.miner && (
+                      <span class="block-fact__line">
+                        {sum()?.miner?.slug === "unknown"
+                          ? "No listed address or tag"
+                          : "By payout address or tag"}
+                      </span>
                     )
-                  ) : (
-                    summaryRetry()
-                  )
-                }
-                sub={sum() && !rates() ? "Only the coinbase, which pays none" : undefined}
-              />
-              <Fact
-                label="Fee range"
-                value={
-                  failed(summary) === undefined ? (
-                    sum() === undefined ? undefined : (
-                      <Show when={rates()} fallback={MISSING}>
-                        {(r) => (
-                          <span class="num block-range">
-                            {formatFeeRate(r().min)} – {formatFeeRate(r().max)}
-                            <span class="unit"> sat/vB</span>
-                          </span>
-                        )}
-                      </Show>
+                  }
+                />
+                <Fact
+                  label="Transactions"
+                  value={
+                    b() ? <span class="num">{groupDigits(b()?.tx_count ?? 0)}</span> : undefined
+                  }
+                />
+                <Fact
+                  label="Fullness"
+                  value={
+                    b() ? <span class="num">{percent(fullness(b()?.weight ?? 0))}</span> : undefined
+                  }
+                  sub={b() && `${formatSize(b()?.weight ?? 0, "WU")} of 4 MWU`}
+                />
+                <Fact
+                  label="Median fee rate"
+                  value={
+                    failed(summary) === undefined ? (
+                      sum() === undefined ? undefined : (
+                        <Show when={rates()} fallback={sum() ? "None" : MISSING}>
+                          {(r) => <FeeRate rate={r().median} />}
+                        </Show>
+                      )
+                    ) : (
+                      summaryRetry()
                     )
-                  ) : (
-                    MISSING
-                  )
-                }
-              />
-              <Fact
-                label="Total fees"
-                value={
-                  failed(summary) === undefined ? (
-                    sum() === undefined ? undefined : (
-                      <Show when={sum()} fallback={MISSING}>
-                        {(f) => <Amount sats={f().fees} />}
-                      </Show>
+                  }
+                  sub={sum() && !rates() ? "Only the coinbase, which pays none" : undefined}
+                />
+                <Fact
+                  label="Fee range"
+                  value={
+                    failed(summary) === undefined ? (
+                      sum() === undefined ? undefined : (
+                        <Show when={rates()} fallback={MISSING}>
+                          {(r) => (
+                            <span class="num block-range">
+                              {formatFeeRate(r().min)} – {formatFeeRate(r().max)}
+                              <span class="unit"> sat/vB</span>
+                            </span>
+                          )}
+                        </Show>
+                      )
+                    ) : (
+                      MISSING
                     )
-                  ) : (
-                    summaryRetry()
-                  )
-                }
-                sub={sum() && <Sats sats={sum()?.fees ?? 0} />}
-              />
-              <Fact
-                label="Reward"
-                value={
-                  reward() === undefined ? undefined : reward() ? (
-                    <Amount sats={reward()?.reward ?? 0} />
-                  ) : (
-                    MISSING
-                  )
-                }
-                sub={
-                  reward() &&
-                  (unclaimed() > 0 ? (
-                    <>
-                      <Amount sats={unclaimed()} /> less than the subsidy and fees allowed
-                    </>
-                  ) : (
-                    <>
-                      <Amount sats={reward()?.subsidy ?? 0} /> subsidy
-                    </>
-                  ))
-                }
-              />
-            </dl>
+                  }
+                />
+                <Fact
+                  label="Total fees"
+                  value={
+                    failed(summary) === undefined ? (
+                      sum() === undefined ? undefined : (
+                        <Show when={sum()} fallback={MISSING}>
+                          {(f) => <Amount sats={f().fees} />}
+                        </Show>
+                      )
+                    ) : (
+                      summaryRetry()
+                    )
+                  }
+                  sub={sum() && <Sats sats={sum()?.fees ?? 0} />}
+                />
+                <Fact
+                  label="Reward"
+                  value={
+                    reward() === undefined ? undefined : reward() ? (
+                      <Amount sats={reward()?.reward ?? 0} />
+                    ) : (
+                      MISSING
+                    )
+                  }
+                  sub={
+                    reward() &&
+                    (unclaimed() > 0 ? (
+                      <>
+                        <Amount sats={unclaimed()} /> less than the subsidy and fees allowed
+                      </>
+                    ) : (
+                      <>
+                        <Amount sats={reward()?.subsidy ?? 0} /> subsidy
+                      </>
+                    ))
+                  }
+                />
+              </dl>
+            </div>
+            <BlockLightning hash={props.hash} />
           </div>
           <CoreSample
             weight={b()?.weight}

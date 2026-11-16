@@ -927,6 +927,7 @@ Answered from an index of the verified graph that the server rebuilds every 30 s
 | `:key`, `public_key` | Exactly 66 hex digits, any case | `400 invalid public key: 66 hex digits` |
 | `:id` (a channel) | The 64-bit id in decimal (`892785849701564416`, the only form the reference takes) or `<height>x<index>x<output>` (`811984x2037x0`), each part decimal without a leading zero and within its 24, 24 and 16 bits | `400 invalid channel id: …` |
 | `:txid`, `txId[]` | 64 hex digits; `txId[]` at most 100 times | `400 invalid txid` / `invalid txId` |
+| `:hash` (a block) | 64 hex digits | `400 invalid block hash` |
 | `q`, `searchText` | 3 to 66 characters once percent-decoded and trimmed, valid UTF-8, no control character | `400 search text is 3 to 66 characters, without control characters` |
 | `status` | `open` (the default) or `closed` | `400` |
 | `page` (ours: a node's channels, the penalties) | 0 to 4,000, 25 channels a page | `400` |
@@ -968,6 +969,7 @@ What the Lightning pages read; one request for each page's main content. Real ma
 | `GET /channels/:id/fees` | `{id, scid, node_one, node_two, watched}`: the channel's [fee history](#fee-history), each end's records oldest first |
 | `GET /nodes/:key/fees?limit=` | `{changes}`: the newest fee changes on the node's open channels, either end's, newest first ([below](#fee-history)) |
 | `GET /tx/:txid` | `{opened, closed}`: the channels this transaction funded and closed, each as in the channel lists above. For the transaction page |
+| `GET /block/:hash` | `{opened: {count, capacity, channels}, closed: {count, forced, channels}}`: the channels this block funded and closed, for the block page ([below](#a-blocks-channels)) |
 | `GET /penalties?page=` | `{page, per_page, total, from, channels}`: the force closes this server saw swept with the revocation key, newest sweep first, 25 a page, each as in the channel lists above (`closed` and `penalty` never `null`), and how many there are; `from` is when our history starts, as for a node's history. One indexed read of the breached rows ([`STORE.md`](STORE.md#reading)); a penalty undone by a reorg leaves the list. Only what this server watched happen ([`LIGHTNING.md`](LIGHTNING.md#how-a-close-is-classified)), so usually none or a handful |
 
 `state` is `active` (some direction has an enabled policy), `inactive` (none: disabled, or no policy received within LDK's two weeks) or `closed`. `fee_rate` in a node's channel list is that node's own policy on the channel, ppm. Times are Unix seconds; `first_seen` is the oldest funding block time among the node's channels we hold, open or closed.
@@ -1022,6 +1024,19 @@ GET /app/lightning/rankings/capacity?limit=2
                              {"id": "03a1f3af…a72f", "alias": "Binance", "capacity": 32315912432, "channels": 130, "first_seen": 1705383088, "last_update": 1794504053}]}
 GET /app/lightning/nodes/03864ef0…3f8f/history   (before the first statistics snapshot)
 {"from": null, "points": [{"time": 1794505190, "channels": 1807, "capacity": 27383219285}]}
+```
+
+###### A block's channels
+
+`GET /app/lightning/block/:hash` answers what a block did to the channels the store holds, found by the block's hash, so a block that left the chain finds nothing (a reorg moves or clears its rows, [`STORE.md`](STORE.md#ln_channels)). Each list holds at most 100 channels, largest first (ties by id); `count` is over all of them, so `count` less the list's length were left out. `capacity` is the sum over every channel opened, in sats; `forced` counts the closes by a commitment, breaches included. A row is `{id, scid, capacity, node_one, node_two}`, the ends `{id, alias}` as in the channel lists above; a closed row adds `kind` (`cooperative`, `force`, `penalty` for a breach, `other`). A block we hold no channel for, and a hash no block has, answer the empty lists: about 95 bytes, cached like the routes above. Four indexed reads (`0020`), whatever the block: 0.4 to 1.8 ms of server time on mainnet, 10.8 KB for block 530,205's 40 opens and 15.8 KB for block 975,584's 49 closes and 2 opens, uncompressed.
+
+```json
+GET /app/lightning/block/000000000000000000016641ddffd204018c9351cb2678c88e769af064a5a20b
+{"opened": {"count": 2, "capacity": 6000000, "channels": [
+   {"id": "975584x599x0", "scid": "1072665951911477248", "capacity": 3000000,
+    "node_one": {"id": "023760d0…b1e920", "alias": "OpenMarketSquare.com"}, "node_two": {"id": "02be8a32…fa1c3a", "alias": "LQWD-England"}}, …]},
+ "closed": {"count": 49, "forced": 1, "channels": [
+   {"id": "974662x1088x1", "scid": "…", "capacity": 200000000, "node_one": {…}, "node_two": {…}, "kind": "cooperative"}, …]}}
 ```
 
 ###### A node's channels

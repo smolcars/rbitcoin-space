@@ -1,0 +1,60 @@
+@layer pages {
+  .blk-ln__chan {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    min-width: 0;
+  }
+  .blk-ln__cards {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    border-top: 1px solid var(--color-line);
+  }
+  /* Its longest figures read in magnitude where the card is narrow, as a node's cards do. */
+  .blk-ln__card {
+    container-type: inline-size;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    /* Room for the channel's link to be a thumb high between the line above and the names. */
+    gap: var(--space-3);
+    min-width: 0;
+    padding: var(--space-3) 0;
+    border-bottom: 1px solid var(--color-line);
+  }
+  /* A name takes the card's width, cut by the house rule only where it does not fit. */
+  .blk-ln__card .ln-node {
+    max-width: 100%;
+  }
+  /* A channel id wraps after an "x" (ChannelId), never inside a number. */
+  .blk-ln .ln-id {
+    justify-self: start;
+    white-space: normal;
+  }
+  .blk-ln__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-1) var(--space-3);
+    margin: 0;
+  }
+  .blk-ln__head .num {
+    white-space: nowrap;
+  }
+  .blk-ln__card .ln-fig__unit {
+    font-family: var(--font-sans);
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+  }
+  @container (max-width: 22em) {
+    .blk-ln__card .ln-fig--longer > .ln-fig__exact {
+      display: none;
+    }
+    .blk-ln__card .ln-fig--longer > .ln-fig__short {
+      display: inline;
+    }
+  }
+}

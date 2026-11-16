@@ -19,3 +19,4 @@
 0017_lightning_closes.sql 34fc6cdf3df8d943
 0018_lightning_fees.sql bca5a98c9756d566
 0019_lightning_penalties.sql b85f793526bcd167
+0020_lightning_blocks.sql ef1b71c089090a34

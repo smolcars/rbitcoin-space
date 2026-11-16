@@ -6,8 +6,16 @@ import { FakeSocket } from "../../lib/fakes";
 import { clearApiCache } from "../../lib/api";
 import { type BlockSummary, clearSummaries } from "../../lib/summary";
 import type { Block, BlockStatus, Transaction } from "../../lib/esplora";
+import type { Network } from "../../lib/network";
 import BlocksPage from "../blocks/BlocksPage";
 import BlockPage from "./BlockPage";
+
+// The networks the server's config lists as having Lightning; none unless a test says so.
+const config = vi.hoisted(() => ({ lightning: [] as Network[] }));
+vi.mock(import("../../lib/config"), () => ({
+  loadConfig: () =>
+    Promise.resolve({ networks: ["mainnet" as const], version: "", ark: {}, ...config }),
+}));
 
 const HASH = "00000000000000000001b0e1f2c63fd0a1ec0d0b4f50f1c1e2f9b8c1d2e3f4a5";
 const PREV = "00000000000000000002aa1d55e93c43a9ab7fa3e3c88f7c5d7f2c4f04b5c6d7";
@@ -791,5 +799,159 @@ describe("BlocksPage", () => {
     serve({});
     const el = open("/blocks/abc");
     expect(text(el)).toContain("“abc” is not a block height");
+  });
+});
+
+describe("BlockPage's Lightning panel", () => {
+  const lnPath = `/app/lightning/block/${HASH}`;
+  const end = (n: number, alias: string | null) => ({ id: `02${String(n).repeat(64)}`, alias });
+  const chan = (n: number, capacity: number) => ({
+    id: `975411x${n}x0`,
+    scid: String(1_072_000_000 + n),
+    capacity,
+    node_one: end(1, "ACINQ"),
+    node_two: end(2, "<img src=x onerror=alert(1)>"),
+  });
+  const answer = (opened: number[], closed: string[], forced: number, capacity = 0) => ({
+    opened: { count: opened.length, capacity, channels: opened.map((c, i) => chan(i, c)) },
+    closed: {
+      count: closed.length,
+      forced,
+      channels: closed.map((kind, i) => ({ ...chan(100 + i, 1_000_000), kind })),
+    },
+  });
+  const withLightning = (reply: Reply) => {
+    config.lightning = ["mainnet"];
+    serve({ ...normal(), [lnPath]: reply });
+  };
+  const summary = (el: Element) => text(el.querySelector(".blk-ln summary") ?? el);
+  const loaded = (el: Element) => until(() => expect(fact(el, "Reward")).toContain("BTC"));
+
+  /** Long enough for a panel that was coming to have come. */
+  const moment = () =>
+    new Promise<void>((resolve) => {
+      setTimeout(resolve, 50);
+    });
+
+  afterEach(() => {
+    config.lightning = [];
+  });
+
+  it("asks nothing on a network without Lightning", async () => {
+    serve(normal());
+    const el = open(`/block/${HASH}`);
+    await loaded(el);
+    await until(() => expect(calls).toContain(txsPath));
+    expect(calls.some((c) => c.includes("/lightning/"))).toBe(false);
+    expect(el.querySelector(".blk-ln")).toBeNull();
+  });
+
+  it("says what many channels did, closed, and lists them when opened", async () => {
+    const caps = Array.from({ length: 12 }, (_, i) => 1_000_000 * (i + 1));
+    withLightning({
+      body: answer(
+        caps,
+        ["force", "penalty", "cooperative", "other", "cooperative"],
+        2,
+        78_000_000,
+      ),
+    });
+    const el = open(`/block/${HASH}`);
+    await until(() => expect(el.querySelector(".blk-ln")).not.toBeNull());
+    expect(summary(el)).toBe(
+      "Lightning in this block: 12 channels opened (0.780 BTC), 5\u00A0closed (2\u00A0forced)",
+    );
+    const details = el.querySelector("details.blk-ln") as HTMLDetailsElement;
+    expect(details.open).toBe(false);
+    // Directly under the facts, before the map and the transactions.
+    const side = el.querySelector(".block-side") as Element;
+    for (const [a, b] of [
+      [side, details],
+      [details, el.querySelector(".block-core") as Element],
+      [details, el.querySelector(".block-txs") as Element],
+    ] as const) {
+      expect(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      );
+    }
+    // Opened first, then closed, each tagged; aliases are text.
+    // The list inside is the lazy part's, drawn once it has loaded.
+    await until(() => expect(details.querySelectorAll("tbody tr")).toHaveLength(17));
+    const rows = [...details.querySelectorAll("tbody tr")];
+    expect(text(rows[0] as Element)).toContain("Opened");
+    expect(text(rows[12] as Element)).toContain("Force");
+    expect(text(rows[13] as Element)).toContain("Penalty");
+    expect(details.querySelector("img")).toBeNull();
+    expect(text(details)).toContain("<img src=x onerror=alert(1)>");
+    expect(text(details)).toContain("Public channels only.");
+    expect(text(details)).not.toContain("not listed");
+  });
+
+  it("asks together with the block, not after it", async () => {
+    config.lightning = ["mainnet"];
+    serve({
+      ...normal(),
+      // The block's own reply never comes.
+      [`/block/${HASH}`]: () => new Promise<Reply>(() => {}),
+      [lnPath]: { body: answer([1_000_000], [], 0, 1_000_000) },
+    });
+    const el = open(`/block/${HASH}`);
+    await until(() => expect(summary(el)).toContain("1 channel opened"));
+  });
+
+  it("asks once a block opened by height has its hash", async () => {
+    withLightning({ body: answer([], ["force"], 1) });
+    const el = open("/block/975411");
+    await until(() => expect(el.querySelector(".blk-ln")).not.toBeNull());
+    expect(calls.indexOf("/block-height/975411")).toBeLessThan(calls.indexOf(lnPath));
+  });
+
+  it("says one channel in the singular, leaves out none forced, and counts what it left out", async () => {
+    withLightning({
+      body: {
+        ...answer([5_000_000], ["cooperative"], 0, 5_000_000),
+        opened: { count: 140, capacity: 5_000_000, channels: [chan(0, 5_000_000)] },
+      },
+    });
+    const el = open(`/block/${HASH}`);
+    await until(() => expect(el.querySelector(".blk-ln")).not.toBeNull());
+    expect(summary(el)).toBe(
+      "Lightning in this block: 140 channels opened (0.0500 BTC), 1\u00A0closed",
+    );
+    expect(text(el.querySelector(".blk-ln") as Element)).toContain("139 smaller not listed.");
+  });
+
+  it("words closes alone, one and many", async () => {
+    withLightning({ body: answer([], ["force"], 1) });
+    const el = open(`/block/${HASH}`);
+    await until(() => expect(el.querySelector(".blk-ln")).not.toBeNull());
+    expect(summary(el)).toBe("Lightning in this block: 1 channel\u00A0closed (1\u00A0forced)");
+  });
+
+  it("shows no panel for a block with no channels", async () => {
+    withLightning({ body: answer([], [], 0) });
+    const el = open(`/block/${HASH}`);
+    await loaded(el);
+    await until(() => expect(calls).toContain(lnPath));
+    await moment();
+    expect(el.querySelector(".blk-ln")).toBeNull();
+  });
+
+  it.each([
+    ["an error", { status: 500, body: { error: "internal error" } }],
+    [
+      "a graph still syncing",
+      { status: 503, body: { error: "lightning graph is still syncing; retry" } },
+    ],
+    ["a reply it cannot read", { body: { opened: { count: 3 }, closed: [] } }],
+  ] as const)("shows no panel, and the block, on %s", async (_why, reply) => {
+    withLightning(reply);
+    const el = open(`/block/${HASH}`);
+    await loaded(el);
+    await until(() => expect(calls).toContain(lnPath));
+    await moment();
+    expect(el.querySelector(".blk-ln")).toBeNull();
+    expect(el.querySelector(".state--error, [role=alert]")).toBeNull();
+    expect(text(el.querySelector("h1") as Element)).toBe("Block 975 411");
   });
 });

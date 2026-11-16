@@ -368,6 +368,72 @@ pub async fn by_txids(store: &Store, txids: Vec<Txid>) -> Result<Vec<Channel>, E
         .await
 }
 
+/// What one block did to the channels we hold: up to the limit of those it funded and of those it
+/// closed, largest first, and the totals over all of them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InBlock {
+    pub opened: Vec<Channel>,
+    /// How many channels the block funded, and their capacity in sats.
+    pub opened_count: u64,
+    pub opened_capacity: u64,
+    pub closed: Vec<Channel>,
+    pub closed_count: u64,
+    /// Closes by a commitment: force closes, breaches included.
+    pub forced: u64,
+}
+
+/// The channels block `hash` funded and closed, `limit` of each, largest first: through the
+/// hash indexes (`0020`), so a block that left the chain, whose rows were moved or cleared,
+/// finds none. All four reads from one snapshot.
+pub async fn in_block(store: &Store, hash: BlockHash, limit: usize) -> Result<InBlock, Error> {
+    store
+        .read(Read::Lightning, move |sql| {
+            // One snapshot, so the lists and the counts agree while history commits; the store
+            // ends the transaction after the read.
+            sql.prepare("BEGIN")?.execute([])?;
+            let h = hash.to_byte_array().to_vec();
+            let n = int(limit as u64);
+            let opened = sql
+                .prepare(concat!(
+                    "SELECT ",
+                    channel_columns!(),
+                    " FROM ln_channels WHERE open_hash = ?1 ORDER BY capacity DESC, scid LIMIT ?2"
+                ))?
+                .query_map(params![h, n], row)?
+                .collect::<Result<Vec<_>, _>>()?;
+            let closed = sql
+                .prepare(concat!(
+                    "SELECT ",
+                    channel_columns!(),
+                    " FROM ln_channels WHERE close_hash = ?1 ORDER BY capacity DESC, scid LIMIT ?2"
+                ))?
+                .query_map(params![h, n], row)?
+                .collect::<Result<Vec<_>, _>>()?;
+            let (opened_count, opened_capacity) = sql
+                .prepare(
+                    "SELECT count(*), coalesce(sum(capacity), 0) FROM ln_channels \
+                     WHERE open_hash = ?1",
+                )?
+                .query_row(params![h], |r| Ok((get(r, 0)?, get(r, 1)?)))?;
+            let (closed_count, forced) = sql
+                .prepare(
+                    "SELECT count(*), \
+                     coalesce(sum(close_kind IN (1, 2) OR penalty_txid IS NOT NULL), 0) \
+                     FROM ln_channels WHERE close_hash = ?1",
+                )?
+                .query_row(params![h], |r| Ok((get(r, 0)?, get(r, 1)?)))?;
+            Ok(InBlock {
+                opened,
+                opened_count,
+                opened_capacity,
+                closed,
+                closed_count,
+                forced,
+            })
+        })
+        .await
+}
+
 /// The lowest held channel between nodes ?2 and ?3 funded by transaction ?1.
 const NEXT: &str = concat!(
     "SELECT ",

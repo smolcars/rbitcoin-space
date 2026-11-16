@@ -363,6 +363,7 @@ async fn with_lightning_off_the_routes_say_so() {
         "/regtest/app/lightning/penalties",
         "/regtest/app/lightning/search?q=acinq",
         "/regtest/app/lightning/channels/1x1x1",
+        "/regtest/app/lightning/block/0000000000000000000000000000000000000000000000000000000000000000",
         "/regtest/api/v1/lightning/nodes/rankings",
         "/regtest/api/v1/lightning/channels/txids",
         "/regtest/api/v1/lightning/nodes/isp-ranking",
@@ -1394,6 +1395,8 @@ async fn mainnet_size_routes() -> (Duration, (Duration, String)) {
         "/app/lightning/search?q=node-1".to_owned(),
         "/app/lightning/search?q=030000".to_owned(),
         "/app/lightning/rankings/age?limit=100".to_owned(),
+        // Every channel here was funded in one block: the most a block's route can read.
+        format!("/app/lightning/block/{}", block(0).hash),
         format!("/app/lightning/nodes/{hub}"),
         format!("/app/lightning/nodes/{hub}/channels?status=open&page=28"),
         format!("/app/lightning/nodes/{hub}/channels?sort=age&page=28"),
@@ -1437,4 +1440,168 @@ async fn mainnet_size_routes() -> (Duration, (Duration, String)) {
     assert!(caps.is_sorted_by(|a, b| a >= b));
     assert_eq!(calls.load(Ordering::SeqCst), 0);
     (built, slowest)
+}
+
+/// A block's channels: what it opened and closed, each kind of close, a breach, two blocks that
+/// left the chain, the cap on rows with the counts over all of them, and refused hashes.
+#[tokio::test]
+async fn a_block_s_channels_are_found_by_its_hash_and_capped() {
+    use engine::lightning::{Announcement, GraphChannel, GraphNode, Index, Penalty};
+    let d = dir("block");
+    let hash = |n: u8| BlockHash::from_byte_array([n; 32]);
+    let at = |height: u32, n: u8| Block {
+        height,
+        hash: hash(n),
+        time: 1_790_000_000,
+    };
+    let chan = |h: u64, i: u64, a: u8, b: u8, capacity: u64, n: u8| Open {
+        scid: graph::scid(h, i, 0),
+        node_one: graph::key(a),
+        node_two: graph::key(b),
+        capacity,
+        block: at(u32::try_from(h).unwrap(), n),
+    };
+    let close = |n: u8, tx: u8, kind| Close {
+        block: at(900_010, n),
+        txid: graph::txid(tx),
+        kind,
+        fee: None,
+    };
+    // Block 0xa1 opened three; block 0xc1 closed four, one of them later found a breach; block
+    // 0xee closed one and block 0xef opened one, and both left the chain; block 0xb1 opened 105.
+    let (big, small, mid) = (
+        chan(900_000, 1, 1, 2, 5_000_000, 0xa1),
+        chan(900_000, 2, 2, 3, 1_000_000, 0xa1),
+        chan(900_000, 3, 1, 3, 2_000_000, 0xa1),
+    );
+    let old = |i, capacity| chan(899_000, i, 3, 4, capacity, 0x11);
+    let mut changes = vec![
+        Change::Opened(big),
+        Change::Opened(small),
+        Change::Opened(mid),
+        Change::Closed(old(1, 100_000), close(0xc1, 1, Kind::Cooperative)),
+        Change::Closed(old(2, 400_000), close(0xc1, 2, Kind::Force)),
+        Change::Closed(old(3, 300_000), close(0xc1, 3, Kind::Force)),
+        Change::Penalty(
+            graph::scid(899_000, 3, 0),
+            Penalty {
+                block: at(900_011, 0xd1),
+                txid: graph::txid(4),
+            },
+        ),
+        Change::Closed(old(4, 200_000), close(0xc1, 5, Kind::Other)),
+        Change::Closed(old(5, 600_000), close(0xee, 6, Kind::Cooperative)),
+        Change::CloseUndone(graph::scid(899_000, 5, 0)),
+        Change::Opened(chan(900_020, 1, 1, 2, 700_000, 0xef)),
+        Change::OpenUndone(graph::scid(900_020, 1, 0)),
+    ];
+    changes.extend((0..105).map(|i| Change::Opened(chan(900_005, i, 1, 2, 1_000 + i, 0xb1))));
+    {
+        let store = Store::open(&d.0, "regtest", Options::default()).unwrap();
+        lightning::apply(&store, changes).await.unwrap();
+        store.close().await;
+    }
+    let (addr, calls, _server, _stop, ln) = start(&d.0, true).await;
+    let path = |n: u8| format!("/regtest/app/lightning/block/{}", hash(n));
+
+    // Before the graph is indexed: retry, as every route here.
+    let r = get(&addr, &path(0xa1)).await;
+    assert_eq!((r.status, r.header("retry-after")), (503, Some("1")));
+
+    let alias = |n: u8, a: &str| GraphNode {
+        id: graph::key(n),
+        announcement: Some(Announcement {
+            alias: a.to_owned(),
+            color: [1, 2, 3],
+            addresses: vec![],
+            features: vec![],
+            last_update: 1_790_000_000,
+        }),
+    };
+    let graph_channel = GraphChannel {
+        scid: big.scid,
+        nodes: [graph::key(1), graph::key(2)],
+        capacity: big.capacity,
+        policies: [None, None],
+    };
+    {
+        let store = Store::open(&d.0, "regtest", Options::default()).unwrap();
+        let past = lightning::past(&store).await.unwrap();
+        let nodes = vec![alias(1, "ACINQ"), alias(2, "<b>\u{202e}x</b>")];
+        ln.unwrap()
+            .set_index(Index::build(nodes, vec![graph_channel], &past));
+    }
+
+    let r = get(&addr, &path(0xa1)).await;
+    assert_eq!(r.status, 200);
+    assert_eq!(r.header("cache-control"), Some("public, max-age=10"));
+    let one = graph::hex(&graph::key(1));
+    let two = graph::hex(&graph::key(2));
+    let three = graph::hex(&graph::key(3));
+    assert_eq!(
+        r.json(),
+        serde_json::json!({
+            "opened": {"count": 3, "capacity": 8_000_000, "channels": [
+                {"id": "900000x1x0", "scid": big.scid.to_string(), "capacity": 5_000_000,
+                 "node_one": {"id": one, "alias": "ACINQ"}, "node_two": {"id": two, "alias": "<b>\u{202e}x</b>"}},
+                {"id": "900000x3x0", "scid": mid.scid.to_string(), "capacity": 2_000_000,
+                 "node_one": {"id": one, "alias": "ACINQ"}, "node_two": {"id": three, "alias": null}},
+                {"id": "900000x2x0", "scid": small.scid.to_string(), "capacity": 1_000_000,
+                 "node_one": {"id": two, "alias": "<b>\u{202e}x</b>"}, "node_two": {"id": three, "alias": null}},
+            ]},
+            "closed": {"count": 0, "forced": 0, "channels": []},
+        })
+    );
+
+    // Each kind, largest first; the breach is a penalty and counts as forced.
+    let v = get(&addr, &path(0xc1)).await.json();
+    let kinds: Vec<(&str, u64)> = v["closed"]["channels"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| (c["kind"].as_str().unwrap(), c["capacity"].as_u64().unwrap()))
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            ("force", 400_000),
+            ("penalty", 300_000),
+            ("other", 200_000),
+            ("cooperative", 100_000)
+        ]
+    );
+    assert_eq!(
+        (&v["closed"]["count"], &v["closed"]["forced"]),
+        (&4.into(), &2.into())
+    );
+    assert_eq!(v["opened"]["count"], 0);
+
+    // 105 opened, 100 sent, the largest; the counts are over all of them.
+    let v = get(&addr, &path(0xb1)).await.json();
+    let sent = v["opened"]["channels"].as_array().unwrap();
+    assert_eq!(sent.len(), 100);
+    assert_eq!(sent[0]["capacity"], 1_104);
+    assert_eq!(sent[99]["capacity"], 1_005);
+    assert_eq!(v["opened"]["count"], 105);
+    assert_eq!(
+        v["opened"]["capacity"],
+        (0..105).map(|i| 1_000 + i).sum::<u64>()
+    );
+
+    // Blocks that left the chain, the sweep's block, and a block we never saw: nothing, cacheable.
+    let empty = serde_json::json!({
+        "opened": {"count": 0, "capacity": 0, "channels": []},
+        "closed": {"count": 0, "forced": 0, "channels": []},
+    });
+    for n in [0xee, 0xef, 0xd1, 0x42] {
+        let r = get(&addr, &path(n)).await;
+        assert_eq!((r.status, r.json()), (200, empty.clone()), "{n:x}");
+    }
+
+    for bad in ["abc", &"g".repeat(64), &"0".repeat(65), "%00"] {
+        let r = get(&addr, &format!("/regtest/app/lightning/block/{bad}")).await;
+        assert_eq!(r.status, 400, "{bad}");
+        assert_eq!(r.json()["error"], "invalid block hash");
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
 }

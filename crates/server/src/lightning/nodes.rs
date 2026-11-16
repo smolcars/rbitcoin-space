@@ -69,6 +69,7 @@ pub fn routes() -> Router<Arc<NetworkContext>> {
         .route("/app/lightning/nodes/{key}/history", get(app_node_history))
         .route("/app/lightning/channels/{id}", get(app_channel))
         .route("/app/lightning/tx/{txid}", get(app_tx))
+        .route("/app/lightning/block/{hash}", get(app_block))
         .route("/api/v1/lightning/search", get(v1_search))
         .route("/api/v1/lightning/nodes/rankings", get(v1_rankings))
         .route("/api/v1/lightning/nodes/rankings/{by}", get(v1_ranking))
@@ -1160,6 +1161,53 @@ async fn app_tx(State(ctx): State<Arc<NetworkContext>>, UrlPath(txid): UrlPath<S
         &json!({ "opened": pick(false), "closed": pick(true) }),
         "lightning_tx",
     ))
+}
+
+/// Channels of each list in a block's answer; the counts cover the rest.
+pub(crate) const BLOCK_ROWS: usize = 100;
+
+/// `GET /app/lightning/block/:hash`: the channels a block opened and closed, for its page.
+async fn app_block(
+    State(ctx): State<Arc<NetworkContext>>,
+    UrlPath(hash): UrlPath<String>,
+) -> Answer {
+    let hash = crate::esplora::block_hash(&hash)?;
+    let (index, _, store) = graph(&ctx)?;
+    let b = store_ln::in_block(store, hash, BLOCK_ROWS)
+        .await
+        .map_err(|e| store_error(&e))?;
+    let end =
+        |id: &[u8; 33]| json!({ "id": hex(id), "alias": index.node(id).and_then(Node::alias) });
+    let row = |c: &Channel| {
+        json!({
+            "id": scid_text(c.open.scid),
+            "scid": c.open.scid.to_string(),
+            "capacity": c.open.capacity,
+            "node_one": end(&c.open.node_one),
+            "node_two": end(&c.open.node_two),
+        })
+    };
+    let closed = |c: &Channel| {
+        let mut v = row(c);
+        if let Value::Object(m) = &mut v {
+            let kind = close_kind(c).unwrap_or(Kind::Other).label();
+            m.insert("kind".into(), kind.into());
+        }
+        v
+    };
+    let v = json!({
+        "opened": {
+            "count": b.opened_count,
+            "capacity": b.opened_capacity,
+            "channels": b.opened.iter().map(row).collect::<Vec<_>>(),
+        },
+        "closed": {
+            "count": b.closed_count,
+            "forced": b.forced,
+            "channels": b.closed.iter().map(closed).collect::<Vec<_>>(),
+        },
+    });
+    Ok(send(&v, "lightning_block"))
 }
 
 /// One channel a search names by its id, from the index or the store.

@@ -107,8 +107,13 @@
     gap: var(--space-5);
     align-items: start;
   }
-  .block-side {
+  /* The facts and the Lightning panel under them: no gap where there is no panel. */
+  .block-lead {
+    display: grid;
     grid-area: side;
+    gap: var(--space-5);
+    align-content: start;
+    min-width: 0;
   }
   .block-core {
     /* The goggles' panel docks beside it, over the facts (components/Goggles.css). */
@@ -357,6 +362,9 @@
       grid-template-columns: minmax(0, 1fr);
       grid-template-areas: "side" "core" "more";
       grid-template-rows: none;
+      gap: var(--space-4);
+    }
+    .block-lead {
       gap: var(--space-4);
     }
   }
