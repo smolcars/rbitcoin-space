@@ -27,6 +27,11 @@ const TXID: &str = "00000000000000000002a7c4c1e48d76c5a37902165a270156b7a8d72728
 const TIP: &str = "00000000000000000000ec095818efb89e40f794c13326dbbdec38e1de395193";
 const ADDRESS: &str = "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq";
 const MODERN: &str = "2026-07-28";
+/// A public mainnet transaction, its raw bytes and what Esplora says of it; the output it spends.
+const RAW: &[u8] = include_bytes!("../../../fixtures/esplora/mainnet/tx-segwit-opreturn.bin");
+const ESPLORA: &str = include_str!("../../../fixtures/esplora/mainnet/tx-segwit-opreturn.json");
+const RAW_TXID: &str = "6033990087599ce3cc6fd6f90694736fb9d7912bf5b2eec973389adf29066634";
+const SPENT: &str = "2959afa2cc8a11d6e8a50e71e024203095155c869d549ef54b809015d32bdb51";
 
 /// Paths the stand-in node was asked.
 type Seen = Arc<Mutex<Vec<String>>>;
@@ -89,6 +94,14 @@ fn answer(pq: &str) -> Response {
             .map(|n| json!({ "txid": TXID, "height": 800_000 - n, "time": 1_700_000_000, "tx_position": 1, "value": -5 }))
             .collect();
         return json(json!(rows));
+    }
+    // What the raw transaction spends, and the node's word that it already has it.
+    let recorded = || serde_json::from_str::<Value>(ESPLORA).unwrap();
+    if pq == format!("/tx/{SPENT}/out/23") {
+        return json(recorded()["vin"][0]["prevout"].clone());
+    }
+    if pq == format!("/tx/{RAW_TXID}/status") {
+        return json(recorded()["status"].clone());
     }
     if pq == format!("/block/{TIP}") {
         return json(json!({
@@ -273,6 +286,7 @@ async fn a_stateless_client_finds_and_calls_the_tools() {
             "get_fees",
             "get_mempool",
             "get_transaction",
+            "decode_transaction",
             "get_address",
             "get_block",
             "get_difficulty_adjustment",
@@ -327,6 +341,48 @@ async fn a_stateless_client_finds_and_calls_the_tools() {
     )
     .await;
     assert_eq!(signet.unwrap()["network"], "signet");
+
+    // A raw transaction, read before anyone sends it: what it spends, its fee, and that the
+    // node has it already. The same shape as a transaction looked up; nothing of its scripts.
+    let hex: String = RAW.iter().map(|b| format!("{b:02x}")).collect();
+    let padded = json!({ "hex": format!(" {hex}\n") });
+    let raw = call(&addr, "decode_transaction", padded).await.unwrap();
+    assert_eq!(raw["network"], "mainnet");
+    assert_eq!(raw["txid"], RAW_TXID);
+    assert_eq!(
+        (&raw["known"], &raw["confirmed"]),
+        (&json!(true), &json!(true))
+    );
+    assert_eq!(raw["block_height"], 800_000);
+    assert_eq!(raw["fee"], 107_000);
+    assert_eq!((&raw["weight"], &raw["size"]), (&json!(649), &json!(244)));
+    let spent = json!({
+        "address": "bc1q7umtnud57373ck4p0qgmtr0dhtlhh3086xhay8", "value": 107_374, "type": "v0_p2wpkh",
+    });
+    assert_eq!(raw["inputs"], json!([spent]));
+    assert_eq!(
+        raw["outputs"][0],
+        json!({ "address": null, "value": 0, "type": "op_return" })
+    );
+    assert_eq!(raw["outputs"][1]["value"], 374);
+    assert!(!raw.to_string().contains("OP_"), "{raw}");
+    // Asked of signet, its outputs are written as signet's addresses.
+    let on_signet = json!({ "hex": hex, "network": "signet" });
+    let raw = call(&addr, "decode_transaction", on_signet).await.unwrap();
+    assert_eq!(raw["network"], "signet");
+    assert!(
+        raw["outputs"][1]["address"]
+            .as_str()
+            .unwrap()
+            .starts_with("tb1"),
+        "{raw}"
+    );
+    // Not one whole transaction: the route's own words.
+    let cut = json!({ "hex": &hex[..hex.len() - 2] });
+    assert_eq!(
+        call(&addr, "decode_transaction", cut).await.unwrap_err(),
+        "body must be one raw transaction in hex"
+    );
 
     // An address: the totals, and the ten newest of its twelve rows. A mainnet address is not
     // signet's, as the route itself says.
@@ -457,6 +513,21 @@ async fn a_stateless_client_finds_and_calls_the_tools() {
             json!({}),
             "string is required: the payment string to decode",
         ),
+        (
+            "decode_transaction",
+            json!({}),
+            "hex is required: one raw transaction as hex digits",
+        ),
+        (
+            "decode_transaction",
+            json!({ "hex": " " }),
+            "hex is required: one raw transaction as hex digits",
+        ),
+        (
+            "decode_transaction",
+            json!({ "hex": "00zz" }),
+            "hex is required: one raw transaction as hex digits",
+        ),
     ] {
         assert_eq!(
             call(&addr, name, arguments.clone()).await.unwrap_err(),
@@ -522,6 +593,8 @@ async fn a_stateless_client_finds_and_calls_the_tools() {
         "/mempool".to_owned(),
         format!("/tx/{}", "0".repeat(64)),
         format!("/tx/{TXID}"),
+        format!("/tx/{RAW_TXID}/status"),
+        format!("/tx/{SPENT}/out/23"),
     ];
     for p in &paths {
         // The server's own tasks ask the node too: its health check and difficulty.
@@ -748,7 +821,7 @@ async fn an_earlier_client_is_answered_without_a_session() {
     let l = post(&addr, &header, &request("tools/list", json!({})), ip)
         .await
         .json();
-    assert_eq!(l["result"]["tools"].as_array().unwrap().len(), 8);
+    assert_eq!(l["result"]["tools"].as_array().unwrap().len(), 9);
     assert!(
         l["result"]["resultType"].is_null() && l["result"]["ttlMs"].is_null(),
         "{l}"

@@ -50,6 +50,7 @@ Chain tools take `network`, one of the networks this server has on; without it t
 | `get_fees` | | `/api/v1/fees/precise` | `next_block`, `half_hour`, `hour`, `day`, `minimum`, and `source` (`projected`: ours; `node`: the node's estimate) |
 | `get_mempool` | | `/api/mempool`, `/api/v1/fees/mempool-blocks` | Transactions, vsize and fees waiting, and the projected blocks with their fee rates; `projected_blocks` is `null` with the mempool engine off |
 | `get_transaction` | `txid` | `/api/tx/:txid` | Confirmed or not and how deep, fee, fee rate, sizes, counts, and the first 10 inputs and outputs as address, value and script type |
+| `decode_transaction` | `hex` | `POST /app/tx/check` ([`API.md`](API.md#checking-a-transaction)) | What a raw transaction does before anyone sends it, in `get_transaction`'s shape: the fee and fee rate when the outputs it spends are found, and `known`, whether the node already has it. Nothing is broadcast. The 16 KiB request leaves room for a transaction of about 7 kB; a longer one is `413` |
 | `get_address` | `address` | `/api/address/:a`, `/api/address/:a/txs/summary` | Balance, received, sent, counts, the unconfirmed change, and the 10 newest confirmed transactions with their net value for the address; `recent_transactions` is `null` when the history is refused, as for a very large address |
 | `get_block` | `height` or `hash`, or neither for the newest | `/api/blocks/tip/hash` or `/api/block-height/:h`, then `/api/v1/block/:hash`, else `/api/block/:hash` | Hash, height, time, size, transactions, difficulty; miner, reward, fees and fee rates where the block table has them, else `null` |
 | `get_difficulty_adjustment` | | `/api/v1/difficulty-adjustment` | Progress, blocks left, the expected change and when |
@@ -61,7 +62,7 @@ There is no tool that writes. Broadcast is not one.
 
 A tool does nothing of its own at the node. It sends a request to the routes in the table, inside the server, with the caller's address on it, and reads the answer ([`SECURITY.md`](SECURITY.md) rule 24). So everything those routes have applies unchanged: the allow-list, the strict parsing, the address routes' cost limit and the large-address guard, the shared calls and kept answers, and the decoder's budget of 30 decodes then 2 a second, which a client spends the same on `/app/decode` and on the tool.
 
-- **Before a route is asked,** each argument is parsed: a txid or block hash is 64 hex digits, a height a `u32`, an address at most 100 letters and digits (the route then parses it for the network), a network one of the enabled ones, a search text percent-encoded whole. A route's path is written from those values only.
+- **Before a route is asked,** each argument is parsed: a txid or block hash is 64 hex digits, a height a `u32`, an address at most 100 letters and digits (the route then parses it for the network), a network one of the enabled ones, a search text percent-encoded whole, a raw transaction hex digits only (it goes in the route's body, and the route decodes it). A route's path is written from those values only.
 - **The request itself** is an API request like any other: the per-client rate and concurrency, the global concurrency and the timeout of [`CONFIG.md`](CONFIG.md#limits) count it once, and a tool asks at most three routes.
 - **Bots share addresses.** Limits are per client address, and every user of one hosted bot reaches us from that provider's addresses, so they share one allowance. A provider that needs more is a case for a higher `CLIENT_RATE_PER_SEC`, not for a key.
 - **An answer of a route is read up to 4 MiB,** and parsed into the fields the tool keeps, not into a tree. A transaction whose JSON is larger is `isError`.
@@ -77,7 +78,7 @@ A model reads a tool's answer, so text a stranger chose is a way to talk to it. 
 ## Privacy
 
 - **Nothing of a call is logged.** The request event names the route, `/mcp`, and never the tool, its arguments or its answer ([`LOGGING.md`](LOGGING.md#rules)).
-- **The bot's provider sees what the user asks.** A string sent to `decode` reaches the provider before it reaches us, and an `lnurlw` link can be spent by whoever holds it; the tool's description says so.
+- **The bot's provider sees what the user asks.** A string sent to `decode` reaches the provider before it reaches us, and an `lnurlw` link can be spent by whoever holds it; the tool's description says so. A transaction sent to `decode_transaction` is seen the same way, before it is public.
 - **Nothing is fetched for a decoded string,** as on the decoder's page.
 
 ## Browsers

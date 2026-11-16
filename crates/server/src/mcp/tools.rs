@@ -100,6 +100,19 @@ pub(super) fn list(networks: &[Network]) -> Value {
             &["txid"],
         ),
         tool(
+            "decode_transaction",
+            "Decode a raw transaction",
+            "What a raw transaction does, read from its hex before anyone sends it: its id, \
+             inputs and outputs with addresses and amounts, its size, its fee and fee rate \
+             when the outputs it spends are found, and `known`, whether the node already has \
+             it. Nothing is broadcast. Takes a transaction of up to about 7 kB; the hex is \
+             sent to this server.",
+            on(json!({
+                "hex": { "type": "string", "description": "The raw transaction, as hex digits." },
+            })),
+            &["hex"],
+        ),
+        tool(
             "get_address",
             "Look up an address",
             "An address's confirmed balance, totals received and sent, transaction count, \
@@ -163,6 +176,7 @@ pub(super) async fn call(
         "get_fees" => fees(&from, args).await,
         "get_mempool" => mempool(&from, args).await,
         "get_transaction" => transaction(&from, args).await,
+        "decode_transaction" => decode_transaction(&from, args).await,
         "get_address" => address(&from, args).await,
         "get_block" => block(&from, args).await,
         "get_difficulty_adjustment" => difficulty(&from, args).await,
@@ -415,50 +429,49 @@ async fn mempool(from: &Asker<'_>, args: &Args) -> Result<Value, Failed> {
     }))
 }
 
-async fn transaction(from: &Asker<'_>, args: &Args) -> Result<Value, Failed> {
-    #[derive(Deserialize)]
-    struct Tx {
-        txid: String,
-        version: Option<i64>,
-        locktime: Option<u64>,
-        size: u64,
-        weight: u64,
-        fee: Option<u64>,
-        #[serde(default)]
-        status: Status,
-        #[serde(default)]
-        vin: Vec<Input>,
-        #[serde(default)]
-        vout: Vec<Output>,
-    }
-    #[derive(Deserialize, Default)]
-    struct Status {
-        #[serde(default)]
-        confirmed: bool,
-        block_height: Option<u64>,
-        block_hash: Option<String>,
-        block_time: Option<u64>,
-    }
-    #[derive(Deserialize)]
-    struct Input {
-        #[serde(default)]
-        is_coinbase: bool,
-        prevout: Option<Output>,
-    }
-    #[derive(Deserialize)]
-    struct Output {
-        scriptpubkey_address: Option<String>,
-        scriptpubkey_type: Option<String>,
-        value: u64,
-    }
-    const BAD: &str = "txid is required: 64 hex digits";
-    let net = network(from.mcp, args)?;
-    let txid = hash(string(args, "txid", BAD)?, BAD)?;
-    let answer = from
-        .get(&format!("{}/api/tx/{txid}", net.path_prefix()))
-        .await?
-        .checked()?;
-    let tx: Tx = answer.json()?;
+/// A transaction as the node's Esplora gives it, and as `/app/tx/check` builds it: the fields a
+/// tool keeps. Scripts, witnesses and their text forms are not read.
+#[derive(Deserialize)]
+struct Tx {
+    txid: String,
+    version: Option<i64>,
+    locktime: Option<u64>,
+    size: u64,
+    weight: u64,
+    fee: Option<u64>,
+    #[serde(default)]
+    status: Status,
+    #[serde(default)]
+    vin: Vec<Input>,
+    #[serde(default)]
+    vout: Vec<Output>,
+}
+
+#[derive(Deserialize, Default)]
+struct Status {
+    #[serde(default)]
+    confirmed: bool,
+    block_height: Option<u64>,
+    block_hash: Option<String>,
+    block_time: Option<u64>,
+}
+
+#[derive(Deserialize)]
+struct Input {
+    #[serde(default)]
+    is_coinbase: bool,
+    prevout: Option<Output>,
+}
+
+#[derive(Deserialize)]
+struct Output {
+    scriptpubkey_address: Option<String>,
+    scriptpubkey_type: Option<String>,
+    value: u64,
+}
+
+/// What a tool says of a transaction with `status`, on a chain whose tip is at `tip`.
+fn summary(net: Network, tx: &Tx, status: &Status, tip: Option<u64>) -> Args {
     let output = |o: &Output| json!({ "address": o.scriptpubkey_address, "value": o.value, "type": o.scriptpubkey_type });
     let inputs: Vec<Value> = tx
         .vin
@@ -470,23 +483,19 @@ async fn transaction(from: &Asker<'_>, args: &Args) -> Result<Value, Failed> {
             None => json!({ "address": null, "value": null }),
         })
         .collect();
-    // The node stamps its answer with its tip: how deep the transaction is.
-    let tip = answer
-        .header("x-bitcoin-chain-tip-height")
-        .and_then(|h| h.parse::<u64>().ok());
-    let confirmations = match (tip, tx.status.block_height, tx.status.confirmed) {
+    let confirmations = match (tip, status.block_height, status.confirmed) {
         (Some(tip), Some(height), true) if tip >= height => Some(tip - height + 1),
         (_, _, false) => Some(0),
         _ => None,
     };
-    Ok(json!({
+    let said = json!({
         "network": net.name(),
         "txid": tx.txid,
-        "confirmed": tx.status.confirmed,
+        "confirmed": status.confirmed,
         "confirmations": confirmations,
-        "block_height": tx.status.block_height,
-        "block_hash": tx.status.block_hash,
-        "block_time": tx.status.block_time,
+        "block_height": status.block_height,
+        "block_hash": status.block_hash,
+        "block_time": status.block_time,
         "fee": tx.fee,
         "fee_rate": tx.fee.and_then(|fee| rate(fee, tx.weight)),
         "size": tx.size,
@@ -499,7 +508,53 @@ async fn transaction(from: &Asker<'_>, args: &Args) -> Result<Value, Failed> {
         "output_value": tx.vout.iter().fold(0u64, |sum, o| sum.saturating_add(o.value)),
         "inputs": inputs,
         "outputs": tx.vout.iter().take(SHOWN).map(output).collect::<Vec<_>>(),
-    }))
+    });
+    match said {
+        Value::Object(map) => map,
+        _ => Map::new(),
+    }
+}
+
+async fn transaction(from: &Asker<'_>, args: &Args) -> Result<Value, Failed> {
+    const BAD: &str = "txid is required: 64 hex digits";
+    let net = network(from.mcp, args)?;
+    let txid = hash(string(args, "txid", BAD)?, BAD)?;
+    let answer = from
+        .get(&format!("{}/api/tx/{txid}", net.path_prefix()))
+        .await?
+        .checked()?;
+    let tx: Tx = answer.json()?;
+    // The node stamps its answer with its tip: how deep the transaction is.
+    let tip = answer
+        .header("x-bitcoin-chain-tip-height")
+        .and_then(|h| h.parse::<u64>().ok());
+    Ok(Value::Object(summary(net, &tx, &tx.status, tip)))
+}
+
+async fn decode_transaction(from: &Asker<'_>, args: &Args) -> Result<Value, Failed> {
+    #[derive(Deserialize)]
+    struct Checked {
+        tx: Tx,
+        known: Option<Status>,
+    }
+    const BAD: &str = "hex is required: one raw transaction as hex digits";
+    let net = network(from.mcp, args)?;
+    let hex = string(args, "hex", BAD)?.trim();
+    if hex.is_empty() || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(BAD.into());
+    }
+    let path = format!("{}/app/tx/check", net.path_prefix());
+    let checked: Checked = from
+        .ask(Method::POST, &path, Body::from(hex.to_owned()))
+        .await?
+        .checked()?
+        .json()?;
+    // The node's word on this txid when it already has it; else it is new to the node.
+    let known = checked.known.is_some();
+    let status = checked.known.unwrap_or_default();
+    let mut said = summary(net, &checked.tx, &status, None);
+    said.insert("known".into(), json!(known));
+    Ok(Value::Object(said))
 }
 
 async fn address(from: &Asker<'_>, args: &Args) -> Result<Value, Failed> {
