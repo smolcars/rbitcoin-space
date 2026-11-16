@@ -71,7 +71,7 @@ VTXO pages for Ark implementations, per network ([`ARK.md`](ARK.md)). Off unless
 
 | Variable | Default | What it does |
 |---|---|---|
-| `CLOUDFLARE_WEB_ANALYTICS` | `false` | `true` lets the Content-Security-Policy load the beacon Cloudflare injects when Web Analytics is on for the site, and send its reports: `script-src` and `connect-src` gain Cloudflare's two origins. The only exception to [`SECURITY.md`](SECURITY.md) rule 15; leave it off unless the site is served through Cloudflare with Web Analytics on |
+| `CLOUDFLARE_WEB_ANALYTICS` | `false` | `true` lets the Content-Security-Policy load the beacon Cloudflare injects when Web Analytics is on for the site, and send its reports: `script-src` and `connect-src` gain Cloudflare's two origins (`connect-src` already allows any HTTPS service for the decoder). The only exception to [`SECURITY.md`](SECURITY.md) rule 15; leave it off unless the site is served through Cloudflare with Web Analytics on |
 
 ## Onion-Location
 

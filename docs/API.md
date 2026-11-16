@@ -1176,7 +1176,7 @@ Single requests reached 3 to 11 ms while other builds loaded the machine; the le
 
 ## Decoding
 
-`POST /app/decode`, served once for the whole server (like `/app/config`, never under a network's prefix), says what a pasted payment string is and which network it names. The string is the body, as plain text: in no URL, so in no log line or proxy's access log (the request event names the route only, [`LOGGING.md`](LOGGING.md#rules)). It is trimmed; a `lightning:` (or `lightning://`) prefix and upper case are accepted, as QR codes carry them. Nothing is fetched for it: an LNURL or a Lightning address answers the URL a wallet would ask, and the server never asks it. The page is `/decode` ([`FRONTEND.md`](FRONTEND.md#routing)).
+`POST /app/decode`, served once for the whole server (like `/app/config`, never under a network's prefix), says what a pasted payment string is and which network it names. The string is the body, as plain text: in no URL, so in no log line or proxy's access log (the request event names the route only, [`LOGGING.md`](LOGGING.md#rules)). It is trimmed; a `lightning:` (or `lightning://`) prefix and upper case are accepted, as QR codes carry them. Nothing is fetched for it: an LNURL or a Lightning address answers the URL a wallet would ask, and the server never asks it; the page asks it from the visitor's browser ([`FRONTEND.md`](FRONTEND.md#decoder)). The page is `/decode` ([`FRONTEND.md`](FRONTEND.md#routing)).
 
 | Kind | Read by | `network` |
 |---|---|---|

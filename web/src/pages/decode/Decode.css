@@ -30,6 +30,7 @@
   }
   .dec__line,
   .dec-line {
+    overflow-wrap: anywhere;
     margin: var(--space-3) 0 0;
     font-size: var(--text-sm);
     color: var(--color-text-muted);
@@ -93,6 +94,9 @@
   .dec-result__head + .dec-facts {
     margin-top: var(--space-4);
   }
+  .dec-section h3 + .dec-facts {
+    margin-top: var(--space-3);
+  }
   .dec-top {
     display: flex;
     flex-wrap: wrap;
@@ -155,6 +159,9 @@
     unicode-bidi: isolate;
     overflow-wrap: anywhere;
     white-space: pre-wrap;
+  }
+  .dec-said--inline {
+    display: inline;
   }
   .dec-muted,
   .dec-none {

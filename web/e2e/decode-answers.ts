@@ -53,6 +53,14 @@ export async function serveDecode(
   page: Page,
   answer: () => Answer | { status: number; error: string },
 ) {
+  // No decoder test leaves this machine: a service an LNURL or address names refuses, unless a
+  // test routes it itself (a later route wins).
+  await page.route(/^https:\/\//, (route) =>
+    route.fulfill({
+      json: { status: "ERROR", reason: "stub" },
+      headers: { "access-control-allow-origin": "*" },
+    }),
+  );
   await page.route(/\/app\/decode$/, (route) => {
     if (route.request().method() !== "POST") return route.continue();
     const a = answer();

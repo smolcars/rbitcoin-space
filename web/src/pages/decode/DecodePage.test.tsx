@@ -7,15 +7,18 @@ import { isDecoded, readFragment, splitHost } from "./decode";
 import { ANSWERS } from "./testdata";
 
 let reply: () => Response;
+/** What a service other than ours answers, by URL. */
+let services: Record<string, () => Response>;
 let sent: { url: string; method: string | undefined; body: unknown }[];
 
 beforeEach(() => {
   clearApiCache();
   sent = [];
   reply = () => Response.json(ANSWERS.bolt11);
+  services = {};
   vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
     sent.push({ url, method: init?.method, body: init?.body });
-    return reply();
+    return (services[url] ?? reply)();
   });
 });
 afterEach(() => {
@@ -178,6 +181,47 @@ describe("the decoder page", () => {
     await shows(el, "Expired 1 min ago");
     expect(button?.isConnected).toBe(true);
     expect(link?.isConnected).toBe(true);
+  });
+});
+
+describe("asking the service an LNURL names", () => {
+  const PAY = {
+    tag: "payRequest",
+    callback: "https://evil.example/cb?amount=",
+    minSendable: 1000,
+    maxSendable: 21_000_000,
+    metadata: JSON.stringify([["text/plain", "<img src=x onerror=alert(1)>"]]),
+  };
+
+  it("asks the URL once, shows the answer as text, and never calls the callback", async () => {
+    reply = json(ANSWERS.lnurl);
+    const url = (ANSWERS.lnurl as { url: string }).url;
+    services[url] = json(PAY);
+    const el = open("LNURL1X");
+    await shows(el, "From the service");
+    await shows(el, "1 – 21 000 sats");
+    expect(text(el)).toContain("<img src=x onerror=alert(1)>");
+    expect(el.querySelector("img")).toBeNull();
+    expect(text(el)).toContain("Other host");
+    expect(sent.map((r) => r.url)).toStrictEqual(["/app/decode", url]);
+  });
+
+  it("never asks a login link", async () => {
+    reply = json({ ...ANSWERS.lnurl, tag: "login", k1: "00" });
+    const el = open("keyauth://x");
+    await shows(el, "LNURL login");
+    expect(text(el)).not.toContain("From the service");
+    expect(sent.map((r) => r.url)).toStrictEqual(["/app/decode"]);
+  });
+
+  it("says what failed in one line", async () => {
+    reply = json(ANSWERS.lightning_address);
+    services["https://bitcoin.org/.well-known/lnurlp/satoshi"] = () => {
+      throw new TypeError("Failed to fetch");
+    };
+    const el = open("satoshi@bitcoin.org");
+    await shows(el, "Could not ask bitcoin.org");
+    expect(el.querySelectorAll(".dec-section")).toHaveLength(1);
   });
 });
 

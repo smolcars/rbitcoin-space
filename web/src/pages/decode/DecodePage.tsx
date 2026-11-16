@@ -33,6 +33,7 @@ import {
   sats,
   splitHost,
 } from "./decode";
+import { type Answer, ask, AskError, plan, read, TAG_NAMES } from "./service";
 import "./Decode.css";
 
 export default function DecodePage() {
@@ -147,6 +148,7 @@ function Result(props: { d: Decoded }) {
                   <Url url={d().url} host={d().domain} />
                 </Fact>
               </Facts>
+              <FromService d={d()} />
             </>
           )}
         </Match>
@@ -589,7 +591,162 @@ function LnurlBody(props: { d: Lnurl }) {
           )}
         </Show>
       </Facts>
+      <FromService d={d()} />
     </>
+  );
+}
+
+/**
+ * What the service a decoded LNURL or Lightning address names says of itself: one GET from this
+ * browser (`service.ts`), never for a login link and never its callback.
+ */
+function FromService(props: { d: Decoded }) {
+  const p = () => plan(props.d);
+  const host = () => {
+    const x = p();
+    return x !== null && "ask" in x ? x.host : "";
+  };
+  const [answer] = createRequest(
+    () => {
+      const x = p();
+      return x !== null && "ask" in x ? x.ask : false;
+    },
+    (url, signal) => ask(url, signal),
+  );
+  return (
+    <Show when={p()}>
+      {(x) => (
+        <section class="dec-section" aria-label="From the service">
+          <h3>From the service</h3>
+          <Switch>
+            <Match when={"skip" in x()}>
+              <p class="dec-line">Not asked: only public HTTPS services are.</p>
+            </Match>
+            <Match when={answer.state === "errored"}>
+              <Show
+                when={answer.error instanceof AskError && answer.error.why === "timeout"}
+                fallback={
+                  <>
+                    <p class="dec-line">Could not ask {host()}</p>
+                    <More label="Why">
+                      <p>
+                        A service that does not let other websites ask it looks the same here as one
+                        that is down.
+                      </p>
+                    </More>
+                  </>
+                }
+              >
+                <p class="dec-line">No answer from {host()} in time</p>
+              </Show>
+            </Match>
+            <Match when={answer.loading || answer.latest === undefined}>
+              <p class="dec-line" role="status">
+                Asking {host()}
+              </p>
+            </Match>
+            <Match when={answer.latest !== undefined}>
+              <ServiceFacts a={read(answer.latest, host())} />
+            </Match>
+          </Switch>
+        </section>
+      )}
+    </Show>
+  );
+}
+
+/** The service's answer, each figure only when it gave it. Its words are text, never markup. */
+function ServiceFacts(props: { a: Answer }) {
+  const a = () => props.a;
+  const range = () => {
+    const { min, max } = a();
+    if (min === undefined || max === undefined) return undefined;
+    return min === max ? [max] : [min, max];
+  };
+  return (
+    <Switch>
+      <Match when={a().error !== undefined}>
+        <p class="dec-line">
+          Refused: <bdi class="dec-said dec-said--inline">{a().error}</bdi>
+        </p>
+      </Match>
+      <Match when={a().tag === undefined}>
+        <p class="dec-line">Not an answer this page reads.</p>
+      </Match>
+      <Match when={a().tag}>
+        {(tag) => (
+          <Facts>
+            <Fact label="Kind">{TAG_NAMES[tag()]}</Fact>
+            <Show when={range()}>
+              {(r) => (
+                <Fact label={tag() === "withdrawRequest" ? "Gives" : "Takes"}>
+                  <For each={r()}>
+                    {(m, i) => (
+                      <>
+                        {i() > 0 ? " – " : ""}
+                        <span class="num">
+                          {sats(m)}
+                          {i() === r().length - 1 ? " sats" : ""}
+                        </span>
+                      </>
+                    )}
+                  </For>
+                </Fact>
+              )}
+            </Show>
+            <Show when={a().description}>
+              {(t) => (
+                <Fact label="Description" wide>
+                  <Said text={t()} />
+                </Fact>
+              )}
+            </Show>
+            <Show when={a().longDescription}>
+              {(t) => (
+                <Fact label="Long description" wide>
+                  <Said text={t()} />
+                </Fact>
+              )}
+            </Show>
+            <Show when={a().identifier}>
+              {(t) => (
+                <Fact label="Identifier">
+                  <Said text={t()} />
+                </Fact>
+              )}
+            </Show>
+            <Show when={a().comment}>
+              {(c) => (
+                <Fact label="Comment">
+                  <span class="num">up to {groupDigits(c())} characters</span>
+                </Fact>
+              )}
+            </Show>
+            <Show when={a().callbackHost}>
+              {(h) => (
+                <Fact label="Next step goes to">
+                  <strong class="dec-url__host">{h()}</strong>
+                  <Show when={a().otherHost}>
+                    {" "}
+                    <span class="dec-chip dec-chip--warn">Other host</span>
+                  </Show>
+                </Fact>
+              )}
+            </Show>
+            <Show when={a().uri}>
+              {(u) => (
+                <Fact label="Node" wide>
+                  <span class="dec-url">
+                    <span class="dec-url__text mono">{u()}</span>
+                    <CopyButton value={u()} label="Copy the node URI" />
+                  </span>
+                </Fact>
+              )}
+            </Show>
+          </Facts>
+        )}
+      </Match>
+    </Switch>
   );
 }
 

@@ -846,9 +846,13 @@ async fn security_headers_on_every_response() {
     let csp = SECURITY_HEADERS[0].1;
     assert!(csp.starts_with("default-src 'self';"));
     assert!(!csp.contains("unsafe"));
-    assert!(
-        !csp.contains("http"),
-        "no third-party origin unless the setting is on"
+    // One grant past 'self': the decoder's page asks HTTPS services; scripts, styles, fonts,
+    // images and frames stay with `default-src 'self'`.
+    assert!(csp.contains("; connect-src 'self' https:;"));
+    assert_eq!(
+        csp.matches("http").count(),
+        1,
+        "no other third-party origin"
     );
 
     // CLOUDFLARE_WEB_ANALYTICS adds the beacon's two origins, and the rest stays.
@@ -867,7 +871,7 @@ async fn security_headers_on_every_response() {
         assert!(CLOUDFLARE_CSP.contains(directive), "{directive}");
     }
     assert!(CLOUDFLARE_CSP.contains("script-src 'self' https://static.cloudflareinsights.com;"));
-    assert!(CLOUDFLARE_CSP.contains("connect-src 'self' https://cloudflareinsights.com;"));
+    assert!(CLOUDFLARE_CSP.contains("connect-src 'self' https: https://cloudflareinsights.com;"));
     assert!(!CLOUDFLARE_CSP.contains("unsafe"));
 }
 
