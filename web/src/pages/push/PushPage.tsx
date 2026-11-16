@@ -16,7 +16,7 @@ import { NETWORK_NAMES, paths } from "../../lib/network";
 import { useNetwork, usePageTitle } from "../../lib/page";
 import { Flow, type Selection } from "../tx/Flow";
 import { Inspector } from "../tx/Inspector";
-import { totalOut, vsize } from "../tx/tx";
+import { isCoinbase, totalOut, vsize } from "../tx/tx";
 import {
   broadcast,
   type Checked,
@@ -202,11 +202,13 @@ function Result(props: { c: Checked; hex: string; enabled: boolean }) {
                 <>
                   <span class="tx-summary__value">{MISSING}</span>
                   <span class="tx-summary__sub">
-                    {warn().missing > 0
-                      ? "Inputs not found"
-                      : warn().unchecked > 0
-                        ? "Inputs not all looked up"
-                        : "Pays out more than it spends"}
+                    {isCoinbase(tx())
+                      ? "A coinbase pays no fee"
+                      : warn().missing > 0
+                        ? "Inputs not found"
+                        : warn().unchecked > 0
+                          ? "Inputs not all looked up"
+                          : "Pays out more than it spends"}
                   </span>
                 </>
               }
