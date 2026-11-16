@@ -1,0 +1,214 @@
+{
+  "arkade": {
+    "implementation": "arkade",
+    "kind": "ark_address",
+    "names": null,
+    "network": "test",
+    "p2tr_key": "679eb02033f3fa5b7c8e1c00679f0d3f8966a62f0c8bca7d78462e6df1ed1813",
+    "script": "5120679eb02033f3fa5b7c8e1c00679f0d3f8966a62f0c8bca7d78462e6df1ed1813",
+    "server_key": "8bf56160efc769112b361de4117b3c71b88ca16f1bb9f6ac7a2781929abc5e6a"
+  },
+  "bark": {
+    "ark_id": "9b716357",
+    "delivery": [
+      {
+        "id": "035c4def84a9883afe60ef72b37aaf8038dd74ed3d0ab1a1f30610acccd68d1cdd",
+        "kind": "mailbox"
+      }
+    ],
+    "implementation": "bark",
+    "kind": "ark_address",
+    "names": null,
+    "network": "mainnet",
+    "policy": "pubkey",
+    "user_key": "035c4def84a9883afe60ef72b37aaf8038dd74ed3d0ab1a1f30610acccd68d1cdd"
+  },
+  "bolt11": {
+    "amount_msat": 2000000000,
+    "created": 1496314658,
+    "description": null,
+    "description_hash": "3925b6f67e2c340036ed12093dd44e0368df1b6ea26c53dbe4811f58fd5db8c1",
+    "expiry": 3600,
+    "fallbacks": [
+      "1RustyRX2oai4EYYDpQGWvEL62BBGqN9T"
+    ],
+    "features": [
+      {
+        "bit": 8,
+        "name": "var_onion_optin",
+        "required": true
+      },
+      {
+        "bit": 14,
+        "name": "payment_secret",
+        "required": true
+      }
+    ],
+    "hints": [
+      [
+        {
+          "base_fee_msat": 1,
+          "channel": {
+            "known": true,
+            "scid": "66051x263430x1800"
+          },
+          "cltv_delta": 3,
+          "fee_ppm": 20,
+          "node": {
+            "alias": "Hint <b>one</b>",
+            "key": "029e03a901b85534ff1e92c43c74431f7ce72046060fcf7a95c37e148f78c77255",
+            "known": true
+          }
+        },
+        {
+          "base_fee_msat": 2,
+          "channel": {
+            "known": false,
+            "scid": "197637x395016x2314"
+          },
+          "cltv_delta": 4,
+          "fee_ppm": 30,
+          "node": {
+            "alias": null,
+            "key": "039e03a901b85534ff1e92c43c74431f7ce72046060fcf7a95c37e148f78c77255",
+            "known": false
+          }
+        }
+      ]
+    ],
+    "kind": "bolt11",
+    "min_final_cltv": 18,
+    "names": "mainnet",
+    "network": "mainnet",
+    "payee": {
+      "alias": null,
+      "key": "03e7156ae33b0a208d0744199163177e909e80176e55d97a2f221ede0f934dd9ad",
+      "known": false
+    },
+    "payee_named": false,
+    "payment_hash": "0001020304050607080900010203040506070809000102030405060708090102"
+  },
+  "bolt11_plain": {
+    "amount_msat": null,
+    "created": 1496314658,
+    "description": "Please consider supporting this project",
+    "description_hash": null,
+    "expiry": 3600,
+    "fallbacks": [],
+    "features": [
+      {
+        "bit": 8,
+        "name": "var_onion_optin",
+        "required": true
+      },
+      {
+        "bit": 14,
+        "name": "payment_secret",
+        "required": true
+      }
+    ],
+    "hints": [],
+    "kind": "bolt11",
+    "min_final_cltv": 18,
+    "names": null,
+    "network": "mainnet",
+    "payee": {
+      "alias": null,
+      "key": "03e7156ae33b0a208d0744199163177e909e80176e55d97a2f221ede0f934dd9ad",
+      "known": null
+    },
+    "payee_named": false,
+    "payment_hash": "0001020304050607080900010203040506070809000102030405060708090102"
+  },
+  "lightning_address": {
+    "domain": "bitcoin.org",
+    "kind": "lightning_address",
+    "name": "satoshi",
+    "names": null,
+    "network": null,
+    "url": "https://bitcoin.org/.well-known/lnurlp/satoshi"
+  },
+  "lnurl": {
+    "form": "bech32",
+    "host": "service.com",
+    "k1": null,
+    "kind": "lnurl",
+    "names": null,
+    "network": null,
+    "tag": null,
+    "url": "https://service.com/api?q=3fc3645b439ce8e7f2553a69e5267081d96dcd340693afabe04be7b0ccd178df"
+  },
+  "lnurl_withdraw": {
+    "form": "url",
+    "host": "sats.example",
+    "k1": "ab12",
+    "kind": "lnurl",
+    "names": null,
+    "network": null,
+    "tag": "withdrawRequest",
+    "url": "https://sats.example/w?tag=withdrawRequest&k1=ab12"
+  },
+  "offer": {
+    "amount": null,
+    "chains": [
+      "mainnet"
+    ],
+    "description": "Test vectors",
+    "expires": null,
+    "features": [],
+    "issuer": null,
+    "kind": "offer",
+    "names": null,
+    "network": "mainnet",
+    "paths": [
+      {
+        "channel": null,
+        "direction": null,
+        "hops": 2,
+        "node": {
+          "alias": null,
+          "key": "0324653eac434488002cc06bbfb7f10fe18991e35f9fe4302dbea6d2353dc0ab1c",
+          "known": null
+        }
+      },
+      {
+        "channel": {
+          "known": null,
+          "scid": "1x2x3"
+        },
+        "direction": 1,
+        "hops": 2,
+        "node": null
+      }
+    ],
+    "quantity": "one",
+    "signing_key": {
+      "alias": null,
+      "key": "02eec7245d6b7d2ccb30380bfbe2a3648cd7a942653f5aa340edcea1f283686619",
+      "known": null
+    }
+  },
+  "offer_currency": {
+    "amount": {
+      "amount": 10000,
+      "currency": "USD"
+    },
+    "chains": [
+      "mainnet"
+    ],
+    "description": "Test vectors",
+    "expires": null,
+    "features": [],
+    "issuer": null,
+    "kind": "offer",
+    "names": null,
+    "network": "mainnet",
+    "paths": [],
+    "quantity": "one",
+    "signing_key": {
+      "alias": null,
+      "key": "02eec7245d6b7d2ccb30380bfbe2a3648cd7a942653f5aa340edcea1f283686619",
+      "known": null
+    }
+  }
+}

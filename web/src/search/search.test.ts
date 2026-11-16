@@ -314,3 +314,18 @@ describe("createSearch and Lightning", () => {
     });
   });
 });
+
+describe("payment strings", () => {
+  it("go to the one decoder, the string in the fragment, without asking anything", async () => {
+    const { asked, probe } = api([]);
+    await expect(lead(classify("satoshi@bitcoin.org"), probe)).resolves.toStrictEqual({
+      kind: "go",
+      path: "/decode#satoshi%40bitcoin.org",
+    });
+    expect(asked).toStrictEqual([]);
+    expect(read("lnurlp://pay.example.com/x", "signet")).toStrictEqual({
+      label: "LNURL",
+      ready: true,
+    });
+  });
+});

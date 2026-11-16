@@ -419,6 +419,62 @@ pub fn decode(bytes: &[u8]) -> Result<Vtxo> {
     })
 }
 
+/// How a Bark address says a payment reaches its owner.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Delivery {
+    /// Type 0: through the Ark server itself.
+    Builtin,
+    /// Type 1: a blinded mailbox at the server, by its 33-byte identifier.
+    Mailbox([u8; 33]),
+    /// A type this decoder does not know; a wallet skips it.
+    Other(u8),
+}
+
+/// A Bark address's payload (BOAT-1 version 1, after the version): what ark-lib 0.8.1 writes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Address {
+    /// The first 4 bytes of the SHA-256 of the server's compressed key: which server, not its key.
+    pub ark_id: [u8; 4],
+    pub policy: Policy,
+    pub delivery: Vec<Delivery>,
+}
+
+/// Deliveries read at most: real addresses carry one or two.
+pub const MAX_DELIVERIES: usize = 16;
+
+/// Reads a Bark address's payload: `ark_id`, the length-prefixed policy, then length-prefixed
+/// delivery entries to the end, each its type byte and that type's data.
+pub fn address(payload: &[u8]) -> Result<Address> {
+    let mut r = Reader { rest: payload };
+    let ark_id = r.array()?;
+    let n = r.count(payload.len())?;
+    let policy = policy(r.take(n)?)?;
+    let mut delivery = Vec::new();
+    while !r.rest.is_empty() {
+        if delivery.len() == MAX_DELIVERIES {
+            return Err(DecodeError("too many entries"));
+        }
+        let n = r.count(r.rest.len())?;
+        let mut d = Reader { rest: r.take(n)? };
+        delivery.push(match d.u8()? {
+            0 => Delivery::Builtin,
+            1 => {
+                let id = d.array()?;
+                if !d.rest.is_empty() {
+                    return Err(DecodeError("trailing bytes in delivery"));
+                }
+                Delivery::Mailbox(id)
+            }
+            other => Delivery::Other(other),
+        });
+    }
+    Ok(Address {
+        ark_id,
+        policy,
+        delivery,
+    })
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::indexing_slicing, clippy::panic)]
 mod tests {
@@ -494,5 +550,89 @@ mod tests {
         bytes.extend([0u8; 2 + 36]);
         bytes.extend([0xFF, 0, 0, 0, 0, 1, 0, 0, 0]);
         assert_eq!(decode(&bytes), Err(DecodeError("too many entries")));
+    }
+
+    /// ark-lib 0.8.1's address tests (`ark/address.rs`): the doc example and a round trip on
+    /// both networks.
+    fn payload(s: &str) -> Vec<u8> {
+        use bitcoin::bech32::Bech32m;
+        use bitcoin::bech32::primitives::decode::CheckedHrpstring;
+        use bitcoin::bech32::primitives::iter::Fe32IterExt;
+        let c = CheckedHrpstring::new::<Bech32m>(s).unwrap();
+        c.fe32_iter::<std::iter::Empty<u8>>()
+            .skip(1)
+            .fes_to_bytes()
+            .collect()
+    }
+
+    fn ark_id(server: &str) -> [u8; 4] {
+        let key: Vec<u8> = (0..33)
+            .map(|i| u8::from_str_radix(&server[2 * i..2 * i + 2], 16).unwrap())
+            .collect();
+        let h = bitcoin::hashes::sha256::Hash::hash(&key).to_byte_array();
+        [h[0], h[1], h[2], h[3]]
+    }
+
+    #[test]
+    fn reads_ark_libs_address_vectors() {
+        let doc = address(&payload("ark1pndckx4ezqqp4cn00sj5cswh7vrhh9vm647qr3ht5a57s4vdp7vrpptxv66x3ehfzqyp4cn00sj5cswh7vrhh9vm647qr3ht5a57s4vdp7vrpptxv66x3ehgjdr0q7")).unwrap();
+        assert_eq!(
+            doc.ark_id,
+            ark_id("03d2e3205d9fd8fb2d441e9c3aa5e28ac895f7aae68c209ae918e2750861e8ffc1")
+        );
+        let Policy::Pubkey { user_pubkey } = doc.policy else {
+            panic!("{:?}", doc.policy)
+        };
+        assert_eq!(
+            user_pubkey.to_string(),
+            "035c4def84a9883afe60ef72b37aaf8038dd74ed3d0ab1a1f30610acccd68d1cdd"
+        );
+        assert!(matches!(doc.delivery.as_slice(), [Delivery::Mailbox(_)]));
+
+        let main = payload(
+            "ark1pwh9vsmezqqpharv69q4z8m6x364d5m5prnmcalcalq9pdmzw0y7mpveck4pcfhezqypczkrrj3lkx5ue4qrf4jc7ztpt9htdttmh2judhqnu7aue8p0y9mqkr4cf5",
+        );
+        let test = payload(
+            "tark1pwh9vsmezqqpharv69q4z8m6x364d5m5prnmcalcalq9pdmzw0y7mpveck4pcfhezqypczkrrj3lkx5ue4qrf4jc7ztpt9htdttmh2judhqnu7aue8p0y9mq47jn9z",
+        );
+        assert_eq!(main, test);
+        let a = address(&main).unwrap();
+        assert_eq!(
+            a.ark_id,
+            ark_id("02037188bdd7579a0cd0b22a51110986df1ea08e30192658fe0e219590e4a723d3")
+        );
+        let secp = bitcoin::secp256k1::Secp256k1::new();
+        let user = bitcoin::secp256k1::SecretKey::from_slice(
+            &(0..32)
+                .map(|i| {
+                    u8::from_str_radix(
+                        &"6b0f024af54172a9aed9a0f044689175787676c469ff2aa75024cae5445c7a02"
+                            [2 * i..2 * i + 2],
+                        16,
+                    )
+                    .unwrap()
+                })
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
+        assert_eq!(
+            a.policy,
+            Policy::Pubkey {
+                user_pubkey: user.public_key(&secp)
+            }
+        );
+        assert!(matches!(a.delivery.as_slice(), [Delivery::Mailbox(_)]));
+
+        // Every truncation is an error, never a panic, but where the deliveries start: none is valid.
+        let policy_end = 4 + 1 + 34;
+        for n in (0..main.len()).filter(|n| *n != policy_end) {
+            assert!(address(&main[..n]).is_err(), "{n}");
+        }
+        assert!(address(&main[..policy_end]).unwrap().delivery.is_empty());
+        // ark-lib's oversized length: refused.
+        let mut huge = vec![0u8; 4];
+        huge.push(0xFF);
+        huge.extend(u64::MAX.to_le_bytes());
+        assert!(address(&huge).is_err());
     }
 }

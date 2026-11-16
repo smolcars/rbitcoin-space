@@ -12,8 +12,9 @@ import "./SearchField.css";
 /** How long typing pauses before Lightning's index is asked for names. */
 const SUGGEST_MS = 280;
 
-/** classify() refuses anything longer, and the field holds no more (search/query.ts MAX_QUERY). */
-const MAX_LENGTH = 512;
+/** The longest payment string the decoder reads (search/query.ts MAX_PAYMENT); classify() refuses
+ * anything else longer than MAX_QUERY. */
+const MAX_LENGTH = 8192;
 
 export interface SearchFieldProps {
   id?: string;

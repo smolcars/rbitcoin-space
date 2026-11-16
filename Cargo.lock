@@ -565,6 +565,8 @@ dependencies = [
  "lightning",
  "lightning-net-tokio",
  "node",
+ "serde",
+ "serde_json",
  "tokio",
 ]
 

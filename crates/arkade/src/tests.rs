@@ -740,3 +740,26 @@ async fn a_list_of_other_scripts_or_too_long_is_refused() {
         );
     }
 }
+
+#[test]
+fn parse_any_reads_the_network_from_the_prefix() {
+    let main = "ark1qz9l2ctqalrkjyftxcw7gytm83cm3r9pdudmna4v0gncry56h30x5eu7kqsr8ul6td7gu8qqv70s60ufv6nz7rytef7hs33wdhc76xqn9qxkrw";
+    let (mainnet, a) = parse_any(main).unwrap();
+    assert!(mainnet);
+    let (mainnet, b) = parse_any(&SIGNET_ADDR.to_uppercase()).unwrap();
+    assert!(!mainnet);
+    assert_eq!(a, b);
+    let AnyAddress::Arkade(a) = a else { panic!() };
+    assert_eq!(a.script_hex(), SIGNET_SCRIPT);
+    // One character changed: a checksum failure, said as such here and as "invalid" by `parse`.
+    let typo = SIGNET_ADDR.replacen("qz9l", "qz8l", 1);
+    assert_eq!(parse_any(&typo), Err(AddressError::Checksum));
+    assert_eq!(Address::parse(&typo, false), Err(AddressError::Invalid));
+    // A Bark address (ark-lib's round-trip vector) comes back as its payload.
+    let bark = "tark1pwh9vsmezqqpharv69q4z8m6x364d5m5prnmcalcalq9pdmzw0y7mpveck4pcfhezqypczkrrj3lkx5ue4qrf4jc7ztpt9htdttmh2judhqnu7aue8p0y9mq47jn9z";
+    assert!(matches!(parse_any(bark), Ok((false, AnyAddress::Bark(p))) if p.len() > 39));
+    assert_eq!(
+        parse_any("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"),
+        Err(AddressError::Invalid)
+    );
+}

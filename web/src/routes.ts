@@ -3,6 +3,7 @@ import type { RouteDefinition } from "@solidjs/router";
 import { routes as address } from "./pages/address/routes";
 import { routes as ark } from "./pages/ark/routes";
 import { routes as block } from "./pages/block/routes";
+import { routes as decode } from "./pages/decode/routes";
 import { routes as blocks } from "./pages/blocks/routes";
 import { routes as home } from "./pages/home/routes";
 import { routes as lightning } from "./pages/lightning/routes";
@@ -14,6 +15,8 @@ import { routes as tx } from "./pages/tx/routes";
 
 /** Every page, on every network: mainnet at the root, the others under their prefix. */
 export const routes: RouteDefinition[] = [
+  // Pages that are the same on every network have one path, outside the prefixes.
+  ...decode,
   {
     path: ["/", "/signet", "/testnet4", "/testnet5", "/regtest"],
     children: [

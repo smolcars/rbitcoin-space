@@ -1,0 +1,272 @@
+@layer pages {
+  .dec {
+    max-width: 52rem;
+    padding-block: var(--space-6) var(--space-8);
+  }
+  .dec h1 {
+    margin-block-end: var(--space-4);
+  }
+  .dec__form {
+    display: grid;
+    gap: var(--space-3);
+    justify-items: start;
+  }
+  .dec__input {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: calc(var(--touch) * 2);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--color-line-strong);
+    border-radius: var(--radius-m);
+    background: var(--color-surface-sunken);
+    color: var(--color-text);
+    font-size: var(--text-sm);
+    resize: vertical;
+    overflow-wrap: anywhere;
+    word-break: break-all;
+  }
+  .dec__go {
+    min-height: var(--touch);
+  }
+  .dec__line,
+  .dec-line {
+    margin: var(--space-3) 0 0;
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+
+  .dec-result {
+    margin-top: var(--space-6);
+    min-width: 0;
+  }
+  .dec-result__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-2) var(--space-3);
+  }
+  .dec-result__kind {
+    margin: 0;
+    font-size: var(--text-xl);
+  }
+
+  /* The network as the string names it, in the site's network colours. */
+  .dec-net {
+    --dec-net: var(--color-text-muted);
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 0.1em 0.6em;
+    border: 1px solid var(--dec-net);
+    border-radius: var(--radius-pill);
+    font-size: var(--text-sm);
+    white-space: nowrap;
+  }
+  .dec-net::before {
+    content: "";
+    width: 0.5em;
+    height: 0.5em;
+    border-radius: 50%;
+    background: var(--dec-net);
+  }
+  .dec-net[data-net="mainnet"] {
+    --dec-net: var(--network-mainnet);
+  }
+  .dec-net[data-net="signet"] {
+    --dec-net: var(--network-signet);
+  }
+  .dec-net[data-net="testnet4"] {
+    --dec-net: var(--network-testnet4);
+  }
+  .dec-net[data-net="testnet5"] {
+    --dec-net: var(--network-testnet5);
+  }
+  .dec-net[data-net="regtest"] {
+    --dec-net: var(--network-regtest);
+  }
+  .dec-net[data-net="any"]::before {
+    background: none;
+    border: 1px solid var(--dec-net);
+  }
+
+  .dec-top {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-2) var(--space-4);
+    margin-block: var(--space-4);
+  }
+  .dec-figure {
+    margin: 0;
+    /* Smaller on a narrow window, so the largest amount stays on one line at any text size. */
+    font-size: clamp(var(--text-md), 8vw, var(--text-3xl));
+    font-weight: 600;
+    line-height: 1.2;
+    overflow-wrap: anywhere;
+  }
+  .dec-figure--text {
+    margin-block: var(--space-4);
+    font-size: var(--text-xl);
+    font-weight: 400;
+  }
+  .dec-figure.num {
+    white-space: nowrap;
+  }
+  .dec-figure__unit {
+    font-size: 0.8em;
+    font-weight: 400;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+  }
+  .dec-expiry {
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+  .dec-expiry--past {
+    color: var(--color-negative);
+  }
+
+  .dec-facts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(15rem, 100%), 1fr));
+    gap: var(--space-4) var(--space-5);
+    margin: 0;
+  }
+  .dec-fact {
+    min-width: 0;
+  }
+  .dec-fact--wide {
+    grid-column: 1 / -1;
+  }
+  .dec-fact dt {
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+  .dec-fact dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+  .dec-said {
+    display: block;
+    unicode-bidi: isolate;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+  }
+  .dec-muted,
+  .dec-none {
+    color: var(--color-text-muted);
+  }
+  .dec-none {
+    font-style: italic;
+  }
+
+  .dec-node {
+    display: inline-flex;
+    flex-direction: column;
+    min-width: 0;
+    max-width: 100%;
+  }
+  .dec-node__name {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--touch);
+    overflow-wrap: anywhere;
+  }
+  .dec-node__alias {
+    display: block;
+    max-width: 24ch;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .dec-node__key {
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+    white-space: nowrap;
+  }
+  .dec-chan,
+  .dec-url {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    max-width: 100%;
+  }
+  .dec-chan {
+    flex-wrap: wrap;
+  }
+  .dec-chan__id {
+    font-size: var(--text-sm);
+    overflow-wrap: anywhere;
+  }
+  .dec-hop .num {
+    white-space: nowrap;
+  }
+  .dec-chan a,
+  .dec-hop > a {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--touch);
+  }
+  .dec-url__text {
+    min-width: 0;
+    font-size: var(--text-sm);
+    overflow-wrap: anywhere;
+    word-break: break-all;
+  }
+  .dec-url__host {
+    font-weight: 700;
+    color: var(--color-text);
+    background: var(--color-surface-sunken);
+    border-radius: var(--radius-s);
+    padding-inline: 0.15em;
+  }
+
+  .dec-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .dec-chip {
+    padding: 0.1em 0.6em;
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-pill);
+    font-size: var(--text-sm);
+  }
+  .dec-chip--warn {
+    border-color: var(--ln-caution, var(--color-negative));
+  }
+
+  .dec-section {
+    margin-top: var(--space-6);
+  }
+  .dec-section h3 {
+    margin: 0;
+    font-size: var(--text-lg);
+  }
+  .dec-list {
+    display: grid;
+    gap: var(--space-3);
+    margin: var(--space-3) 0 0;
+    padding-inline-start: var(--space-5);
+  }
+  .dec-list > li {
+    min-width: 0;
+  }
+  .dec-hops {
+    gap: var(--space-5);
+    padding: var(--space-3) var(--space-3) var(--space-3) var(--space-6);
+    border-radius: var(--radius-l);
+    background: var(--color-surface-raised);
+    border: 1px solid var(--color-line);
+  }
+  .dec-hop {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    /* Two rows' copy buttons each need their 44 px target. */
+    gap: var(--space-4);
+  }
+}

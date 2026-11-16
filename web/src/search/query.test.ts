@@ -318,3 +318,86 @@ describe("classify: Lightning", () => {
     expect(classify("4294967295")).toStrictEqual(height(4_294_967_295));
   });
 });
+
+describe("classify: payment strings go to the decoder", () => {
+  // BOLT 11's first example and its example with route hints (longer than MAX_QUERY).
+  const INVOICE =
+    "lnbc1pvjluezsp5zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zygspp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdpl2pkx2ctnv5sxxmmwwd5kgetjypeh2ursdae8g6twvus8g6rfwvs8qun0dfjkxaq9qrsgq357wnc5r2ueh7ck6q93dj32dlqnls087fxdwk8qakdyafkq3yap9us6v52vjjsrvywa6rt52cm9r9zqt8r2t7mlcwspyetp5h2tztugp9lfyql";
+  const OFFER =
+    "lno1pgx9getnwss8vetrw3hhyuckyypwa3eyt44h6txtxquqh7lz5djge4afgfjn7k4rgrkuag0jsd5xvxg";
+  const LNURL =
+    "LNURL1DP68GURN8GHJ7UM9WFMXJCM99E3K7MF0V9CXJ0M385EKVCENXC6R2C35XVUKXEFCV5MKVV34X5EKZD3EV56NYD3HXQURZEPEXEJXXEPNXSCRVWFNV9NXZCN9XQ6XYEFHVGCXXCMYXYMNSERXFQ5FNS";
+  const ARK =
+    "tark1qz9l2ctqalrkjyftxcw7gytm83cm3r9pdudmna4v0gncry56h30x5eu7kqsr8ul6td7gu8qqv70s60ufv6nz7rytef7hs33wdhc76xqnrjdp6x";
+  const label = (q: string) => {
+    const c = classify(q);
+    return c?.kind === "payment" ? c.label : null;
+  };
+
+  it.each([
+    [INVOICE, "Lightning invoice"],
+    [INVOICE.toUpperCase(), "Lightning invoice"],
+    [`lightning:${INVOICE}`, "Lightning invoice"],
+    [`LIGHTNING:${INVOICE.toUpperCase()}`, "Lightning invoice"],
+    [INVOICE.replace("lnbc", "lntbs"), "Lightning invoice"],
+    [INVOICE.replace("lnbc", "lnbcrt2500u"), "Lightning invoice"],
+    [OFFER, "Lightning offer"],
+    [`${OFFER.slice(0, 20)}+ \n${OFFER.slice(20)}`, "Lightning offer"],
+    [
+      "lnr1qqyqqqqqqqqqqqqqqcp4256ypqqkgzshgysy6ct5dpjk6ct5d93kzmpq23ex2ct5d9ek293pqthvwfzadd7jejes8q9lhc4rvjxd022zv5l44g6qah82ru5rdpnpjkppqvjx204vgdzgsqpvcp4mldl3plscny0rt707gvpdh6ndydfacz43euzqhrurageg3n7kafgsek6gz3e9w52parv8gs2hlxzk95tzeswywffxlkeyhml0hh46kndmwf4m6xma3tkq2lu04qz3slje2rfthc89vss",
+      "Lightning refund",
+    ],
+    [LNURL, "LNURL"],
+    [LNURL.toLowerCase(), "LNURL"],
+    [`lightning:${LNURL}`, "LNURL"],
+    ["lnurlp://pay.example.com/a?b=c", "LNURL"],
+    ["keyauth://site.com/login?tag=login&k1=00", "LNURL"],
+    ["satoshi@bitcoin.org", "Lightning address"],
+    ["Sat.O-shi+tips@Sub.Bitcoin.ORG", "Lightning address"],
+    [ARK, "Ark address"],
+    [ARK.slice(1), "Ark address"],
+  ])("%j is a %s", (q, kind) => {
+    expect(label(q)).toBe(kind);
+  });
+
+  it("keeps the string as pasted, trimmed, for the decoder", () => {
+    expect(classify(`  lightning:${INVOICE}\n`)).toStrictEqual({
+      kind: "payment",
+      label: "Lightning invoice",
+      text: `lightning:${INVOICE}`,
+    });
+  });
+
+  it("takes what search already reads as before", () => {
+    expect(kindOf(TXID)).toBe("hash");
+    expect(kindOf(TAPROOT)).toBe("address");
+    expect(kindOf("tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx")).toBe("address");
+    expect(kindOf("03864ef025fde8fb587d989186ce6a4a186895ee44a926bfc370e2c366597a3f8f")).toBe(
+      "node",
+    );
+    expect(kindOf("811984x2037x0")).toBe("channel");
+  });
+
+  it.each([
+    // A node URI, and alias searches that look a little like an address.
+    "03864ef025fde8fb587d989186ce6a4a186895ee44a926bfc370e2c366597a3f8f@1.2.3.4:9735",
+    "03864ef025fde8fb587d989186ce6a4a186895ee44a926bfc370e2c366597a3f8f@example.com",
+    "bob@home",
+    "@bitrefill",
+    "alice@",
+    "lnbc",
+    "ln",
+    "lnurl",
+    "ark1",
+    "lno1 offer?",
+    "https://example.com/lnurlp/x",
+  ])("%j is no payment string", (q) => {
+    expect(classify(q)?.kind).not.toBe("payment");
+  });
+
+  it("reads a payment string longer than MAX_QUERY, but not past the server's cap", () => {
+    const long = `lnbc1${"q".repeat(MAX_QUERY * 2)}`;
+    expect(label(long)).toBe("Lightning invoice");
+    expect(classify(`lnbc1${"q".repeat(9000)}`)).toBeNull();
+  });
+});

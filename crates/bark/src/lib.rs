@@ -15,5 +15,5 @@ mod keys;
 
 pub use check::{Checked, ExitTx, Lie, SigState, check};
 pub use client::{Endpoint, FetchError, MAX_REPLY, get_vtxo};
-pub use decode::{DecodeError, Policy, Transition, Vtxo, decode};
+pub use decode::{Address, DecodeError, Delivery, Policy, Transition, Vtxo, address, decode};
 pub use id::VtxoId;

@@ -13,6 +13,7 @@ import {
   withBarkHex,
   withBoth,
 } from "./ark-answers";
+import { withInvoice } from "./decode-answers";
 import { chain, stubRetargets } from "./fixtures";
 import { KEPT, LARGE, stubLarge } from "./large-address";
 
@@ -114,5 +115,7 @@ export const PAGES: { path: string; stub?: (page: Page) => Promise<void> }[] = [
     path: `/regtest/ark/arkade/address/${ARKADE_ADDRESS}?page=11#live`,
     stub: (page) => withArkadeAddress(page, true),
   },
+  // One page on every network: a named invoice with route hints.
+  { path: "/decode#lnbc20m1example", stub: withInvoice },
   { path: "/regtest/no/such/page" },
 ];

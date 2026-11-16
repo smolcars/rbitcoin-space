@@ -42,9 +42,10 @@ export function Shell(props: { children?: JSX.Element }) {
     () => {
       const enabled = config()?.networks;
       const first = enabled?.[0];
-      return first && !enabled.includes(network())
-        ? onNetwork(first, stripNetwork(location.pathname))
-        : undefined;
+      if (!first || enabled.includes(network())) return undefined;
+      const to = onNetwork(first, stripNetwork(location.pathname));
+      // A page on no network (`/decode`) stays; a move keeps the query and the fragment.
+      return to === location.pathname ? undefined : to + location.search + location.hash;
     },
     (to) => {
       if (to !== undefined) navigate(to, { replace: true });

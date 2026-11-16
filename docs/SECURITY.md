@@ -27,7 +27,7 @@ The server sits between the public internet and a Bitcoin node. A client must ne
 
 ### Bounding work
 
-6. **Every request has a body limit, a timeout and a concurrency limit.** Defaults are small; raise them per route with a reason.
+6. **Every request has a body limit, a timeout and a concurrency limit.** Defaults are small; raise them per route with a reason. `POST /app/decode`, which costs a signature recovery, reads at most 8 KiB and gives each client 30 decodes at once, then 2 a second; it fetches nothing for what it decodes, an LNURL or Lightning address included ([`API.md`](API.md#decoding)).
 7. **Rate limits are per client address.** Behind a reverse proxy, the client address comes only from a header the operator configured as trusted, and only on connections from addresses the operator named as proxies; from anyone else the header is ignored ([`CONFIG.md`](CONFIG.md#client-addresses)). Naming a header without naming who may send it is refused at startup.
 8. **Expensive answers are computed once.** Concurrent identical requests share one upstream call, results are cached, and list endpoints are paged with a hard cap.
 9. **WebSocket connections are bounded in every dimension:** total connections, connections per address, inbound message size, messages per second, subscriptions per connection, tracked addresses and transactions per connection, new address follows per client, and send-queue length. A slow client is disconnected.

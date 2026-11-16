@@ -29,6 +29,7 @@
 
 mod chain;
 mod closes;
+pub mod decode;
 mod gossip;
 mod inbound;
 mod log;

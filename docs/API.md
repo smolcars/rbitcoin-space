@@ -1174,6 +1174,48 @@ Values and their differences from the reference:
 
 Single requests reached 3 to 11 ms while other builds loaded the machine; the least is the code's own cost. Two changes brought it there. The index keeps both nodes' places for every channel, so a list reads each channel's peer and funding time directly: looking each up by binary search had cost ACINQ's lists 1 to 4.5 ms. And a node's closes are read through `0017`'s partial indexes on closed rows, one per end, instead of through the node indexes, which read every open row too (1.4 to 2 ms for ACINQ, now 0.4). The index with funding times, places and ends builds in 25 to 28 ms, as before.
 
+## Decoding
+
+`POST /app/decode`, served once for the whole server (like `/app/config`, never under a network's prefix), says what a pasted payment string is and which network it names. The string is the body, as plain text: in no URL, so in no log line or proxy's access log (the request event names the route only, [`LOGGING.md`](LOGGING.md#rules)). It is trimmed; a `lightning:` (or `lightning://`) prefix and upper case are accepted, as QR codes carry them. Nothing is fetched for it: an LNURL or a Lightning address answers the URL a wallet would ask, and the server never asks it. The page is `/decode` ([`FRONTEND.md`](FRONTEND.md#routing)).
+
+| Kind | Read by | `network` |
+|---|---|---|
+| `bolt11` | LDK (`lightning::bolt11_invoice`), in `crates/ln/src/decode.rs` | By prefix: `lnbc` `mainnet`, `lntb` `testnet` (testnet 3 and 4 share it, so it says no more), `lntbs` `signet`, `lnbcrt` `regtest`, `lnsb` `simnet` |
+| `offer` (`lno1…`), `refund` (`lnr1…`) | LDK (`lightning::offers`) | The first Bitcoin chain it names (`mainnet`, `testnet3`, `testnet4`, `signet`, `regtest`), mainnet when it names none; `chains` lists them all, an unknown one by its hash |
+| `lnurl` | LUD-01's bech32 (`lnurl1…`, no length limit) and LUD-17's `lnurlp://`, `lnurlw://`, `lnurlc://`, `keyauth://` | `null`: an LNURL names no network |
+| `lightning_address` | LUD-16, `name@domain` (and `@domain` for `_`) | `null` |
+| `ark_address` | BOAT-1: `arkade::parse_any` reads the prefix and version; Bark's payload is `bark::address` ([`ARK.md`](ARK.md#an-addresss-vtxos)) | `ark` `mainnet`, `tark` `test` (any test network) |
+
+LDK's other BOLT 12 messages have no string form (an invoice request shares `lnr` with a refund and parses only as one; `lni` invoices are not pasted) and answer `not recognised`.
+
+```json
+{ "kind": "bolt11", "network": "mainnet", "names": "mainnet", "amount_msat": 2000000000,
+  "description": null, "description_hash": "3925b6…b8c1", "payee": { "key": "03e715…d9ad", "alias": null, "known": false },
+  "payee_named": false, "created": 1496314658, "expiry": 3600, "payment_hash": "000102…0102", "min_final_cltv": 18,
+  "features": [{ "bit": 8, "name": "var_onion_optin", "required": true }], "fallbacks": ["1RustyRX2oai4EYYDpQGWvEL62BBGqN9T"],
+  "hints": [[{ "node": { "key": "029e03…7255", "alias": "…", "known": true },
+               "channel": { "scid": "66051x263430x1800", "known": true }, "base_fee_msat": 1, "fee_ppm": 20, "cltv_delta": 3 }, …]] }
+```
+
+One answer of each kind is [`fixtures/decode/answers.json`](../fixtures/decode/answers.json), which a test holds equal to what the server writes. An offer has `chains`, `description`, `issuer`, `amount` (`{"msat"}` or `{"currency", "amount"}` in the currency's smallest unit), `quantity` (`"one"`, `"any"` or a maximum), `expires`, `signing_key`, `paths` (each its entry `node` or `channel` and `direction`, and its blinded `hops`) and `features`; a refund the same with `amount_msat`, `payer_key` and `payer_note`. An LNURL has `url`, `host` (lower case, without user info or port), `tag` and `k1` from its query, and `form`. Free text (descriptions, issuers, notes) is LDK's printable form: control and format characters, a right-to-left override among them, become U+FFFD.
+
+**`names`: what this server knows of the keys.** When a network of this server matches the string (`testnet` matches testnet4) and has Lightning on with its graph indexed, each node key (the payee, every hint's node, each blinded path's entry node and an offer's signing key) carries its `alias` and `known`, and each hint's channel `known`, from the index ([`LIGHTNING.md`](LIGHTNING.md#routes)); `names` is that network. Otherwise `names` is `null`, `known` is `null`, and the answer is still `200`: decoding needs no graph. A key in no graph is `"known": false`.
+
+| Status | Body | When |
+|---|---|---|
+| 400 | `not recognised` | No kind above, an unknown BOLT 11 currency, or not UTF-8 |
+| 400 | `bad checksum` | A known kind whose bech32 or bech32m checksum fails |
+| 400 | `bad signature` | A BOLT 11 signature that does not verify against `n` or recover |
+| 400 | `malformed` | A known kind that breaks its own rules (a missing field, a bad length, an `http://` LNURL to a clearnet host, a BOLT 11 string over LDK's 7,089 characters) |
+| 413 | `too long` | A body over 8,192 bytes |
+| 429 | `too many requests` | This client decoded 30 at once, then more than 2 a second |
+
+Never LDK's text, and never the input. Answers carry `Cache-Control: no-store`.
+
+**Bounds.** The body cap is twice the 4,296 characters a QR code holds, so whatever a camera can scan fits. A decode is at most one signature recovery and a linear parse of 8 KiB: measured on an Apple M4 in a release build with the machine shared, 359 µs to decode and write a 6,121-character invoice with 60 route-hint hops (a 13.1 KB answer) and 249 µs for a 7,913-character offer (5.2 KB). It runs in the request, under the global request limits, with its own per-client budget (`decode::CLIENT_BURST`, `CLIENT_PER_SEC`). Nothing is kept.
+
+**Where LDK and the specification differ.** Of the specification's invalid vectors, LDK 0.2.8 reads four: BOLT 11's `n` field of the wrong length (it skips the field, as BOLT 11 tells a reader to, and recovers the key), and BOLT 12's offer with unknown required feature 122 (refused when paying, not when reading; the answer lists the bit), with `offer_chains` of no entries, and with bech32 padding past 4 bits. The tests pin these four.
+
 ## Using it from the frontend
 
 - Call `/api/...` (mainnet) or `/<network>/api/...` with `fetch`. Same origin, so CORS does not apply.

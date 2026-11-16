@@ -23,7 +23,7 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
-pub use address::{Address, AddressError, MAX_ADDRESS_LEN};
+pub use address::{Address, AddressError, AnyAddress, MAX_ADDRESS_LEN, parse_any};
 pub use bitcoin::Txid;
 use bytes::Bytes;
 pub use http::Endpoint;

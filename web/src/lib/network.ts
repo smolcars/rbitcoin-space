@@ -31,9 +31,15 @@ export function stripNetwork(pathname: string): string {
   return pathname.slice(network.length + 1) || "/";
 }
 
-/** A network-free path (starting with `/`) placed on a network: (`signet`, `/tx/ab`) → `/signet/tx/ab`. */
+/** Paths that belong to no network: the same page whichever network one comes from. */
+const GLOBAL = /^\/decode(?:[?#]|$)/;
+
+/**
+ * A network-free path (starting with `/`) placed on a network: (`signet`, `/tx/ab`) → `/signet/tx/ab`.
+ * A page that belongs to no network (`/decode`) keeps its path.
+ */
 export function onNetwork(network: Network, path: string): string {
-  if (network === "mainnet") return path;
+  if (network === "mainnet" || GLOBAL.test(path)) return path;
   return path === "/" ? `/${network}` : `/${network}${path}`;
 }
 
@@ -98,6 +104,9 @@ export const paths = {
   /** An Arkade address's VTXOs, from page 1 (`?page=n` after it). */
   arkadeAddress: (address: string, page = 1) =>
     `/ark/arkade/address/${segment(address)}${page > 1 ? `?page=${segment(page)}` : ""}`,
+  /** The decoder, the pasted string in the fragment, which no server sees. On every network. */
+  decode: (text?: string) =>
+    text === undefined || text === "" ? "/decode" : `/decode#${encodeURIComponent(text)}`,
   /** Recent replacements, newest first; only those that replaced without signalling when asked. */
   rbf: (fullRbf = false) => (fullRbf ? "/rbf?view=full-rbf" : "/rbf"),
 };

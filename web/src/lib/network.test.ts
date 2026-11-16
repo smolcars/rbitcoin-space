@@ -55,3 +55,12 @@ describe("network paths", () => {
     expect(paths.address("../../api/x?y#z")).toBe("/address/..%2F..%2Fapi%2Fx%3Fy%23z");
   });
 });
+
+describe("pages on no network", () => {
+  it("keeps the decoder's path whatever the network", () => {
+    expect(onNetwork("signet", paths.decode("lnbc1x"))).toBe("/decode#lnbc1x");
+    expect(onNetwork("regtest", "/decode")).toBe("/decode");
+    expect(onNetwork("signet", "/decoder")).toBe("/signet/decoder");
+    expect(paths.decode("a b#c")).toBe("/decode#a%20b%23c");
+  });
+});

@@ -15,7 +15,51 @@ export type Query =
   /** A Lightning node's public key: 66 hex digits, compressed (02 or 03 first), lowercase. */
   | { kind: "node"; key: string }
   /** A Lightning channel's short id, as `<height>x<index>x<output>`. */
-  | { kind: "channel"; id: string };
+  | { kind: "channel"; id: string }
+  /** A payment string the decoder reads, on any network: `text` as pasted, trimmed. */
+  | { kind: "payment"; label: PaymentLabel; text: string };
+
+export type PaymentLabel =
+  | "Lightning invoice"
+  | "Lightning offer"
+  | "Lightning refund"
+  | "LNURL"
+  | "Lightning address"
+  | "Ark address";
+
+/** The decoder takes no more than the server reads (crates/server/src/decode.rs `MAX_BODY`). */
+export const MAX_PAYMENT = 8192;
+
+const BECH32 = "[02-9ac-hj-np-z]";
+const PAYMENT_FORMS: [RegExp, PaymentLabel][] = [
+  [new RegExp(`^lnurl1${BECH32}+$`, "i"), "LNURL"],
+  [/^(?:lnurl[cpw]|keyauth):\/\/[^\s/?#]+\S*$/i, "LNURL"],
+  [new RegExp(`^lno1${BECH32}+$`, "i"), "Lightning offer"],
+  [new RegExp(`^lnr1${BECH32}+$`, "i"), "Lightning refund"],
+  [new RegExp(`^ln(?:bcrt|bc|tbs|tb|sb)\\d*[munp]?1${BECH32}+$`, "i"), "Lightning invoice"],
+  [new RegExp(`^t?ark1${BECH32}+$`, "i"), "Ark address"],
+];
+
+/**
+ * A payment string by its form alone: a prefix, or for a Lightning address the shape of an email
+ * address with a dotted domain. A node URI (`<key>@<host>:<port>`) and a name without a dotted
+ * domain stay searches.
+ */
+export function payment(input: string): Query | null {
+  if (input.length > MAX_PAYMENT) return null;
+  const text = input.trim();
+  const bare = text.replace(/^lightning:(?:\/\/)?/i, "");
+  // BOLT 12 may split a string with `+` and whitespace; the server joins it again.
+  const joined = bare.replaceAll(/\+\s*/g, "");
+  for (const [form, label] of PAYMENT_FORMS) {
+    if (form.test(label === "LNURL" ? bare : joined)) return { kind: "payment", label, text };
+  }
+  const address = /^([a-z0-9._+-]+)@([a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,})$/i.exec(bare);
+  if (address && !/^[0-9a-f]{66}$/i.test(address[1] ?? "")) {
+    return { kind: "payment", label: "Lightning address", text };
+  }
+  return null;
+}
 
 type Hint = HashKind | "address" | "node" | "channel" | null;
 
@@ -44,6 +88,8 @@ const WRAPPING = /^[\s"'`<([{\u{2018}\u{201C}]+|[\s"'`>)\]}\u{2019}\u{201D}.,;]+
 
 /** Classifies a query, or null when it has no form search can find. */
 export function classify(input: string): Query | null {
+  const paid = payment(input.replaceAll(INVISIBLE, "").replaceAll(WRAPPING, ""));
+  if (paid) return paid;
   if (input.length > MAX_QUERY) return null;
   const q = input.replaceAll(INVISIBLE, "").replaceAll(WRAPPING, "");
   const uri = /^bitcoin:(?:\/\/)?([^?#]*)(?:\?([^#]*))?/i.exec(q);

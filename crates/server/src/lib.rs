@@ -12,6 +12,7 @@ pub mod ark_bark;
 mod audits;
 pub mod blocks;
 pub mod config;
+pub mod decode;
 pub mod difficulty;
 pub mod error;
 pub mod esplora;
@@ -406,6 +407,17 @@ impl App {
             enabled_networks.clone(),
         ));
         let contexts = enabled_networks.clone();
+        // Server-wide, like `/app/config`: a pasted string names its own network (`decode`).
+        let decoder = Arc::new(decode::Decoder::new(
+            enabled_networks.clone(),
+            config.limits.max_tracked_clients,
+        ));
+        app = app.route(
+            "/app/decode",
+            post(decode::route)
+                .layer(DefaultBodyLimit::max(decode::MAX_BODY))
+                .with_state(decoder),
+        );
         let networks = Arc::new(enabled_networks);
         app = app.route(
             "/readyz",

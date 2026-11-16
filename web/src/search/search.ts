@@ -27,6 +27,7 @@ const HASH_LABELS: Record<HashKind, string> = { block: "Block hash", tx: "Transa
 /** `lightning`: the network has Lightning on, so a name or a key's start searches its nodes. */
 export function describe(raw: string, network: Network, lightning = false): Reading {
   const q = classify(raw);
+  if (q?.kind === "payment") return { label: q.label, ready: true };
   if (q?.kind === "node") return { label: "Lightning node", ready: true };
   if (q?.kind === "channel") return { label: "Lightning channel", ready: true };
   if (q?.kind === "height") return { label: `Block ${groupDigits(q.height)}`, ready: true };
@@ -73,6 +74,7 @@ export function probeOrder(hash: string, as: HashKind | null): [HashKind, HashKi
  */
 export async function resolve(query: Query | null, probe: Probe): Promise<Outcome> {
   if (query === null) return { kind: "missing", query };
+  if (query.kind === "payment") return { kind: "go", path: paths.decode(query.text) };
   if (query.kind === "height") return { kind: "go", path: paths.block(query.height) };
   if (query.kind === "address") return { kind: "go", path: paths.address(query.address.address) };
   if (query.kind === "node") return { kind: "go", path: paths.lightningNode(query.key) };

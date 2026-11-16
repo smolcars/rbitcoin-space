@@ -10,6 +10,7 @@
 use std::fmt;
 
 use bitcoin::bech32::primitives::decode::UncheckedHrpstring;
+use bitcoin::bech32::primitives::iter::Fe32IterExt;
 use bitcoin::bech32::{Bech32m, Fe32};
 use bitcoin::secp256k1::XOnlyPublicKey;
 
@@ -21,8 +22,10 @@ const DATA_CHARS: usize = 104;
 /// Why a string is not an Arkade address of this network.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AddressError {
-    /// Not bech32m, a bad checksum, or the wrong length.
+    /// Not bech32m, or the wrong length (and, from [`Address::parse`], a bad checksum).
     Invalid,
+    /// An `ark` or `tark` string whose bech32m checksum fails ([`parse_any`] only).
+    Checksum,
     /// An Ark address for another network: `ark` on a test network, `tark` on mainnet.
     OtherNetwork,
     /// BOAT-1 version 1: a Bark address, whose VTXOs cannot be listed.
@@ -42,52 +45,81 @@ pub struct Address {
     pub p2tr_key: [u8; 32],
 }
 
+/// Any Ark address, read without being told the network.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AnyAddress {
+    Arkade(Address),
+    /// BOAT-1 version 1: the bytes after the version, for `bark::address` to read.
+    Bark(Vec<u8>),
+}
+
+/// The longest Ark address of any version read: Bark's carry delivery entries of their own length.
+pub const MAX_ANY_LEN: usize = 1023;
+
+/// Reads an Ark address of either network: `true` with it for mainnet (`ark`), `false` for a test
+/// network (`tark`). Either case, never mixed.
+pub fn parse_any(s: &str) -> Result<(bool, AnyAddress), AddressError> {
+    if s.len() > MAX_ANY_LEN {
+        return Err(AddressError::Invalid);
+    }
+    let raw = UncheckedHrpstring::new(s).map_err(|_| AddressError::Invalid)?;
+    let mainnet = match raw.hrp().to_lowercase().as_str() {
+        "ark" => true,
+        "tark" => false,
+        _ => return Err(AddressError::Invalid),
+    };
+    let checked = raw
+        .validate_and_remove_checksum::<Bech32m>()
+        .map_err(|_| AddressError::Checksum)?;
+    // Bark's payload has its own length, so the version is read before the length.
+    match checked.fe32_iter::<std::iter::Empty<u8>>().next() {
+        Some(Fe32::Q) => {}
+        Some(Fe32::P) => {
+            let bytes = checked
+                .fe32_iter::<std::iter::Empty<u8>>()
+                .skip(1)
+                .fes_to_bytes();
+            return Ok((mainnet, AnyAddress::Bark(bytes.collect())));
+        }
+        Some(_) => return Err(AddressError::Version),
+        None => return Err(AddressError::Invalid),
+    }
+    if checked.data_part_ascii_no_checksum().len() != DATA_CHARS {
+        return Err(AddressError::Invalid);
+    }
+    let bytes: Vec<u8> = checked.byte_iter().collect();
+    let [arkade_version, rest @ ..] = bytes.as_slice() else {
+        return Err(AddressError::Invalid);
+    };
+    if *arkade_version != 0 {
+        return Err(AddressError::Version);
+    }
+    let (server_key, p2tr_key) = rest.split_at_checked(32).ok_or(AddressError::Invalid)?;
+    let key = |b: &[u8]| -> Result<[u8; 32], AddressError> {
+        let k = XOnlyPublicKey::from_slice(b).map_err(|_| AddressError::Key)?;
+        Ok(k.serialize())
+    };
+    let address = Address {
+        server_key: key(server_key)?,
+        p2tr_key: key(p2tr_key)?,
+    };
+    Ok((mainnet, AnyAddress::Arkade(address)))
+}
+
 impl Address {
     /// Parses `s` for mainnet (`ark`) or a test network (`tark`). Either case, never mixed.
     pub fn parse(s: &str, mainnet: bool) -> Result<Self, AddressError> {
         if s.len() > MAX_ADDRESS_LEN {
             return Err(AddressError::Invalid);
         }
-        let raw = UncheckedHrpstring::new(s).map_err(|_| AddressError::Invalid)?;
-        let hrp = raw.hrp().to_lowercase();
-        // The checksum first: a mistyped address is not one of another network.
-        let checked = raw
-            .validate_and_remove_checksum::<Bech32m>()
-            .map_err(|_| AddressError::Invalid)?;
-        let ours = if mainnet { "ark" } else { "tark" };
-        if hrp != ours {
-            return Err(if hrp == "ark" || hrp == "tark" {
-                AddressError::OtherNetwork
-            } else {
-                AddressError::Invalid
-            });
+        match parse_any(s) {
+            Ok((m, _)) if m != mainnet => Err(AddressError::OtherNetwork),
+            Ok((_, AnyAddress::Arkade(a))) => Ok(a),
+            Ok((_, AnyAddress::Bark(_))) => Err(AddressError::Bark),
+            // A mistyped address is never one of another network, nor told apart from any other.
+            Err(AddressError::Checksum) => Err(AddressError::Invalid),
+            Err(e) => Err(e),
         }
-        // Bark's payload has its own length, so the version is read before the length.
-        match checked.fe32_iter::<std::iter::Empty<u8>>().next() {
-            Some(Fe32::Q) => {}
-            Some(Fe32::P) => return Err(AddressError::Bark),
-            Some(_) => return Err(AddressError::Version),
-            None => return Err(AddressError::Invalid),
-        }
-        if checked.data_part_ascii_no_checksum().len() != DATA_CHARS {
-            return Err(AddressError::Invalid);
-        }
-        let bytes: Vec<u8> = checked.byte_iter().collect();
-        let [arkade_version, rest @ ..] = bytes.as_slice() else {
-            return Err(AddressError::Invalid);
-        };
-        if *arkade_version != 0 {
-            return Err(AddressError::Version);
-        }
-        let (server_key, p2tr_key) = rest.split_at_checked(32).ok_or(AddressError::Invalid)?;
-        let key = |b: &[u8]| -> Result<[u8; 32], AddressError> {
-            let k = XOnlyPublicKey::from_slice(b).map_err(|_| AddressError::Key)?;
-            Ok(k.serialize())
-        };
-        Ok(Self {
-            server_key: key(server_key)?,
-            p2tr_key: key(p2tr_key)?,
-        })
     }
 
     /// The script the address pays to, as hex: `5120<p2tr_key>`.
@@ -100,6 +132,7 @@ impl fmt::Display for AddressError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::Invalid => "invalid",
+            Self::Checksum => "checksum",
             Self::OtherNetwork => "other_network",
             Self::Bark => "bark",
             Self::Version => "version",

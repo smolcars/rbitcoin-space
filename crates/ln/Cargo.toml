@@ -10,9 +10,11 @@ publish.workspace = true
 [dependencies]
 lightning.workspace = true
 node.workspace = true
+serde.workspace = true
 tokio = { workspace = true, features = ["sync", "time"] }
 
 [dev-dependencies]
+serde_json.workspace = true
 # The hostile peer in the tests runs on LDK's own socket driver.
 lightning-net-tokio.workspace = true
 tokio = { workspace = true, features = ["test-util"] }

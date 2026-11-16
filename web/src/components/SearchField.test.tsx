@@ -53,7 +53,8 @@ describe("SearchField", () => {
     expect(el.querySelector("search")).not.toBeNull();
     expect(el.querySelector(`label[for="${input.id}"]`)?.textContent).toBe("Search");
     expect(input.getAttribute("aria-keyshortcuts")).toBe("/");
-    expect(input.maxLength).toBe(512);
+    // Room for the longest payment string the decoder reads.
+    expect(input.maxLength).toBe(8192);
   });
 
   it("reads the query as it is typed, and says when Enter will act", async () => {
