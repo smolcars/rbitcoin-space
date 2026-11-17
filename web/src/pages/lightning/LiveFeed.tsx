@@ -1,7 +1,7 @@
 // "As it happens": channels opened and closed and fees moved, as the server finds them
 // (docs/WS.md "lightning-feed"). Batches land at once on top, at most every 30 s; the list holds
 // `KEEP` rows of each kind and shows `KEEP`. Paused by its button, and while the pointer or focus
-// is in the list; under reduced motion it starts paused. The counts stay live while it is paused.
+// is in the list; under reduced motion it starts paused.
 import { createEffect, createSignal, For, Match, onSettled, Show, Switch, untrack } from "solid-js";
 import { sorted } from "../../components/chart/geometry";
 import { Amount } from "../../components/Amount";
@@ -64,7 +64,6 @@ export function LiveFeed(props: { network: Network }) {
   const [loaded, setLoaded] = createSignal(false);
   const [failed, setFailed] = createSignal<unknown>();
   const [waiting, setWaiting] = createSignal(0);
-  const [counts, setCounts] = createSignal({ opened: 0, closed: 0, fee: 0, more: 0 });
   const [filter, setFilter] = createSignal<FeedFilter>("all");
   // Rows arriving by themselves are motion: under reduced motion the list waits to be asked.
   const [held, setHeld] = createSignal(
@@ -75,8 +74,6 @@ export function LiveFeed(props: { network: Network }) {
   const paused = () => held() || hover() || focus();
   let isPaused = paused();
   const status = useLiveStatus();
-  const since = new Date();
-  const sinceText = `${String(since.getUTCHours()).padStart(2, "0")}:${String(since.getUTCMinutes()).padStart(2, "0")} UTC`;
 
   const show = (events: FeedEvent[], more: number) => {
     batch += 1;
@@ -87,16 +84,6 @@ export function LiveFeed(props: { network: Network }) {
   /** What a message or answer adds; the first one is the list as it stands, never news. */
   const take = (events: FeedEvent[], more: number) => {
     const fresh = seen.fresh(events);
-    if (isLoaded) {
-      const c = { opened: 0, closed: 0, fee: 0 };
-      for (const e of fresh) c[e.event] += 1;
-      setCounts((n) => ({
-        opened: n.opened + c.opened,
-        closed: n.closed + c.closed,
-        fee: n.fee + c.fee,
-        more: n.more + more,
-      }));
-    }
     if (!isLoaded) {
       isLoaded = true;
       list = place([], fresh, 0, 0);
@@ -163,7 +150,11 @@ export function LiveFeed(props: { network: Network }) {
 
   const view = () => shown(rows(), filter());
   return (
-    <section aria-labelledby="ln-feed-title" aria-busy={loaded() ? "false" : "true"}>
+    <section
+      class="ln-ov-feed"
+      aria-labelledby="ln-feed-title"
+      aria-busy={loaded() ? "false" : "true"}
+    >
       <SectionHeader title="As it happens" id="ln-feed-title">
         <span class="ln-live">
           <span
@@ -191,7 +182,7 @@ export function LiveFeed(props: { network: Network }) {
           {held() ? "Resume" : "Pause"}
         </button>
       </SectionHeader>
-      <div class="ln-feed__bar">
+      <div class="ln-controls">
         <div class="ln-picker" role="group" aria-label="Show">
           <ul>
             <For each={FILTERS}>
@@ -210,16 +201,9 @@ export function LiveFeed(props: { network: Network }) {
             </For>
           </ul>
         </div>
-        <p class="ln-feed__counts">
-          Since {sinceText}: <span class="num">{groupDigits(counts().opened)}</span> opened,{" "}
-          <span class="num">{groupDigits(counts().closed)}</span> closed,{" "}
-          <span class="num">{groupDigits(counts().fee)}</span> fees moved
-          <Show when={counts().more > 0}>
-            , <span class="num">{groupDigits(counts().more)}</span> more not listed
-          </Show>
-        </p>
       </div>
-      {/* One height whatever it holds, so its arrival moves nothing below it. */}
+      {/* One height whatever it holds, so its arrival moves nothing: the movers' beside it on a
+          wide screen, its own on a narrow one. */}
       <div class="ln-feed__box">
         <Switch>
           <Match when={!loaded() && failed() !== undefined}>

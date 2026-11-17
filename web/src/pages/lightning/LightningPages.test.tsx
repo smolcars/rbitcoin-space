@@ -177,18 +177,36 @@ describe("the overview", () => {
     replies["/app/lightning/feed"] = json({ events: [] });
   });
 
-  it("shows the network now, each total's change over the period, none where the record is short", async () => {
+  it("shows the network now, each total's change over the period, from the record's start where it is short", async () => {
     const el = mount(() => <LightningPage />, "/regtest/lightning?interval=24h");
-    await shows(el, "Channels36 228↑ Up 28 (<0.1%)");
+    await shows(el, "Channels36 228↑Up 28");
     expect(text(el)).toContain("Nodes13 639No change");
-    expect(text(el)).toContain("↑ Up 0.854 BTC");
+    expect(text(el)).toContain("↑Up 0.854 BTC");
     expect(text(el)).toContain("Median fee rate130 ppm");
     expect(text(el)).toContain("As of 12 Nov 2026, 18:30 UTC");
-    // A week back is before the record: the figures, no change.
+    expect(text(el)).not.toContain("when the record began");
+    // A week back is before the record: changes run from its first point, and say so.
     const week = mount(() => <LightningPage />, "/regtest/lightning");
-    await shows(week, "Channels36 228");
+    await shows(week, "Changes since 12 Nov, when the record began.");
+    expect(text(week)).toContain("Channels36 228No change");
     expect(text(week)).not.toContain("↑");
-    expect(text(week)).not.toContain("No change");
+  });
+
+  it("charts the figure pressed, keeping it across periods", async () => {
+    const el = mount(() => <LightningPage />, "/regtest/lightning");
+    await vi.waitFor(() => expect(el.querySelector("[role=slider] svg")).not.toBeNull());
+    const fee = [...el.querySelectorAll<HTMLButtonElement>(".ln-fig")].find((b) =>
+      b.textContent?.startsWith("Median fee rate"),
+    );
+    fee?.click();
+    flush();
+    await shows(el, "Median fee rate, over time");
+    expect(fee?.getAttribute("aria-pressed")).toBe("true");
+    expect(el.querySelector("[role=slider]")?.getAttribute("aria-label")).toContain(
+      "Lightning median fee rate",
+    );
+    const day = el.querySelector<HTMLAnchorElement>(".periods a[href*='24h']");
+    expect(day?.getAttribute("href")).toBe("/regtest/lightning?interval=24h&figure=med_fee_rate");
   });
 
   it("shows each kind of event, with its channel, its ends and what moved", async () => {
@@ -234,7 +252,6 @@ describe("the overview", () => {
     });
     expect(feed.querySelectorAll("li")).toHaveLength(30);
     expect(text(feed)).toContain("and 34 more in this batch, not listed");
-    expect(text(el)).toContain("0 opened, 0 closed, 40 fees moved, 23 more not listed");
     expect(first?.isConnected).toBe(false);
     // The opens stay a filter away.
     click(el, "Opens");
@@ -250,7 +267,7 @@ describe("the overview", () => {
     expect(feed.querySelectorAll("li")).toHaveLength(2);
   });
 
-  it("holds arrivals while paused, counting them, and shows them on resume", async () => {
+  it("holds arrivals while paused, saying how many wait, and shows them on resume", async () => {
     const el = mount(() => <LightningPage />, "/regtest/lightning");
     (await socket()).hello();
     recent([feeEvent(1)]);
@@ -259,7 +276,6 @@ describe("the overview", () => {
     events([openEvent(5), feeEvent(9)]);
     expect(feed.querySelectorAll("li")).toHaveLength(1);
     expect(text(el)).toContain("Paused, 2 waiting");
-    expect(text(el)).toContain("1 opened, 0 closed, 1 fees moved");
     click(el, "Resume");
     expect(feed.querySelectorAll("li")).toHaveLength(3);
     expect(text(el)).toContain("Live");
@@ -278,7 +294,7 @@ describe("the overview", () => {
     expect(text(feed)).toContain("and 51 more in this batch, not listed");
   });
 
-  it("counts what the HTTP fallback finds after the list was there", async () => {
+  it("adds what the HTTP fallback finds after the list was there", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
     const el = mount(() => <LightningPage />, "/regtest/lightning");
     (await socket()).hello();
@@ -287,7 +303,7 @@ describe("the overview", () => {
     FakeSocket.last().drop();
     replies["/app/lightning/feed"] = json({ events: [feeEvent(1), openEvent(3)] });
     await vi.advanceTimersByTimeAsync(30_000);
-    await shows(el, "1 opened, 0 closed, 0 fees moved");
+    await shows(el, openEvent(3).id);
     expect(requests).toContain("/regtest/app/lightning/feed");
   });
 
@@ -348,10 +364,11 @@ describe("the overview", () => {
     expect(requests.filter((r) => r.includes("/movers"))).toStrictEqual([
       "/regtest/app/lightning/movers?period=1w",
     ]);
-    expect(text(section)).toContain("penumbra");
+    const lists = el.querySelector(".ln-lists") as HTMLElement;
+    expect(text(lists)).toContain("penumbra");
     // A node gone from the graph is not linked to a page that would say so.
-    expect(links(section)).not.toContain(`/regtest/lightning/node/${LNFI}`);
-    expect(links(section)).toContain(`/regtest/lightning/node/${PENUMBRA}`);
+    expect(links(lists)).not.toContain(`/regtest/lightning/node/${LNFI}`);
+    expect(links(lists)).toContain(`/regtest/lightning/node/${PENUMBRA}`);
   });
 
   it("says when a period moved nothing, and asks for a period's movers once", async () => {
@@ -379,13 +396,11 @@ describe("the overview", () => {
       expect(s.querySelectorAll(".ln-bars__day")).toHaveLength(7);
       return s;
     });
-    await shows(section, "Recorded from 12 Nov 2026: 9 cooperative, 1 force, 1 penalty");
+    await shows(section, "Since 12 Nov: 9 cooperative, 1 force, 1 penalty, 0.270 BTC.");
     expect(section.querySelectorAll(".ln-bars__day--unknown")).toHaveLength(6);
-    expect(text(section.querySelector(".ln-bars__ends") as HTMLElement)).toBe(
-      "6 Nov 202612 Nov 2026",
-    );
+    expect(text(section.querySelector(".ln-bars__ends") as HTMLElement)).toBe("6 Nov12 Nov");
     expect(text(section.querySelector(".ln-bars__readout") as HTMLElement)).toBe(
-      "12 Nov 2026Cooperative 3Force 1Penalty 0Other 0",
+      "12 NovCooperative 3Force 1Penalty 0Other 00.0900 BTC",
     );
     expect(section.querySelector(".ln-bars")?.getAttribute("aria-hidden")).toBe("true");
     const details = section.querySelector("details") as HTMLDetailsElement;
@@ -1298,9 +1313,7 @@ describe("the penalties", () => {
       expect(s.querySelector("a")).not.toBeNull();
       return s;
     });
-    const link = [...section.querySelectorAll("a")].find(
-      (a) => a.textContent === "Every penalty seen",
-    );
+    const link = [...section.querySelectorAll("a")].find((a) => a.textContent === "Penalties");
     expect(link?.getAttribute("href")).toBe("/regtest/lightning/penalties");
   });
 });

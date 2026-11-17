@@ -166,9 +166,9 @@ test("the overview draws every state at a desktop's and a phone's width, light a
   const send = await liveFeed(page);
   await page.setViewportSize({ width: 1280, height: 900 });
   await open(page);
-  // No totals a week back: the figures, no change.
+  // No totals a week back: changes run from the record's first point, and say so.
   const now = page.locator("[aria-labelledby=ln-now-title]");
-  await expect(now).not.toContainText("↑");
+  await expect(now).toContainText("when the record began");
   // A burst lands at once, the list held to 30 rows with a line for what it left out.
   send({ type: "events", events: BURST, more: 23 });
   await expect(page.locator(".ln-feed li")).toHaveCount(30);
@@ -192,7 +192,8 @@ test("the overview draws every state at a desktop's and a phone's width, light a
   }
   // A day's period: its change, and movers that moved nothing.
   await page.getByRole("link", { name: /^24 h/ }).click();
-  await expect(now).toContainText("↓ Down 990.00 BTC");
+  await expect(now).toContainText("↓Down 990.00 BTC");
+  await expect(now).not.toContainText("when the record began");
   await expect(page.locator("[aria-labelledby=ln-movers-title]")).toContainText(
     "No change in this period",
   );
@@ -290,9 +291,11 @@ test.describe("on a touch screen", () => {
       // A day: every total with its change, and the movers' newest nodes and those that left.
       await open(page, "/regtest/lightning?interval=24h");
       const now = page.locator("[aria-labelledby=ln-now-title]");
-      for (const change of ["↑ Up 300", "No change", "↓ Down 990.00 BTC", "↑ Up 12 ppm"])
+      for (const change of ["↑Up 300", "No change", "↓Down 990.00 BTC", "↑Up 12 ppm"])
         await expect(now).toContainText(change);
-      await expect(now).toContainText(/↓ Down 1\u202F234\u202F567\u202F890 msat/);
+      await expect(now).toContainText(/↓Down 1\u202F234\u202F567\u202F890 msat/);
+      // A phone shows one node list at a time.
+      await page.getByRole("button", { name: "Newest", exact: true }).click();
       await expect(page.getByRole("table", { name: "Newest nodes" })).toBeVisible();
       send({ type: "events", events: BURST, more: 23 });
       await expect(page.locator(".ln-feed li")).toHaveCount(30);

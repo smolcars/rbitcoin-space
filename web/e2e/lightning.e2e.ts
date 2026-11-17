@@ -52,8 +52,8 @@ test("a node reached from a ranking keeps its section's links on one line on a p
 test("the overview, a node and a channel, from mainnet's answers", async ({ page }) => {
   await serve(page, mainnet());
   await page.goto("/regtest/lightning");
-  await expect(page.getByRole("heading", { name: "The network now" })).toBeVisible();
-  await expect(page.locator("dl").getByText(/^36\s228$/)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "The network now" })).toBeAttached();
+  await expect(page.locator(".ln-fig").getByText(/^36\s228$/)).toBeVisible();
   await expect(page.getByRole("heading", { name: "Movers" })).toBeVisible();
 
   const connected = page.getByRole("table", { name: "The five nodes with the most channels" });
@@ -285,7 +285,7 @@ test("History in the section's links lands on the overview's chart from any Ligh
       // One current destination: the chart, now the reader is on it.
       await expect(nav.locator('[aria-current="location"]')).toHaveText("History");
       await expect(nav.locator('[aria-current="page"]')).toHaveCount(0);
-      const heading = page.getByRole("heading", { name: "Over time" });
+      const heading = page.getByRole("heading", { name: "Channels, over time" });
       await expect(heading).toBeInViewport();
       // Clear of the sticky header, not under it.
       const header = await page.locator(".site-header").boundingBox();
@@ -376,7 +376,7 @@ test("the overview marks its samples while they are few, and not once they are m
   });
   await page.setViewportSize({ width: 1440, height: 900 });
   for (const [n, marks] of [
-    [3, 6],
+    [3, 3],
     [400, 0],
   ] as const) {
     await serve(page, { ...mainnet(), "statistics/1w": series(n) });

@@ -67,7 +67,7 @@ test("from the overview's link to the second page, all from the keyboard", async
     if (r.url().includes("/app/lightning/penalties")) asked.push(new URL(r.url()).search);
   });
   await page.goto("/regtest/lightning");
-  const link = page.getByRole("link", { name: "Every penalty seen" });
+  const link = page.getByRole("link", { name: "Penalties", exact: true });
   await link.focus();
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(/\/regtest\/lightning\/penalties$/);

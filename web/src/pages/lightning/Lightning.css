@@ -210,7 +210,7 @@
     cursor: pointer;
   }
 
-  /* The chart's space is held while its code loads. */
+  /* A chart's space is held while its code loads. */
   .ln-chart {
     min-height: calc(240px + 5.75rem);
   }
@@ -242,20 +242,6 @@
     justify-content: space-between;
     gap: var(--space-3);
     margin-bottom: var(--space-3);
-  }
-
-  /* Two tables side by side on wide screens. */
-  .ln-pair {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: var(--space-6);
-  }
-  .ln-pair > * {
-    min-width: 0;
-  }
-  .ln-more {
-    margin-top: var(--space-3);
-    font-size: var(--text-sm);
   }
 
   /* A node's or channel's facts: label and value pairs. */
@@ -604,7 +590,6 @@
   }
 
   @media (max-width: 65em) {
-    .ln-pair,
     .ln-sides {
       grid-template-columns: minmax(0, 1fr);
     }
@@ -614,10 +599,6 @@
        ends, so the key to the hatch steps aside, as the mempool history's does. */
     .ln-coverage__swatch {
       display: none;
-    }
-    /* Five readings, a line each (Chart.css): the time, channels, capacity, nodes and fee rate. */
-    .ln-chart {
-      min-height: calc(240px + 5 * 1.5625rem + 3.5rem);
     }
     /* A node's: the time, channels and capacity. */
     .ln-chart--node {
@@ -1976,48 +1957,205 @@
   }
 }
 
-/* The overview, for operators: the period, the live feed, movers and closes by kind. */
+/* The overview, for operators: the figures, the chart and closes by kind, the live feed and the
+   movers, then the node lists. Things that belong together sit side by side on a wide screen. */
 @layer pages {
-  /* The period sits under the page's title, nearer than the gap between sections. */
-  .ln-periods {
+  .ln-ov {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--space-4);
+    padding-top: var(--space-5);
+  }
+  /* The title, its moment and the period on one line; everything else the page's width. */
+  .ln-ov > * {
+    grid-column: 1 / -1;
+  }
+  .ln-ov > .ln-nav {
+    grid-row: 1;
+    margin-bottom: 0;
+  }
+  .ln-ov > .ln-ov__title {
+    grid-row: 2;
+    grid-column: 1;
+    margin: 0;
+  }
+  .ln-ov > .ln-ov__asof {
+    grid-row: 2;
+    grid-column: 2;
+    margin: 0;
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+  .ln-ov > .ln-ov__periods {
+    grid-row: 2;
+    grid-column: 3;
     display: flex;
-    margin-top: calc(var(--space-4) - var(--space-7));
+    justify-content: flex-end;
+    min-width: 0;
   }
-  .ln-jumps {
-    display: none;
+
+  /* The figures: six wells in a row, each a button that charts its figure. */
+  .ln-figs {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: var(--space-2);
   }
-  @media (max-width: 40em) {
-    .ln-jumps {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0 var(--space-4);
-      font-size: var(--text-sm);
+  .ln-fig {
+    display: grid;
+    align-content: start;
+    gap: 2px;
+    min-width: 0;
+    padding: var(--space-3) var(--space-3) var(--space-2);
+    border: 0;
+    border-radius: var(--radius-m);
+    background: var(--color-surface-sunken);
+    color: var(--color-text);
+    font: inherit;
+    text-align: start;
+    cursor: pointer;
+    transition: box-shadow var(--dur-quick) var(--ease-out);
+  }
+  @media (hover: hover) {
+    .ln-fig:hover {
+      box-shadow: inset 0 0 0 1px var(--color-line-strong);
     }
-    .ln-jumps a {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-width: var(--touch);
-      min-height: var(--touch);
-    }
   }
-  .ln-h3 {
-    margin: 0 0 var(--space-2);
-    font-size: var(--text-md);
+  .ln-fig[aria-pressed="true"] {
+    background: var(--color-surface);
+    box-shadow:
+      inset 0 0 0 1px var(--color-line-strong),
+      inset 0 -3px 0 var(--color-accent);
   }
-  .ln-pair--flat {
-    margin-top: var(--space-6);
+  .ln-fig__label {
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
   }
-  .ln-controls,
-  .ln-feed__bar {
+  .ln-fig__value {
+    font-size: var(--text-xl);
+    font-weight: var(--weight-bold);
+    line-height: var(--leading-tight);
+    white-space: nowrap;
+  }
+  .ln-fig__value .unit {
+    font-size: var(--text-sm);
+    font-weight: var(--weight-regular);
+    color: var(--color-text-muted);
+  }
+  .ln-fig__change {
+    min-height: 1lh;
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+  }
+  .ln-spark {
+    position: relative;
+    display: block;
+    height: 28px;
+    margin-top: var(--space-1);
+  }
+  .ln-spark svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+  }
+  .ln-spark__none {
+    position: absolute;
+    inset-block: 0;
+    inset-inline-start: 0;
+    border-radius: var(--radius-s);
+    background: repeating-linear-gradient(-45deg, transparent 0 3px, var(--color-line) 3px 4px);
+  }
+  .ln-spark path {
+    fill: none;
+    stroke: var(--series-1);
+    stroke-width: 1.5;
+    stroke-linejoin: round;
+    vector-effect: non-scaling-stroke;
+  }
+  .ln-ov-now .ln-aside {
+    margin-top: var(--space-2);
+  }
+  .ln-ov-now .more {
+    margin-top: var(--space-2);
+  }
+
+  /* How nodes can be reached: one share bar, its key beside it. */
+  .ln-reach {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: var(--space-3) var(--space-5);
+    gap: var(--space-2) var(--space-4);
+    margin-top: var(--space-4);
+    font-size: var(--text-sm);
+  }
+  .ln-reach__label {
+    color: var(--color-text-muted);
+  }
+  .ln-reach__bar {
+    display: flex;
+    flex: 1 1 10rem;
+    gap: 2px;
+    height: 10px;
+    overflow: hidden;
+    border-radius: var(--radius-s);
+  }
+  .ln-reach__key {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-4);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .ln-reach__key li {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    white-space: nowrap;
+  }
+  .ln-reach__swatch {
+    width: 0.625rem;
+    height: 0.625rem;
+    border-radius: var(--radius-s);
+  }
+  .ln-reach--clear {
+    background: var(--series-1);
+  }
+  .ln-reach--both {
+    background: color-mix(in srgb, var(--series-1) 50%, var(--series-2));
+  }
+  .ln-reach--tor {
+    background: var(--series-2);
+  }
+  .ln-reach--none {
+    background: color-mix(in srgb, var(--color-text-muted) 45%, var(--color-surface));
+  }
+
+  /* Panels that belong together, side by side on a wide screen. */
+  .ln-ov__row {
+    display: grid;
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+    gap: var(--space-4) var(--space-6);
+    align-items: start;
+  }
+  .ln-ov__row > * {
+    min-width: 0;
+  }
+  /* The chart's space is held while its code loads: the plot, its axis, the readings. */
+  .ln-ov .ln-chart {
+    min-height: calc(220px + 4.5rem);
+  }
+
+  .ln-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-4);
     margin-bottom: var(--space-3);
   }
   @media (pointer: coarse) {
-    :is(.ln-controls, .ln-feed__bar) .ln-picker__item {
+    .ln-controls .ln-picker__item {
       min-height: var(--touch);
     }
   }
@@ -2037,17 +2175,22 @@
   .ln-live__dot--off {
     background: var(--color-text-muted);
   }
-  .ln-feed__counts {
-    margin: 0;
-    font-size: var(--text-sm);
-    color: var(--color-text-muted);
+  /* Beside the movers it fills their height and scrolls inside. */
+  .ln-ov__row > .ln-ov-feed {
+    align-self: stretch;
+    display: flex;
+    flex-direction: column;
   }
   .ln-feed__box {
-    height: min(30rem, 75svh);
+    /* Holds its rows' hidden words too, which would otherwise lengthen the page. */
+    position: relative;
+    flex: 1 1 0;
+    min-height: 18rem;
     overflow-y: auto;
     overscroll-behavior: contain;
     border-top: 1px solid var(--color-line);
     border-bottom: 1px solid var(--color-line);
+    container: ln-feed / inline-size;
   }
   .ln-feed {
     display: grid;
@@ -2056,12 +2199,15 @@
     list-style: none;
     font-size: var(--text-sm);
   }
+  /* Two lines a row: what happened over which channel, the ends, the figure over the time. */
   .ln-feed__row {
     display: grid;
-    grid-template-columns: 10.5rem 8.5rem 15rem minmax(0, 1fr) 6.5rem;
-    grid-template-areas: "kind what fig ends time";
-    align-items: center;
-    gap: var(--space-1) var(--space-4);
+    grid-template-columns: 9.5rem minmax(0, 1fr) auto;
+    grid-template-areas:
+      "kind ends fig"
+      "what ends time";
+    align-items: start;
+    gap: 0 var(--space-4);
     padding: var(--space-2) 0;
     border-bottom: 1px solid var(--color-line);
     container-type: inline-size;
@@ -2108,6 +2254,7 @@
     grid-area: time;
     justify-self: end;
     text-align: right;
+    font-size: var(--text-xs);
     color: var(--color-text-muted);
   }
   .ln-feed__more {
@@ -2136,13 +2283,14 @@
   .ln-feed__what .ln-id {
     white-space: nowrap;
   }
-  @media (max-width: 65em) {
+  @container ln-feed (max-width: 34em) {
     .ln-feed__row {
       grid-template-columns: auto minmax(0, 1fr);
       grid-template-areas:
         "head head"
         "what fig"
         "ends ends";
+      row-gap: var(--space-1);
     }
     /* The longest kind and time ("Cooperative close", "23 h 59 min ago") overflow 320 px together. */
     .ln-feed__head {
@@ -2197,12 +2345,97 @@
     }
   }
 
-  /* A phone at 200% text: the totals at the size of the text round them, as the node page's
-     glance, so a figure fits whole in any reader's font. */
+  /* Four short node lists side by side; a phone shows one at a time behind a picker. */
+  .ln-lists {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--space-4) var(--space-6);
+  }
+  .ln-lists > * {
+    min-width: 0;
+  }
+  .ln-lists__pick {
+    display: none;
+  }
+
+  @media (max-width: 80em) {
+    .ln-figs {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .ln-lists {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+  @media (max-width: 65em) {
+    .ln-ov__row {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .ln-feed__box {
+      flex: none;
+      height: min(26rem, 65svh);
+    }
+  }
+  @media (max-width: 40em) {
+    .ln-ov {
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: var(--space-3);
+      padding-top: var(--space-3);
+    }
+    /* The title and the period share the first line; the moment goes under them. */
+    .ln-ov > .ln-ov__periods {
+      grid-column: 2;
+    }
+    .ln-ov > .ln-ov__asof {
+      grid-row: 3;
+      grid-column: 1 / -1;
+    }
+    .ln-figs {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    /* The time, the figure and its mean, a line each (Chart.css). */
+    .ln-ov .ln-chart {
+      min-height: calc(220px + 3 * 1.5625rem + 3.5rem);
+    }
+    .ln-fig {
+      padding: var(--space-2) var(--space-3);
+    }
+    .ln-spark {
+      height: 20px;
+    }
+    .ln-lists {
+      grid-template-columns: minmax(0, 1fr);
+      gap: var(--space-2);
+    }
+    .ln-lists__pick {
+      display: block;
+    }
+    .ln-lists__pick ul {
+      flex-wrap: nowrap;
+    }
+    .ln-lists__pick li {
+      flex: 1 1 0;
+    }
+    .ln-lists__pick .ln-picker__item {
+      width: 100%;
+      min-height: var(--touch);
+      padding-inline: var(--space-1);
+    }
+    .ln-lists[data-show="capacity"] > section:not([data-list="capacity"]),
+    .ln-lists[data-show="channels"] > section:not([data-list="channels"]),
+    .ln-lists[data-show="new"] > section:not([data-list="new"]),
+    .ln-lists[data-show="left"] > section:not([data-list="left"]) {
+      display: none;
+    }
+  }
+  /* A phone at 200% text: the figures at the size of the text round them, as the node page's
+     glance, so each fits whole in any reader's font; one a row. */
   @media (max-width: 15em) {
-    .ln-overview-now .ln-stat__value,
-    .ln-overview-now .ln-stat__value .amount {
+    .ln-fig__value,
+    .ln-fig__value .amount {
       font-size: var(--text-md);
+    }
+    .ln-figs {
+      grid-template-columns: minmax(0, 1fr);
     }
   }
 

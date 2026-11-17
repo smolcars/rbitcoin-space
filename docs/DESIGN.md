@@ -554,22 +554,19 @@ Decided while building it:
 ### Lightning (not in the prototype)
 
 ```text
-Lightning              (nodes and channels are found from the header's search)
-[24 h | 1 w | 1 m]     (one period for the totals, the movers and the chart)
-The network now ═════════════════════════════════════════ As of 12 Nov, 18:30 UTC
-Channels  Nodes  Capacity  Median fee rate  Median base fee   (each: ↑ Up 28 (0.1%))
-As it happens ═══════════════════════════════════════════════════ ● Live [Pause]
-[All | Opens | Closes | Fee changes]   Since 14:02 UTC: 2 opened, 1 closed, 412 fees moved
-kind │ channel │ capacity, or fee from → to │ node ↔ node │ when      (30 rows, its own box)
-Movers ═══════════════════════════════════════════════ Net change, the last week
-[Capacity | Channels]  [Gained | Lost | Either way]
-node, change, now
-Newest nodes ═════════════════════ │ Nodes that left ═══════════════════
-Closes by kind ═════════════════════════════════════════════════ Each day, UTC
-[a bar a day, its kinds stacked]
-Over time ═══════════════════════════════════════════════════ Every ten minutes
-[area: channels; dashed line: capacity, right axis]
-Largest nodes ════════════════════ │ Most connected nodes ══════════════
+Lightning  As of 12 Nov, 18:30 UTC                               [24 h | 1 w | 1 m]
+┌ Channels │ Nodes │ Capacity │ Median channel │ Median fee rate │ Median base fee ┐
+│ each a button: value, ↓ 54, a sparkline of the period; the pressed one is charted │
+│ Nodes reached by [clearnet │ both │ Tor │ no address]                    More ▸     │
+└──────────────────────────────────────────────────────────────────────────────────┘
+<figure>, over time ════════════════ │ Closes by kind ══════════ Each day, UTC
+[line: the pressed figure; its mean   │ [a bar a day, its kinds stacked]
+ in the readout for a median]         │ since …: 9 cooperative, 1 force · Penalties
+As it happens ══════ ● Live [Pause]   │ Movers ═══════ Net change, the last week
+[All | Opens | Closes | Fee changes]  │ [Capacity | Channels] [Gained | Lost | Either way]
+kind     node ↔ node    capacity      │ node, change, now
+channel                 when          │   (the feed fills the movers' height)
+Largest │ Most connected │ Newest nodes │ Nodes that left   (five rows each; a phone: one, picked)
 Node page: name (text, cut), key grouped with copy, "the key is the identity";
   figures; its past │ its fee rates (two bars a row: it charges, its peers charge); addresses and features as chips; channels, open | closed, 25 a page
 Channel page: id, its state as an icon and a word, the two nodes, capacity, age, the id in three forms;
@@ -580,11 +577,12 @@ Channel page: id, its state as an icon and a word, the two nodes, capacity, age,
 
 Decided while building it:
 
-- **The order answers the visit, for an operator:** the totals with their change over the period, what is happening now, who moved, how channels closed, the network over time, then five-row previews of the largest and best-connected nodes (their "Top 100" in the panel's heading). Every Lightning page has the short Overview and Rankings row; a node or channel leads back to the list the reader came from.
-- **The feed is calm.** Batches come at most every 30 s (about 23 fee changes a minute on mainnet, under one open): each lands at once with one flash, never row by row, and a burst says how many it left out. Opens and closes stay a press away in its kind picker when fee changes flood it. It pauses for its button, a pointer or focus in it, and starts paused under reduced motion. A close's kind is its tag: a penalty in the negative tone, a force close in `--ln-caution`. The same tones colour the bars of closes by kind; cooperative and other closes are neutrals.
+- **The order answers the visit, for an operator, and uses the width:** the totals with their change over the period, then the network over time beside how channels closed, what is happening now beside who moved, then four five-row lists (largest, most connected, newest, left; the first two with their "Top 100"). Panels that belong together sit side by side on a wide screen and stack below 65em; on a phone the four lists share one panel behind a picker, and the title and period share the first line, so all six figures with their change and trend are on a 390 px first screen. Every Lightning page has the short Overview and Rankings row; a node or channel leads back to the list the reader came from.
+- **Each figure is the chart's choice.** Pressing one draws it below (`?figure=`, kept across periods), so the chart can show the fee rate or the channel size, not only channels; a median's mean is in the readout. A figure's change reads `↓ 54` (the word is for screen readers); where the record is shorter than the period it runs from the record's first point, and one line says so once. Its sparkline spans the period, hatched before the record. "Nodes reached by" is one share bar in the series colours.
+- **The feed is calm,** and has no running counts. Batches come at most every 30 s (about 23 fee changes a minute on mainnet, under one open): each lands at once with one flash, never row by row, and a burst says how many it left out. Opens and closes stay a press away in its kind picker when fee changes flood it. It pauses for its button, a pointer or focus in it, and starts paused under reduced motion. A close's kind is its tag: a penalty in the negative tone, a force close in `--ln-caution`. The same tones colour the bars of closes by kind; cooperative and other closes are neutrals.
 - **What is ours is said, not hidden.** Under the figures, one line says only channels checked against the chain are counted; how, and what the fee figures leave out, is behind "How these figures are made". History starts when this server's peer first synced: the chart hatches the time before it and says since when; closes by kind start at the first recorded day (a week at least), so a young record fills the width instead of hatching it. The closed lists say they hold closes seen since then.
 - **A close says how sure it is,** beside its kind: "Force close · Certain", "Cooperative close · Likely" (a splice that only takes funds out looks the same), "Penalty · Certain", "Other · Certain it is not a plain close". Lists give the kind in one word; the channel page gives the reason.
-- **Charts are drawn in the series colours,** as the mining charts are: the main series an area, the second a dashed line on its own scale. Capacity in the figures reads in magnitude (`3 199 BTC`).
+- **Charts are drawn in the series colours,** as the mining charts are: the main series an area or a line, a second a dashed line on its own scale. Capacity in the figures reads in magnitude (`3 199 BTC`).
 - **Names are claims.** A node's name is text, cut short in lists and titles with the rest one press away, and isolated so its direction cannot run into the text beside it; its public key is always next to it. A node's announced colour appears once, in its Identity section, as a small swatch beside its `#rrggbb` value, a claim like its name; nowhere else does it colour anything.
 - **The node page is for its operator.** Its name and short key, its capacity and open channels each with its rank, and when a policy on its channels last changed; then one view at a time, chosen by tabs in the address: Channels (a table on a wide screen, sortable by every figure; on a phone three-line cards, with a sort picker), Closed, Fees ("In figures", then the histogram, whose bars open the channels they count) and History. Under the views, the node at a glance (each figure's change over 7 days once the record is that old), then its Identity. While the reader sorts, filters or pages, the list holds its rows until the new ones arrive. A row's state says what gossip says: "Enabled" (both ends), "Disabled by this node", "Disabled by the peer", or, where a policy is missing, whose ("Peer policy missing"), never "Disabled"; the state chips count the server's four states, an end "off" when its policy is disabled or missing.
 - **Tables fit a 320 px phone,** and every column keeps a gutter at every width. A chart's figures do too, with no sideways scroll: a time takes two lines (the day, then the time of day, with "UTC" in the header), and a node's fee figures are one table each way, headed with the chart's own words, side by side only where the panel holds both whole and one over the other otherwise. Long headers take two lines and fee-rate ranges break before their upper end wherever room runs short, at any width. A channel row puts its id, kind, time and both ends in one cell; a node list drops, on a phone, the figure it is not ranked by.
