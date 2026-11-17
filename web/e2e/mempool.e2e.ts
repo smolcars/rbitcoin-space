@@ -55,7 +55,7 @@ test("the page shows the minutes the server stored, with the gap where none was"
   await expect(chart).toHaveAttribute("aria-valuetext", /UTC: Total [\d.]+/);
   await expect(page.getByText(/^(Under 1|\d+)% recorded, from .* UTC\.$/)).toBeVisible();
   const figures = page.getByRole("region", { name: /The mempool's size by fee rate.*, figures/ });
-  await chart.locator("xpath=ancestor::figure").getByText("Show the figures").click();
+  await page.getByText("Show the figures").click();
   // The table renders after the click: wait for it before reading it once.
   await expect(
     figures.getByRole("columnheader", { name: "Transactions", exact: true }),
@@ -125,86 +125,107 @@ test("a phone sees the whole size chart, time axis and all, on its first screen"
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
       390,
     );
-    // The readout holds the time, total, transactions and lowest rate; no fee band until a finger
-    // is on the chart.
-    const readout = page.locator(".chart__readout").first();
-    await expect(readout.getByText("Total")).toBeVisible();
-    await expect(readout.getByText("Transactions")).toBeVisible();
-    await expect(readout.getByText("Lowest accepted")).toBeVisible();
-    for (const band of await readout.locator(".chart__value--band").all()) {
-      await expect(band).toBeHidden();
-    }
+    // The readout above the plot holds the time, total, transactions and lowest rate.
+    await expect(page.locator(".mempool-now")).toContainText(/UTC.*tx, from [\d.]+ sat\/vB/);
     // "Show the figures" is a finger's target.
-    const figures = page.locator(".chart__figures > summary").first();
+    const figures = page.getByText("Show the figures");
     expect((await figures.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
   }
 });
 
-test("a phone's chart reads out only the fee bands that hold anything, and keeps its other lines", async ({
-  browser,
-  baseURL,
-}) => {
-  const touch = await browser.newContext({ hasTouch: true, viewport: { width: 390, height: 844 } });
-  const page = await touch.newPage();
-  await page.goto(`${baseURL ?? ""}/regtest/mempool?interval=2h`);
-  const chart = page.getByRole("slider", { name: /The mempool's size by fee rate/ });
-  await expect(chart).toHaveAttribute("aria-valuetext", /UTC: Total [\d.]+/);
-  // The seeded minutes sit in one or two fee bands, so most of the twelve are empty.
-  const empty = page.locator(".chart__value--band.chart__value--empty");
-  expect(await empty.count()).toBeGreaterThan(0);
-  for (const value of await empty.all()) await expect(value).toBeHidden();
-  await expect(page.locator(".chart__value:not(.chart__value--empty)").first()).toBeVisible();
-  // The flow's layers keep their lines at a minute where one is zero: a tap anywhere along it
-  // never moves the plot (a line once came and went, pushing it 25 px). Blocks mine in some
-  // minutes and not others here, as on mainnet.
+/** Two hours of mainnet-like minutes: the bulk under 0.15, blocks mined in some minutes. */
+function mainnetLike() {
   const to = Math.floor(Date.now() / 60_000) * 60;
   const points = Array.from({ length: 116 }, (_, i) => ({
     time: to - (115 - i) * 60,
     bands: [
-      26_000_000, 120_000, 40_000, 200_000, 90_000, 150_000, 30_000, 180_000, 140_000, 10_000,
+      18_000_000, 8_000_000, 40_000, 200_000, 90_000, 150_000, 30_000, 180_000, 140_000, 10_000,
+      5000, 2000,
     ],
-    vsize: 26_960_000,
-    count: 45_000,
+    vsize: 26_847_000,
+    count: 45_000 + i,
     fees: 4_000_000,
     min_fee_rate: 100,
     samples: 1,
     in_count: 10,
-    in_vsize: 12_345_678,
+    // Arrivals step up in the second hour, so the flow's ten-minute means differ along the plot.
+    in_vsize: i < 60 ? 120_000 : 240_000,
     out_count: 9,
     out_vsize: i % 10 === 0 ? 98_765_432 : 1_234_567,
     mined_count: i % 10 === 0 ? 3000 : 0,
     mined_vsize: i % 10 === 0 ? 87_654_321 : 0,
   }));
   const from = points[0]?.time ?? to;
-  await page.route(/\/app\/mempool\/history\/2h$/, (r) =>
-    r.fulfill({
-      json: {
-        complete: true,
-        first: from,
-        from,
-        to: to + 59,
-        interval: "2h",
-        minutes: 116,
-        sampled: 116,
-        step: 60,
-        points,
-      },
-    }),
-  );
-  await page.reload();
-  const flow = page.getByRole("slider", { name: /What entered and left the mempool/ });
-  await expect(flow).toHaveAttribute("aria-valuetext", /UTC/);
-  await flow.scrollIntoViewIfNeeded();
-  const top = () => flow.evaluate((el) => Math.round(el.getBoundingClientRect().top + scrollY));
+  return {
+    complete: true,
+    first: from,
+    from,
+    to: to + 59,
+    interval: "2h",
+    minutes: 116,
+    sampled: 116,
+    step: 60,
+    points,
+  };
+}
+
+test("a tap anywhere along a phone's plot reads it without moving it", async ({
+  browser,
+  baseURL,
+}) => {
+  const touch = await browser.newContext({ hasTouch: true, viewport: { width: 390, height: 844 } });
+  const page = await touch.newPage();
+  await page.route(/\/app\/mempool\/history\/2h$/, (r) => r.fulfill({ json: mainnetLike() }));
+  await page.goto(`${baseURL ?? ""}/regtest/mempool?interval=2h`);
+  const plot = page.getByRole("slider", { name: /The mempool's size by fee rate/ });
+  await expect(plot).toHaveAttribute("aria-valuetext", /UTC/);
+  await plot.scrollIntoViewIfNeeded();
+  const top = () => plot.evaluate((el) => Math.round(el.getBoundingClientRect().top + scrollY));
   const at = await top();
-  const box = await flow.boundingBox();
-  if (!box) throw new Error("no flow plot");
-  // Every eleventh minute: mined minutes (0 and 110 of each tenth) and quiet ones both come up.
+  const box = await plot.locator("svg").boundingBox();
+  if (!box) throw new Error("no plot");
+  // Every eleventh minute, on the size and on the flow: mined minutes and quiet ones both come up.
   for (let k = 0; k < 116; k += 11) {
-    await page.touchscreen.tap(box.x + (box.width * (k + 0.5)) / 116, box.y + box.height * 0.5);
-    expect(await top(), `tap at minute ${k}`).toBe(at);
+    for (const y of [0.3, 0.85]) {
+      await page.touchscreen.tap(box.x + (box.width * (k + 0.5)) / 116, box.y + box.height * y);
+      expect(await top(), `tap at minute ${k}`).toBe(at);
+    }
   }
   await touch.close();
+});
+
+// The key is the readout at the crosshair and the filter: one press hides the cheap bulk so the
+// dearer bands fill the plot, and the flow's figures follow the same crosshair as the bands'.
+test("the fee key filters the bands and reads both charts at the crosshair", async ({ page }) => {
+  await page.route(/\/app\/mempool\/history\/2h$/, (r) => r.fulfill({ json: mainnetLike() }));
+  await page.goto("/regtest/mempool?interval=2h");
+  const plot = page.getByRole("slider", { name: /The mempool's size by fee rate/ });
+  await expect(plot).toHaveAttribute("aria-valuetext", /UTC/);
+  const layers = page.locator(".mempool-canvas svg path.mempool-layer");
+  await expect(layers).toHaveCount(12);
+  await page.getByRole("button", { name: "From 0.15 up" }).click();
+  await expect(layers).toHaveCount(10);
+  await expect(page.locator(".mempool-now")).toContainText(/ of 26\.85 MvB/);
+  await expect(page.getByRole("button", { name: /^under 0\.12/ })).toHaveClass(/mempool-band--off/);
+  await page.getByRole("button", { name: "Show all" }).click();
+  await expect(layers).toHaveCount(12);
+  await expect(page.locator(".mempool-band--off")).toHaveCount(0);
+
+  const arrived = page.locator(".mempool-flowkey li").first();
+  const when = page.locator(".mempool-now__when");
+  const box = await plot.locator("svg").boundingBox();
+  if (!box) throw new Error("no plot");
+  // Near the start, arrivals were 2,000 vB/s; near the end, 4,000.
+  await page.mouse.move(box.x + box.width * 0.2, box.y + 40);
+  const early = await when.textContent();
+  await expect(arrived).toContainText(/2\s000 vB\/s/);
+  await page.mouse.move(box.x + box.width * 0.95, box.y + box.height - 40);
+  await expect(when).not.toHaveText(early ?? "");
+  await expect(arrived).toContainText(/4\s000 vB\/s/);
+  // The pointer gone, the latest minute again.
+  await page.mouse.move(box.x + box.width / 2, box.y - 200);
+  await expect(plot).toHaveAttribute("aria-valuemax", "115");
+  await expect(plot).toHaveAttribute("aria-valuenow", "115");
 });
 
 // Where the lowest band was split, the stacked layers once fell away from the total at the join:
@@ -272,12 +293,10 @@ test.describe("the join between ten and twelve bands", () => {
             route.fulfill({ json: mixed(interval, unsplitFirst) }),
           );
           await page.goto(`/regtest/mempool?interval=${interval}`);
-          const svg = page.locator(".mempool-chart--size svg").first();
-          await expect(svg.locator("path.chart__layer").first()).toBeAttached();
+          const svg = page.locator(".mempool-canvas svg").first();
+          await expect(svg.locator("path.mempool-layer").first()).toBeAttached();
           const [worst, slant] = await svg.evaluate((el) => {
-            const layers = [...el.querySelectorAll<SVGPathElement>("path.chart__layer")];
-            const line = el.querySelector<SVGPathElement>("path.chart__line");
-            if (!line) return [Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY];
+            const layers = [...el.querySelectorAll<SVGPathElement>("path.mempool-layer")];
             // The layer of minutes from before the split, drawn first: at the bottom.
             const unsplit = layers[0];
             // getBBox gives x, y, width and height only (an SVGRect has no right or bottom).
@@ -300,28 +319,28 @@ test.describe("the join between ten and twelve bands", () => {
             // every second where a point's step is several units wide (1440 px), so no step is
             // passed over.
             const stride = box.right - box.x > 600 ? 2 : 1;
+            let lastTop: number | undefined;
             for (let x = box.x + 1; x < box.right - 1; x += stride) {
               // The fill runs from the floor up, unbroken: its top by halving.
               let top = box.y - 1;
               let bottom = box.bottom - 0.5;
-              if (!filled(x, bottom)) continue;
+              if (!filled(x, bottom)) {
+                lastTop = undefined;
+                continue;
+              }
               for (let k = 0; k < 12; k++) {
                 const mid = (top + bottom) / 2;
                 if (filled(x, mid)) bottom = mid;
                 else top = mid;
               }
-              const hits: number[] = [];
-              // The line, looked for near the fill's top: a step ends the stack on it or misses.
-              for (let y = bottom - 8; y < bottom + 8; y += 0.5) {
-                if (line.isPointInStroke(new DOMPoint(x, y))) hits.push(y);
+              // The stack is whole from its top to the floor: a layer that slid at the join leaves a
+              // wedge of nothing between it and the next.
+              for (let y = bottom + 0.5; y < box.bottom - 0.5; y += 0.5) {
+                if (!filled(x, y)) most = Math.max(most, 2);
               }
-              // No line near the stack's top: the two have come apart by more than the window.
-              if (hits.length === 0) {
-                most = Number.POSITIVE_INFINITY;
-                continue;
-              }
-              const centre = hits.reduce((s, y) => s + y, 0) / hits.length;
-              most = Math.max(most, Math.abs(bottom - centre));
+              // And its top follows the total, which moves by a few hundred vB a step: never a dip.
+              if (lastTop !== undefined) most = Math.max(most, Math.abs(bottom - lastTop));
+              lastTop = bottom;
               if (unsplit?.isPointInFill(new DOMPoint(x, box.bottom - 0.5))) {
                 let up = box.y - 1;
                 let down = box.bottom - 0.5;
@@ -337,7 +356,7 @@ test.describe("the join between ten and twelve bands", () => {
             return [most, spread];
           });
           const label = `${interval}, ${unsplitFirst ? "ten then twelve" : "twelve then ten"}`;
-          expect(worst, `${label}: stack against the total`).toBeLessThan(2);
+          expect(worst, `${label}: the stack whole and its top unbroken`).toBeLessThan(2);
           expect(slant, `${label}: the unsplit layer up to its join`).toBeLessThan(2);
         }
       });
@@ -346,13 +365,13 @@ test.describe("the join between ten and twelve bands", () => {
 
 /** A point on screen inside one of the size chart's bands: where a pointer or finger finds one. */
 async function pointOnABand(p: Page): Promise<{ x: number; y: number }> {
-  await p.locator(".mempool-chart--size svg").first().scrollIntoViewIfNeeded();
+  await p.locator(".mempool-canvas svg").first().scrollIntoViewIfNeeded();
   const point = await p
-    .locator(".mempool-chart--size svg")
+    .locator(".mempool-canvas svg")
     .first()
     .evaluate((svg) => {
       const ctm = (svg as SVGSVGElement).getScreenCTM();
-      for (const layer of svg.querySelectorAll<SVGPathElement>("path.chart__layer")) {
+      for (const layer of svg.querySelectorAll<SVGPathElement>("path.mempool-layer")) {
         const b = layer.getBBox();
         for (let fy = 0.2; fy < 1; fy += 0.2) {
           for (let fx = 0.1; fx < 1; fx += 0.1) {
@@ -377,7 +396,7 @@ test("a band under the pointer, a finger or the keys keeps its colour, and a tap
   page,
 }) => {
   const plotLayers = (p: typeof page) =>
-    p.locator(".mempool-chart--size svg path.chart__layer").evaluateAll((all) => {
+    p.locator(".mempool-canvas svg path.mempool-layer").evaluateAll((all) => {
       const probe = document.createElement("span");
       probe.style.color = "var(--color-accent)";
       document.body.append(probe);
@@ -386,7 +405,7 @@ test("a band under the pointer, a finger or the keys keeps its colour, and a tap
       return {
         accent,
         layers: all.map((l) => ({
-          on: l.classList.contains("chart__layer--on"),
+          on: l.classList.contains("mempool-layer--on"),
           fill: getComputedStyle(l).fill,
           stroke: getComputedStyle(l).stroke,
         })),
@@ -399,7 +418,7 @@ test("a band under the pointer, a finger or the keys keeps its colour, and a tap
   // The pointer over the stack's lowest part, at the right, where the seeded minutes are.
   const onBand = await pointOnABand(page);
   await page.mouse.move(onBand.x, onBand.y);
-  await expect(page.locator(".mempool-chart--size .chart__layer--on")).toHaveCount(1);
+  await expect(page.locator(".mempool-canvas .mempool-layer--on")).toHaveCount(1);
   const during = await plotLayers(page);
   for (const [k, l] of during.layers.entries()) {
     expect(l.fill, `layer ${k}`).toBe(before.layers[k]?.fill);
@@ -418,20 +437,18 @@ test("a band under the pointer, a finger or the keys keeps its colour, and a tap
   const phoneChart = phone.getByRole("slider", { name: /The mempool's size by fee rate/ });
   await expect(phoneChart).toHaveAttribute("aria-valuetext", /UTC: Total [\d.]+/);
   const onPhoneBand = await pointOnABand(phone);
-  // The band's line is held, saying a tap names one, so the tap moves nothing down.
-  const hint = phone.locator(".mempool-chart--size .chart__hint");
-  await expect(hint).toBeVisible();
   const plotTop = () =>
     phoneChart.evaluate((el) => Math.round(el.getBoundingClientRect().top + window.scrollY));
   const top = await plotTop();
   await phone.touchscreen.tap(onPhoneBand.x, onPhoneBand.y);
-  await expect(phone.locator(".mempool-chart--size .chart__layer--on")).toHaveCount(1);
-  await expect(hint).toBeHidden();
+  await expect(phone.locator(".mempool-canvas .mempool-layer--on")).toHaveCount(1);
+  // The key names the band picked, beside or under the plot.
+  await expect(phone.locator(".mempool-band--on")).toHaveCount(1);
   expect(await plotTop()).toBe(top);
   for (const l of (await plotLayers(phone)).layers) expect(l.fill).not.toBe(during.accent);
   await phone.getByRole("heading", { level: 1 }).tap();
-  await expect(phone.locator(".mempool-chart--size .chart__layer--on")).toHaveCount(0);
-  await expect(hint).toBeVisible();
+  await expect(phone.locator(".mempool-canvas .mempool-layer--on")).toHaveCount(0);
+  await expect(phone.locator(".mempool-band--on")).toHaveCount(0);
   expect(await plotTop()).toBe(top);
   await touch.close();
 });

@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   coverageSentence,
+  crosshair,
   dataFrom,
+  figures,
+  filterFrom,
+  flowPoints,
   flowSentence,
   isHistory,
+  layersFrom,
   netFlow,
   parseInterval,
   pointTime,
@@ -163,5 +168,126 @@ describe("flow", () => {
   });
   it("has nothing to say about an empty period", () => {
     expect(flowSentence(history({ points: [] }), "x")).toBeUndefined();
+  });
+});
+
+describe("the flow drawn", () => {
+  it("reads minutes in ten-minute means, weighted by the minutes seen, so a block's minute never swamps the rest", () => {
+    // Ten minutes, one of them holding a block: 600 vB/s mined in that minute is 60 vB/s on average.
+    const points = Array.from({ length: 12 }, (_, i) =>
+      point(T0 + i * 60, {
+        in_vsize: 6000 * (i + 1),
+        mined_vsize: i === 3 ? 36_000 : 0,
+        out_vsize: i === 3 ? 36_600 : 600,
+      }),
+    );
+    const f = flowPoints(history({ points }));
+    expect(f.step).toBe(600);
+    expect(f.x).toStrictEqual([T0, T0 + 600]);
+    // Minutes 1 to 10 arrive at 100 to 1,000 vB/s: a mean of 550.
+    expect(f.entered[0]).toBeCloseTo(550);
+    expect(f.mined[0]).toBeCloseTo(60);
+    expect(f.other[0]).toBeCloseTo(10);
+    // The last two minutes are a group of their own.
+    expect(f.entered[1]).toBeCloseTo(1150);
+  });
+
+  it("draws coarser steps as recorded", () => {
+    const h = history({ step: 3600, points: [point(T0), point(T0 + 3600, { in_vsize: 12_000 })] });
+    const f = flowPoints(h);
+    expect(f.step).toBe(3600);
+    expect(f.x).toStrictEqual([T0, T0 + 3600]);
+    expect(f.entered).toStrictEqual([100, 200]);
+  });
+});
+
+describe("the fee filter", () => {
+  const bands = (b: number[]) => point(T0, { bands: b, vsize: b.reduce((x, y) => x + y, 0) });
+  it("offers the first band above where nine tenths of the latest point lie", () => {
+    // 60% under 0.12 and 37% at 0.12 to 0.15: from 0.15 up.
+    const s = seriesOf(history({ points: [bands([600, 370, 10, 10, 0, 0, 0, 0, 0, 0, 0, 10])] }));
+    expect(filterFrom(s)).toBe(2);
+    // Under nine tenths in the lowest band alone: from 0.12 up.
+    const t = seriesOf(history({ points: [bands([950, 30, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0])] }));
+    expect(filterFrom(t)).toBe(1);
+  });
+
+  it("offers nothing when nothing would be left, or nothing waits", () => {
+    const all = seriesOf(history({ points: [bands([1000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])] }));
+    expect(filterFrom(all)).toBe(0);
+    const none = seriesOf(history({ points: [bands(Array.from({ length: 12 }, () => 0))] }));
+    expect(filterFrom(none)).toBe(0);
+    // Spread out, with no cheap bulk: the dearest tenth is only in the top band.
+    const spread = seriesOf(
+      history({ points: [bands([100, 100, 100, 100, 100, 100, 100, 100, 100, 50, 50, 100])] }),
+    );
+    expect(filterFrom(spread)).toBe(11);
+  });
+
+  it("starts at 0.2 or above where the latest point is from before the split", () => {
+    const old = point(T0, { bands: [950, 20, 10, 10, 0, 0, 0, 0, 0, 10], vsize: 1000 });
+    expect(filterFrom(seriesOf(history({ points: [old] })))).toBe(3);
+  });
+
+  it("keeps the bands from the filter up, and the unsplit layer only when all are shown", () => {
+    const old = point(T0, { bands: [150_000, 50_000, 400_000, 0, 0, 0, 0, 0, 0, 0] });
+    const s = seriesOf(history({ points: [old, point(T0 + 60)] }));
+    expect(layersFrom(s, 0).layers.map((l) => l.band)).toStrictEqual([
+      -1,
+      ...Array.from({ length: 12 }, (_, k) => k),
+    ]);
+    const from = layersFrom(s, 2);
+    expect(from.layers.map((l) => l.band)).toStrictEqual(
+      Array.from({ length: 10 }, (_, k) => k + 2),
+    );
+    // The join keeps one value per layer drawn.
+    expect(from.joins[0]?.before).toHaveLength(10);
+  });
+});
+
+describe("the crosshair", () => {
+  it("reads the flow point whose ten minutes hold the point under it, and what the shown bands hold", () => {
+    const points = Array.from({ length: 20 }, (_, i) => point(T0 + i * 60));
+    const h = history({ points });
+    const s = seriesOf(h);
+    const f = flowPoints(h);
+    expect(crosshair(h, s, f, 3, 0)?.flow).toBe(0);
+    expect(crosshair(h, s, f, 13, 0)?.flow).toBe(1);
+    expect(crosshair(h, s, f, 13, 0)?.point.time).toBe(T0 + 780);
+    // The test point holds 100 kvB under 0.12, 50 kvB at 0.5 to 1 and 400 kvB at 1 to 1.5.
+    expect(crosshair(h, s, f, 13, 0)?.shown).toBe(550_000);
+    expect(crosshair(h, s, f, 13, 6)?.shown).toBe(400_000);
+    expect(crosshair(h, s, f, 20, 0)).toBeUndefined();
+  });
+
+  it("finds no flow where its ten minutes are missing", () => {
+    const h = history({ points: [point(T0), point(T0 + 1200)] });
+    const f = { ...flowPoints(h), x: [T0] };
+    expect(crosshair(h, seriesOf(h), f, 1, 0)?.flow).toBe(-1);
+  });
+});
+
+describe("the four figures", () => {
+  it("say what waits now, the change and peak, the flow, and how deep the next block reaches", () => {
+    const h = history({
+      points: [
+        point(T0, { vsize: 900_000 }),
+        point(T0 + 60, { vsize: 2_000_000 }),
+        // 1.2 MvB at 1 to 1.5 and dearer: the dearest block's worth stops in that band.
+        point(T0 + 120, {
+          vsize: 1_500_000,
+          bands: [300_000, 0, 0, 0, 0, 0, 1_000_000, 0, 0, 200_000, 0, 0],
+        }),
+      ],
+    });
+    const f = figures(h);
+    expect(f?.last.vsize).toBe(1_500_000);
+    expect(f?.change).toBe(600_000);
+    expect(f?.peak.vsize).toBe(2_000_000);
+    expect(f?.deep).toBe(6);
+    expect(f?.flow?.entered).toBeCloseTo(100);
+    // Less than a block waiting: everything goes.
+    expect(figures(history())?.deep).toBe(-1);
+    expect(figures(history({ points: [] }))).toBeUndefined();
   });
 });

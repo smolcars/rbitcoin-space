@@ -512,24 +512,35 @@ Decided while building it, where the layout above left it open:
 ### Mempool history (not in the prototype)
 
 ```text
-Mempool history                     [2 h | 24 h | 1 w | … | 4 y | All]
-(coverage sentence, with the hatch as its swatch, when minutes are missing)
-Waiting, by fee rate ════════════════════════════════ One point a minute
-readout: time, total, transactions, lowest accepted, each band
-[stacked areas in the fee colors, cheapest at the bottom; total as a line]
-fee key
-Flow ═══════════════════════════════════════════════════ vB a second
-Over the last 24 hours, 2 983 vB/s arrived, blocks took …: it filled by …
-[line: arrived; stacked shades: mined, left otherwise]
+Mempool history  21% recorded, from 12 Nov, 11:14 UTC.   [2 h | 24 h | 1 w | … | 4 y | All]
+┌──────────────────────────────────────────────────────────────────────────────────────┐
+│ Waiting now      │ Change          │ Arriving              │ Next block reaches      │
+│ 32.67 MvB        │ −793.87 kvB     │ 1 244 vB/s            │ 2 sat/vB                │
+│ 78 902 txs       │ peak 34.66 MvB  │ blocks took 1 217 vB/s│ the dearest 1 MvB, now  │
+│──────────────────────────────────────────────────────────────────────────────────────│
+│ [stacked fee layers, cheapest at the bottom]             ┆ 17 Nov, 01:00 UTC         │
+│                                                          ┆ 32.67 MvB                 │
+│                                                          ┆ 78 902 tx, from 0.10      │
+│ Flow, vB/s: arrived and left                             ┆ By fee rate  [From 0.15 up]│
+│ [line: arrived; shades: mined, left otherwise]           ┆ ■ 10+        16.46 kvB    │
+│ one time axis                                            ┆ …  ■ Arrived  862 vB/s    │
+└──────────────────────────────────────────────────────────────────────────────────────┘
+> How these figures are made
+> Show the figures
+Recent replacements ═════════════════════════════════════════════════ All replacements
 ```
 
-- **The mempool is the core sample laid on its side,** as pool shares are, but its layers are fee bands, so here they take the fee colors: color still carries fee and nothing else. The layer under the pointer turns the accent.
-- **Flow is its own chart,** not a second axis on the first: its units are a rate, and the question it answers (filling or draining) is read from where the line sits against the layers. A sentence above gives the period's answer in words.
-- **Honest about coverage,** as the mining charts are: a break wherever a step was not sampled (a lone minute is a sliver), and a sentence saying how many of the period's minutes are here and since when.
-- **Opens on what is recorded, and says so in its choices.** With no period in the address, a view whose records begin inside it starts where they do, under one line ("Recorded since …"; the Lightning overview says "Everything recorded, since …"), and the period choices gain "Recorded", marked as the current one: a period's name always means its whole width, so choosing "24 h" shows the whole day, the time before the records hatched ("No data stored"). The same holds on the Lightning overview. The fee key is not repeated under the chart: its readout names every band, and on a phone only the bands holding anything at that point.
+- **One panel answers.** Four figures across its top, the plot under them. They are what the record can honestly say: what waits now and in how many transactions; how that changed over the period, with its peak; what arrived against what blocks took; and the rate the dearest block's worth now reaches down to ("Next block reaches", the cheapest band the dearest 1 MvB waiting reaches into). The record keeps no block's lowest rate, so it never claims one.
+- **The mempool is the core sample laid on its side,** as pool shares are, but its layers are fee bands, so here they take the fee colors: color still carries fee and nothing else. No total line: the top of the stack is the total. The layer under the pointer keeps its colour and takes an outline in the text colour while the others fade; the accent is never drawn in a plot.
+- **Size and flow share one time axis and one crosshair,** the size above, the flow below in its own strip and units (vB a second): a line for what arrived over shades for what blocks mined and what left otherwise, so where the line sits against the shades says filling or draining. A minute holds one block or none, so under ten-minute steps the flow reads in ten-minute means; coarser steps are drawn as recorded.
+- **The key is the readout and the filter.** Beside the plot on a desktop, under it on a phone, it names each band with its figure at the crosshair (the latest point until the pointer, a finger or the keys move it), under the crosshair's time, total, count and lowest accepted rate, and the flow's three figures after it. A band pressed shows it and every dearer band on their own scale, the rest drawn as empty swatches; "From 0.15 up" offers the band above where nine tenths of the latest point lie, worked out from the data, so the block-by-block clearing over a cheap slab shows in one press. "Show all" undoes it. The rows keep their place, so nothing moves as the crosshair does.
+- **Explanations are a second layer.** "How these figures are made" holds one short line each for the layers, the flow and "Next block reaches"; "Show the figures" opens every point as a table. Both sit under the panel, so opening them never changes it.
+- **Honest about coverage,** as the mining charts are: a break wherever a step was not sampled (a lone minute is a sliver), and one muted line beside the title saying how many of the period's minutes are here and since when.
+- **Opens on what is recorded, and says so in its choices.** With no period in the address, a view whose records begin inside it starts where they do, under one line ("Recorded since …"; the Lightning overview says "Everything recorded, since …"), and the period choices gain "Recorded", marked as the current one: a period's name always means its whole width, so choosing "24 h" shows the whole day, the time before the records hatched ("No data stored") across both strips, the line beside the title keyed with the same hatch. The same holds on the Lightning overview.
 - **A few missing minutes are bridged.** Up to five missing steps are drawn across rather than as thin stripes that look like faults; a longer pause in recording breaks the line, and the figures table lists only what was stored.
-- **A phone's time axis names its ends:** too narrow for ticks a reader can place, a chart labels its first and last moment instead ("9 Nov", "12 Nov"; "12 Nov 11:14", "20:35").
-- **The intervals are one row** on a phone, scrolling sideways with their far edge faded and the chosen one in sight, so the chart and its time axis are on the first screen. The coverage is one short line ("49% recorded, from 12 Nov, 11:14 UTC.", the year said only when it is not this one).
+- **A phone's time axis names its ends:** too narrow for ticks a reader can place, a plot under 420 px labels its first and last moment instead ("9 Nov", "12 Nov"; "12 Nov 11:14", "20:35").
+- **The intervals are one row** on a phone, under the title, scrolling sideways with their far edge faded and the chosen one in sight; the coverage is one short line under them ("49% recorded, from 12 Nov, 11:14 UTC.", the year said only when it is not this one), the figures two by two, and both strips and their time axis end on the first screen. The key's bands are three to a row of 44 px targets.
+- **Live.** The page asks again just after each new minute is stored; the crosshair holds the moment it was put on.
 
 ### Replacements (not in the prototype)
 
@@ -549,7 +560,7 @@ Decided while building it:
 - **The answer per row** is at its right end: how much the rate rose (or fell: a replacement can pay more in all over more bytes), and whether the version that stands was mined, as an icon and a word: Mined (positive), Not mined (caution), Unknown (muted, after a reorg took its block away), with how long ago it arrived under it.
 - **On a phone** the story runs down the row, each version on its own line and the time it stood between them on a short rule; the rise drops first when the table does not fit.
 - **Live without moving the reader.** A new story comes in at the top with the row flash; a reader scrolled into the list keeps the story they read where it was.
-- **Where it sits.** The header's Mempool is current on `/rbf`, which has a "← Mempool history" link above its title; the mempool's own pages are two, so they get no row of tabs (on a phone it would push the history chart off the first screen). The recent replacements panel, the newest five, is the home page's last panel, below everything the council placed, and the foot of `/mempool`: the way to `/rbf` from both. On the narrowest phones its row gives way before its status does: the id's header reads "Tx", the id shortens, and the rate it rose to goes under the one it rose from, so "Not mined" is always whole.
+- **Where it sits.** The header's Mempool is current on `/rbf`, which has a "← Mempool history" link above its title; the mempool's own pages are two, so they get no row of tabs (on a phone it would push the history chart off the first screen). The recent replacements panel, the newest five, is the home page's last panel, below everything the council placed, and the foot of `/mempool`, under its panel: the way to `/rbf` from both. On the narrowest phones its row gives way before its status does: the id's header reads "Tx", the id shortens, and the rate it rose to goes under the one it rose from, so "Not mined" is always whole.
 
 ### Lightning (not in the prototype)
 

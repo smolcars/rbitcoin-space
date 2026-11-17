@@ -1,21 +1,10 @@
 @layer pages {
+  /* Shared with /rbf (RbfPage.tsx). */
   .mempool {
     display: grid;
     gap: var(--space-6);
     padding-top: var(--space-6);
     padding-bottom: var(--space-8);
-  }
-  .mempool > *,
-  .mempool-busy > * {
-    min-width: 0;
-  }
-  .mempool-busy {
-    display: grid;
-    gap: var(--space-7);
-  }
-  .mempool-busy[aria-busy="true"] {
-    opacity: 0.55;
-    transition: opacity var(--dur-quick) var(--ease-out);
   }
   .mempool-head {
     display: flex;
@@ -28,15 +17,42 @@
     margin: 0;
   }
 
-  /* Coverage: the same hatch the chart draws before the first record. */
+  .mempool-history {
+    gap: var(--space-4);
+    padding-top: var(--space-5);
+  }
+  .mempool > *,
+  .mempool-busy > * {
+    min-width: 0;
+  }
+  .mempool-busy {
+    display: grid;
+    gap: var(--space-2);
+  }
+  .mempool-busy[aria-busy="true"] {
+    opacity: 0.55;
+    transition: opacity var(--dur-quick) var(--ease-out);
+  }
+
+  /* The title, the coverage and the periods on one row where they fit. */
+  .mempool-history .mempool-head {
+    align-items: center;
+    justify-content: flex-start;
+    gap: var(--space-2) var(--space-5);
+  }
+  .mempool-history .mempool-head .periods {
+    margin-left: auto;
+  }
   .mempool-coverage {
     display: flex;
+    flex: 1 1 16rem;
     align-items: flex-start;
     gap: var(--space-2);
-    max-width: 72ch;
     margin: 0;
     font-size: var(--text-sm);
+    color: var(--color-text-muted);
   }
+  /* The same hatch the plot draws before the first record. */
   .mempool-coverage__swatch {
     flex: none;
     width: 18px;
@@ -50,30 +66,356 @@
       transparent 1.5px 4.25px
     );
   }
-
-  .mempool-flow {
-    max-width: 72ch;
-    margin: 0 0 var(--space-3);
+  .mempool-slot {
+    min-height: 40rem;
   }
-  .mempool-aside {
-    max-width: 72ch;
-    margin-top: var(--space-3);
+
+  /* One panel holds the answer: four figures across its top, then the plot and its key. */
+  .mempool-board {
+    container-type: inline-size;
+    min-width: 0;
+    padding: var(--panel-pad);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-l);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-panel);
+  }
+  /* Two by two, four across where each has the room to keep its lines whole, one under another
+     where two side by side do not fit (a phone in a large text size). */
+  .mempool-figures {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-2) 0;
+    margin: 0 0 var(--space-3);
+    padding-bottom: var(--space-3);
+    border-bottom: 1px solid var(--color-line);
+  }
+  .mempool-fig {
+    display: grid;
+    align-content: start;
+    gap: 2px;
+    padding-left: var(--space-3);
+    border-left: 1px solid var(--color-line);
+  }
+  .mempool-fig:nth-child(odd) {
+    padding-left: 0;
+    border-left: 0;
+  }
+  @container (min-width: 50em) {
+    .mempool-figures {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      margin-bottom: var(--space-4);
+      padding-bottom: var(--space-4);
+    }
+    .mempool-fig,
+    .mempool-fig:nth-child(odd) {
+      padding-inline: var(--space-4);
+      border-left: 1px solid var(--color-line);
+    }
+    .mempool-fig:first-child {
+      padding-left: 0;
+      border-left: 0;
+    }
+  }
+  @container (max-width: 15em) {
+    .mempool-figures {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .mempool-fig:nth-child(n) {
+      padding-left: 0;
+      border-left: 0;
+    }
+  }
+  .mempool-fig dt {
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+  .mempool-fig dd {
+    margin: 0;
+  }
+  .mempool-fig__value {
+    font-size: var(--text-xl);
+    font-weight: var(--weight-bold);
+    line-height: var(--leading-tight);
+    white-space: nowrap;
+  }
+  .mempool-fig__sub {
     font-size: var(--text-sm);
     color: var(--color-text-muted);
   }
 
-  /* A chart's whole height is held while its code loads: readout, plot and caption. */
-  .mempool-chart--size {
-    min-height: calc(300px + 9rem);
+  /* The plot fills the width; the readout and the key are a rail beside it. */
+  .mempool-plot {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 15rem;
+    grid-template-rows: auto 1fr;
+    grid-template-areas:
+      "canvas now"
+      "canvas keys";
+    gap: var(--space-2) var(--space-5);
   }
-  .mempool-chart--flow {
-    min-height: calc(200px + 5.75rem);
+  .mempool-now {
+    grid-area: now;
+    display: grid;
+    align-content: start;
+    gap: 2px;
+    font-size: var(--text-sm);
   }
-  .mempool-chart + .feekey {
+  .mempool-now__when {
+    font-weight: var(--weight-bold);
+  }
+  .mempool-now__total {
+    font-size: var(--text-lg);
+    font-weight: var(--weight-bold);
+  }
+  .mempool-now__of,
+  .mempool-now__more {
+    font-size: var(--text-sm);
+    font-weight: var(--weight-regular);
+    color: var(--color-text-muted);
+  }
+  .mempool-canvas {
+    grid-area: canvas;
+    position: relative;
+    min-width: 0;
+    min-height: var(--h);
+    border-radius: var(--radius-m);
+  }
+  .mempool-canvas:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 4px;
+  }
+  .mempool-canvas svg {
+    display: block;
+    overflow: visible;
+    touch-action: pan-y;
+    user-select: none;
+  }
+  .mempool-grid {
+    stroke: var(--color-line);
+  }
+  .mempool-axis {
+    stroke: var(--color-line-strong);
+  }
+  .mempool-label {
+    fill: var(--color-text-muted);
+    font-size: var(--text-xs);
+    font-variant-numeric: tabular-nums slashed-zero;
+  }
+  .mempool-ruler {
+    position: absolute;
+    visibility: hidden;
+    white-space: nowrap;
+  }
+  .mempool-strip {
+    fill: var(--color-text);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+  }
+  .mempool-hatch {
+    stroke: var(--color-line);
+    stroke-width: 1.5;
+  }
+  .mempool-layer {
+    stroke: var(--color-surface);
+    stroke-width: 0.5;
+    transition: opacity var(--dur-quick) var(--ease-out);
+  }
+  /* The layer under the pointer keeps its colour and takes an outline; the others fade. The
+     accent is never drawn in a plot. */
+  .mempool-svg--picking .mempool-layer {
+    opacity: 0.4;
+  }
+  .mempool-svg--picking .mempool-layer--on {
+    opacity: 1;
+    stroke: var(--color-text);
+    stroke-width: 1;
+  }
+  .mempool-flow-mined {
+    fill: color-mix(in oklab, var(--series-1) 42%, transparent);
+  }
+  .mempool-flow-other {
+    fill: color-mix(in oklab, var(--series-1) 16%, transparent);
+  }
+  .mempool-flow-in {
+    fill: none;
+    stroke: var(--series-1);
+    stroke-width: 1.5;
+    stroke-linejoin: round;
+  }
+  .mempool-cross {
+    stroke: var(--color-text);
+    stroke-dasharray: 2 3;
+  }
+
+  /* The key is the readout and the filter: each band's figure at the crosshair, a press to start
+     there. */
+  .mempool-keys {
+    grid-area: keys;
+    min-width: 0;
+    font-size: var(--text-sm);
+  }
+  .mempool-keys__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-1) var(--space-2);
+    min-height: 2rem;
+    color: var(--color-text-muted);
+  }
+  .mempool-keys__all {
+    padding: 2px var(--space-2);
+    border: 1px solid var(--color-line-strong);
+    border-radius: var(--radius-m);
+    background: none;
+    color: var(--color-text);
+    font: inherit;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .mempool-bands,
+  .mempool-flowkey {
+    display: grid;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .mempool-band {
+    display: grid;
+    grid-template-columns: 14px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--space-2);
+    width: 100%;
+    min-height: 1.6rem;
+    padding: 0 var(--space-2);
+    border: 0;
+    border-radius: var(--radius-m);
+    background: none;
+    color: var(--color-text);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  @media (hover: hover) {
+    .mempool-band:hover,
+    .mempool-keys__all:hover {
+      background: var(--color-surface-sunken);
+    }
+  }
+  .mempool-band[aria-pressed="true"] {
+    background: var(--color-accent-soft);
+  }
+  .mempool-band--on {
+    box-shadow: inset 2px 0 0 var(--color-text);
+  }
+  .mempool-band__name {
+    color: var(--color-text-muted);
+  }
+  .mempool-band__value {
+    font-weight: var(--weight-medium);
+    white-space: nowrap;
+  }
+  .mempool-band--empty .mempool-band__value {
+    color: var(--color-text-muted);
+    font-weight: var(--weight-regular);
+  }
+  /* A band left out is an empty swatch, not a colour. */
+  .mempool-band--off .mempool-swatch {
+    background: none !important; /* over the band's inline fee colour */
+    box-shadow: inset 0 0 0 1.5px var(--color-line-strong);
+  }
+  .mempool-band--off .mempool-band__value {
+    color: var(--color-text-muted);
+    font-weight: var(--weight-regular);
+  }
+  .mempool-swatch {
+    width: 14px;
+    height: 10px;
+    border-radius: var(--radius-s);
+  }
+  .mempool-flowkey {
     margin-top: var(--space-3);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--color-line);
   }
-  .mempool-slot {
-    min-height: calc(500px + 15rem);
+  .mempool-flowkey li {
+    display: grid;
+    grid-template-columns: 14px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: 1.6rem;
+    padding: 0 var(--space-2);
+    color: var(--color-text-muted);
+  }
+  .mempool-flowkey .num {
+    color: var(--color-text);
+    font-weight: var(--weight-medium);
+    white-space: nowrap;
+  }
+  .mempool-key {
+    height: 10px;
+    border-radius: var(--radius-s);
+  }
+  .mempool-key--in {
+    height: 2px;
+    background: var(--series-1);
+  }
+  .mempool-key--mined {
+    background: color-mix(in oklab, var(--series-1) 42%, transparent);
+  }
+  .mempool-key--other {
+    background: color-mix(in oklab, var(--series-1) 16%, transparent);
+  }
+
+  /* The second reading layer, under the panel: opening it never changes the panel. */
+  .mempool-more {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .mempool-more .more {
+    margin-top: 0;
+  }
+  .mempool-figures-table[open] > .more__summary {
+    margin-bottom: var(--space-2);
+  }
+  /* One scrolling box, both ways, which takes focus; the table inside does not scroll itself. */
+  .mempool-table {
+    max-height: 22rem;
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+  .mempool-table .table-scroll {
+    overflow: visible;
+  }
+
+  @media (pointer: coarse) {
+    .mempool-band,
+    .mempool-keys__all {
+      min-height: var(--touch);
+    }
+  }
+
+  /* One column: the readout above the plot, the key under it. */
+  @media (max-width: 65em) {
+    .mempool-plot {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas:
+        "now"
+        "canvas"
+        "keys";
+    }
+    .mempool-now {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: 0 var(--space-3);
+    }
+    .mempool-bands,
+    .mempool-flowkey {
+      grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+      column-gap: var(--space-3);
+    }
   }
 
   @media (max-width: 40em) {
@@ -81,18 +423,61 @@
       flex-direction: column;
       align-items: stretch;
     }
-    /* A line to each reading on a phone (Chart.css), 1.5625rem with its gap, and a 44 px
-       "Show the figures". */
-    .mempool-chart--size {
-      min-height: calc(240px + var(--lines) * 1.5625rem + 3.5rem);
+    .mempool-history {
+      gap: var(--space-3);
+      padding-top: var(--space-4);
     }
-    .mempool-chart--flow {
-      min-height: calc(200px + var(--lines) * 1.5625rem + 3.5rem);
+    /* The periods one row under the title, then the coverage in one line. */
+    .mempool-history .mempool-head {
+      display: grid;
+      gap: var(--space-2);
     }
-    /* One line of coverage in any font: the sentence says from when, which is where the hatch
-       ends, so the key to the hatch steps aside. */
+    .mempool-history .mempool-head .periods {
+      order: 1;
+      margin-left: 0;
+    }
+    .mempool-coverage {
+      order: 2;
+    }
+    /* The sentence says from when, which is where the hatch ends: its key steps aside. */
     .mempool-coverage__swatch {
       display: none;
+    }
+    .mempool-fig__value {
+      font-size: var(--text-lg);
+    }
+    .mempool-fig__sub {
+      font-size: var(--text-xs);
+    }
+    .mempool-bands,
+    .mempool-flowkey {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      column-gap: var(--space-1);
+    }
+    .mempool-band,
+    .mempool-flowkey li {
+      grid-template-columns: 10px minmax(0, 1fr);
+      grid-template-rows: auto auto;
+      gap: 0 var(--space-2);
+      padding: 2px var(--space-1);
+      font-size: var(--text-xs);
+    }
+    .mempool-band__value,
+    .mempool-flowkey .num {
+      grid-column: 2;
+      font-size: var(--text-sm);
+    }
+    .mempool-swatch {
+      width: 10px;
+    }
+    .mempool-band .mempool-swatch,
+    .mempool-flowkey .mempool-key {
+      grid-row: span 2;
+    }
+    /* A point's time on two lines on a phone: the day, then the time of day. */
+    .mempool-table td:first-child {
+      white-space: normal;
+      font-size: var(--text-xs);
     }
   }
 }

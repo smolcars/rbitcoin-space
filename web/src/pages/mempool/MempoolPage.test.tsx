@@ -32,9 +32,16 @@ afterEach(() => {
 
 const text = (el: HTMLElement) => el.textContent ?? "";
 const answer = (h: ReturnType<typeof history>) => () => Response.json(h);
-/** The size chart: the first slider on the page. */
+/** The plot: size and flow on one time axis, one slider. */
 const sizeChart = (el: HTMLElement) =>
   el.querySelector<HTMLElement>("[role=slider][aria-label^='The mempool']");
+const layers = (chart: HTMLElement) => [...chart.querySelectorAll(".mempool-layer")];
+const press = (chart: HTMLElement, key: string) => {
+  chart.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+  flush();
+};
+const button = (el: HTMLElement, name: string) =>
+  [...el.querySelectorAll<HTMLButtonElement>("button")].find((b) => text(b) === name);
 const drawn = async (el: HTMLElement) => {
   await vi.waitFor(() => expect(sizeChart(el)?.querySelector("svg")).toBeInstanceOf(SVGSVGElement));
   return sizeChart(el) as HTMLElement;
@@ -66,13 +73,12 @@ describe("mempool history page", () => {
     );
     const el = mount(() => <MempoolPage />, "/mempool?interval=2h");
     const chart = await drawn(el);
-    const total = chart.querySelector(".chart__line")?.getAttribute("d");
-    expect(subpaths(total)).toBe(2);
     // Every fee band breaks at the same place; the empty ones draw nothing worth seeing.
-    const layers = [...chart.querySelectorAll(".chart__layer")];
-    expect(layers).toHaveLength(12);
-    expect(subpaths(layers[6]?.getAttribute("d"))).toBe(2);
-    expect(layers[6]?.getAttribute("style")).toContain("--fill: var(--fee-7)");
+    const drawnLayers = layers(chart);
+    expect(drawnLayers).toHaveLength(12);
+    expect(subpaths(drawnLayers[0]?.getAttribute("d"))).toBe(2);
+    expect(subpaths(drawnLayers[6]?.getAttribute("d"))).toBe(2);
+    expect(drawnLayers[6]?.getAttribute("style")).toContain("fill: var(--fee-7)");
   });
 
   it("shows a period with a single point", async () => {
@@ -89,9 +95,9 @@ describe("mempool history page", () => {
     // A period the reader chose keeps its whole width, the time before the records hatched.
     const el = mount(() => <MempoolPage />, "/mempool?interval=24h");
     const chart = await drawn(el);
-    // A lone point is a short tick on the line and a sliver in its layers, not nothing.
-    expect(chart.querySelector(".chart__line")?.getAttribute("d")).toContain("h0.1");
-    expect(chart.querySelectorAll(".chart__layer")[6]?.getAttribute("d")).toMatch(/^M.*Z$/);
+    // A lone point is a sliver in its layers and a short tick on the flow's line, not nothing.
+    expect(layers(chart)[6]?.getAttribute("d")).toMatch(/^M.*Z$/);
+    expect(chart.querySelector(".mempool-flow-in")?.getAttribute("d")).toContain("h0.1");
     expect(text(el)).toMatch(/Under 1% recorded, from 12 Nov( 2026)?, 15:00 UTC\./);
     expect(text(el)).toContain("No data stored");
   });
@@ -155,13 +161,12 @@ describe("mempool history page", () => {
     replies["/app/mempool/history/2h"] = answer(history({ points: [old, point(T0 + 60)] }));
     const el = mount(() => <MempoolPage />, "/mempool?interval=2h");
     const chart = await drawn(el);
-    expect(chart.querySelectorAll(".chart__layer")).toHaveLength(13);
-    // The latest minute was split: it has no unsplit part to read out, unseen in its place.
+    expect(layers(chart)).toHaveLength(13);
+    // The latest minute was split: it has no unsplit part to read out, its row kept in the key.
     expect(chart.getAttribute("aria-valuetext")).not.toContain("not yet split");
-    const rare = el.querySelector(".chart__value--rare");
-    expect(rare?.classList.contains("chart__value--empty")).toBe(true);
-    chart.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true }));
-    flush();
+    const row = button(el, "under 0.2, not split0 vB");
+    expect(row?.classList.contains("mempool-band--empty")).toBe(true);
+    press(chart, "Home");
     const then = chart.getAttribute("aria-valuetext") ?? "";
     expect(then).toContain("under 0.2 sat/vB, not yet split 150.00 kvB");
     expect(then).toContain("under 0.12 sat/vB 0 vB");
@@ -176,19 +181,17 @@ describe("mempool history page", () => {
     );
     const el = mount(() => <MempoolPage />, "/mempool?interval=2h");
     const chart = await drawn(el);
-    // The latest point by default, with the size, count, floor and every band.
+    // The latest point by default, with the size, count, floor, every band and the flow.
     const now = chart.getAttribute("aria-valuetext") ?? "";
     expect(now).toMatch(/^12 Nov 2026, 14:01 UTC: Total 610\.00 kvB, Transactions 2 345/);
     expect(now).toContain("Lowest accepted 0.10 sat/vB");
     expect(now).toContain("under 0.12 sat/vB 100.00 kvB");
     expect(now).toContain("10+ sat/vB 0 vB");
-    chart.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
-    flush();
+    expect(now).toContain("Arrived 100 vB/s");
+    press(chart, "ArrowLeft");
     expect(chart.getAttribute("aria-valuetext")).toMatch(/^12 Nov 2026, 14:00 UTC: Total 550\.00/);
-    const readout = el.querySelector(".chart__readout");
-    expect(readout?.textContent).toContain("14:00 UTC");
-    chart.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-    flush();
+    expect(text(el.querySelector(".mempool-now") as HTMLElement)).toContain("14:00 UTC");
+    press(chart, "Escape");
     expect(chart.getAttribute("aria-valuetext")).toContain("14:01 UTC");
   });
 
@@ -199,7 +202,7 @@ describe("mempool history page", () => {
     const el = mount(() => <MempoolPage />, "/mempool?interval=2h");
     const chart = await drawn(el);
     const svg = chart.querySelector("svg") as SVGSVGElement;
-    // The plot starts 66 px in, and two hours span the rest: the first point is at the left edge.
+    // The plot starts 52 px in, and two hours span the rest: the first point is at the left edge.
     svg.dispatchEvent(
       new PointerEvent("pointerdown", {
         clientX: 70,
@@ -214,6 +217,75 @@ describe("mempool history page", () => {
     svg.dispatchEvent(new PointerEvent("pointerleave", { bubbles: true, pointerType: "touch" }));
     flush();
     expect(chart.getAttribute("aria-valuetext")).toMatch(/^12 Nov 2026, 14:00 UTC/);
+  });
+
+  it("hides the cheap bulk on a press, so the dearer bands fill the plot, and shows all again", async () => {
+    // 97% of the latest minute under 0.15: the filter offered starts there.
+    const bulk = point(T0 + 60, {
+      vsize: 1_000_000,
+      bands: [600_000, 370_000, 10_000, 10_000, 0, 0, 0, 0, 0, 0, 0, 10_000],
+    });
+    replies["/app/mempool/history/2h"] = answer(history({ points: [point(T0), bulk] }));
+    const el = mount(() => <MempoolPage />, "/mempool?interval=2h");
+    const chart = await drawn(el);
+    expect(layers(chart)).toHaveLength(12);
+    button(el, "From 0.15 up")?.click();
+    flush();
+    expect(layers(chart)).toHaveLength(10);
+    expect(layers(chart)[0]?.getAttribute("style")).toContain("fill: var(--fee-3)");
+    // The bands left out are empty swatches in the key; the readout says what of the whole shows.
+    const off = [...el.querySelectorAll(".mempool-band--off .mempool-band__name")].map((n) =>
+      text(n as HTMLElement),
+    );
+    expect(off).toStrictEqual(["0.12–0.15", "under 0.12"]);
+    expect(text(el.querySelector(".mempool-now") as HTMLElement)).toContain(
+      "30.00 kvB of 1.00 MvB",
+    );
+    expect(chart.getAttribute("aria-valuetext")).toContain("Shown 30.00 kvB");
+    expect(chart.getAttribute("aria-valuetext")).not.toContain("under 0.12 sat/vB");
+    button(el, "Show all")?.click();
+    flush();
+    expect(layers(chart)).toHaveLength(12);
+    expect(el.querySelectorAll(".mempool-band--off")).toHaveLength(0);
+  });
+
+  it("reads both charts at the one crosshair: the flow's ten minutes that hold the point", async () => {
+    // Twenty minutes: arrivals at 100 vB/s in the first ten, 300 vB/s in the next.
+    const points = Array.from({ length: 20 }, (_, i) =>
+      point(T0 + i * 60, { in_vsize: i < 10 ? 6000 : 18_000, count: 1000 + i }),
+    );
+    replies["/app/mempool/history/2h"] = answer(history({ points }));
+    const el = mount(() => <MempoolPage />, "/mempool?interval=2h");
+    const chart = await drawn(el);
+    const arrived = () => text(el.querySelector(".mempool-flowkey li") as HTMLElement);
+    expect(arrived()).toBe("Arrived300 vB/s");
+    press(chart, "Home");
+    expect(arrived()).toBe("Arrived100 vB/s");
+    expect(text(el.querySelector(".mempool-now") as HTMLElement)).toContain("1 000 tx");
+    press(chart, "PageDown");
+    // Minute 10 opens the second ten minutes.
+    expect(arrived()).toBe("Arrived300 vB/s");
+    expect(chart.getAttribute("aria-valuetext")).toMatch(/14:10 UTC.*Arrived 300 vB\/s/);
+    // The key reads the bands at the crosshair too.
+    expect(text(el.querySelector(".mempool-bands") as HTMLElement)).toContain("1–1.5400.00 kvB");
+  });
+
+  it("keeps the figures behind a disclosure under the panel, drawn only once opened", async () => {
+    replies["/app/mempool/history/2h"] = answer(
+      history({ points: [point(T0), point(T0 + 60, { count: 2345 })] }),
+    );
+    const el = mount(() => <MempoolPage />, "/mempool?interval=2h");
+    await drawn(el);
+    const details = el.querySelector<HTMLDetailsElement>(".mempool-figures-table");
+    expect(details?.closest(".mempool-board")).toBeNull();
+    expect(el.querySelector(".mempool-table")).toBeNull();
+    if (!details) throw new Error("no figures");
+    details.open = true;
+    details.dispatchEvent(new Event("toggle"));
+    flush();
+    const rows = [...el.querySelectorAll(".mempool-table tbody tr")];
+    expect(rows).toHaveLength(2);
+    expect(text(rows[0] as HTMLElement)).toContain("2 345");
   });
 
   it("asks again just after each new minute is recorded", async () => {

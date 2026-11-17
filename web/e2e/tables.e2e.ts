@@ -311,10 +311,13 @@ for (const width of [320, 720]) {
     }) => {
       await page.setViewportSize({ width, height: 900 });
       await page.goto(path);
-      const figures = page.locator(".chart__figures > summary");
+      // The mempool's one plot keeps its figures under its panel; the other charts, in their caption.
+      const figures = page.locator(".chart__figures > summary, .mempool-figures-table > summary");
       await expect(figures.first()).toBeVisible({ timeout: 30_000 });
       for (const f of await figures.all()) if (await f.isVisible()) await f.click();
-      await expect(page.locator(".chart__figures table").first()).toBeVisible();
+      await expect(
+        page.locator(".chart__figures table, .mempool-figures-table table").first(),
+      ).toBeVisible();
       await tablesFit(page, `${path}'s figures at ${width} px`);
     });
   }
