@@ -195,6 +195,12 @@
         0 0 0 5.5px transparent;
     }
   }
+  @keyframes tx-land {
+    from {
+      transform: scale(0.4);
+      opacity: 0;
+    }
+  }
   @keyframes tx-fade {
     from {
       opacity: 0;
