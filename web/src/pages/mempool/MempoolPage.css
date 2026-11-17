@@ -449,9 +449,10 @@
     .mempool-fig__sub {
       font-size: var(--text-xs);
     }
+    /* Three to a row on a phone; fewer as the text grows, so a figure never runs out of its cell. */
     .mempool-bands,
     .mempool-flowkey {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(min(100%, 5rem), 1fr));
       column-gap: var(--space-1);
     }
     .mempool-band,
