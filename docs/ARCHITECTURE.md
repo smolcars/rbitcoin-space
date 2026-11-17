@@ -30,9 +30,10 @@ rbitcoin.space is a sidecar: one Rust server beside a stock rbitcoin node, a sta
 | `ln` | `crates/ln` | The gossip-only LDK peer and Lightning graph tracking |
 | `arkade` | `crates/arkade` | A typed client for an Arkade server's public indexer, over HTTPS: the bounded lookup behind the Arkade VTXO page |
 | `bark` | `crates/bark` | Bark VTXOs: the Bark server's `GetVtxo` call over HTTP/2 and TLS, our own decoder of its wire format, and the exit chain rebuilt and checked ([`ARK.md`](ARK.md)) |
+| `card` | `crates/card` | Link preview cards: a transaction's or block's figures drawn as a PNG from a typed value, with no I/O, clock or node, in the site's font ([`FRONTEND.md`](FRONTEND.md#link-previews)) |
 | `logging` | `crates/logging` | Typed log events, their catalogue and the non-blocking writer ([`LOGGING.md`](LOGGING.md)). Only the server emits; libraries report through values |
 
-Dependencies point one way: `server` → `engine` and `ln` → `node`, `server` → `arkade` and `bark`, and only `server` uses `logging`. A crate may be split when it earns it, not before.
+Dependencies point one way: `server` → `engine` and `ln` → `node`, `server` → `arkade`, `bark` and `card`, and only `server` uses `logging`. A crate may be split when it earns it, not before.
 
 Runtime is tokio with axum. SQLite is accessed through `rusqlite` with the bundled library.
 

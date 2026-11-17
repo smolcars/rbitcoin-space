@@ -47,6 +47,7 @@ jobs:
               - Cargo.lock
               - rust-toolchain.toml
               - crates/**
+              - fixtures/cards/**
               - dev/load/**
               - .config/nextest.toml
               - .github/workflows/ci.yml
@@ -98,7 +99,7 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/master' }}
           # Its key leaves out Cargo.toml's [profile] sections: change this when one changes.
-          key: secp256k1-optimised
+          key: secp256k1-and-cards-optimised
       # nextest runs every test binary at once, not one after another, and times each test. The
       # release binary, checked against the checksum pinned above, instead of compiling it.
       - name: Install cargo-nextest
@@ -188,7 +189,7 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/master' && matrix.shard == 1 }}
           # Its key leaves out Cargo.toml's [profile] sections: change this when one changes.
-          key: secp256k1-optimised
+          key: secp256k1-and-cards-optimised
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: web/package.json

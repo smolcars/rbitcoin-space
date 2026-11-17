@@ -12,17 +12,23 @@ publish = false
 [workspace.dependencies]
 arkade = { path = "crates/arkade" }
 bark = { path = "crates/bark" }
+card = { path = "crates/card" }
 engine = { path = "crates/engine" }
 ln = { path = "crates/ln" }
 logging = { path = "crates/logging" }
 node = { path = "crates/node" }
 
+# Link preview cards (crates/card): coverage from outlines, for text and shapes alike. Its std
+# feature only; no libm.
+ab_glyph_rasterizer = "0.1.10"
 axum = { version = "0.8.9", default-features = false, features = ["http1", "json", "matched-path", "tokio"] }
 bitcoin = { version = "0.32.102", default-features = false, features = ["std", "serde"] }
 bytes = "1.12.1"
 http-body-util = "0.1.5"
 hyper = { version = "1.12.0", features = ["client", "http1"] }
 hyper-util = { version = "0.1.21", features = ["client-legacy", "http1", "tokio"] }
+# The cards' PNG compression: deflate only, without its SIMD checksum.
+miniz_oxide = { version = "0.9.1", default-features = false, features = ["with-alloc"] }
 # LDK, for the gossip-only Lightning peer (docs/LIGHTNING.md). No default features: drops
 # grind_signatures, which only matters when signing channel transactions. 0.2.8 is the newest
 # release; lightning-net-tokio's newest 0.2 release is 0.2.0.
@@ -38,6 +44,8 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 tokio = { version = "1.54.1", features = ["io-util", "macros", "net", "rt-multi-thread", "signal"] }
 tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring"] }
+# The cards' font outlines. No layout, variation or glyph-name tables: a static subset needs none.
+ttf-parser = { version = "0.25.1", default-features = false, features = ["std"] }
 tower = { version = "0.5.3", default-features = false, features = ["util"] }
 tower-http = { version = "0.7.1", features = ["fs", "set-header"] }
 tower-service = "0.3.3"
@@ -60,4 +68,13 @@ dbg_macro = "deny"
 # secp256k1's C library compiled at -O0 made signature checks most of the Lightning tests' time.
 # Optimised it builds once into the cache and checks signatures about twenty times faster.
 [profile.dev.package.secp256k1-sys]
+opt-level = 3
+
+# A card unoptimised took about a second to draw, most of the card tests' time; optimised, a few
+# milliseconds. Built once into the cache like the dependencies.
+[profile.dev.package.card]
+opt-level = 3
+[profile.dev.package.ab_glyph_rasterizer]
+opt-level = 3
+[profile.dev.package.miniz_oxide]
 opt-level = 3
