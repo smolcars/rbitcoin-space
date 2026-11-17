@@ -95,9 +95,9 @@ describe("mempool history page", () => {
     // A period the reader chose keeps its whole width, the time before the records hatched.
     const el = mount(() => <MempoolPage />, "/mempool?interval=24h");
     const chart = await drawn(el);
-    // A lone point is a sliver in its layers and a short tick on the flow's line, not nothing.
+    // A lone point is a sliver in its layers, and its flow holds over its minute: not nothing.
     expect(layers(chart)[6]?.getAttribute("d")).toMatch(/^M.*Z$/);
-    expect(chart.querySelector(".mempool-flow-in")?.getAttribute("d")).toContain("h0.1");
+    expect(chart.querySelector(".mempool-flow-in")?.getAttribute("d")).toMatch(/^M[\d.]+ [\d.]+H/);
     expect(text(el)).toMatch(/Under 1% recorded, from 12 Nov( 2026)?, 15:00 UTC\./);
     expect(text(el)).toContain("No data stored");
   });

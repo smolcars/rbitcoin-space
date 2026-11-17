@@ -354,8 +354,9 @@ function Plot(props: {
     );
     const yAxis = linearAxis(0, extent(stack.at(-1)?.hi ?? [])?.[1] ?? 1, narrow ? 3 : 5, true);
     const F = props.flow;
-    const outTop = F.mined.map((m, i) => m + (F.other[i] ?? 0));
-    const fAxis = linearAxis(0, extent(F.entered, outTop)?.[1] ?? 1, 2, true);
+    const D = F.drawn;
+    const outTop = D.mined.map((m, i) => m + (D.other[i] ?? 0));
+    const fAxis = linearAxis(0, extent(D.entered, outTop)?.[1] ?? 1, 2, true);
     const yLabels = yAxis.ticks.map((t) => formatSi(t, "vB"));
     const fLabels = fAxis.ticks.map((t) => formatSi(t, ""));
     // The value axis as wide as its longest label needs, so none is ever cut.
@@ -420,9 +421,9 @@ function Plot(props: {
       yTicks: yAxis.ticks.map((t, k) => ({ y: Math.round(sy(t)) + 0.5, label: yLabels[k] ?? "" })),
       fTicks: fAxis.ticks.map((t, k) => ({ y: Math.round(fy(t)) + 0.5, label: fLabels[k] ?? "" })),
       // Each point holds its ten minutes' mean, so the means step at their edges.
-      mined: areaPath(x, F.mined, 0, sx, fy, gap, 1.5, undefined, true),
-      other: areaPath(x, outTop, F.mined, sx, fy, gap, 1.5, undefined, true),
-      entered: linePath(x, F.entered, sx, fy, gap, true),
+      mined: areaPath(D.x, D.mined, 0, sx, fy, gap, 1.5, undefined, true),
+      other: areaPath(D.x, outTop, D.mined, sx, fy, gap, 1.5, undefined, true),
+      entered: linePath(D.x, D.entered, sx, fy, gap, true),
       ticks: ticks?.ticks.map((t) => {
         const at = sx(t);
         // A label near an end stays on the plot.

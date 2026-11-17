@@ -315,7 +315,9 @@ export const BRIDGE_STEPS = 5;
  * A minute holds one block or none, so a finer answer gives each point the mean of its ten
  * minutes, weighted by the minutes seen, else a block's minute dwarfs what arrives; coarser
  * answers are as recorded. A break in recording ends a mean, so none reaches across one, and the
- * values stand at the points' own times, so the flow breaks and ends where the size does.
+ * values stand at the points' own times, so the flow breaks where the size does. `drawn` is the
+ * same as steps: each value holds over its own step, the last of each run included, so the newest
+ * value has width and is never a bare edge.
  */
 export function flowPoints(h: History) {
   const step = Math.max(h.step, FLOW_STEP);
@@ -341,12 +343,29 @@ export function flowPoints(h: History) {
       const g = groups.get(k);
       return g && g.n > 0 ? pick(g) / g.n / 60 : 0;
     });
-  return {
-    step,
-    entered: mean((g) => g.in),
-    mined: mean((g) => g.mined),
-    other: mean((g) => g.other),
+  const entered = mean((g) => g.in);
+  const mined = mean((g) => g.mined);
+  const other = mean((g) => g.other);
+  const drawn = {
+    x: [] as number[],
+    entered: [] as number[],
+    mined: [] as number[],
+    other: [] as number[],
   };
+  const add = (t: number, i: number) => {
+    drawn.x.push(t);
+    drawn.entered.push(entered[i] ?? 0);
+    drawn.mined.push(mined[i] ?? 0);
+    drawn.other.push(other[i] ?? 0);
+  };
+  for (const [i, p] of ps.entries()) {
+    add(p.time, i);
+    // The end of a run: its last value holds to the end of its step, inside the period.
+    if (keys[i + 1]?.split(":")[0] !== keys[i]?.split(":")[0]) {
+      add(Math.min(p.time + h.step, h.to), i);
+    }
+  }
+  return { step, entered, mined, other, drawn };
 }
 
 export type Series = ReturnType<typeof seriesOf>;

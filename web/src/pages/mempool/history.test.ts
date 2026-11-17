@@ -208,6 +208,22 @@ describe("the flow drawn", () => {
     expect(flowPoints(bridged).entered).toStrictEqual([200, 200]);
   });
 
+  it("gives the newest value, and the last of every run, a step of its own", () => {
+    // Ten quiet minutes, then a minute that opens new ten minutes with a block: 200 vB/s mined.
+    const points = Array.from({ length: 11 }, (_, i) =>
+      point(T0 + i * 60, { mined_vsize: i === 10 ? 12_000 : 0, out_vsize: i === 10 ? 12_000 : 0 }),
+    );
+    const { drawn } = flowPoints(history({ points }));
+    expect(drawn.x.slice(-3)).toStrictEqual([T0 + 540, T0 + 600, T0 + 660]);
+    expect(drawn.mined.slice(-3)).toStrictEqual([0, 200, 200]);
+    // A break: each run's last value holds over its minute, never into the gap.
+    const broken = flowPoints(history({ points: [point(T0), point(T0 + 1200)] })).drawn;
+    expect(broken.x).toStrictEqual([T0, T0 + 60, T0 + 1200, T0 + 1260]);
+    // Never past the period's end.
+    const end = flowPoints(history({ to: T0 + 30, points: [point(T0)] })).drawn;
+    expect(end.x).toStrictEqual([T0, T0 + 30]);
+  });
+
   it("draws coarser steps as recorded", () => {
     const h = history({ step: 3600, points: [point(T0), point(T0 + 3600, { in_vsize: 12_000 })] });
     const f = flowPoints(h);
