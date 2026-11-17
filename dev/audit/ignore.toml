@@ -6,3 +6,8 @@
 # id = "RUSTSEC-2023-0001"
 # reason = "Only the Windows named pipe server is affected, and we never build for Windows."
 # reviewed = 2026-11-12
+
+[[ignore]]
+id = "RUSTSEC-2026-0192"
+reason = "ttf-parser is unmaintained, not vulnerable. The card crate reads only the two font files compiled into the binary with it (crates/card/src/text.rs), never bytes from a client or the network, so a parsing bug nobody fixes has no way in."
+reviewed = 2026-11-16
