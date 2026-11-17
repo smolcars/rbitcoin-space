@@ -8,6 +8,7 @@ import {
   formatBtc,
   formatFeeRate,
   formatFeeRateUp,
+  formatInterval,
   formatPowerOfTen,
   formatRelative,
   formatSats,
@@ -303,5 +304,27 @@ describe("time", () => {
     expect(formatRelative(t, t + 13 * 60, { suffix: false })).toBe("13 min");
     expect(formatRelative(t + 300, t)).toBe("just now");
     expect(formatRelative(Number.NaN, t)).toBe(MISSING);
+  });
+});
+
+describe("formatInterval", () => {
+  it("reads a block's time to mine to the second under an hour, then coarser", () => {
+    expect(formatInterval(0)).toBe("0 s");
+    expect(formatInterval(42)).toBe("42 s");
+    expect(formatInterval(60)).toBe("1 min");
+    expect(formatInterval(9 * 60 + 12)).toBe("9 min 12 s");
+    expect(formatInterval(3600)).toBe("1 h");
+    expect(formatInterval(2 * 3600 + 5 * 60 + 40)).toBe("2 h 5 min");
+    expect(formatInterval(27 * 3600)).toBe("1 day 3 h");
+    expect(formatInterval(2 * 86_400)).toBe("2 days");
+  });
+
+  it("keeps the sign of a block timed before its parent", () => {
+    expect(formatInterval(-125)).toBe("−2 min 5 s");
+    expect(formatInterval(-3)).toBe("−3 s");
+  });
+
+  it("marks what is not a number", () => {
+    expect(formatInterval(Number.NaN)).toBe(MISSING);
   });
 });

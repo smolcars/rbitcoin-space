@@ -267,3 +267,26 @@ export function formatRelative(
   if (d >= 7 || h % 24 === 0) return `${days}${ago}`;
   return `${days} ${h % 24} h${ago}`;
 }
+
+/**
+ * The time between two blocks, from seconds: `42 s`, `9 min 12 s`, `2 h 5 min`, `1 day 3 h`. A
+ * block's clock may sit before its parent's, so a negative span keeps its sign: `−2 min 5 s`.
+ */
+export function formatInterval(seconds: number): string {
+  if (!Number.isFinite(seconds)) return MISSING;
+  const t = Math.round(seconds);
+  const sign = t < 0 ? "−" : "";
+  const s = Math.abs(t);
+  const m = Math.floor(s / 60);
+  const h = Math.floor(m / 60);
+  const d = Math.floor(h / 24);
+  const parts =
+    s < 60
+      ? [`${s} s`]
+      : m < 60
+        ? [`${m} min`, s % 60 === 0 ? "" : `${s % 60} s`]
+        : h < 24
+          ? [`${h} h`, m % 60 === 0 ? "" : `${m % 60} min`]
+          : [`${d} ${d === 1 ? "day" : "days"}`, h % 24 === 0 ? "" : `${h % 24} h`];
+  return sign + parts.filter(Boolean).join(" ");
+}

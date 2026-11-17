@@ -10,7 +10,14 @@ import { ErrorState } from "../../components/States";
 import { TimeAgo } from "../../components/Time";
 import { createApi, createRequest, fetchApi } from "../../lib/api";
 import type { Block } from "../../lib/esplora";
-import { formatSize, groupDigits, MISSING, NNBSP, truncateMiddle } from "../../lib/format";
+import {
+  formatInterval,
+  formatSize,
+  groupDigits,
+  MISSING,
+  NNBSP,
+  truncateMiddle,
+} from "../../lib/format";
 import { paths } from "../../lib/network";
 import { useNetwork, usePageTitle } from "../../lib/page";
 import { type BlockSummary, fetchSummaries, knownSummary } from "../../lib/summary";
@@ -27,7 +34,11 @@ const IN_FLIGHT = 2;
 /** A row's fee facts: here, still loading, or given up on. */
 type RowFacts = BlockSummary | "failed" | undefined;
 
-const columns = (factsOf: (id: string) => RowFacts) => [
+/** `parentOf(b, i)`: the block mined before row `i`, when the page has it. */
+const columns = (
+  factsOf: (id: string) => RowFacts,
+  parentOf: (b: Block, i: number) => Block | undefined,
+) => [
   {
     header: "Height",
     cell: (b: Block | null) =>
@@ -49,9 +60,21 @@ const columns = (factsOf: (id: string) => RowFacts) => [
   {
     header: "Mined",
     optional: true,
-    // When a block was found reads before what it paid: the fee total goes first (step 5).
-    drop: 6,
+    // When a block was found reads before what it paid: the fee total goes first (step 6).
+    drop: 7,
     cell: (b: Block | null) => (b ? <TimeAgo time={b.timestamp} /> : <Skel size="s" />),
+  },
+  // Header times, so a miner's clock can put a block before its parent: shown with its sign.
+  {
+    header: "Time to mine",
+    numeric: true,
+    optional: true,
+    drop: 3,
+    cell: (b: Block | null, i: number) => {
+      if (!b) return <Skel size="s" />;
+      const p = parentOf(b, i);
+      return p ? formatInterval(b.timestamp - p.timestamp) : MISSING;
+    },
   },
   {
     header: "Miner",
@@ -73,7 +96,7 @@ const columns = (factsOf: (id: string) => RowFacts) => [
     short: "Txs",
     numeric: true,
     // The last to go, and only where even the phone's columns are too wide (320 px, wide faces).
-    drop: 7,
+    drop: 8,
     cell: (b: Block | null) => (b ? groupDigits(b.tx_count) : <Skel size="s" />),
   },
   {
@@ -92,7 +115,7 @@ const columns = (factsOf: (id: string) => RowFacts) => [
     header: "Match rate, %",
     numeric: true,
     optional: true,
-    drop: 4,
+    drop: 5,
     cell: (b: Block | null) => {
       const f = b ? factsOf(b.id) : undefined;
       if (f === undefined) return <Skel size="s" />;
@@ -114,7 +137,7 @@ const columns = (factsOf: (id: string) => RowFacts) => [
     header: "Total fees, BTC",
     numeric: true,
     optional: true,
-    drop: 5,
+    drop: 6,
     cell: (b: Block | null) => {
       const f = b ? factsOf(b.id) : undefined;
       if (f === undefined) return <Skel size="s" />;
@@ -126,7 +149,7 @@ const columns = (factsOf: (id: string) => RowFacts) => [
     header: "Size",
     numeric: true,
     optional: true,
-    drop: 3,
+    drop: 4,
     cell: (b: Block | null) => (b ? formatSize(b.size, "B") : <Skel size="s" />),
   },
   {
@@ -173,7 +196,8 @@ export default function BlocksPage() {
         if (part.length < API_PAGE || last === undefined || last.height === 0) break;
         path = `/blocks/${last.height - 1}`;
       }
-      return out.slice(0, PAGE);
+      // One past the page, so its oldest row has its parent for the time to mine.
+      return out.slice(0, PAGE + 1);
     },
   );
   const [tip] = createApi<string>(() => "/blocks/tip/height", { as: "text" });
@@ -186,12 +210,17 @@ export default function BlocksPage() {
   const [facts, setFacts] = createSignal<ReadonlyMap<string, BlockSummary | "failed">>(new Map());
   const put = (id: string, f: BlockSummary | "failed") => setFacts((m) => new Map([...m, [id, f]]));
   const factsOf = (id: string): RowFacts => facts().get(id) ?? knownSummary(network(), id);
-  const table = columns(factsOf);
-
-  const list = () => {
+  const fetched = () => {
     const l = ready(blocks);
     return Array.isArray(l) ? l : undefined;
   };
+  const list = createMemo(() => fetched()?.slice(0, PAGE));
+  const parentOf = (b: Block, i: number) => {
+    const p = fetched()?.[i + 1];
+    return p?.id === b.previousblockhash ? p : undefined;
+  };
+  const table = columns(factsOf, parentOf);
+
   createEffect(list, (rows) => {
     const c = new AbortController();
     const n = network();
