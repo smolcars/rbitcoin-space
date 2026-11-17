@@ -128,6 +128,22 @@ describe("home page", () => {
     expect(el.querySelector(".home-live")?.textContent).toContain("Live");
   });
 
+  it("explains a block timed before its parent, on its tile and in its label", async () => {
+    // Block 8 is timed 5 s before block 7; the others are ten minutes apart.
+    blocksServed = chain(1, 10);
+    const early = blocksServed.find((b) => b.height === 8);
+    if (early) early.timestamp = fakeBlock(7).timestamp - 5;
+    const { el } = await open();
+    const tile = (h: number) => el.querySelector(`.home-strip__lane > li[data-height="${h}"]`);
+    const note = tile(8)?.querySelector(".note-figure .visually-hidden");
+    expect(note?.textContent).toContain("Timed 5 s before block 7");
+    expect(tile(8)?.querySelector("a")?.getAttribute("aria-label")).toContain(
+      "timed 5 s before the block it follows",
+    );
+    // Its neighbours and the oldest tile, whose parent the strip has not loaded, have no note.
+    for (const h of [9, 7, 1]) expect(tile(h)?.querySelector(".note-figure")).toBeNull();
+  });
+
   it("says what failed when the node is unavailable, section by section", async () => {
     for (const path of Object.keys(replies)) {
       replies[path] = () => Response.json({ error: "upstream unavailable" }, { status: 502 });

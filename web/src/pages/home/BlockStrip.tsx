@@ -14,17 +14,21 @@ import {
 import { Amount } from "../../components/Amount";
 import { FeeRate } from "../../components/FeeRate";
 import { Link } from "../../components/Link";
+import { Note } from "../../components/Note";
 import { type Layer, Strata, strataLayers } from "../../components/Strata";
 import { ErrorState } from "../../components/States";
 import { useNow } from "../../lib/clock";
 import type { Block } from "../../lib/esplora";
 import {
+  EARLY_NOTE,
   formatFeeRate,
+  formatInterval,
   formatRelative,
   formatSize,
   formatUtc,
   groupDigits,
   isoTime,
+  timedBefore,
 } from "../../lib/format";
 import type { LiveStatus } from "../../lib/live";
 import type { ProjectedBlock } from "../../lib/projected-topic";
@@ -146,12 +150,15 @@ export function BlockStrip(props: {
     },
   );
   const past = createPastBlocks(props.network, props.blocks, want, focused);
+  const live = createMemo(() => new Map((shown() ?? []).map((b) => [b.height, b])));
+  /** The block at a height, from the live list or the pages loaded below it. */
+  const blockAt = (h: number) =>
+    live().get(h) ?? (h < (shown()?.at(-1)?.height ?? 0) ? past.block(h) : undefined);
   const slots = createMemo<Slot[]>(() => {
     const list = shown();
     const tip = list?.[0]?.height;
     if (!list || tip === undefined) return [];
     const s = seen();
-    const live = new Map(list.map((b) => [b.height, b]));
     const n = count();
     return laneSlots({
       tip,
@@ -163,7 +170,7 @@ export function BlockStrip(props: {
       // The newest stays too, so "back to now" always has a tile to give focus to; and a focused
       // tile's neighbours, so Tab finds the next one however fast it is pressed.
       pinned: [tip, ...near(focused())],
-      block: (h) => live.get(h) ?? (h < (list.at(-1)?.height ?? 0) ? past.block(h) : undefined),
+      block: blockAt,
       failure: (h) => past.failure(h),
     });
   });
@@ -764,6 +771,7 @@ export function BlockStrip(props: {
                         return (
                           <MinedTile
                             block={s.block}
+                            parent={blockAt(s.block.height - 1)}
                             now={now}
                             facts={facts(s.block.id)}
                             crossing={take(s.block.id)}
@@ -836,6 +844,8 @@ interface Crossing {
 
 function MinedTile(props: {
   block: Block;
+  /** The block before it, when the strip has it: a time before its parent's says so. */
+  parent: Block | undefined;
   now: Accessor<number>;
   facts: TileFacts;
   /** When it is crossing the line: what it was projected to be, and whether it has landed. */
@@ -876,11 +886,19 @@ function MinedTile(props: {
     { equals: sameLayers },
   );
   const miner = () => summary()?.miner?.name;
+  /** Seconds from its parent's time to its own, when it is timed before its parent. */
+  const early = () => {
+    const p = props.parent;
+    if (p?.id !== b().previousblockhash) return undefined;
+    const d = b().timestamp - p.timestamp;
+    return d < 0 ? { seconds: d, parent: p.height } : undefined;
+  };
   const label = () =>
     [
       `Block ${groupDigits(b().height)}`,
       miner() && `mined by ${miner()}`,
       formatRelative(b().timestamp, props.now()),
+      early() && `timed ${formatInterval(-(early()?.seconds ?? 0))} before the block it follows`,
       `${groupDigits(b().tx_count)} ${b().tx_count === 1 ? "transaction" : "transactions"}`,
       tileFeeText(facts()),
       fullness(b().weight),
@@ -970,9 +988,29 @@ function MinedTile(props: {
               ? `~${groupDigits(projected.txs)} tx`
               : `${groupDigits(b().tx_count)} tx`}
           </span>
-          <time class="num" datetime={isoTime(b().timestamp)} title={formatUtc(b().timestamp)}>
-            {tileAge(b().timestamp, props.now())}
-          </time>
+          <Show
+            when={early()}
+            fallback={
+              <time class="num" datetime={isoTime(b().timestamp)} title={formatUtc(b().timestamp)}>
+                {tileAge(b().timestamp, props.now())}
+              </time>
+            }
+          >
+            {(e) => (
+              // Below the tile, so the tile it explains stays in sight.
+              <Note
+                below
+                title={timedBefore(e().seconds, e().parent)}
+                figure={
+                  <time class="num" datetime={isoTime(b().timestamp)}>
+                    {tileAge(b().timestamp, props.now())}
+                  </time>
+                }
+              >
+                {EARLY_NOTE}
+              </Note>
+            )}
+          </Show>
         </span>
       </Link>
       {/* Its line is always there, so the name lands without moving anything; the link says it. */}

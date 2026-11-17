@@ -203,6 +203,8 @@ An output is **Spent** (or **Being spent**, while the spending transaction is un
 
 Relative time ("13 min ago", "1 day 23 h ago", "9 days ago": days lead from a day on) in lists, with the absolute UTC time in the `title`. Detail pages show absolute UTC first (`11 Nov 2026, 20:41:07 UTC`, the form chart read-outs use, there to the minute) and relative time below. Under 10 seconds is "just now". Block tiles drop "ago" to fit ("13 min").
 
+A block's time to mine (the Blocks page) is its time less its parent's, to the second under an hour ("9 min 12 s"). Under it, a bar as long as the time, full at 30 min, with a tick at the 10-minute average: `--color-line-strong` on `--color-line`, and `--color-caution` from 20 min, the one place caution marks a figure rather than a state, so a slow block stands out without a word in every row. Miners set block times, so one can come before its parent's: it keeps its minus sign. A slow time and a negative one are dotted, and explain themselves in a note (`Note`) on hover, focus or tap; a tile on the home strip timed before its parent gives the same note on its time, below the tile.
+
 ## Space, shape and layout
 
 - **Space** on a 4 px grid: `--space-1` 4, `--space-2` 8, `--space-3` 12, `--space-4` 16, `--space-5` 24, `--space-6` 32, `--space-7` 48, `--space-8` 64.

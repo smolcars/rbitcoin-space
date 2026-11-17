@@ -49,6 +49,38 @@
     text-overflow: ellipsis;
   }
 
+  /* A time to mine's bar (TimeToMine): its length from the right, as the figures align; a tick at
+     the 10-minute average. Its margins take back its height, so rows keep theirs. */
+  .blocks-pace {
+    position: relative;
+    display: block;
+    width: 4.5rem;
+    height: 3px;
+    margin: 3px 0 -6px auto;
+    border-radius: 2px;
+    background: var(--color-line);
+  }
+  .blocks-pace::before {
+    content: "";
+    position: absolute;
+    inset-block: 0;
+    right: 0;
+    width: calc(var(--pace, 0) * 100%);
+    border-radius: 2px;
+    background: var(--color-line-strong);
+  }
+  .blocks-pace--slow::before {
+    background: var(--color-caution);
+  }
+  .blocks-pace::after {
+    content: "";
+    position: absolute;
+    inset-block: -1px;
+    right: calc(100% / 3);
+    width: 1px;
+    background: var(--color-text-muted);
+  }
+
   .blocks-pager {
     display: flex;
     align-items: center;

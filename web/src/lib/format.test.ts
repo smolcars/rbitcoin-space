@@ -13,6 +13,7 @@ import {
   formatRelative,
   formatSats,
   formatSize,
+  timedBefore,
   formatUtc,
   groupDigits,
   hashGroups,
@@ -326,5 +327,11 @@ describe("formatInterval", () => {
 
   it("marks what is not a number", () => {
     expect(formatInterval(Number.NaN)).toBe(MISSING);
+  });
+});
+
+describe("timedBefore", () => {
+  it("says how far before which block, as a positive time", () => {
+    expect(timedBefore(-68, 976_214)).toBe(s("Timed 1 min 8 s before block 976_214"));
   });
 });

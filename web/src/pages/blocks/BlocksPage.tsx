@@ -6,16 +6,19 @@ import { DataTable } from "../../components/DataTable";
 import { FeeRate } from "../../components/FeeRate";
 import { Hash } from "../../components/Hash";
 import { Link } from "../../components/Link";
+import { Note } from "../../components/Note";
 import { ErrorState } from "../../components/States";
 import { TimeAgo } from "../../components/Time";
 import { createApi, createRequest, fetchApi } from "../../lib/api";
 import type { Block } from "../../lib/esplora";
 import {
+  EARLY_NOTE,
   formatInterval,
   formatSize,
   groupDigits,
   MISSING,
   NNBSP,
+  timedBefore,
   truncateMiddle,
 } from "../../lib/format";
 import { paths } from "../../lib/network";
@@ -30,6 +33,40 @@ const PAGE = 25;
 const API_PAGE = 10;
 /** Summary requests in flight at once on this page. */
 const IN_FLIGHT = 2;
+
+/** A time to mine from which its bar is amber, and the time that fills the bar, in seconds. */
+const SLOW = 20 * 60;
+const FULL = 30 * 60;
+
+/**
+ * A block's time to mine, with a bar under it as long as the time (full at 30 min, a tick at the
+ * 10-minute average) that turns amber from 20 min. A time before the parent's, and a slow one,
+ * explain themselves on hover and focus.
+ */
+function TimeToMine(props: { seconds: number; parent: number }) {
+  const s = props.seconds;
+  const text = formatInterval(s);
+  return (
+    <>
+      {s < 0 ? (
+        <Note focusable title={timedBefore(s, props.parent)} figure={text}>
+          {EARLY_NOTE}
+        </Note>
+      ) : s >= SLOW ? (
+        <Note focusable title="Slow: 20 min or more" figure={text}>
+          Blocks come every 10 min on average.
+        </Note>
+      ) : (
+        text
+      )}
+      <span
+        class={["blocks-pace", { "blocks-pace--slow": s >= SLOW }]}
+        style={{ "--pace": String(Math.min(1, Math.max(0, s / FULL))) }}
+        aria-hidden="true"
+      />
+    </>
+  );
+}
 
 /** A row's fee facts: here, still loading, or given up on. */
 type RowFacts = BlockSummary | "failed" | undefined;
@@ -73,7 +110,7 @@ const columns = (
     cell: (b: Block | null, i: number) => {
       if (!b) return <Skel size="s" />;
       const p = parentOf(b, i);
-      return p ? formatInterval(b.timestamp - p.timestamp) : MISSING;
+      return p ? <TimeToMine seconds={b.timestamp - p.timestamp} parent={p.height} /> : MISSING;
     },
   },
   {

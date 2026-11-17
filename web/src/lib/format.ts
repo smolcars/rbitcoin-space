@@ -290,3 +290,12 @@ export function formatInterval(seconds: number): string {
           : [`${d} ${d === 1 ? "day" : "days"}`, h % 24 === 0 ? "" : `${h % 24} h`];
   return sign + parts.filter(Boolean).join(" ");
 }
+
+/** Why a block can be timed before its parent: the note on such a time (table and strip). */
+export const EARLY_NOTE =
+  "Each miner sets its block's time from its own clock. The network allows some drift, so a block can be timed before the one it follows.";
+
+/** The note's first line for a block timed `seconds` (negative) before its parent at `parent`. */
+export function timedBefore(seconds: number, parent: number): string {
+  return `Timed ${formatInterval(-seconds)} before block ${groupDigits(parent)}`;
+}
