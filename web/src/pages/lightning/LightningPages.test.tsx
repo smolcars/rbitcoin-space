@@ -413,6 +413,18 @@ describe("the overview", () => {
     expect(rows[0]).toBe("12 Nov 20263100");
     expect(rows[6]).toBe("6 Nov 2026––––");
   });
+  it("keeps no node list of another period when the chosen one fails", async () => {
+    replies["/app/lightning/movers?period=24h"] = json({ error: "still syncing" }, 404);
+    const el = mount(() => <LightningPage />, "/regtest/lightning");
+    await shows(el, "penumbra");
+    el.querySelector<HTMLAnchorElement>(".periods a[href*='24h']")?.click();
+    flush();
+    await shows(el, "Could not load the movers");
+    const lists = el.querySelector(".ln-lists") as HTMLElement;
+    expect(text(lists)).not.toContain("penumbra");
+    expect(text(lists)).toContain("Not loaded.");
+  });
+
   it("shows a section that could not load as such, and the rest of the page", async () => {
     replies["/app/lightning/movers?period=1w"] = json({ error: "still syncing" }, 404);
     const el = mount(() => <LightningPage />, "/regtest/lightning");

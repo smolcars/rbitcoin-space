@@ -56,6 +56,9 @@ test("the overview, a node and a channel, from mainnet's answers", async ({ page
   await expect(page.locator(".ln-fig").getByText(/^36\s228$/)).toBeVisible();
   await expect(page.getByRole("heading", { name: "Movers" })).toBeVisible();
 
+  // A phone shows one node list at a time.
+  const list = page.getByRole("button", { name: "Connected", exact: true });
+  if (await list.isVisible()) await list.click();
   const connected = page.getByRole("table", { name: "The five nodes with the most channels" });
   await connected.getByRole("link", { name: "ACINQ" }).click();
   await expect(page).toHaveURL(`/regtest/lightning/node/${ACINQ}`);

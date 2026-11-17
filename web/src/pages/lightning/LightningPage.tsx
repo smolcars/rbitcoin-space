@@ -855,24 +855,25 @@ function NodeLists(props: {
       )}
     </Show>
   );
+  // The last period's rows wait, marked busy, for the period chosen; a failed period shows none.
   const moved = (left: boolean) => (
-    <Show
-      when={movers.latest}
-      fallback={
-        <Show when={movers.state !== "errored"} fallback={<p class="ln-aside">Not loaded.</p>}>
-          <Loading label="Loading the nodes" />
-        </Show>
-      }
-    >
-      {(m) => (
-        <DataTable
-          caption={left ? "Nodes that left" : "Newest nodes"}
-          columns={arrivals(left)}
-          rows={(left ? m().left : m().new).slice(0, PREVIEW)}
-          {...(left ? {} : { rowHref: (r: Mover) => paths.lightningNode(r.id) })}
-          empty={<Empty title="None in this period" />}
-        />
-      )}
+    <Show when={movers.state !== "errored"} fallback={<p class="ln-aside">Not loaded.</p>}>
+      <Show when={movers.latest} fallback={<Loading label="Loading the nodes" />}>
+        {(m) => (
+          <div
+            class="ln-busy"
+            aria-busy={m().period === props.period.id && !movers.loading ? "false" : "true"}
+          >
+            <DataTable
+              caption={left ? "Nodes that left" : "Newest nodes"}
+              columns={arrivals(left)}
+              rows={(left ? m().left : m().new).slice(0, PREVIEW)}
+              {...(left ? {} : { rowHref: (r: Mover) => paths.lightningNode(r.id) })}
+              empty={<Empty title="None in this period" />}
+            />
+          </div>
+        )}
+      </Show>
     </Show>
   );
   return (
