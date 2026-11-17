@@ -179,11 +179,12 @@ describe("coinbaseTag", () => {
   it("reads each recorded block's coinbase as its words, or as today's form when it has none", () => {
     // 84 mainnet coinbases from 2009 to 2026: many pools, Chinese and emoji tags, merged mining.
     expect(coinbases.blocks.length).toBeGreaterThanOrEqual(30);
-    for (const b of coinbases.blocks)
-      expect([b.height, tagText(coinbaseTag(b.scriptsig, b.height))]).toStrictEqual([
-        b.height,
-        b.reads,
-      ]);
+    for (const b of coinbases.blocks) {
+      const t = coinbaseTag(b.scriptsig, b.height);
+      expect([b.height, tagText(t)]).toStrictEqual([b.height, b.reads]);
+      // Words are always shown, never replaced by hex.
+      expect([b.height, t?.words === true && !t.readable]).toStrictEqual([b.height, false]);
+    }
     const reads = (h: number) => coinbases.blocks.find((b) => b.height === h)?.reads;
     expect(reads(976_294)).toBe("Mined by Luxor");
     expect(reads(350_000)).toBe("七彩神仙鱼");
@@ -192,6 +193,12 @@ describe("coinbaseTag", () => {
     expect(reads(976_279)).toBe("/F2Pool/");
     // Text inside what would be a merged-mining root still reads.
     expect(reads(220_000)).toBe("Hi from 50BTC.com 6");
+  });
+
+  it("shows a tag of raw bytes, not pushes, as its words", () => {
+    // F2Pool's tag written straight after the height, with no push before it.
+    const t = coinbaseTag("03a7e50ee4b883e5bda9e7a59ee4bb99e9b1bc", 976_295);
+    expect(t).toMatchObject({ readable: true, words: true, parts: [{ text: "七彩神仙鱼" }] });
   });
 
   it("rarely finds words in random bytes", () => {

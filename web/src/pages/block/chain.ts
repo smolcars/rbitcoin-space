@@ -305,7 +305,8 @@ export function coinbaseTag(scriptsigHex: string | undefined, height: number): C
   if (last && "text" in last) last.text = last.text.trimEnd();
   const shown = bytes.subarray(chunks[0]?.at ?? bytes.length);
   return {
-    readable: readable >= 3,
+    // Words found in the raw reading count even when the push-by-push reading saw none.
+    readable: words.length > 0 || readable >= 3,
     words: words.length > 0,
     parts: parts.filter((p) => !("text" in p) || p.text !== ""),
     hex: Array.from(shown, (v) => v.toString(16).padStart(2, "0")).join(""),
