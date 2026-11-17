@@ -90,7 +90,7 @@ test.describe("without the web font", () => {
       ["/regtest/blocks", (p) => p.getByRole("table").getByRole("link")],
       [`/regtest/block/${chain.blocks[106]}`, (p) => p.getByRole("table").getByRole("link")],
       ["/regtest/block/next", (p) => p.locator("main table a")],
-      [`/regtest/tx/${chain.txs.script_types}`, (p) => p.locator(".tx-summary .amount")],
+      [`/regtest/tx/${chain.txs.script_types}`, (p) => p.locator(".tx-answer .amount")],
       [`/regtest/address/${chain.addresses.p2tr}`, (p) => p.getByRole("table").getByRole("link")],
       // Regtest's chain is months old: all of history has its pools table.
       ["/regtest/mining?period=all", (p) => p.locator("main table a")],

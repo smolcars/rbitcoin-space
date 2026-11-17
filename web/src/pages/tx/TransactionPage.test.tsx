@@ -150,11 +150,19 @@ describe("TransactionPage", () => {
     const el = page(`/tx/${TXID}`);
     await settle();
     expect(el.querySelector(".tx-status")?.textContent).toBe("Confirmed");
-    const block = el.querySelector<HTMLAnchorElement>(".tx-step--done a");
+    const block = el.querySelector<HTMLAnchorElement>(".tx-answer__cell--where a");
     expect(block?.getAttribute("href")).toBe(`/block/${BLOCK}`);
-    expect(text(el)).toContain("3 confirmations of 6 so far.");
-    // 141 sats over ceil(561 / 4) = 141 vB.
-    expect(text(el)).toContain("1.00 sat/vB");
+    expect(text(el)).toContain("3 of 6 confirmations");
+    // Mined three blocks ago: across the "now" line, two blocks found since beside it.
+    expect(el.querySelectorAll(".tx-strip__slot--mined")).toHaveLength(3);
+    expect(el.querySelector(".tx-strip__slot--mined:last-child")?.classList).toContain("is-here");
+    // 141 sats over ceil(561 / 4) = 141 vB, said once, in the fee rate's figure.
+    const fee = text(el.querySelector(".tx-answer__cell--fee") as Element);
+    expect(fee).toContain("1.00 sat/vB");
+    expect(fee).toContain("141 sats, 141 vB");
+    expect(text(el)).toContain("1 input to 2 outputs");
+    // Settled: the summary says what the steps would, so they are left out.
+    expect(el.querySelector(".tx-timeline")).toBeNull();
     expect(text(el)).toContain("No: it is confirmed");
     const outs = el.querySelectorAll(".tx-flow__col--out .tx-flow__item");
     expect(outs).toHaveLength(3); // two outputs and the fee
@@ -182,9 +190,11 @@ describe("TransactionPage", () => {
     const el = page(`/tx/${TXID}`);
     await settle();
     expect(text(el.querySelector(".tx-flow__col--in") as Element)).toContain("Coinbase");
-    expect(text(el)).toContain("None: a coinbase pays no fee");
-    expect(text(el)).toContain("Spendable");
-    expect(text(el)).toContain("2 confirmations of the 100 a miner's reward needs");
+    expect(text(el.querySelector(".tx-answer__cell--fee") as Element)).toContain(
+      "NoneA coinbase, 141 vB",
+    );
+    expect(text(el)).toContain("2 of 100 confirmations");
+    expect(text(el)).toContain("When it can be spent");
     el.querySelector<HTMLButtonElement>(".tx-flow__col--in .tx-flow__open")?.click();
     await settle();
     expect(text(el.querySelector("#tx-inspector") as Element)).toContain(
@@ -229,12 +239,16 @@ describe("TransactionPage", () => {
     ws.receive(mempoolMsg(2));
     await settle();
     expect(text(el.querySelector(".tx-live") as Element)).toBe("Live");
-    const where = el.querySelector(".tx-where") as Element;
+    const where = el.querySelector(".tx-answer__cell--where") as Element;
     expect(where.querySelector("a")?.getAttribute("href")).toBe("/block/next/3");
-    expect(text(where)).toContain("In about 3 blocks, projected");
-    expect(text(where)).toContain("1 022 transactions (412.31 kvB) would be mined before it.");
-    expect(text(where)).toContain("Roughly 30 minutes");
-    expect(el.querySelector(".tx-lane__slot.is-here .tx-lane__label")?.textContent).toBe("3");
+    expect(text(where)).toContain("Projected~3 blocks");
+    expect(text(where)).toContain("1 022 txs ahead");
+    const more = text(el.querySelector(".more") as Element);
+    expect(more).toContain("1 022 transactions (412.31 kvB) would be mined before it.");
+    expect(more).toContain("Roughly 30 minutes");
+    // Third of eight from the "now" line: the sixth slot from the left.
+    const marker = el.querySelector<HTMLElement>(".tx-strip__marker");
+    expect(marker?.style.getPropertyValue("--i")).toBe("5");
     // A position that only moves is not announced.
     expect(live(el)).toBe("");
     ws.receive(mempoolMsg(1));
@@ -243,19 +257,24 @@ describe("TransactionPage", () => {
     ws.receive(mempoolMsg(0));
     await settle();
     expect(live(el)).toBe("Now projected for the next block.");
-    expect(el.querySelector(".tx-where a")?.getAttribute("href")).toBe("/block/next");
+    expect(where.querySelector("a")?.getAttribute("href")).toBe("/block/next");
+    expect(text(where)).toContain("Next block");
+    expect(marker?.style.getPropertyValue("--i")).toBe("7");
 
     replies[api(`/tx/${TXID}/status`)] = { status: 200, body: confirmed };
     ws.receive(msg({ state: "confirmed", height: 975_516, hash: BLOCK }));
     await settle();
     expect(el.querySelector(".tx-status")?.textContent).toBe("Confirmed");
-    expect(el.querySelector(".tx-step--landed")).not.toBeNull();
-    expect(el.querySelector(".tx-where")).toBeNull();
+    // The square crosses the line and lands in its block, once.
+    expect(el.querySelector(".tx-strip__marker")).toBeNull();
+    expect(el.querySelector(".tx-strip__slot.is-landed")).not.toBeNull();
+    expect(text(el.querySelector(".tx-answer__cell--where") as Element)).toContain("block 975 516");
     expect(live(el)).toBe("Confirmed in block 975 516.");
-    // The tip from the blocks topic counts the confirmations.
+    // The tip from the blocks topic counts the confirmations, and the strip follows.
     ws.receive({ topic: "blocks", type: "block", block: fakeBlock(975_517) });
     await settle();
-    expect(text(el)).toContain("2 confirmations of 6 so far.");
+    expect(text(el)).toContain("2 of 6 confirmations");
+    expect(el.querySelectorAll(".tx-strip__slot--mined")).toHaveLength(2);
   });
 
   it("falls back to checking over HTTP when the live channel drops, and says so", async () => {
@@ -281,7 +300,7 @@ describe("TransactionPage", () => {
     vi.advanceTimersByTime(POLL_MS);
     await settle();
     expect(el.querySelector(".tx-status")?.textContent).toBe("Confirmed");
-    expect(text(el)).toContain("1 confirmation of 6 so far.");
+    expect(text(el)).toContain("1 of 6 confirmations");
   });
 
   it("after a reconnect, checks over HTTP while the topic has said nothing yet", async () => {
@@ -293,7 +312,7 @@ describe("TransactionPage", () => {
     first.hello({ network: "mainnet" });
     first.receive(mempoolMsg(0));
     await vi.advanceTimersByTimeAsync(50);
-    expect(el.querySelector(".tx-lane")).not.toBeNull();
+    expect(el.querySelector(".tx-strip__marker")).not.toBeNull();
     first.drop(1006);
     await vi.advanceTimersByTimeAsync(1100); // the reconnect's backoff
     const second = FakeSocket.last();
@@ -301,7 +320,7 @@ describe("TransactionPage", () => {
     second.hello({ network: "mainnet" }); // a restarted server, still on its first mempool cycle
     await vi.advanceTimersByTimeAsync(50);
     // What the topic said before the drop no longer vouches for a position.
-    expect(el.querySelector(".tx-lane")).toBeNull();
+    expect(el.querySelector(".tx-strip__marker")).toBeNull();
     const asked = () =>
       fetchMock.mock.calls.filter(([u]) => u === api(`/tx/${TXID}/status`)).length;
     const before = asked();
@@ -321,7 +340,10 @@ describe("TransactionPage", () => {
     FakeSocket.last().receive({ topic: `tx:${TXID}`, type: "off" });
     await settle();
     expect(text(el)).toContain("This server does not follow the Mainnet mempool.");
-    expect(el.querySelector(".tx-where")).toBeNull();
+    expect(el.querySelector(".tx-strip__marker")).toBeNull();
+    expect(text(el.querySelector(".tx-answer__cell--where") as Element)).toContain(
+      "Not followed here",
+    );
     const asked = () =>
       fetchMock.mock.calls.filter(([u]) => u === api(`/tx/${TXID}/status`)).length;
     const before = asked();
@@ -370,7 +392,9 @@ describe("TransactionPage", () => {
     FakeSocket.last().hello({ network: "mainnet" });
     FakeSocket.last().receive(mempoolMsg(0, {}, 12_419));
     await settle();
-    expect(text(el)).toContain("Effective fee rate12.4 sat/vB");
+    expect(text(el.querySelector(".tx-answer__cell--fee") as Element)).toContain(
+      "Effective 12.4 sat/vB",
+    );
     const group = el.querySelector(".tx-group") as Element;
     expect(text(group)).toContain(
       "On its own it pays 1.00 sat/vB, but its child pays enough to lift the group to 12.4 sat/vB as a whole.",
@@ -571,7 +595,7 @@ describe("TransactionPage", () => {
     FakeSocket.last().receive(msg({ state: "unknown" }));
     await settle();
     expect(el.querySelector(".tx-status")?.textContent).toBe("Confirmed");
-    expect(text(el)).toContain("3 confirmations of 6 so far.");
+    expect(text(el)).toContain("3 of 6 confirmations");
   });
 
   it("states plainly when a reorganisation sends it back to the mempool", async () => {
@@ -706,7 +730,7 @@ describe("TransactionPage", () => {
     await settle();
     expect(el.querySelector(".tx-status")?.textContent).toBe("Confirmed");
     expect(el.querySelector("a.tx-flow__spent")?.getAttribute("href")).toBe(`/tx/${SPENDER}`);
-    expect(text(el)).toContain("3 confirmations of 6 so far.");
+    expect(text(el)).toContain("3 of 6 confirmations");
   });
 
   it("keeps loading while the server says it is busy, then shows the transaction", async () => {
@@ -736,6 +760,55 @@ describe("TransactionPage", () => {
     expect(text(el.querySelector("#tx-inspector") as Element)).toContain(
       "Could not check right now",
     );
+  });
+
+  it("opens a card's inspector in the side panel, over the details it hides until it closes", async () => {
+    serve(payment(confirmed), [{ spent: false }, { spent: false }]);
+    const el = page(`/tx/${TXID}`);
+    await settle();
+    const rail = el.querySelector(".tx-rail") as Element;
+    const open = el.querySelectorAll<HTMLButtonElement>(".tx-flow__col--out .tx-flow__open")[1];
+    open?.click();
+    await settle();
+    // In the panel beside the flow, not under it: the details stay, holding the panel's room.
+    const inspector = rail.querySelector(".tx-rail__over #tx-inspector");
+    expect(text(inspector as Element)).toContain("Output 1");
+    expect(rail.classList).toContain("tx-rail--open");
+    expect(rail.querySelector(".tx-rail__details")).not.toBeNull();
+    expect(el.querySelector(".tx-main__flow #tx-inspector")).toBeNull();
+    expect(open?.getAttribute("aria-expanded")).toBe("true");
+    // Another card swaps it; the same card again closes it.
+    el.querySelector<HTMLButtonElement>(".tx-flow__col--in .tx-flow__open")?.click();
+    await settle();
+    expect(text(rail.querySelector("#tx-inspector") as Element)).toContain("Input 0");
+    el.querySelector<HTMLButtonElement>(".tx-flow__col--in .tx-flow__open")?.click();
+    await settle();
+    expect(rail.querySelector("#tx-inspector")).toBeNull();
+    expect(rail.classList).not.toContain("tx-rail--open");
+  });
+
+  it("names what it replaced in the details", async () => {
+    const OLD = "e".repeat(64);
+    serve(payment({ confirmed: false }));
+    replies[`/app/tx/${TXID}/replacements`] = {
+      status: 200,
+      body: {
+        txid: TXID,
+        truncated: false,
+        replaced_by: [],
+        replaces: [{ txid: OLD, by: TXID, rate: 500, by_rate: 1000, fee: 70, by_fee: 141 }],
+      },
+    };
+    const el = page(`/tx/${TXID}`);
+    await settle();
+    const ws = FakeSocket.last();
+    ws.hello({ network: "mainnet" });
+    ws.receive(mempoolMsg(0));
+    await settle();
+    const facts = text(el.querySelector(".tx-rail__details") as Element);
+    expect(facts).toContain("Replaces");
+    expect(facts).toContain("which paid 0.50 sat/vB");
+    expect(el.querySelector(`.tx-rail__details a[href="/tx/${OLD}"]`)).not.toBeNull();
   });
 
   it("shows ten outputs of a big transaction, then a hundred more per press", async () => {

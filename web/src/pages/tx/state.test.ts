@@ -13,11 +13,14 @@ import {
   parseRelatives,
   parseReplacements,
   place,
+  placeShort,
   polls,
   recorded,
   duration,
   type Shown,
   shown,
+  STRIP_BLOCKS,
+  stripPlace,
 } from "./state";
 
 const A = "a".repeat(64);
@@ -423,5 +426,48 @@ describe("the routes", () => {
     expect(parseReplacements({ replaced_by: [link], replaces: [], truncated: true })).toMatchObject(
       { truncated: true },
     );
+  });
+});
+
+describe("the summary's block strip", () => {
+  const at = (block: number, blocks = 8) => ({
+    block,
+    blocks,
+    effectiveRate: 1,
+    aheadVsize: 0,
+    aheadTxs: 0,
+  });
+
+  it("puts a waiting transaction in its projected block, the next one beside the line", () => {
+    expect(stripPlace({ position: at(0) })).toStrictEqual({ projected: 8, mined: 0, here: 7 });
+    expect(stripPlace({ position: at(2) })).toStrictEqual({ projected: 8, mined: 0, here: 5 });
+    expect(placeShort(at(0))).toBe("Next block");
+    expect(placeShort(at(2))).toBe("~3 blocks");
+    // A projection of one block has only the next.
+    expect(stripPlace({ position: at(0, 1) })).toStrictEqual({ projected: 1, mined: 0, here: 0 });
+  });
+
+  it("puts one deep in the queue in the farthest slot, which holds everything after it", () => {
+    expect(stripPlace({ position: at(7) })).toStrictEqual({ projected: 8, mined: 0, here: 0 });
+    // A position past the projection's last block still lands in it, never off the strip.
+    expect(stripPlace({ position: at(12) })).toStrictEqual({ projected: 8, mined: 0, here: 0 });
+    expect(placeShort(at(7))).toBe("7+ blocks");
+  });
+
+  it("puts a mined one past the line, the blocks found since between, six in all", () => {
+    expect(stripPlace({ confirmations: 1 })).toStrictEqual({ projected: 5, mined: 1, here: 5 });
+    expect(stripPlace({ confirmations: 3 })).toStrictEqual({ projected: 3, mined: 3, here: 5 });
+    // Settled: six solid blocks, its own the farthest; nothing left to come.
+    expect(stripPlace({ confirmations: 400 })).toStrictEqual({
+      projected: 0,
+      mined: STRIP_BLOCKS,
+      here: STRIP_BLOCKS - 1,
+    });
+    // The tip not known yet: its own block, at least.
+    expect(stripPlace({ confirmations: undefined })).toStrictEqual({
+      projected: 5,
+      mined: 1,
+      here: 5,
+    });
   });
 });

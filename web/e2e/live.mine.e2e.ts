@@ -84,7 +84,7 @@ test.describe("transaction page", () => {
   }) => {
     const txid = await pay(rpc, freshAddress(), 50_000n);
     await page.goto(`/regtest/tx/${txid}`);
-    await expect(page.getByRole("link", { name: "In the next block" }).first()).toBeVisible({
+    await expect(page.getByRole("link", { name: "Next block", exact: true }).first()).toBeVisible({
       timeout: PROJECTION_LAG_MS,
     });
     await keep(page, `/regtest/api/tx/${txid}/status`);

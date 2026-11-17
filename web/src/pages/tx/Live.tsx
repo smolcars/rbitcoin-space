@@ -1,24 +1,23 @@
-// The transaction page's live parts: where it waits, who it is mined with, what replaced it, and
+// The transaction page's live parts: the block strip, who it is mined with, what replaced it, and
 // whether the page is live. The state behind them is in state.ts.
 import { createSignal, For, Match, Show, Switch, untrack } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { FeeRate } from "../../components/FeeRate";
 import { Hash } from "../../components/Hash";
 import { Link } from "../../components/Link";
-import { SectionHeader } from "../../components/SectionHeader";
+import { More } from "../../components/More";
 import { TimeUtc } from "../../components/Time";
-import { feeColor, groupDigits } from "../../lib/format";
+import { groupDigits } from "../../lib/format";
 import { type Topic, useLiveStatus, useTopic } from "../../lib/live";
 import { paths } from "../../lib/network";
 import { useNetwork } from "../../lib/page";
 import {
-  type Position,
   type ReplacementLink,
   type TxMessage,
   type TxState,
   txTopic,
 } from "../../lib/track-topics";
-import { type Liveness, place, type Relatives, group, ratesDiffer } from "./state";
+import { type Liveness, place, type Relatives, group, ratesDiffer, type StripPlace } from "./state";
 
 /** Follows a topic while mounted. `again` gets the function that subscribes afresh. */
 export function Follow<M>(props: {
@@ -79,83 +78,47 @@ export function LiveState(props: { liveness: Liveness; network: string }) {
 }
 
 /**
- * Where an unconfirmed transaction waits: the projected blocks as a lane ending at the "now" line,
- * its block marked, and the same in words. The marker moves only when its block changes; what is
- * ahead of it changes in place, so the panel is alive without twitching.
+ * The block strip in small, beside where the transaction is: projected blocks dashed up to the
+ * "now" line, mined blocks solid past it, and the transaction one square in its fee colour. Waiting,
+ * the square travels only when its block changes; once mined it has crossed the line, and it
+ * lands once when that happens while the page is open. Words beside it say the same for a screen
+ * reader, so the drawing is hidden from one.
  */
-export function Where(props: { position: Position | null; live: boolean; reserve: boolean }) {
-  const network = useNetwork();
+export function Strip(props: { place: StripPlace; color: string; landed: boolean }) {
+  const cells = (n: number) => Array.from({ length: n }, (_, i) => i);
   return (
-    <section
-      class={["tx-where", { "tx-where--reserve": props.reserve }]}
-
-      aria-labelledby="tx-where-title"
+    <span
+      class="tx-strip"
+      aria-hidden="true"
+      style={{
+        "--c": props.color,
+        "--p": String(props.place.projected),
+        "--m": String(props.place.mined),
+      }}
     >
-      <SectionHeader title="Where it waits" id="tx-where-title" />
-      <Switch>
-        <Match when={!props.live}>
-          <p class="tx-where__text">
-            Its place in the queue shows while the page is live. Until then the page checks over
-            HTTP whether it has confirmed.
-          </p>
-        </Match>
-        <Match when={props.position} keyed={false}>
-          {(p) => {
-            const words = () => place(p(), network());
-            // The last projected block first, the next one beside the "now" line.
-            const slots = () =>
-              Array.from({ length: Math.max(1, p().blocks) }, (_, i) => p().blocks - 1 - i);
-            return (
-              <>
-                <div class="tx-lane" aria-hidden="true">
-                  <div class="tx-lane__track" style={{ "--n": String(slots().length) }}>
-                    <For each={slots()}>
-                      {(b) => (
-                        <span class={["tx-lane__slot", { "is-here": b === p().block }]}>
-                          <span class="tx-lane__label num">
-                            {b === 0
-                              ? "Next"
-                              : b === p().blocks - 1 && p().blocks > 1
-                                ? `${b + 1}+`
-                                : b + 1}
-                          </span>
-                        </span>
-                      )}
-                    </For>
-                    <span
-                      class="tx-lane__marker"
-                      style={{
-                        "--i": String(p().blocks - 1 - p().block),
-                        "--c": feeColor(p().effectiveRate),
-                      }}
-                    />
-                  </div>
-                  <span class="tx-lane__now">Now</span>
-                </div>
-                <p class="tx-where__place">
-                  <Link class="tap" href={paths.projected(words().page)}>
-                    {words().where}
-                  </Link>
-                  <span class="tx-where__projected">, projected</span>
-                </p>
-                <p class="tx-where__text tx-where__text--figures">{words().ahead}</p>
-                <p class="tx-where__text">{words().when}</p>
-                <p class="tx-where__note">
-                  A projection, not a promise: miners pick their own blocks, and anything that pays
-                  more goes ahead of it.
-                </p>
-              </>
-            );
-          }}
-        </Match>
-        <Match when={true}>
-          <p class="tx-where__text">
-            Not placed yet: it reached the node a moment ago, and the projected blocks take it in
-            with their next update.
-          </p>
-        </Match>
-      </Switch>
-    </section>
+      <span class="tx-strip__track">
+        <For each={cells(props.place.projected)}>{() => <span class="tx-strip__slot" />}</For>
+        <Show when={props.place.here < props.place.projected}>
+          <span class="tx-strip__marker" style={{ "--i": String(props.place.here) }} />
+        </Show>
+      </span>
+      <span class="tx-strip__now" />
+      <span class="tx-strip__mined">
+        <For each={cells(props.place.mined)}>
+          {(i) => (
+            <span
+              class={[
+                "tx-strip__slot tx-strip__slot--mined",
+                {
+                  "is-here": props.place.projected + i === props.place.here,
+                  "is-landed": props.landed && props.place.projected + i === props.place.here,
+                },
+              ]}
+            />
+          )}
+        </For>
+      </span>
+    </span>
   );
 }
 
@@ -232,11 +195,13 @@ export function Group(props: { relatives: Relatives; txid: string; rate: number 
         </h3>
         <Show when={others().length > 0}>
           <p class="tx-group__text">{sentence()}</p>
-          <p class="tx-group__why">
-            A transaction can only be mined with or after the ones whose coins it spends, so miners
-            weigh such a group by its total fee over its total size. When a child raises the rate
-            this way it is called child pays for parent.
-          </p>
+          <More label="Why">
+            <p>
+              A transaction can only be mined with or after the ones whose coins it spends, so
+              miners weigh such a group by its total fee over its total size. When a child raises
+              the rate this way it is called child pays for parent.
+            </p>
+          </More>
           <ul class="tx-group__list" aria-label="Mined together, in mining order">
             <For each={together()}>
               {(m) => (

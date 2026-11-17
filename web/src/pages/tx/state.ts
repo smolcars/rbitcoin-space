@@ -269,6 +269,46 @@ export function place(p: Position, network: Network): Place {
   return { where, page: last ? p.blocks : n, ahead, when };
 }
 
+/** Blocks the summary's strip draws: six, the confirmations most services wait for. */
+export const STRIP_BLOCKS = 6;
+
+/**
+ * The summary's block strip: projected blocks dashed to the left of the "now" line, mined blocks
+ * solid to its right. `here` is the cell that holds the transaction, counted from the left across
+ * both sides.
+ */
+export interface StripPlace {
+  projected: number;
+  mined: number;
+  here: number;
+}
+
+/**
+ * Where the transaction sits on the strip. Waiting, its projected block among the projection's
+ * blocks, the next one beside the line and anything past the last in the last. Mined, it has
+ * crossed the line: its block is the farthest right, the blocks found since between it and the
+ * line, and the dashed slots left are the confirmations still to come, up to six.
+ */
+export function stripPlace(
+  at: { position: Position } | { confirmations: number | undefined },
+): StripPlace {
+  if ("position" in at) {
+    const projected = Math.max(1, at.position.blocks);
+    const block = Math.min(Math.max(0, at.position.block), projected - 1);
+    return { projected, mined: 0, here: projected - 1 - block };
+  }
+  const mined = Math.min(STRIP_BLOCKS, Math.max(1, at.confirmations ?? 1));
+  const projected = STRIP_BLOCKS - mined;
+  return { projected, mined, here: projected + mined - 1 };
+}
+
+/** The projected block in a few words, for the summary: "Next block", "~3 blocks", "7+ blocks". */
+export function placeShort(p: Position): string {
+  if (p.block === 0) return "Next block";
+  if (p.blocks > 1 && p.block >= p.blocks - 1) return `${groupDigits(p.blocks - 1)}+ blocks`;
+  return `~${groupDigits(p.block + 1)} blocks`;
+}
+
 /** Whether two rates print differently, so an effective rate is worth showing. */
 export const ratesDiffer = (a: number, b: number): boolean => formatFeeRate(a) !== formatFeeRate(b);
 

@@ -21,7 +21,7 @@ import { TimeAgo, TimeUtc } from "../../components/Time";
 import { createApi, createRequest, fetchApi, fetchApp, isNotFound } from "../../lib/api";
 import { type BlocksMessage, blocksTopic } from "../../lib/blocks-topic";
 import type { Outspend, Transaction, TxStatus } from "../../lib/esplora";
-import { formatSize, groupDigits, MISSING, truncateMiddle } from "../../lib/format";
+import { feeColor, formatSize, groupDigits, MISSING, truncateMiddle } from "../../lib/format";
 import { NETWORK_NAMES, paths } from "../../lib/network";
 import { useLiveStatus } from "../../lib/live";
 import { useNetwork, usePageTitle } from "../../lib/page";
@@ -30,7 +30,7 @@ import { TxLightning } from "../lightning/TxLightning";
 import { Code } from "./Code";
 import { Flow, type Selection } from "./Flow";
 import { Inspector } from "./Inspector";
-import { Chain, Follow, Group, LiveState, POLL_MS, Where } from "./Live";
+import { Chain, Follow, Group, LiveState, POLL_MS, Strip } from "./Live";
 import {
   announcement as sayChange,
   answered,
@@ -42,6 +42,7 @@ import {
   parseRelatives,
   parseReplacements,
   place,
+  placeShort,
   polls,
   ratesDiffer,
   recorded,
@@ -49,6 +50,8 @@ import {
   type Replacements,
   type Shown,
   shown,
+  type StripPlace,
+  stripPlace,
 } from "./state";
 import { confirmations, features, isCoinbase, isTxid, lockTimeMeaning, vsize } from "./tx";
 import "./TransactionPage.css";
@@ -603,9 +606,12 @@ function Body(props: {
   /** Left the mempool without confirming: replaced, dropped, or gone for a reason nobody knows. */
   const left = () => props.status === undefined;
   const mempool = () => (props.shown.kind === "mempool" ? props.shown : undefined);
+  const genesis = () => coinbase() && status()?.block_height === 0;
   const [selected, setSelected] = createSignal<Selection | null>(null);
   let inspectorHeading: HTMLHeadingElement | undefined;
 
+  // Wide, the inspector opens in the side panel beside the flow, so nothing moves; narrower, the
+  // panel is under the flow, and what opened is brought into view.
   const select = (s: Selection) => {
     const cur = selected();
     if (cur && cur.side === s.side && cur.index === s.index) {
@@ -613,82 +619,46 @@ function Body(props: {
       return;
     }
     setSelected(s);
+    const stacked = matchMedia(`(max-width: ${STACKED})`).matches;
     const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
     requestAnimationFrame(() => {
-      inspectorHeading?.scrollIntoView({ block: "nearest", behavior: reduce ? "auto" : "smooth" });
+      if (stacked) {
+        inspectorHeading?.scrollIntoView({
+          block: "nearest",
+          behavior: reduce ? "auto" : "smooth",
+        });
+      }
       inspectorHeading?.focus({ preventScroll: true });
     });
   };
 
+  // The full sequence, for a transaction that left the mempool unconfirmed or came back to it.
   const steps = (): Step[] => {
-    const s = status();
-    const block = (st: TxStatus) => (
-      <>
-        <span>
-          In{" "}
-          <Link href={paths.block(st.block_hash ?? st.block_height ?? "")}>
-            block {groupDigits(st.block_height ?? Number.NaN)}
-          </Link>
-        </span>
-        <Show when={st.block_time}>
-          {(t) => (
-            <>
-              <TimeUtc time={t()} />
-              <TimeAgo time={t()} />
-            </>
-          )}
-        </Show>
-      </>
-    );
-    const target = coinbase() ? MATURE : SETTLED;
-    const third: Step = (() => {
-      if (coinbase() && s?.block_height === 0) {
-        return {
-          title: "Never spendable",
-          detail: "The genesis block's reward was never added to the coins that can be spent.",
-          state: "done",
-        };
-      }
-      const title = coinbase() ? "Spendable" : "Six confirmations";
-      if (props.shown.kind === "replaced") {
-        return {
-          title: "Will not confirm",
-          detail: "Its coins are spent by the version that replaced it.",
-          state: "dead",
-        };
-      }
-      if (left()) return { title, detail: "", state: "dead" };
-      if (!s?.confirmed)
-        return { title, detail: "Most services treat six confirmations as final.", state: "todo" };
-      const c = props.confs;
-      if (c === undefined) return { title, detail: "", state: "current" };
-      const count = `${groupDigits(c)} confirmation${c === 1 ? "" : "s"}`;
-      if (c >= target)
-        return {
-          title,
-          detail: coinbase() ? `${count}: its outputs can be spent.` : `${count}.`,
-          state: "done",
-          tone: "positive",
-        };
-      return {
-        title,
-        detail: coinbase()
-          ? `${count} of the ${MATURE} a miner's reward needs before it can be spent.`
-          : `${count} of ${SETTLED} so far.`,
-        state: "current",
-      };
-    })();
-    const first: Step = coinbase()
-      ? {
-          title: "Created",
-          detail: "A miner's reward, made with the block that holds it.",
-          state: "done",
-        }
-      : {
-          title: "Broadcast",
-          detail: <Broadcast time={mempool()?.time} replaced={props.replaced} />,
-          state: "done",
-        };
+    const title = coinbase() ? "Spendable" : "Six confirmations";
+    const third: Step =
+      props.shown.kind === "replaced"
+        ? {
+            title: "Will not confirm",
+            detail: "Its coins are spent by the version that replaced it.",
+            state: "dead",
+          }
+        : left()
+          ? { title, detail: "", state: "dead" }
+          : { title, detail: "Most services treat six confirmations as final.", state: "todo" };
+    const first: Step = {
+      title: "Broadcast",
+      detail: (
+        <>
+          <span>
+            {mempool()?.time === undefined
+              ? "Relayed to the network."
+              : "Relayed to the network; first seen"}
+          </span>
+          <Show when={mempool()?.time}>{(t) => <TimeUtc time={t()} />}</Show>
+        </>
+      ),
+      state: "done",
+    };
     const second = ((): Step => {
       const now = props.shown;
       if (now.kind === "replaced") {
@@ -730,8 +700,6 @@ function Body(props: {
           tone: "negative",
         };
       }
-      if (s?.confirmed)
-        return { title: "Confirmed", detail: block(s), state: "done", tone: "positive" };
       const p = mempool()?.position;
       return {
         title: "Waiting for a block",
@@ -767,6 +735,7 @@ function Body(props: {
   };
   const lock = () => lockTimeMeaning(props.tx.locktime, props.tx.vin);
   const [raw, setRaw] = createSignal<{ hex?: string; error?: unknown; loading?: boolean }>({});
+  const [rawShown, setRawShown] = createSignal(false);
   const loadRaw = async () => {
     setRaw({ loading: true });
     try {
@@ -777,121 +746,247 @@ function Body(props: {
       setRaw({ error: e });
     }
   };
+  const toggleRaw = () => {
+    if (rawShown()) {
+      setRawShown(false);
+      return;
+    }
+    setRawShown(true);
+    if (raw().hex === undefined && !raw().loading) void loadRaw();
+  };
 
   const totalOut = () => props.tx.vout.reduce((sum, o) => sum + o.value, 0);
-  const statusWord = () => (props.shown.kind === "loading" ? undefined : BADGES[props.shown.kind]);
-  const summaryStatus = (): JSX.Element => {
-    const s = status();
-    if (s?.confirmed) {
-      const c = props.confs;
-      return c === undefined ? "" : `${groupDigits(c)} confirmation${c === 1 ? "" : "s"}`;
-    }
+  const ins = () => props.tx.vin?.length ?? 0;
+  const outs = () => props.tx.vout.length;
+  /** Where it sits on the strip: in its projected block, or past the line in its own. */
+  const stripAt = (): StripPlace | undefined => {
+    if (confirmed()) return stripPlace({ confirmations: props.confs });
     const p = mempool()?.position;
-    if (p) {
-      const at = place(p, network());
-      return (
-        <Link class="tap" href={paths.projected(at.page)}>
-          {at.where}
-        </Link>
-      );
-    }
-    return statusWord() ? (steps()[1]?.title ?? "") : "";
+    return p ? stripPlace({ position: p }) : undefined;
   };
+  // A coinbase pays no fee rate, and fee colour is for fees.
+  const stripColor = () => {
+    const p = mempool()?.position;
+    if (p) return feeColor(p.effectiveRate);
+    const r = rate();
+    return r === undefined ? "var(--color-text-muted)" : feeColor(r);
+  };
+  /** How many confirmations it has, against the six most wait for or a reward's hundred. */
+  const confirmedSub = (): string => {
+    if (genesis()) return "Never spendable";
+    const c = props.confs;
+    if (c === undefined) return "";
+    const target = coinbase() ? MATURE : SETTLED;
+    if (c < target) return `${groupDigits(c)} of ${groupDigits(target)} confirmations`;
+    const count = plural(c, "confirmation");
+    return coinbase() ? `Spendable: ${count}` : count;
+  };
+  /** Why there is no place in the queue to show, in a few words. */
+  const unplaced = () =>
+    props.liveness === "off"
+      ? "Not followed here"
+      : props.liveness === "connecting"
+        ? ""
+        : props.liveness === "live"
+          ? "Not placed yet"
+          : "Shows while live";
   /**
-   * Confirmed, or waiting in the mempool, with nothing replaced or reorganised: the steps say no
-   * more than the summary and where it waits do, so they shrink to one line.
+   * Waiting or confirmed, with nothing replaced or reorganised: the summary says all the steps
+   * would, so they are left out. Otherwise the full sequence says how it came to this.
    */
   const settled = () =>
     props.reorged === undefined &&
     ((confirmed() && props.shown.kind === "confirmed") || props.shown.kind === "mempool");
+  const rbf =
+    "Until it confirms it can be replaced by a transaction spending the same coins that pays more: nodes relay one whatever its sequence numbers say (full replace-by-fee).";
 
   return (
     <>
-      {/* The answer first: where it is, how much it moved, what it paid, and when. */}
-      <dl class="tx-summary panel" aria-label="Summary">
-        <div class="tx-summary__item">
-          <dt>Status</dt>
-          <dd>
-            <span class="tx-summary__value">{statusWord()?.[0] ?? MISSING}</span>
-            <span class="tx-summary__sub">{summaryStatus()}</span>
-          </dd>
-        </div>
-        <div class="tx-summary__item">
-          <dt>Fee</dt>
-          <dd>
-            <Show
-              when={rate() !== undefined}
-              fallback={<span class="tx-summary__value">{coinbase() ? "None" : MISSING}</span>}
-            >
-              <span class="tx-summary__value">
-                <FeeRate rate={effective() ?? rate() ?? 0} />
-              </span>
-              <span class="tx-summary__sub">
-                <Sats sats={props.tx.fee ?? 0} />
-                {effective() === undefined ? "" : ", effective rate with its group"}
-              </span>
-            </Show>
-          </dd>
-        </div>
-        <div class="tx-summary__item tx-summary__item--amount">
-          <dt>Amount</dt>
-          <dd>
-            <span class="tx-summary__value">
-              <Amount sats={totalOut()} />
-            </span>
-            <span class="tx-summary__sub">
-              {`Sent to ${groupDigits(props.tx.vout.length)} output${props.tx.vout.length === 1 ? "" : "s"}`}
-            </span>
-          </dd>
-        </div>
-        <div class="tx-summary__item">
-          <Show
-            when={status()?.confirmed && status()}
+      {/* The answer first: where it is, what it paid, what it moved, and when. */}
+      <dl class="tx-answer panel" aria-label="Summary">
+        <div class="tx-answer__cell tx-answer__cell--where">
+          <Switch
             fallback={
               <>
-                <dt>First seen</dt>
+                <dt>Block</dt>
                 <dd>
-                  <Show
-                    when={mempool()?.time}
-                    fallback={<span class="tx-summary__value">{MISSING}</span>}
-                  >
-                    {(t) => (
-                      <>
-                        <span class="tx-summary__value">
-                          <TimeAgo time={t()} />
-                        </span>
-                        <span class="tx-summary__sub">
-                          <TimeUtc time={t()} />
-                        </span>
-                      </>
-                    )}
-                  </Show>
+                  <span class="tx-answer__value">{MISSING}</span>
+                  <span class="tx-answer__sub">Will not confirm</span>
                 </dd>
               </>
             }
           >
-            {(st) => (
-              <>
-                <dt>Block</dt>
-                <dd>
-                  <span class="tx-summary__value">
+            <Match when={confirmed() && status()}>
+              {(st) => (
+                <>
+                  <dt>Block</dt>
+                  <dd>
                     <Link
-                      class="tap"
+                      class="tx-answer__value tap"
                       href={paths.block(st().block_hash ?? st().block_height ?? "")}
                     >
                       <span class="visually-hidden">block </span>
                       <span class="num">{groupDigits(st().block_height ?? Number.NaN)}</span>
                     </Link>
+                    <Strip
+                      place={stripAt() ?? stripPlace({ confirmations: undefined })}
+                      color={stripColor()}
+                      landed={props.justConfirmed}
+                    />
+                    <span class="tx-answer__sub">{confirmedSub()}</span>
+                  </dd>
+                </>
+              )}
+            </Match>
+            <Match when={mempool()}>
+              {(m) => (
+                <>
+                  <dt>Projected</dt>
+                  <dd>
+                    <Show
+                      when={props.liveness !== "off" && m().position}
+                      fallback={
+                        <>
+                          <span class="tx-answer__value">{MISSING}</span>
+                          <span class="tx-strip" aria-hidden="true" />
+                          <span class="tx-answer__sub">{unplaced()}</span>
+                        </>
+                      }
+                    >
+                      {(p) => (
+                        <>
+                          <Link
+                            class="tx-answer__value tap"
+                            href={paths.projected(place(p(), network()).page)}
+                          >
+                            {placeShort(p())}
+                          </Link>
+                          <Strip
+                            place={stripAt() ?? stripPlace({ position: p() })}
+                            color={stripColor()}
+                            landed={false}
+                          />
+                          <span
+                            class="tx-answer__sub num"
+                            title={`${formatSize(p().aheadVsize)} ahead of it`}
+                          >
+                            {p().aheadTxs === 0
+                              ? "Nothing ahead"
+                              : `${groupDigits(p().aheadTxs)} tx${p().aheadTxs === 1 ? "" : "s"} ahead`}
+                          </span>
+                        </>
+                      )}
+                    </Show>
+                  </dd>
+                </>
+              )}
+            </Match>
+          </Switch>
+        </div>
+        <div class="tx-answer__cell tx-answer__cell--fee">
+          <dt>Fee rate</dt>
+          <dd>
+            <span class="tx-answer__value">
+              <Show when={rate() !== undefined} fallback={coinbase() ? "None" : MISSING}>
+                <FeeRate rate={rate() ?? 0} />
+              </Show>
+            </span>
+            <span class="tx-answer__sub">
+              <Show
+                when={!coinbase() && props.tx.fee !== undefined}
+                fallback={coinbase() ? "A coinbase, " : ""}
+              >
+                <Sats sats={props.tx.fee ?? 0} />,{" "}
+              </Show>
+              <span class="tx-answer__nowrap num">
+                {v() === undefined ? MISSING : formatSize(v() ?? 0)}
+              </span>
+            </span>
+            <Show when={effective()}>
+              {(eff) => (
+                <span class="tx-answer__sub">
+                  Effective <FeeRate rate={eff()} />
+                </span>
+              )}
+            </Show>
+          </dd>
+        </div>
+        <div class="tx-answer__cell tx-answer__cell--amount">
+          <dt>Amount</dt>
+          <dd>
+            <span class="tx-answer__value">
+              <Amount sats={totalOut()} />
+            </span>
+            <span class="tx-answer__sub num">
+              {plural(ins(), "input")} to {plural(outs(), "output")}
+            </span>
+          </dd>
+        </div>
+        <div class="tx-answer__cell">
+          <dt>{confirmed() ? "Mined" : "First seen"}</dt>
+          <dd>
+            <Show
+              when={confirmed() ? status()?.block_time : mempool()?.time}
+              fallback={<span class="tx-answer__value">{MISSING}</span>}
+            >
+              {(t) => (
+                <>
+                  <span class="tx-answer__value">
+                    <TimeAgo time={t()} />
                   </span>
-                  <span class="tx-summary__sub">
-                    <Show when={st().block_time}>{(t) => <TimeUtc time={t()} />}</Show>
+                  <span class="tx-answer__sub">
+                    <TimeUtc time={t()} />
                   </span>
-                </dd>
-              </>
-            )}
-          </Show>
+                </>
+              )}
+            </Show>
+          </dd>
         </div>
       </dl>
+      {/* The sentences behind the figures, one disclosure for the lot. */}
+      <Switch>
+        <Match when={confirmed()}>
+          <More label={coinbase() ? "When it can be spent" : "When it is final"}>
+            <p>
+              {genesis()
+                ? "The genesis block's reward was never added to the coins that can be spent."
+                : coinbase()
+                  ? `A miner's reward can be spent once ${MATURE} blocks are on top of the block that made it.`
+                  : "Most services treat six confirmations as final: each block on top makes it harder to undo."}
+            </p>
+          </More>
+        </Match>
+        <Match when={mempool()}>
+          {(m) => (
+            <More label="How this changes">
+              <Show
+                when={props.liveness !== "off" && m().position}
+                fallback={
+                  <Show when={props.liveness !== "off"}>
+                    <p>
+                      {props.liveness === "live"
+                        ? "Not placed yet: it reached the node a moment ago, and the projected blocks take it in with their next update."
+                        : "Its place in the queue shows while the page is live. Until then the page checks over HTTP whether it has confirmed."}
+                    </p>
+                  </Show>
+                }
+              >
+                {(p) => (
+                  <>
+                    <p class="tx-answer__figures">{place(p(), network()).ahead}</p>
+                    <p>{place(p(), network()).when}</p>
+                    <p>
+                      A projection, not a promise: miners pick their own blocks, and anything that
+                      pays more goes ahead of it.
+                    </p>
+                  </>
+                )}
+              </Show>
+              <p>{rbf}</p>
+            </More>
+          )}
+        </Match>
+      </Switch>
       <Switch>
         <Match when={props.shown.kind === "replaced" && props.shown} keyed>
           {(r) => <ReplacedNotice chain={r.chain} truncated={r.truncated} />}
@@ -913,175 +1008,105 @@ function Body(props: {
           )}
         </Match>
       </Switch>
-      <ol class={["tx-timeline", { "tx-timeline--line": settled() }]} aria-label="Status">
-        {/* By position: each change of status updates the three steps in place, never remakes them. */}
-        <For keyed={false} each={steps()}>
-          {(step, i) => (
-            <li
-              class={[
-                `tx-step tx-step--${step().state}${step().tone ? ` tx-step--${step().tone}` : ""}`,
-                {
-                  "tx-step--landed": props.justConfirmed && i === 1 && step().tone === "positive",
-                },
-              ]}
-              aria-current={step().state === "current" ? "step" : undefined}
-            >
-              <span class="tx-step__marker num" aria-hidden="true">
-                {i + 1}
-              </span>
-              <span class="tx-step__title">{step().title}</span>
-              <span class="tx-step__detail">{step().detail}</span>
-            </li>
-          )}
-        </For>
-      </ol>
+      <Show when={!settled()}>
+        <ol class="tx-timeline" aria-label="Status">
+          {/* By position: each change of status updates the three steps in place, never remakes them. */}
+          <For keyed={false} each={steps()}>
+            {(step, i) => (
+              <li
+                class={`tx-step tx-step--${step().state}${step().tone ? ` tx-step--${step().tone}` : ""}`}
+                aria-current={step().state === "current" ? "step" : undefined}
+              >
+                <span class="tx-step__marker num" aria-hidden="true">
+                  {i + 1}
+                </span>
+                <span class="tx-step__title">{step().title}</span>
+                <span class="tx-step__detail">{step().detail}</span>
+              </li>
+            )}
+          </For>
+        </ol>
+      </Show>
 
-      <div class="tx-layout">
-        <section class="tx-layout__flow" aria-labelledby="tx-flow-title">
-          <SectionHeader title="Inputs and outputs" id="tx-flow-title">
-            <span class="num">
-              {groupDigits(props.tx.vin?.length ?? 0)} input{props.tx.vin?.length === 1 ? "" : "s"},{" "}
-              {groupDigits(props.tx.vout.length)} output{props.tx.vout.length === 1 ? "" : "s"}
-            </span>
-          </SectionHeader>
+      <div class="tx-main">
+        <section class="tx-main__flow" aria-labelledby="tx-flow-title">
+          <SectionHeader title="Inputs and outputs" id="tx-flow-title" />
           <Show when={props.tx.pruned}>
             <p class="tx-note">
               This node has pruned the inputs of transactions this old, so some are missing.
             </p>
           </Show>
           <Flow tx={props.tx} outspends={props.spends} selected={selected()} onSelect={select} />
-          {/* Keyed: each selection mounts fresh, so no "Show all" carries over to another item. */}
-          <Show when={selected()} keyed>
-            {(s) => (
-              <Inspector
-                tx={props.tx}
-                selected={s}
-                outspends={props.spends}
-                onClose={() => setSelected(null)}
-                ref={(el) => {
-                  inspectorHeading = el;
-                }}
-              />
-            )}
-          </Show>
         </section>
 
-        <div class="tx-layout__fee">
-          {/* Nothing to show with the mempool engine off: the head already says it is not live. */}
-          <Show when={props.liveness !== "off" && mempool()}>
-            {(m) => (
-              <Where
-                position={m().position}
-                live={m().live}
-                reserve={props.liveness === "live" || props.liveness === "connecting"}
-              />
-            )}
-          </Show>
-          <section aria-labelledby="tx-fee-title">
-            <SectionHeader title="Fee" id="tx-fee-title" />
-            <dl class="tx-facts tx-facts--single">
-              <div class="tx-fact">
-                <dt>Fee rate</dt>
-                <dd>
-                  <Show
-                    when={rate() !== undefined}
-                    fallback={coinbase() ? "None: a coinbase pays no fee" : MISSING}
-                  >
-                    <FeeRate rate={rate() ?? 0} />
-                  </Show>
-                </dd>
-              </div>
-              <Show when={effective()}>
-                {(eff) => (
-                  <div class="tx-fact">
-                    <dt>Effective fee rate</dt>
-                    <dd>
-                      <FeeRate rate={eff()} />
+        {/* The facts that are left; an input's or output's inspector takes their place. */}
+        <div class={["tx-rail", { "tx-rail--open": selected() !== null }]}>
+          <section class="tx-rail__details" aria-labelledby="tx-details-title">
+            <SectionHeader title="Details" id="tx-details-title" />
+            <dl class="tx-facts tx-facts--rail">
+              <Fact label="Size">
+                <span class="num">
+                  {props.tx.size === undefined ? MISSING : formatSize(props.tx.size, "B")}
+                </span>
+              </Fact>
+              <Fact label="Weight">
+                <span class="num">
+                  {props.tx.weight === undefined ? MISSING : formatSize(props.tx.weight, "WU")}
+                </span>
+              </Fact>
+              <Fact label="Replaceable">
+                <Switch>
+                  <Match when={props.shown.kind === "replaced"}>No: it was replaced</Match>
+                  <Match when={left()}>No: it is no longer in the mempool</Match>
+                  <Match when={confirmed()}>No: it is confirmed</Match>
+                  <Match when={true}>Yes, until it confirms</Match>
+                </Switch>
+              </Fact>
+              <Show when={props.replaced[0]}>
+                {(l) => (
+                  <Fact label="Replaces">
+                    <span>
+                      <Hash value={l().txid} href={paths.tx(l().txid)} copy={false} />
+                      <Show when={l().rate !== undefined}>
+                        , which paid <FeeRate rate={l().rate ?? 0} />
+                      </Show>
+                    </span>
+                    <Show when={props.replaced.length > 1}>
                       <span class="tx-fact__sub">
-                        The rate of the group it will be mined with (below).
+                        and {groupDigits(props.replaced.length - 1)} more
                       </span>
-                    </dd>
-                  </div>
+                    </Show>
+                  </Fact>
                 )}
               </Show>
-              <div class="tx-fact">
-                <dt>Fee</dt>
-                <dd>
-                  <Show
-                    when={!coinbase() && props.tx.fee !== undefined}
-                    fallback={coinbase() ? "None" : MISSING}
-                  >
-                    <Sats sats={props.tx.fee ?? 0} />
-                    <span class="tx-fact__sub">
-                      <Amount sats={props.tx.fee ?? 0} />
-                    </span>
-                  </Show>
-                </dd>
-              </div>
-              <div class="tx-fact">
-                <dt>Virtual size</dt>
-                <dd class="num">{v() === undefined ? MISSING : formatSize(v() ?? 0)}</dd>
-              </div>
-              <div class="tx-fact">
-                <dt>Weight</dt>
-                <dd class="num">
-                  {props.tx.weight === undefined ? MISSING : formatSize(props.tx.weight, "WU")}
-                </dd>
-              </div>
-              <div class="tx-fact">
-                <dt>Size</dt>
-                <dd class="num">
-                  {props.tx.size === undefined ? MISSING : formatSize(props.tx.size, "B")}
-                </dd>
-              </div>
-              <div class="tx-fact">
-                <dt>Replaceable</dt>
-                <dd>
-                  <Switch>
-                    <Match when={props.shown.kind === "replaced"}>No: it was replaced</Match>
-                    <Match when={left()}>No: it is no longer in the mempool</Match>
-                    <Match when={confirmed()}>No: it is confirmed</Match>
-                    <Match when={true}>
-                      Yes, until it confirms
-                      <More label="Why">
-                        <p>
-                          Nodes relay a replacement that pays more, whatever this transaction's
-                          sequence numbers say (full replace-by-fee).
-                        </p>
-                      </More>
-                    </Match>
-                  </Switch>
-                </dd>
-              </div>
-            </dl>
-            <Show when={mempool()?.live === true && props.relatives}>
-              {(r) => <Group relatives={r()} txid={props.tx.txid} rate={rate() ?? null} />}
-            </Show>
-          </section>
-        </div>
-
-        <section class="tx-layout__details" aria-labelledby="tx-details-title">
-          <SectionHeader title="Details" id="tx-details-title" />
-          <dl class="tx-facts tx-facts--two">
-            <div class="tx-fact">
-              <dt>Version</dt>
-              <dd class="num">{props.tx.version}</dd>
-            </div>
-            <div class="tx-fact">
-              <dt>Witness</dt>
-              <dd>{features(props.tx)}</dd>
-            </div>
-            <div class="tx-fact tx-fact--wide">
-              <dt>Lock time</dt>
-              <dd>
+              <Fact label="Version">
+                <span class="num">{props.tx.version}</span>
+              </Fact>
+              <Fact label="Witness">{features(props.tx)}</Fact>
+              <Fact label="Lock time">
                 <span class="num">{lock().value}</span>
                 <span class="tx-fact__sub">{lock().detail}</span>
-              </dd>
-            </div>
-            <div class="tx-fact tx-fact--wide">
-              <dt>Raw transaction</dt>
-              <dd>
-                <Switch>
+              </Fact>
+              <Fact label="Raw hex">
+                <span class="tx-fact__line">
+                  <button
+                    class="btn tx-fact__btn"
+                    type="button"
+                    aria-expanded={rawShown() ? "true" : "false"}
+                    aria-controls="tx-raw"
+                    onClick={toggleRaw}
+                  >
+                    {rawShown() ? "Hide" : "Show"}
+                  </button>
+                  <span class="tx-fact__sub num">
+                    {props.tx.size === undefined ? "" : formatSize(props.tx.size, "B")}
+                  </span>
+                </span>
+              </Fact>
+            </dl>
+            <div id="tx-raw" class="tx-raw">
+              <Show when={rawShown()}>
+                <Switch fallback={<p class="tx-fact__sub">Loading raw hex…</p>}>
                   <Match when={raw().hex}>
                     {(hex) => <Code label="Raw hex" value={hex()} bytes={hex().length / 2} />}
                   </Match>
@@ -1092,53 +1117,47 @@ function Body(props: {
                       retry={() => void loadRaw()}
                     />
                   </Match>
-                  <Match when={true}>
-                    <button
-                      class="btn"
-                      type="button"
-                      onClick={() => void loadRaw()}
-                      disabled={raw().loading}
-                    >
-                      {raw().loading ? "Loading raw hex…" : "Show raw hex"}
-                    </button>
-                    <span class="tx-fact__sub num">
-                      {props.tx.size === undefined ? "" : formatSize(props.tx.size, "B")}
-                    </span>
-                  </Match>
                 </Switch>
-              </dd>
+              </Show>
             </div>
-          </dl>
-        </section>
+            <Show when={mempool()?.live === true && props.relatives}>
+              {(r) => <Group relatives={r()} txid={props.tx.txid} rate={rate() ?? null} />}
+            </Show>
+          </section>
+          {/* Keyed: each selection mounts fresh, so no "Show all" carries over to another item. */}
+          <Show when={selected()} keyed>
+            {(s) => (
+              <div class="tx-rail__over">
+                <Inspector
+                  tx={props.tx}
+                  selected={s}
+                  outspends={props.spends}
+                  onClose={() => setSelected(null)}
+                  ref={(el) => {
+                    inspectorHeading = el;
+                  }}
+                />
+              </div>
+            )}
+          </Show>
+        </div>
       </div>
       <TxLightning txid={props.tx.txid} confirmed={confirmed()} />
     </>
   );
 }
 
-/** The first step's detail: when the node first saw it, and what it replaced. */
-function Broadcast(props: { time: number | undefined; replaced: ReplacementLink[] }) {
+/** Where the side panel moves under the flow (docs/DESIGN.md "Breakpoints"). */
+const STACKED = "65em";
+
+const plural = (n: number, word: string) => `${groupDigits(n)} ${word}${n === 1 ? "" : "s"}`;
+
+function Fact(props: { label: string; children: JSX.Element }) {
   return (
-    <>
-      <span>
-        {props.time === undefined
-          ? "Relayed to the network."
-          : "Relayed to the network; first seen"}
-      </span>
-      <Show when={props.time}>{(t) => <TimeUtc time={t()} />}</Show>
-      <For each={props.replaced.slice(0, 1)}>
-        {(l) => (
-          <span>
-            It replaced <Hash value={l.txid} href={paths.tx(l.txid)} copy={false} />
-            <Show when={l.rate !== undefined}>
-              , which paid <FeeRate rate={l.rate ?? 0} />
-            </Show>
-            {props.replaced.length > 1 ? ` and ${groupDigits(props.replaced.length - 1)} more` : ""}
-            .
-          </span>
-        )}
-      </For>
-    </>
+    <div class="tx-fact">
+      <dt>{props.label}</dt>
+      <dd>{props.children}</dd>
+    </div>
   );
 }
 
@@ -1147,23 +1166,19 @@ function Skeleton() {
   return (
     <div class="tx-skeleton" role="status">
       <span class="visually-hidden">Loading transaction</span>
-      <ol class="tx-timeline" aria-hidden="true">
-        <For each={[0, 1, 2]}>
+      <div class="tx-answer panel" aria-hidden="true">
+        <For each={[0, 1, 2, 3]}>
           {() => (
-            <li class="tx-step tx-step--todo">
-              <span class="tx-step__marker" />
-              <span class="tx-step__title">
-                <span class="tx-bar tx-bar--title" />
-              </span>
-              <span class="tx-step__detail">
-                <span class="tx-bar" />
-              </span>
-            </li>
+            <div class="tx-answer__cell">
+              <span class="tx-bar tx-bar--title" />
+              <span class="tx-bar" />
+              <span class="tx-bar" />
+            </div>
           )}
         </For>
-      </ol>
-      <div class="tx-layout" aria-hidden="true">
-        <div class="tx-layout__flow">
+      </div>
+      <div class="tx-main" aria-hidden="true">
+        <div class="tx-main__flow panel">
           <div class="section__head">
             <span class="tx-bar tx-bar--head" />
           </div>
@@ -1178,18 +1193,20 @@ function Skeleton() {
             </ul>
           </div>
         </div>
-        <div class="tx-layout__fee">
-          <div class="section__head">
-            <span class="tx-bar tx-bar--head" />
-          </div>
-          <div class="tx-facts tx-facts--single">
-            <For each={[0, 1, 2, 3, 4, 5]}>
-              {() => (
-                <div class="tx-fact">
-                  <span class="tx-bar" />
-                </div>
-              )}
-            </For>
+        <div class="tx-rail">
+          <div class="tx-rail__details panel">
+            <div class="section__head">
+              <span class="tx-bar tx-bar--head" />
+            </div>
+            <div class="tx-facts tx-facts--rail">
+              <For each={[0, 1, 2, 3, 4, 5]}>
+                {() => (
+                  <div class="tx-fact">
+                    <span class="tx-bar" />
+                  </div>
+                )}
+              </For>
+            </div>
           </div>
         </div>
       </div>

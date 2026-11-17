@@ -19,7 +19,7 @@ test("a confirmed transaction names every output type and links where the money 
     const named = outputs.getByText(type, { exact: true }).first();
     await (wide ? expect(named).toBeVisible() : expect(named).toBeAttached());
   }
-  await expect(outputs).toContainText("OP_RETURN “mempool.based regtest”Unspendable");
+  await expect(outputs).toContainText("OP_RETURN “mempool.based regtest”0.00000000 BTCUnspendable");
   // Amounts keep their unit for screen readers, though the cards show bare numbers.
   await expect(outputs.getByText("1.00000000 BTC", { exact: true }).first()).toBeAttached();
   // spend_p2sh_p2a spent the P2SH and P2A outputs.
@@ -41,8 +41,9 @@ test("a coinbase shows as new coins and pays no fee", async ({ page, request }) 
   const block = await request.get(`/regtest/api/block/${chain.blocks[1]}/txid/0`);
   await page.goto(`/regtest/tx/${await block.text()}`);
   await expect(page.getByRole("list", { name: "Inputs" })).toContainText("Coinbase");
-  await expect(page.getByText("None: a coinbase pays no fee")).toBeVisible();
-  await expect(page.getByText("Spendable")).toBeVisible();
+  await expect(page.getByText("A coinbase,")).toBeVisible();
+  // Long past the hundred blocks a reward waits for.
+  await expect(page.getByText(/^Spendable: [\d\u202F]+ confirmations$/)).toBeVisible();
 });
 
 test("the genesis coinbase is never called spendable or unspent", async ({ page, request }) => {
@@ -92,7 +93,7 @@ test.describe("transactions the node no longer has", () => {
     await expect(page.getByText("Unconfirmed", { exact: true }).first()).toBeVisible();
     await expect(page.getByText("Yes, until it confirms")).toBeVisible();
     // The server takes it in at its next cycle; the page then says where it waits.
-    await expect(page.getByRole("link", { name: "In the next block" }).first()).toBeVisible({
+    await expect(page.getByRole("link", { name: "Next block", exact: true })).toBeVisible({
       timeout: PROJECTION_LAG_MS,
     });
 
@@ -133,12 +134,12 @@ test("an unconfirmed transaction shows where it waits, and leaving lets go of it
     });
   });
   await page.goto(`/regtest/tx/${chain.txs.payment}`);
-  const where = page.getByRole("region", { name: "Where it waits" });
-  await expect(where.getByRole("link", { name: "In the next block" })).toHaveAttribute(
+  await expect(page.getByRole("link", { name: "Next block", exact: true })).toHaveAttribute(
     "href",
     "/regtest/block/next",
   );
-  await expect(where).toContainText("Regtest has no block schedule");
+  await page.getByText("How this changes").click();
+  await expect(page.getByText(/^Regtest has no block schedule/)).toBeVisible();
   await expect(page.getByText("Live", { exact: true })).toBeVisible();
   const topic = `tx:${chain.txs.payment}`;
   const following = sockets.find((s) => s.sent.some((f) => f.includes(topic)));
@@ -156,7 +157,7 @@ test("an unconfirmed transaction shows where it waits, and leaving lets go of it
 
 test("a parent shows the rate its child lifts it to, and links the child", async ({ page }) => {
   await page.goto(`/regtest/tx/${chain.txs.cpfp_parent}`);
-  await expect(page.getByText("Effective fee rate")).toBeVisible();
+  await expect(page.getByText(/^Effective \d/)).toBeVisible();
   const group = page.getByRole("region", { name: "Mined with" });
   await expect(group).toContainText("but its child pays enough to lift the group to");
   await expect(group.getByRole("link")).toHaveAttribute(
@@ -195,12 +196,45 @@ test("the flow is as tall after a widening as after a reload", async ({ page, co
 test("a confirmed transaction opens with its status, amount, fee and block", async ({ page }) => {
   await page.goto(`/regtest/tx/${chain.txs.script_types}`);
   const summary = page.getByRole("definition").first().locator("xpath=ancestor::dl[1]");
-  await expect(summary).toContainText("Confirmed");
+  await expect(summary).toContainText("confirmations");
   await expect(summary).toContainText("Amount");
   await expect(summary).toContainText("sat/vB");
   await expect(summary.getByRole("link")).toHaveAttribute("href", /\/regtest\/block\//);
-  // The steps shrink to one line once it has confirmed.
-  await expect(page.getByRole("list", { name: "Status" })).toHaveClass(/tx-timeline--line/);
+  // The summary says what the steps would, so a settled transaction has none.
+  await expect(page.getByRole("list", { name: "Status" })).toHaveCount(0);
+});
+
+test("a card's details open beside the flow on a desktop, moving nothing on the page", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const spends = page.waitForResponse((r) => r.url().endsWith("/outspends"));
+  await page.goto(`/regtest/tx/${chain.txs.script_types}`);
+  await spends;
+  const outputs = page.getByRole("list", { name: "Outputs" });
+  await expect(outputs).toBeVisible();
+  const footer = page.getByRole("contentinfo");
+  const later = outputs.getByRole("listitem").nth(3);
+  const where = async () => ({
+    footer: (await footer.boundingBox())?.y,
+    card: (await later.boundingBox())?.y,
+    height: await page.evaluate(() => document.documentElement.scrollHeight),
+  });
+  const before = await where();
+  await page.getByRole("button", { name: "Details of output 0" }).click();
+  const inspector = page.getByRole("region", { name: "Output 0" });
+  await expect(inspector).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Output 0" })).toBeFocused();
+  // In the side panel, right of the flow, where the details were.
+  const flow = await page.getByRole("region", { name: "Inputs and outputs" }).boundingBox();
+  const box = await inspector.boundingBox();
+  if (!flow || !box) throw new Error("missing flow or inspector");
+  expect(box.x).toBeGreaterThanOrEqual(flow.x + flow.width);
+  expect(box.y).toBeLessThan(flow.y + flow.height);
+  await expect(page.getByRole("region", { name: "Details" })).toBeHidden();
+  expect(await where()).toEqual(before);
+  await inspector.getByRole("button", { name: "Close" }).click();
+  await expect(page.getByRole("region", { name: "Details" })).toBeVisible();
 });
 
 test("copy and expand are a thumb's target each, apart from the address they sit beside", async ({
@@ -323,21 +357,3 @@ async function stepsOffCentre(page: Page, name: string): Promise<string[]> {
   }
   return off;
 }
-
-test.describe("the status steps", () => {
-  // Four device pixels to a CSS pixel, so a quarter-pixel shift shows.
-  test.use({ deviceScaleFactor: 4 });
-
-  test("every step's number sits in the middle of its ring", async ({ page, request }) => {
-    const tip = await (await request.get("/regtest/api/blocks/tip/hash")).text();
-    const coinbase = await (await request.get(`/regtest/api/block/${tip}/txid/0`)).text();
-    // Confirmed, a fresh coinbase ("Spendable") and one waiting: the steps on one line. The full
-    // steps are checked where a transaction is replaced.
-    const off: string[] = [];
-    for (const txid of [chain.txs.script_types, coinbase, chain.txs.payment]) {
-      await page.goto(`/regtest/tx/${txid}`);
-      off.push(...(await stepsOffCentre(page, txid.slice(0, 8))));
-    }
-    expect(off).toEqual([]);
-  });
-});
