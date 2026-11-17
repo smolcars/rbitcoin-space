@@ -1,7 +1,7 @@
 // Recent replacement trees (`/api/v1/replacements`, docs/API.md "Replacement trees") read as
 // stories, and the `replacements` topic that says when to ask again (docs/WS.md). The `/rbf` page
 // and the home page's panel share them.
-import { createSignal, flush, onSettled } from "solid-js";
+import { createSignal, flush, onSettled, untrack } from "solid-js";
 import { ApiError, fetchApi } from "./api";
 import { type Topic, useLiveStatus, useTopic } from "./live";
 import type { Network } from "./network";
@@ -216,8 +216,9 @@ export function createReplacements(
   };
   // A list this page already holds is shown at once and asked for again, within the gap: the
   // topic sends no first message to a feed that joins while another is subscribed.
-  const held = answers.get(listKey(fullRbf()));
-  const [stories, setStories] = createSignal<Story[] | undefined>(held && read(held, fullRbf()));
+  const startFull = untrack(fullRbf);
+  const held = answers.get(listKey(startFull));
+  const [stories, setStories] = createSignal<Story[] | undefined>(held && read(held, startFull));
   const [error, setError] = createSignal<unknown>();
   const [off, setOff] = createSignal(false);
   const status = useLiveStatus();

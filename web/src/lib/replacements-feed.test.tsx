@@ -11,6 +11,7 @@ let caching: (RequestCache | undefined)[];
 let feeds: Replacements[];
 /** How long the server takes to answer, as a retry after a refusal would. */
 let delay = 0;
+let start = Date.now();
 
 function Probe() {
   feeds.push(createReplacements("regtest", () => false, { gapMs: 1500 }));
@@ -20,7 +21,9 @@ const version = (v: number) =>
   FakeSocket.last().receive({ topic: "replacements", type: "replacements", version: v });
 
 beforeEach(() => {
-  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "Date"] });
+  // Asks are remembered page-wide, so each test starts well past every wait the others left.
+  start += 3_600_000;
+  vi.useFakeTimers({ now: start, toFake: ["setTimeout", "clearTimeout", "setInterval", "Date"] });
   clearApiCache();
   asks = [];
   feeds = [];
