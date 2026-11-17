@@ -328,7 +328,7 @@ A mainnet server 18 minutes after its first sample (keys are sent in another ord
 - **Gaps** are `BRIDGE_STEPS`, five steps: up to five missing minutes are drawn across, a longer pause breaks the line into two runs. A lone minute is a sliver, not nothing. Before the step that holds `first` (its point is drawn at the step's start), the plot hatches the period, and a sentence says since when and how many of the period's minutes it holds; when recording began before the period, it says the gaps are times the server was not recording. `all` begins at the day holding `first` and owes only the minutes since it, so it always says since when, even when `complete`.
 - **The live edge** is a refetch 3 s after each minute turns, not the `mempool` topic: the newest point is then exactly what the server stored, a mean of the minute, with no second model of it to keep in step. The last answer stays on screen, dimmed, while the next loads.
 - **States:** loading; `503` without a data directory, said as such and not retried; nothing stored yet (the first minute appears by itself); nothing in this period, with the time records begin and a link to all of them.
-- **Cost,** measured in Chromium at 4× CPU throttling on an Apple M4: 62 to 93 ms from the reply to the drawn chart for 1,415 points, 37 to 55 ms to redraw them on a width change, and the readout holds 60 fps while the pointer sweeps the chart.
+- **Cost,** measured in Chromium at 4× CPU throttling on an Apple M4, with 1,415 points: 36 to 52 ms to redraw the plot on a width change, and the readout and key hold 60 fps while the pointer sweeps it. (The page, from navigation to the drawn plot, took 247 ms.)
 
 #### Replacements
 
