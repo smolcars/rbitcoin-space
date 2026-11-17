@@ -36,7 +36,7 @@ use bitcoin::{BlockHash, Txid};
 use card::{Card, Layers, Strip, Subject, Tile, TxState};
 use engine::blocks::{Miner, Row};
 use node::esplora::Route;
-use tokio::sync::Semaphore;
+use tokio::sync::{OnceCell, Semaphore};
 
 use crate::config::Network;
 use crate::{ApiError, NetworkContext, esplora};
@@ -69,7 +69,12 @@ pub struct Cards {
     fallback: Option<Bytes>,
     slots: Semaphore,
     kept: Mutex<Kept>,
+    /// Cards being built now, which identical requests wait for instead of building again.
+    building: Mutex<HashMap<Key, Arc<Flight>>>,
 }
+
+/// One build's answer, shared by every request for the same card while it runs.
+type Flight = OnceCell<Option<(Bytes, &'static str)>>;
 
 impl std::fmt::Debug for Cards {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -186,6 +191,7 @@ impl Cards {
             fallback,
             slots: Semaphore::new(DRAWS),
             kept: Mutex::default(),
+            building: Mutex::default(),
         }
     }
 
@@ -203,6 +209,8 @@ impl Cards {
     }
 
     /// The kept card, or one built by `build` and kept; the static picture when none can be.
+    /// Requests for the same card share one build (SECURITY.md rule 8): the first takes a slot
+    /// and the rest wait for its answer.
     async fn serve<F>(&self, key: Key, build: F) -> Response
     where
         F: Future<Output = Option<(Card, bool)>>,
@@ -210,15 +218,37 @@ impl Cards {
         if let Some((png, header)) = self.kept().get(&key, Instant::now()) {
             return png_response(png, header);
         }
-        let Ok(_slot) = self.slots.try_acquire() else {
-            return self.fallback();
-        };
-        let Ok(Some((card, settled))) = tokio::time::timeout(BUILD_WAIT, build).await else {
-            return self.fallback();
-        };
-        let Ok(png) = tokio::task::spawn_blocking(move || card::draw(&card)).await else {
-            return self.fallback();
-        };
+        let flight = Arc::clone(
+            self.building()
+                .entry(key.clone())
+                .or_insert_with(|| Arc::new(OnceCell::new())),
+        );
+        let drawn = flight.get_or_init(|| self.build(key.clone(), build)).await;
+        let mut building = self.building();
+        if building.get(&key).is_some_and(|f| Arc::ptr_eq(f, &flight)) {
+            building.remove(&key);
+        }
+        drop(building);
+        match drawn {
+            Some((png, header)) => png_response(png.clone(), header),
+            None => self.fallback(),
+        }
+    }
+
+    fn building(&self) -> std::sync::MutexGuard<'_, HashMap<Key, Arc<Flight>>> {
+        self.building.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// One card built in a slot, drawn and kept; `None` when it cannot be now.
+    async fn build<F>(&self, key: Key, build: F) -> Option<(Bytes, &'static str)>
+    where
+        F: Future<Output = Option<(Card, bool)>>,
+    {
+        let _slot = self.slots.try_acquire().ok()?;
+        let (card, settled) = tokio::time::timeout(BUILD_WAIT, build).await.ok()??;
+        let png = tokio::task::spawn_blocking(move || card::draw(&card))
+            .await
+            .ok()?;
         let png = Bytes::from(png);
         let (life, header) = if settled {
             (SETTLED, SETTLED_HEADER)
@@ -227,7 +257,7 @@ impl Cards {
         };
         self.kept()
             .put(key, png.clone(), life, header, Instant::now());
-        png_response(png, header)
+        Some((png, header))
     }
 }
 

@@ -1081,6 +1081,32 @@ async fn a_card_address_answers_its_card_or_the_static_picture_and_a_bad_id_is_n
 }
 
 #[tokio::test]
+async fn requests_for_the_same_card_share_one_build() {
+    let dir = temp("card-same");
+    let (addr, log) = start(&dir.0).await;
+    let picture = std::fs::read(dir.0.join("web").join(PICTURE)).unwrap();
+    let mut set = tokio::task::JoinSet::new();
+    for _ in 0..6 {
+        let addr = addr.clone();
+        set.spawn(async move { get(&addr, &format!("/regtest/app/card/tx/{CARD_TX}.png")).await });
+    }
+    let mut cards = Vec::new();
+    while let Some(r) = set.join_next().await {
+        cards.push(r.unwrap().bytes);
+    }
+    // Every request got the card itself, not the picture of a full slot, and the node was asked
+    // once.
+    assert!(cards.iter().all(|c| *c == cards[0] && *c != picture));
+    let asked = log
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|l| l.contains(CARD_TX))
+        .count();
+    assert_eq!(asked, 1);
+}
+
+#[tokio::test]
 async fn cards_are_built_two_at_a_time_and_a_node_that_hangs_gets_the_static_picture() {
     let dir = temp("card-flood");
     let (addr, log) = start(&dir.0).await;
