@@ -58,6 +58,8 @@ const BURIED: u32 = engine::blocks::ZONE;
 /// Mined blocks in the strip beside the projected ones, and without them.
 const BESIDE_PROJECTED: u32 = 5;
 const MINED_ALONE: u32 = 8;
+/// The strip's last tile runs off the card's edge, so the subject, ringed, is never drawn in it.
+const CUT: u32 = 1;
 /// Projected blocks in the strip.
 const PROJECTED: usize = 3;
 /// Longest a card's reads may take, well inside the request timeout: past it, the static picture.
@@ -476,7 +478,7 @@ async fn build_tx(ctx: &Arc<NetworkContext>, txid: Txid) -> Option<(Card, bool)>
         }
     };
     let tip = tip(ctx, height);
-    let (strip, settled) = strip(ctx, &live, tip, height).await;
+    let (strip, settled) = strip(ctx, &live, tip, height).await?;
     let card = Card {
         network: network(ctx.config.network),
         subject: Subject::Tx(tx),
@@ -494,12 +496,12 @@ async fn build_block(ctx: &Arc<NetworkContext>, id: BlockId) -> Option<(Card, bo
     .ok()
     .flatten()?;
     let tip = tip(ctx, Some(row.height));
-    let live = if tip.saturating_sub(row.height) < BESIDE_PROJECTED {
+    let live = if tip.saturating_sub(row.height) < BESIDE_PROJECTED - CUT {
         live(ctx, None).await
     } else {
         Live::default()
     };
-    let (strip, settled) = strip(ctx, &live, tip, Some(row.height)).await;
+    let (strip, settled) = strip(ctx, &live, tip, Some(row.height)).await?;
     let settled = settled && row.rates.is_some();
     let block = card::Block {
         id: id_of(&row),
@@ -533,8 +535,14 @@ fn tip(ctx: &NetworkContext, height: Option<u32>) -> u32 {
 }
 
 /// The strip ([`plan`]) with its blocks' layers, and whether the card is settled: its block
-/// buried, so the strip can no longer change, and every block in it rated.
-async fn strip(ctx: &NetworkContext, live: &Live, tip: u32, height: Option<u32>) -> (Strip, bool) {
+/// buried, so the strip can no longer change, and every block in it rated. `None` when the
+/// strip cannot be drawn ([`drawable`]).
+async fn strip(
+    ctx: &NetworkContext,
+    live: &Live,
+    tip: u32,
+    height: Option<u32>,
+) -> Option<(Strip, bool)> {
     let plan = plan(tip, height, !live.projected.is_empty(), live.block);
     let rows = mined(ctx, plan.top, plan.count).await;
     let mut tiles: Vec<Tile> = plan
@@ -561,25 +569,39 @@ async fn strip(ctx: &NetworkContext, live: &Live, tip: u32, height: Option<u32>)
             .position(|t| matches!(t, Tile::Mined { height, .. } if *height == h)),
         None => plan.ring,
     };
-    // Buried, and every block drawn whole: a block still waiting for its fee rates from the
-    // backfill is drawn again once they are in.
-    let settled = height.is_some_and(|h| tip.saturating_sub(h) >= BURIED)
-        && tiles.iter().all(|t| {
-            matches!(
-                t,
-                Tile::Mined {
-                    layers: Some(_),
-                    ..
-                }
-            )
-        });
+    if !drawable(plan.now, &tiles) {
+        return None;
+    }
+    // Buried, and every block drawn whole.
+    let settled = height.is_some_and(|h| tip.saturating_sub(h) >= BURIED) && rated(&tiles);
     let strip = Strip {
         tiles,
         now: plan.now,
         ring,
         marker: ring.is_some(),
     };
-    (strip, settled)
+    Some((strip, settled))
+}
+
+/// Whether every tile is a mined block with its fee rates.
+fn rated(tiles: &[Tile]) -> bool {
+    tiles.iter().all(|t| {
+        matches!(
+            t,
+            Tile::Mined {
+                layers: Some(_),
+                ..
+            }
+        )
+    })
+}
+
+/// Whether a strip is worth drawing. Away from the tip (no tip's line), a block without fee
+/// rates is older than the rates the table keeps, or still waits for the backfill: it would be
+/// an empty tile for good, so the card gives way to the site's picture. At the tip a new block
+/// lacks its rates only for a moment, and the card is drawn again within the minute.
+fn drawable(now: bool, tiles: &[Tile]) -> bool {
+    now || rated(tiles)
 }
 
 /// Which blocks a strip shows.
@@ -605,15 +627,16 @@ impl Plan {
 /// The strip's blocks for a subject at `height` (`None`: unconfirmed) on a chain whose tip is
 /// `tip`, with or without a projection, the transaction in projected block `waits_in`.
 ///
-/// - Near the tip (unconfirmed, or among the newest [`BESIDE_PROJECTED`] blocks) with a
-///   projection: three projected blocks, the tip's line, five mined.
+/// - Near the tip (unconfirmed, or among the newest four blocks) with a projection: three
+///   projected blocks, the tip's line, [`BESIDE_PROJECTED`] mined.
 /// - Without projected blocks (no projection, or a block further down): the newest
-///   [`MINED_ALONE`] after the tip's line while the subject is among them, else the subject with
-///   three newer and four older neighbours and no line.
+///   [`MINED_ALONE`] after the tip's line while the subject is among the first seven, else the
+///   subject with three newer and four older neighbours and no line.
+/// - The subject is never in a strip's last tile, which the card's edge cuts ([`CUT`]).
 /// - An unconfirmed transaction is ringed in its projected block. Past the first three, its own
 ///   block takes the third tile, labelled with its wait. Without a projection, no ring.
 fn plan(tip: u32, height: Option<u32>, projection: bool, waits_in: Option<u8>) -> Plan {
-    let near = height.is_none_or(|h| tip.saturating_sub(h) < BESIDE_PROJECTED);
+    let near = height.is_none_or(|h| tip.saturating_sub(h) < BESIDE_PROJECTED - CUT);
     if near && projection {
         let mut slots: Vec<u8> = (0..PROJECTED as u8).collect();
         let mut ring = None;
@@ -634,7 +657,9 @@ fn plan(tip: u32, height: Option<u32>, projection: bool, waits_in: Option<u8>) -
         };
     }
     let (top, now) = match height {
-        Some(h) if tip.saturating_sub(h) >= MINED_ALONE => (h.saturating_add(3).min(tip), false),
+        Some(h) if tip.saturating_sub(h) >= MINED_ALONE - CUT => {
+            (h.saturating_add(3).min(tip), false)
+        }
         _ => (tip, true),
     };
     Plan {
@@ -676,11 +701,17 @@ mod tests {
             (vec![0, 1, 2], None, true)
         );
         assert_eq!(heights(&p), (976_196..=tip).rev().collect::<Vec<_>>());
-        // Four down is still near; five is not.
-        assert_eq!(plan(tip, Some(tip - 4), true, None).slots.len(), 3);
-        let p = plan(tip, Some(tip - 5), true, None);
+        // Three down is still near; four is not, as the fifth tile is cut by the card's edge.
+        assert_eq!(plan(tip, Some(tip - 3), true, None).slots.len(), 3);
+        let p = plan(tip, Some(tip - 4), true, None);
         assert!(p.slots.is_empty() && p.now);
         assert_eq!(heights(&p), (976_193..=tip).rev().collect::<Vec<_>>());
+        // Six down is the last among the newest eight; seven down has its neighbours.
+        let p = plan(tip, Some(tip - 6), true, None);
+        assert!(p.now && p.top == tip);
+        let p = plan(tip, Some(tip - 7), false, None);
+        assert!(!p.now);
+        assert_eq!(heights(&p), (976_189..=976_196).rev().collect::<Vec<_>>());
         // Buried: three newer, it, four older, and no line.
         let p = plan(tip, Some(900_000), true, None);
         assert!(p.slots.is_empty() && !p.now);
@@ -688,6 +719,44 @@ mod tests {
         // The engine off: never projected blocks, the newest eight at the tip.
         let p = plan(tip, Some(tip), false, None);
         assert!(p.slots.is_empty() && p.now && p.top == tip && p.count == 8);
+    }
+
+    #[test]
+    fn the_subject_is_never_in_the_tile_the_cards_edge_cuts() {
+        let tip = 976_200;
+        for projection in [true, false] {
+            for depth in 0..=30 {
+                let p = plan(tip, Some(tip - depth), projection, None);
+                let at = p.heights().position(|h| h == tip - depth);
+                assert!(
+                    at.is_some_and(|at| at + 1 < p.heights().count()),
+                    "{depth} deep, projection {projection}: tile {at:?} of {}",
+                    p.count
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn away_from_the_tip_a_block_without_fee_rates_gives_way_to_the_sites_picture() {
+        let layers = || Layers::new(&[1; 12], 1.0);
+        let tile = |height, rated: bool| Tile::Mined {
+            height,
+            layers: rated.then(layers),
+        };
+        let whole: Vec<Tile> = (0..8).map(|h| tile(h, true)).collect();
+        let gap: Vec<Tile> = (0..8).map(|h| tile(h, h != 7)).collect();
+        // Every block rated: drawn, wherever it is.
+        assert!(drawable(false, &whole) && drawable(true, &whole));
+        // One block without rates: no card away from the tip, an empty tile for now at it.
+        assert!(!drawable(false, &gap));
+        assert!(drawable(true, &gap));
+        // Projected blocks are only ever drawn at the tip.
+        let projected = [Tile::Projected {
+            slot: 0,
+            layers: None,
+        }];
+        assert!(drawable(true, &projected) && !rated(&projected));
     }
 
     #[test]
