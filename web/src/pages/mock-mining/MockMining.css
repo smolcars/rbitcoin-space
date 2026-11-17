@@ -1,0 +1,377 @@
+/* MOCKUP, never merged. Dense /mining: one band of figures, then two columns of panels. */
+@layer pages {
+  .mm {
+    display: grid;
+    gap: var(--space-5);
+    padding-top: var(--space-5);
+    padding-bottom: var(--space-8);
+  }
+  .mm > *,
+  .mm-col > * {
+    min-width: 0;
+  }
+  .mm-reserve {
+    min-height: 60rem;
+  }
+  .mm-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+  }
+  .mm-head h1 {
+    margin: 0;
+  }
+
+  /* The figures: six across, a rule between the network now and the period's own. */
+  .mm-figures {
+    padding: var(--space-4) var(--panel-pad);
+  }
+  .mm-figs {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(min-content, 1fr));
+    gap: var(--space-4) var(--space-5);
+    margin: 0;
+  }
+  .mm-fig {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .mm-fig dd {
+    margin: 0;
+  }
+  .mm-fig--period {
+    padding-left: var(--space-5);
+    border-left: 1px solid var(--color-line);
+  }
+  .mm-fig__label {
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+  .mm-fig__value {
+    font-size: var(--text-xl);
+    font-weight: var(--weight-bold);
+    line-height: var(--leading-tight);
+    letter-spacing: var(--tracking-tight);
+    white-space: nowrap;
+  }
+  .mm-fig__value .amount {
+    font-size: inherit;
+  }
+  .mm-fig__sub {
+    margin-top: var(--space-1);
+    font-size: var(--text-sm);
+    line-height: var(--leading-snug);
+    color: var(--color-text-muted);
+  }
+  .mm-fig__sub .amount {
+    font-size: inherit;
+    color: inherit;
+  }
+
+  /* The retarget period as a bar: mined so far, and a tick where ten-minute blocks would be. */
+  .mm-epoch {
+    position: relative;
+    display: block;
+    height: 6px;
+    margin: var(--space-1) 0 var(--space-2);
+    border-radius: var(--radius-pill);
+    background: var(--color-surface-sunken);
+    box-shadow: inset 0 0 0 1px var(--color-line);
+  }
+  .mm-epoch::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: var(--series-1);
+    transform-origin: left;
+    transform: scaleX(var(--done));
+  }
+  .mm-epoch::after {
+    content: "";
+    position: absolute;
+    top: -3px;
+    bottom: -3px;
+    left: calc(var(--pace) * 100%);
+    width: 2px;
+    background: var(--color-text);
+  }
+
+  /* Two columns: charts on the left, the lists they explain on the right. */
+  .mm-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+    gap: var(--space-5);
+    align-items: start;
+  }
+  .mm-col {
+    display: grid;
+    gap: var(--space-5);
+  }
+  .mm-section .section__head {
+    flex-wrap: wrap;
+    row-gap: var(--space-2);
+  }
+  .mm-section .section__meta {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  /* Chart switches in the panel's head: a segmented row, sideways on a phone. */
+  .mm-tabs {
+    display: flex;
+    gap: 2px;
+    padding: 2px;
+    border-radius: var(--radius-m);
+    background: var(--color-surface-sunken);
+    box-shadow: inset 0 0 0 1px var(--color-line);
+  }
+  .mm-tab {
+    min-height: 32px;
+    padding: 0 var(--space-3);
+    border: 0;
+    border-radius: calc(var(--radius-m) - 2px);
+    background: none;
+    font: inherit;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    color: var(--color-text-muted);
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  @media (hover: hover) {
+    .mm-tab:hover {
+      color: var(--color-text);
+    }
+  }
+  .mm-tab[aria-pressed="true"] {
+    color: var(--color-text);
+    background: var(--color-surface);
+    box-shadow:
+      0 0 0 1px var(--color-line-strong),
+      inset 0 -2px 0 var(--color-accent);
+  }
+  .mm-tab:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 1px;
+  }
+  .mm-coverage {
+    margin-bottom: var(--space-2);
+  }
+
+  /* Pools: the share bar is the list's key; each row repeats its colour. */
+  .mm-sharebar {
+    height: 20px;
+    margin-bottom: var(--space-3);
+  }
+  .mm-pools,
+  .mm-adj {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--text-sm);
+  }
+  .mm-pools th,
+  .mm-pools td,
+  .mm-adj th,
+  .mm-adj td {
+    height: 34px;
+    padding: 0 0 0 var(--space-3);
+    border-bottom: 1px solid var(--color-line);
+    text-align: left;
+    font-weight: var(--weight-regular);
+    white-space: nowrap;
+  }
+  .mm-pools thead th,
+  .mm-adj thead th {
+    height: 28px;
+    color: var(--color-text-muted);
+    font-size: var(--text-xs);
+  }
+  .mm-pools tr > :first-child,
+  .mm-adj tr > :first-child {
+    padding-left: 0;
+  }
+  .mm-pools .mm-num,
+  .mm-adj .mm-num {
+    text-align: right;
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums slashed-zero;
+  }
+  .mm-pools thead .mm-num,
+  .mm-adj thead .mm-num {
+    font-family: inherit;
+  }
+  .mm-pool {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+  .mm-pool-cell {
+    width: 100%;
+    max-width: 0;
+  }
+  .mm-swatch {
+    flex: none;
+    width: 10px;
+    height: 10px;
+    border-radius: var(--radius-s);
+  }
+  .mm-pool__name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .mm-pool__empty {
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+  }
+  .mm-adj__block {
+    margin-right: var(--space-2);
+  }
+  .mm-adj__when {
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+  }
+  .mm-foot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2) var(--space-4);
+    margin-top: var(--space-3);
+  }
+  .mm-foot .more {
+    margin: 0;
+  }
+
+  /* Latest blocks: one row of tiles. */
+  .mm-tiles {
+    /* The scroller is the containing block, so hidden labels in the tiles do not widen the page. */
+    position: relative;
+    grid-template-columns: repeat(10, minmax(6.5rem, 1fr));
+    overflow-x: auto;
+    scroll-snap-type: x proximity;
+    scrollbar-width: thin;
+  }
+  .mm-tiles > li {
+    scroll-snap-align: start;
+  }
+
+  @media (max-width: 80em) {
+    .mm-figs {
+      grid-template-columns: repeat(3, minmax(min-content, 1fr));
+    }
+    .mm-fig--period {
+      padding-left: 0;
+      padding-top: var(--space-4);
+      border-left: 0;
+      border-top: 1px solid var(--color-line);
+    }
+    .mm-fig--period ~ .mm-fig {
+      padding-top: var(--space-4);
+      border-top: 1px solid var(--color-line);
+    }
+  }
+  @media (max-width: 65em) {
+    .mm-grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    /* One column: the pools follow the hashrate, so the order reads by importance. */
+    .mm-col {
+      display: contents;
+    }
+    .mm-col:first-child > :first-child {
+      order: 1;
+    }
+    .mm-col:last-child > :first-child {
+      order: 2;
+    }
+    .mm-col:first-child > :last-child {
+      order: 3;
+    }
+    .mm-col:last-child > :last-child {
+      order: 4;
+    }
+  }
+  @media (max-width: 40em) {
+    .mm {
+      gap: var(--space-4);
+      padding-top: var(--space-4);
+    }
+    .mm-head h1 {
+      font-size: var(--text-xl);
+    }
+    .mm-period {
+      min-width: 2.75rem;
+      min-height: 44px;
+      padding: 0 var(--space-2);
+    }
+    .mm-figures {
+      padding: var(--space-3) var(--space-4);
+    }
+    .mm-figs {
+      grid-template-columns: repeat(2, minmax(min-content, 1fr));
+      gap: var(--space-3) var(--space-4);
+    }
+    .mm-fig__value {
+      font-size: var(--text-lg);
+    }
+    .mm-fig__sub {
+      margin-top: 0;
+      font-size: var(--text-xs);
+    }
+    /* Two to a row: the rule between the groups gives way to the grid's own rhythm. */
+    .mm-fig--period,
+    .mm-fig--period ~ .mm-fig {
+      padding-top: 0;
+      border-top: 0;
+    }
+    /* One row that scrolls sideways, its far edge faded so the rest reads as more. */
+    .mm-tabs {
+      max-width: 100%;
+      overflow-x: auto;
+      scrollbar-width: none;
+      mask-image: linear-gradient(to right, #000 calc(100% - 2rem), transparent);
+    }
+    .mm-tab {
+      min-height: 44px;
+    }
+    .mm-pools th,
+    .mm-pools td,
+    .mm-adj th,
+    .mm-adj td {
+      height: 44px;
+    }
+    .mm-pool__name {
+      display: inline-flex;
+      align-items: center;
+      min-width: 44px;
+      min-height: 44px;
+    }
+    /* The block and its age on two lines; the whole row is the link's target. */
+    .mm-adj tbody tr {
+      position: relative;
+    }
+    .mm-adj__block::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+    }
+    .mm-adj__when {
+      display: block;
+      line-height: 1.2;
+    }
+    .mm-btn {
+      min-height: 44px;
+    }
+    .mm-opt {
+      display: none;
+    }
+    .mm-tiles {
+      grid-template-columns: repeat(10, 7.25rem);
+    }
+  }
+}
