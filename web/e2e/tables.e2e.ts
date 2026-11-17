@@ -430,7 +430,7 @@ for (const width of FIGURES_WIDTHS) {
 
   // Every view of the block figures, each on a fresh page in the site's own faces; fee rates as
   // wide as mainnet's, two ranges and a median.
-  for (const view of ["Fees", "Rewards", "Fee rates", "Size"]) {
+  for (const view of ["Fees", "Fee rates", "Size"]) {
     test(`a chart's figures fit whole at ${width} px: the mining page's, ${view}`, async ({
       page,
     }) => {
@@ -450,9 +450,7 @@ for (const width of FIGURES_WIDTHS) {
       await expect(blocks.getByRole("slider")).toBeVisible({ timeout: 30_000 });
       // The page's other figures once, beside the first view's (regtest may have none of them).
       const names =
-        view === "Fees"
-          ? ["Hashrate and difficulty", "Block health", "Blocks over time"]
-          : ["Blocks over time"];
+        view === "Fees" ? ["Hashrate and difficulty", "Blocks over time"] : ["Blocks over time"];
       await open(names);
       await bothFaces(names, `/mining's ${view} at ${width} px`);
     });

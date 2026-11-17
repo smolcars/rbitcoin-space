@@ -36,13 +36,6 @@
     font-size: var(--text-sm);
     color: var(--color-text-muted);
   }
-  .mining-subtitle,
-  .mining-now__subtitle {
-    margin: 0 0 var(--space-3);
-    font-size: var(--text-md);
-    font-weight: var(--weight-bold);
-  }
-
   /* The period: a row of links, the current one pressed in. */
   .mining-periods ul {
     display: flex;
@@ -84,20 +77,6 @@
       inset 0 -2px 0 var(--color-accent);
   }
 
-  /* The network now: two figures, then the adjustment. */
-  /* Two figures stacked in a narrow column beside the adjustment, not side by side over empty
-     space; where the panel is one column they sit side by side again. */
-  .mining-now__grid {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 3fr);
-    gap: var(--space-6);
-  }
-  .mining-now__stats {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    align-content: start;
-    gap: var(--space-4);
-  }
   .mining-stat__label {
     font-size: var(--text-sm);
     color: var(--color-text-muted);
@@ -180,45 +159,6 @@
     transition: opacity var(--dur-quick) var(--ease-out);
   }
 
-  /* Pools: the ranking, and their shares as strata beside it. */
-  .mining-pools {
-    display: grid;
-    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
-    gap: var(--space-6);
-  }
-  .mining-rank {
-    color: var(--color-text-muted);
-  }
-  .mining-pool {
-    display: inline-flex;
-    flex-direction: column;
-  }
-  .mining-pool__why {
-    font-size: var(--text-xs);
-    color: var(--color-text-muted);
-    white-space: normal;
-  }
-  .mining-share {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-2);
-  }
-  /* The share bar is neutral: color carries fee and nothing else. */
-  .mining-share__bar {
-    position: relative;
-    width: 6rem;
-    height: 8px;
-    overflow: hidden;
-    border-radius: var(--radius-pill);
-    background: var(--color-surface-sunken);
-  }
-  .mining-share__fill {
-    position: absolute;
-    inset: 0;
-    background: var(--series-1);
-    transform-origin: left;
-    transform: scaleX(var(--p));
-  }
   .mining-more {
     margin-top: var(--space-3);
   }
@@ -276,46 +216,12 @@
   .mining-period-shares__part--12 {
     background: var(--pool-12);
   }
-  /* Each name with its share beside it, wrapping as a row of entries: a wide panel spaces the
-     entries, never a name from its figure. */
-  .mining-period-shares__key {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-1) var(--space-5);
-    margin-top: var(--space-3);
-    font-size: var(--text-sm);
-  }
-  .mining-period-shares__key li {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-  }
-  .mining-period-shares__name {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .mining-period-shares__swatch {
-    width: 12px;
-    height: 12px;
-    flex: none;
-    border-radius: var(--radius-s);
-    box-shadow: inset 0 0 0 1px var(--color-line);
-  }
-
   /* Figures side by side; two to a row on a phone, never one long column. */
   /* As many columns as hold a whole figure (a pool's 21 000 000 BTC), one on the narrowest phone. */
   .mining-rewards {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(min(10rem, 100%), 1fr));
     gap: var(--space-4);
-  }
-  .mining-tabs {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-2);
-    margin-bottom: var(--space-4);
   }
 
   /* Recent blocks: mined tiles, as on the home page, in a wrapping grid. */
@@ -447,44 +353,14 @@
     overflow-wrap: anywhere;
   }
 
-  @media (max-width: 65em) {
-    .mining-now__grid,
-    .mining-pools {
-      grid-template-columns: minmax(0, 1fr);
-    }
-    /* Two to a row, each at least as wide as its figure; one to a row where two do not fit. */
-    .mining-now__stats {
-      display: flex;
-      flex-wrap: wrap;
-    }
-    .mining-stat {
-      flex: 1 1 calc(50% - var(--space-4));
-    }
-  }
-  /* A day or a week: one bar, not a chart, so it goes above the table, the panel's width, rather
-     than beside it over empty space. */
-  .mining-pools--bar {
-    grid-template-columns: minmax(0, 1fr);
-    gap: var(--space-5);
-  }
-  .mining-pools--bar .mining-pools__shares {
-    order: -1;
-  }
   @media (max-width: 40em) {
     .mining {
       --tile-w: 7.5rem;
       --tile-h: 10rem;
       gap: var(--space-6);
     }
-    .mining-share__bar {
-      width: 3rem;
-    }
   }
   @media (max-width: 25em) {
-    /* The percentage alone, so rank, pool, share and blocks fit the narrowest phones. */
-    .mining-share__bar {
-      display: none;
-    }
     .pool-stats:has(> .mining-rewards[aria-busy="true"]) {
       min-height: 16rem;
     }
@@ -495,19 +371,6 @@
     }
   }
 
-  /* Difficulty adjustments: the next one expected, then the past ones. */
-  .mining-next {
-    margin-bottom: var(--space-4);
-    font-size: var(--text-md);
-  }
-  .mining-next__label,
-  .mining-next__when {
-    color: var(--color-text-muted);
-    font-size: var(--text-sm);
-  }
-  .mining-next strong {
-    font-weight: var(--weight-bold);
-  }
   .mining-arrow {
     margin-right: 0.2em;
   }
@@ -516,14 +379,9 @@
     justify-items: start;
   }
   .mining-retarget__age {
-    display: none;
     font-size: var(--text-xs);
+    line-height: 1.3;
     color: var(--color-text-muted);
-  }
-  @media (max-width: 40em) {
-    .mining-retarget__age {
-      display: block;
-    }
   }
 }
 
@@ -532,6 +390,311 @@
   @media (max-width: 18.75em) {
     .mining-periods ul {
       flex-wrap: wrap;
+    }
+  }
+}
+
+/* The overview: one band of figures, then charts on the left and the lists that explain them on
+   the right, so a desktop reads the whole page in about two screens. */
+@layer pages {
+  .mining--overview {
+    gap: var(--space-5);
+    padding-top: var(--space-5);
+  }
+  .mining-head h1 {
+    line-height: var(--leading-tight);
+  }
+
+  /* The figures: six across, a rule between the network now and the period's own. */
+  .mining-figures {
+    padding: var(--space-4) var(--panel-pad);
+  }
+  .mining-figs {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: var(--space-4) var(--space-5);
+    margin: 0;
+  }
+  .mining-fig {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .mining-fig dd {
+    margin: 0;
+  }
+  .mining-fig--period {
+    padding-left: var(--space-5);
+    border-left: 1px solid var(--color-line);
+  }
+  .mining-fig__label {
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+  /* Its line is held while the figure loads, so nothing under it moves. */
+  .mining-fig__value {
+    min-height: calc(var(--text-xl) * var(--leading-tight));
+    font-size: var(--text-xl);
+    font-weight: var(--weight-bold);
+    line-height: var(--leading-tight);
+    letter-spacing: var(--tracking-tight);
+    white-space: nowrap;
+  }
+  .mining-fig__value .amount {
+    font-size: inherit;
+  }
+  .mining-fig__sub {
+    min-height: 1.4em;
+    margin-top: var(--space-1);
+    font-size: var(--text-sm);
+    line-height: var(--leading-snug);
+    color: var(--color-text-muted);
+  }
+  .mining-fig__sub .amount {
+    font-size: inherit;
+    color: inherit;
+  }
+
+  /* The retarget period as a bar: mined so far, and a tick where ten-minute blocks would be. */
+  .mining-epoch {
+    position: relative;
+    display: block;
+    height: 6px;
+    margin: var(--space-1) 0 var(--space-2);
+    border-radius: var(--radius-pill);
+    background: var(--color-surface-sunken);
+    box-shadow: inset 0 0 0 1px var(--color-line);
+  }
+  .mining-epoch::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: var(--series-1);
+    transform-origin: left;
+    transform: scaleX(var(--done));
+  }
+  .mining-epoch::after {
+    content: "";
+    position: absolute;
+    top: -3px;
+    bottom: -3px;
+    left: calc(var(--pace) * 100%);
+    width: 2px;
+    background: var(--color-text);
+  }
+
+  .mining-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+    gap: var(--space-5);
+    align-items: start;
+  }
+  .mining-col {
+    display: grid;
+    gap: var(--space-5);
+  }
+  .mining-col > * {
+    min-width: 0;
+  }
+  .mining--overview .section__head {
+    flex-wrap: wrap;
+    row-gap: var(--space-2);
+  }
+  .mining--overview .section__meta {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  /* Chart switches in the panel's head: a segmented row, as the period picker is. */
+  .mining-tabs {
+    display: flex;
+    gap: 2px;
+    padding: 2px;
+    border-radius: var(--radius-m);
+    background: var(--color-surface-sunken);
+    box-shadow: inset 0 0 0 1px var(--color-line);
+  }
+  .mining-tab {
+    min-height: 32px;
+    padding: 0 var(--space-3);
+    border: 0;
+    border-radius: calc(var(--radius-m) - 2px);
+    background: none;
+    font: inherit;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    color: var(--color-text-muted);
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  @media (hover: hover) {
+    .mining-tab:hover {
+      color: var(--color-text);
+    }
+  }
+  .mining-tab[aria-pressed="true"] {
+    color: var(--color-text);
+    background: var(--color-surface);
+    box-shadow:
+      0 0 0 1px var(--color-line-strong),
+      inset 0 -2px 0 var(--color-accent);
+  }
+  .mining-tab:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 1px;
+  }
+
+  /* Pools: the share bar is the table's key, and each row repeats its pool's colour. */
+  .mining-sharebar {
+    height: 20px;
+    margin-bottom: var(--space-3);
+  }
+  .mining-compact .table td:first-child {
+    width: 100%;
+    max-width: 0;
+  }
+  .mining-pool {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+  .mining-pool__swatch {
+    flex: none;
+    width: 10px;
+    height: 10px;
+    border-radius: var(--radius-s);
+  }
+  .mining-pool__name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .mining-pool__empty {
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+  }
+  .mining-foot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2) var(--space-4);
+    margin-top: var(--space-3);
+  }
+  .mining-foot .mining-more,
+  .mining-foot .more {
+    margin: 0;
+  }
+
+  /* Recent blocks: one row of tiles, which a narrow screen scrolls sideways. */
+  .mining--overview .mining-tiles {
+    /* The scroller holds the tiles' hidden labels, so they cannot widen the page. */
+    position: relative;
+    grid-template-columns: repeat(10, minmax(6.5rem, 1fr));
+    overflow-x: auto;
+    scroll-snap-type: x proximity;
+    scrollbar-width: thin;
+  }
+  .mining--overview .mining-tiles > li {
+    scroll-snap-align: start;
+  }
+
+  @media (max-width: 80em) {
+    .mining-figs {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .mining-fig--period {
+      padding-left: 0;
+      padding-top: var(--space-4);
+      border-left: 0;
+      border-top: 1px solid var(--color-line);
+    }
+    .mining-fig--period ~ .mining-fig {
+      padding-top: var(--space-4);
+      border-top: 1px solid var(--color-line);
+    }
+  }
+  @media (max-width: 65em) {
+    .mining-grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    /* One column: the pools follow the hashrate, so the page reads by importance. */
+    .mining-col {
+      display: contents;
+    }
+    .mining-col:first-child > :first-child {
+      order: 1;
+    }
+    .mining-col:last-child > :first-child {
+      order: 2;
+    }
+    .mining-col:first-child > :last-child {
+      order: 3;
+    }
+    .mining-col:last-child > :last-child {
+      order: 4;
+    }
+  }
+  @media (max-width: 40em) {
+    .mining--overview {
+      gap: var(--space-4);
+      padding-top: var(--space-4);
+    }
+    .mining--overview .mining-head {
+      flex-direction: row;
+      align-items: center;
+    }
+    .mining--overview .mining-head h1 {
+      font-size: var(--text-xl);
+    }
+    .mining--overview .mining-periods__item {
+      min-width: 2.75rem;
+      min-height: 44px;
+      padding: 0 var(--space-2);
+    }
+    .mining-figures {
+      padding: var(--space-3) var(--space-4);
+    }
+    .mining-figs {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: var(--space-3) var(--space-4);
+    }
+    .mining-fig__value {
+      min-height: calc(var(--text-lg) * var(--leading-tight));
+      font-size: var(--text-lg);
+    }
+    .mining-fig__sub {
+      margin-top: 0;
+      font-size: var(--text-xs);
+    }
+    /* Two to a row: the rule between the groups gives way to the grid's own rhythm. */
+    .mining-fig--period,
+    .mining-fig--period ~ .mining-fig {
+      padding-top: 0;
+      border-top: 0;
+    }
+    /* One row that scrolls sideways, its far edge faded so the rest reads as more. */
+    .mining-tabs {
+      max-width: 100%;
+      overflow-x: auto;
+      scrollbar-width: none;
+      mask-image: linear-gradient(to right, #000 calc(100% - 2rem), transparent);
+    }
+    .mining-tab {
+      min-height: 44px;
+    }
+    .mining-more {
+      min-height: 44px;
+    }
+    .mining--overview .mining-tiles {
+      grid-template-columns: repeat(10, 7.25rem);
+    }
+  }
+  /* The narrowest phones: a figure such as regtest's difficulty keeps to its half. */
+  @media (max-width: 23.75em) {
+    .mining-fig__value {
+      font-size: var(--text-md);
     }
   }
 }

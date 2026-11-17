@@ -273,7 +273,8 @@ test("on a touch screen no field is small enough to zoom into, and a tap leaves 
   // Hover styles are for pointers that hover: a button tapped keeps its resting look.
   expect(await page.evaluate(() => matchMedia("(hover: hover)").matches)).toBe(false);
   await page.goto(`${baseURL ?? ""}/regtest/mining`);
-  const button = page.locator("main .btn").first();
+  // The chart switch already pressed, so the tap changes nothing but what a hover would.
+  const button = page.locator('main .mining-tab[aria-pressed="true"]');
   await expect(button).toBeVisible();
   const rest = await button.evaluate((b) => getComputedStyle(b).backgroundColor);
   await button.tap();

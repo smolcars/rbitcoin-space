@@ -11,7 +11,7 @@ test("regtest's mining page says what is and is not meaningful there", async ({ 
   ).toBeVisible();
   await expect(
     page
-      .getByRole("region", { name: "The network now" })
+      .getByRole("region", { name: "Mining figures" })
       .getByText("Regtest never adjusts its difficulty", { exact: false }),
   ).toBeVisible();
   await expect(
@@ -52,22 +52,18 @@ test("regtest's mining page fits a phone without scrolling sideways", async ({ p
 });
 
 test("a chart draws and its readout shows the route's figure", async ({ page }) => {
-  const route = "/regtest/api/v1/mining/blocks/rewards/all";
-  const chart = page.getByRole("slider", { name: /Average reward per block/ });
+  const route = "/regtest/api/v1/mining/blocks/fees/all";
+  const chart = page.getByRole("slider", { name: /Average fees per block/ });
   let reward = "";
   // The server refreshes its answer while the backfill runs: compare until both see the same one.
   await expect(async () => {
-    const points = (await (await page.request.get(route)).json()) as { avgRewards: number }[];
-    reward = `${((points.at(-1)?.avgRewards ?? 0) / 1e8).toFixed(8)} BTC`;
+    const points = (await (await page.request.get(route)).json()) as { avgFees: number }[];
+    reward = `${((points.at(-1)?.avgFees ?? 0) / 1e8).toFixed(8)} BTC`;
+    // Fees is the tab shown first.
     await page.goto("/regtest/mining?period=all");
-    await page.getByRole("button", { name: "Rewards" }).click();
-    await expect(chart).toHaveAttribute(
-      "aria-valuetext",
-      new RegExp(`Reward per block ${reward}`),
-      {
-        timeout: 3_000,
-      },
-    );
+    await expect(chart).toHaveAttribute("aria-valuetext", new RegExp(`Fees per block ${reward}`), {
+      timeout: 3_000,
+    });
   }).toPass({ timeout: 30_000 });
   const section = page.getByRole("region", { name: "Blocks over time" });
   await expect(section.locator("svg path").first()).toBeAttached();
@@ -235,21 +231,21 @@ test("the share graphics draw each period's six largest pools, each in its own c
     return route.fulfill({ json: weeks });
   });
   const seen = new Map<string, string>();
+  const remember = (swatches: (readonly [string, string])[], where: string) => {
+    for (const [name, colour] of swatches) {
+      expect(colour, `${name} ${where}`).not.toBe("");
+      expect(colour, `${name} ${where}`).toBe(seen.get(name) ?? colour);
+      seen.set(name, colour);
+    }
+  };
   for (const id of ["24h", "1w", "1m", "1y", "all"]) {
     await page.goto(`/regtest/mining?period=${id}`);
     const pools = page.getByRole("region", { name: "Pools" });
-    // A day and a week show one bar; longer periods the weekly chart, read out above it.
-    const keys =
-      id === "24h" || id === "1w"
-        ? pools.locator(".mining-period-shares__key li")
-        : pools.locator(".chart__value");
-    await expect(keys.first()).toBeVisible({ timeout: 30_000 });
-    const swatches = await keys.evaluateAll((items) =>
-      items.map((li) => {
-        const swatch = li.querySelector(".mining-period-shares__swatch, .chart__key");
-        const name = li.querySelector(".mining-period-shares__name, .chart__name")?.textContent;
-        return [name ?? "", swatch ? getComputedStyle(swatch).backgroundColor : ""] as const;
-      }),
+    // Every period has the bar over the table; its parts name their pools.
+    const parts = pools.locator(".mining-sharebar .mining-period-shares__part");
+    await expect(parts.first()).toBeAttached({ timeout: 30_000 });
+    const swatches = await parts.evaluateAll((items) =>
+      items.map((el) => [el.dataset["pool"] ?? "", getComputedStyle(el).backgroundColor] as const),
     );
     // The pools drawn on their own are the table's first six, in its order.
     const table = pools.getByRole("table", { name: /^Pools ranked by blocks found/ });
@@ -259,22 +255,36 @@ test("the share graphics draw each period's six largest pools, each in its own c
     const drawn = swatches.map(([name]) => name).filter((name) => name !== "Other pools");
     expect(drawn, `pools drawn at ${id}`).toStrictEqual(top);
     expect(swatches.at(-1)?.[0], `the rest at ${id}`).toBe("Other pools");
+    remember(swatches, `in the bar at ${id}`);
+    // A month and longer also chart the weekly shares, in the same pools and colours.
+    if (id === "24h" || id === "1w") continue;
+    const blocks = page.getByRole("region", { name: "Blocks over time" });
+    await blocks.getByRole("button", { name: "Pool shares" }).click();
+    const keys = blocks.locator(".chart__value");
+    await expect(keys.first()).toBeVisible({ timeout: 30_000 });
+    const charted = await keys.evaluateAll((items) =>
+      items.map((li) => {
+        const swatch = li.querySelector(".chart__key");
+        const name = li.querySelector(".chart__name")?.textContent;
+        return [name ?? "", swatch ? getComputedStyle(swatch).backgroundColor : ""] as const;
+      }),
+    );
+    expect(
+      charted.map(([name]) => name),
+      `pools charted at ${id}`,
+    ).toStrictEqual(swatches.map(([name]) => name));
+    remember(charted, `in the chart at ${id}`);
     // A pool under the pointer keeps its own colour, the one its key shows.
     if (id === "1m") {
-      const plot = pools.getByRole("slider");
+      const plot = blocks.getByRole("slider");
       await expect(plot.locator("path.chart__layer").first()).toBeAttached();
       const box = await plot.boundingBox();
       if (box) await plot.hover({ position: { x: box.width * 0.75, y: box.height * 0.7 } });
-      const on = pools.locator(".chart__layer--on");
+      const on = blocks.locator(".chart__layer--on");
       await expect(on).toHaveCount(1);
       const fill = await on.evaluate((l) => getComputedStyle(l).fill);
-      expect(swatches.map(([, c]) => c)).toContain(fill);
+      expect(charted.map(([, c]) => c)).toContain(fill);
       await page.mouse.move(0, 0);
-    }
-    for (const [name, colour] of swatches) {
-      expect(colour, `${name} at ${id}`).not.toBe("");
-      expect(colour, `${name} at ${id}`).toBe(seen.get(name) ?? colour);
-      seen.set(name, colour);
     }
   }
   // Every pool drawn has a colour no other pool has, and "Other pools" its own grey.
@@ -291,7 +301,7 @@ test("past adjustments read newest first, up and down in words, and each row ope
   const section = page.getByRole("region", { name: "Difficulty adjustments" });
   const table = section.getByRole("table", { name: "Difficulty adjustments, newest first" });
   const rows = table.locator("tbody tr");
-  await expect(rows).toHaveCount(10, { timeout: 30_000 });
+  await expect(rows).toHaveCount(6, { timeout: 30_000 });
   await expect(rows.first()).toContainText(/Up 5\.54%.*148\.36\s?T/);
   await expect(rows.nth(2)).toContainText("Down 0.03%");
   // The arrow repeats the word; it is not read aloud, and no colour carries the direction.
@@ -313,7 +323,8 @@ test.describe("block health", () => {
         : route.continue(),
     );
     await page.goto("/regtest/mining");
-    const health = page.getByRole("region", { name: "Block health" });
+    const health = page.getByRole("region", { name: "Blocks over time" });
+    await health.getByRole("button", { name: "Match rate" }).click();
     await expect(health.getByText("Could not load the block audits")).toBeVisible({
       timeout: 30_000,
     });
@@ -321,13 +332,8 @@ test.describe("block health", () => {
     await health.getByRole("button", { name: "Try again" }).click();
     // Only the mining tests make audits, and they run after this one: regtest has none yet.
     await expect(health.getByText("No block audits stored for the last week")).toBeVisible();
-    await expect(health.locator(".section__head")).toHaveText(
-      "Block health0 audited blocks in the last week",
-    );
     await health.getByRole("link", { name: "See all stored history" }).click();
+    // The tab stays open across the period's change.
     await expect(health.getByText("No block audits stored for all time")).toBeVisible();
-    await expect(health.locator(".section__head")).toHaveText(
-      "Block health0 audited blocks in all time",
-    );
   });
 });

@@ -106,6 +106,8 @@ export interface Ranked {
   rank: number;
   emptyBlocks: number;
   slug: string;
+  /** The mean match rate of the pool's audited blocks in the period; null with none. */
+  avgMatchRate?: number | null;
 }
 
 export interface Ranking {
@@ -116,14 +118,15 @@ export interface Ranking {
   lastEstimatedHashrate1w: number | null;
 }
 
+const numOrNull = (v: unknown): boolean => v === null || isNum(v);
+
 const isRanked = (v: unknown): v is Ranked =>
   isObj(v) &&
   nums(v, ["poolId", "blockCount", "rank", "emptyBlocks"]) &&
   typeof v["name"] === "string" &&
   typeof v["slug"] === "string" &&
-  typeof v["link"] === "string";
-
-const numOrNull = (v: unknown) => v === null || isNum(v);
+  typeof v["link"] === "string" &&
+  (v["avgMatchRate"] === undefined || numOrNull(v["avgMatchRate"]));
 
 export const isRanking = (v: unknown): v is Ranking =>
   isObj(v) &&

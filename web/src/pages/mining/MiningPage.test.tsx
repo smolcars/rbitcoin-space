@@ -135,7 +135,9 @@ describe("mining page", () => {
     const el = mount(() => <MiningPage />, "/mining?period=1m");
     await vi.waitFor(() => expect(requests).toContain("/v1/mining/pools/1m"));
     expect(requests).toContain("/v1/mining/hashrate/1m");
-    expect(requests).toContain("/v1/mining/hashrate/pools/1m");
+    expect(requests).toContain("/v1/mining/blocks/fees/1m");
+    // The weekly shares are a tab of their own: fetched only when it opens.
+    expect(requests).not.toContain("/v1/mining/hashrate/pools/1m");
     const current = el.querySelector("[aria-current=page]");
     expect(current?.textContent).toBe("1 m: the last 30 days");
   });

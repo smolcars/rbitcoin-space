@@ -73,24 +73,21 @@ test("block health draws the blocks the server watched arrive, follows every per
     )
     .toBe(tip);
   await page.goto("/regtest/mining?period=24h");
-  const health = page.getByRole("region", { name: "Block health" });
-  const head = health.locator(".section__head");
+  const health = page.getByRole("region", { name: "Blocks over time" });
+  await health.getByRole("button", { name: "Match rate" }).click();
   const chart = health.getByRole("slider");
-  for (const [k, [id, words]] of PERIODS.entries()) {
+  for (const [k, [, words]] of PERIODS.entries()) {
     if (k > 0) {
       await page
         .getByRole("navigation", { name: "Period" })
         .getByRole("link", { name: new RegExp(`: ${words}$`) })
         .click();
     }
-    const audited = (await (
-      await page.request.get(`/regtest/api/v1/mining/blocks/predictions/${id}`)
-    ).json()) as unknown[];
-    const blocks = audited.length === 1 ? "block" : "blocks";
-    await expect(head).toHaveText(`Block health${audited.length} audited ${blocks} in ${words}`, {
-      timeout: 30_000,
-    });
-    await expect(chart).toHaveAttribute("aria-label", `Match rate of each audited block, ${words}`);
+    await expect(chart).toHaveAttribute(
+      "aria-label",
+      `Match rate of each audited block, ${words}`,
+      { timeout: 30_000 },
+    );
   }
   // The latest point is the newest block, and it opens it.
   await expect(chart).toHaveAttribute("aria-valuetext", new RegExp(`Block ${tip}$`));

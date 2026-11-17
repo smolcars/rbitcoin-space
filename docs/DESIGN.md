@@ -472,39 +472,33 @@ One that does not check out says which check failed (checksum, version, length, 
 ```text
 Mining                                        [24 h | 1 w | 1 m | 1 y | All]
 (network note: signet, testnet4, regtest)
-The network now ═══════════════════════════════════════════════════════════
-Hashrate   Difficulty        │ Next difficulty adjustment (the home panel's)
-Hashrate and difficulty ═══════════════════════════════════════════════════
-[area: hashrate; dashed step: difficulty, right axis]
-Pools ═════════════════════════════════════════════════ 895 blocks in the last week
-rank  pool  share bar  blocks  hashrate  empty │ Share of blocks, week by week
-...                                           │ [stacked strata, biggest at the bottom]
-Rewards ═══════════════════════════════════════════════════════════════════
-Paid to miners   New coins   Fees   Per block
-Blocks over time ══════════════════════════════════════════════════════════
-[Fees | Rewards | Fee rates | Size]  one chart at a time
-Block health ══════════════════════════════════════ 158 audited blocks in the last week
-18% audited, from 12 Nov, 11:21 UTC.   [area: match rate per block, 0–100%; gaps]
-Difficulty adjustments ═══════════════════════════════════════════ Every 2 016 blocks
-Next, expected ↓ Down 8.41% at block 975 744, in 8 h
-block  when  ↑ Up 5.54%  difficulty                       [Show all 483 adjustments]
-Recent blocks ═════════════════════════════════════════════════ All blocks
-the same mined tiles as the strip, in a wrapping grid
+┌ Hashrate  Difficulty  Next adjustment ━━━━┿━  │ Blocks found  Paid to miners  Fees ┐
+Hashrate and difficulty ═════ Daily 7-day avg │ Pools ════════ 971 blocks in the last week
+[area: hashrate; dashed step: difficulty]     │ [share bar: six pools and the rest]
+                                              │ ■ pool  share  blocks  hashrate  match
+Blocks over time  [Fees|Fee rates|Size|Match rate|Pool shares]   (eight, then all)
+[one chart at a time]                         │ Difficulty adjustments ══ Every 2 016 blocks
+                                              │ block (age)  ↑ Up 5.54%  difficulty (six)
+Recent blocks ═════════════════════════════════════════════════════════ All blocks
+the same mined tiles as the strip, in one row
 ```
 
 Decided while building it, where the layout above left it open:
 
 - **The period is in the address** (`/mining?period=1m`), so a view can be linked; a week is the default. "All" joins the design's four periods, for the whole of history. The period is a row of links, the current one raised with an accent underline.
 - **Charts are drawn in the series colours, never fee colours:** the main series a solid `--series-1` line over a pale area, a second series a dashed `--series-2` line on its own right-hand scale. The one exception is the fee-rate chart, whose axis carries the fee scale as its key.
-- **Pool shares over time are strata.** Each pool is a layer, the biggest at the bottom, in its pool colour with a seam of the panel between them. The six biggest pools have their own layer and colour and the rest are one, "Other pools", in grey. The layer under the pointer turns the accent. Shares over time are weekly, so that chart appears from a month up; for 24 hours and a week the same place shows the period's shares as one bar, in the same shades, each pool named with its share.
-- **Summaries in magnitude.** Rewards read `2 793 BTC`, the exact amount in the title; the pool table's estimate of how a pool's hashrate is made sits behind "How these figures are made".
-- **Hashrate needs a week.** Each daily point averages the 7 days before it, so the 24-hour view draws the last week and says why.
+- **Figures first, in one band.** The network now (hashrate, difficulty with its last change, the next adjustment's expected change over a bar of the retarget period with a tick at the ten-minute pace), a rule, then the period's own (blocks found against the ten-minute target, paid to miners, fees). Three to a row under 80em, two on a phone, where the band and the whole hashrate chart are the first screen.
+- **Two columns on a desktop.** Charts on the left (7/12), the lists that explain them on the right (5/12): pools beside the hashrate, adjustments beside the block charts. Under 65em one column, in the order hashrate, pools, block charts, adjustments. Charts are 220 and 200 px tall on a desktop, 170 and 160 on a phone. Recent blocks are one row of ten tiles under both, which a phone scrolls sideways.
+- **The pools' share is one bar, at every period,** over the table, which is its key: each row repeats its pool's colour in a swatch. Eight rows, then all of them a press away. Columns are share, blocks, an estimated hashrate (dropped on a phone) and the match rate of the pool's audited blocks; empty blocks are a quiet "N empty" beside a name only when there are some.
+- **Pool shares over time are strata,** a tab of the block charts from a month up, since they are counted by the week. Each pool is a layer, the biggest at the bottom, in its pool colour with a seam of the panel between them. The six biggest pools have their own layer and colour and the rest are one, "Other pools", in grey. The layer under the pointer turns the accent.
+- **Summaries in magnitude.** Rewards read `2 793 BTC`, the exact amount in the title; how a pool's hashrate and match rate are made sits behind "How these figures are made". Totals cover at most the last 52 560 blocks, about a year, and say so.
+- **Hashrate needs a week.** Each daily point averages the 7 days before it, so the 24-hour view draws the last week, and its caption says so.
 - **Coverage is drawn, not hidden.** Where the server has not stored the start of the period yet, the chart keeps the whole period's width and hatches the part with no data ("No data stored"), and a note above says "Data from 22 Sep 2026 onward". The same hatch is the note's swatch. A period with nothing stored says so and offers all of history.
 - **One readout, no tooltip.** Above each plot a line at a fixed height shows the point under the pointer (the latest otherwise): its time and every figure with its key. It never covers the data, works the same for touch and keys, and never moves the page. On a phone a stacked fee chart reads out its totals only, and the one band under the finger on a line held for it, which says "Tap a layer to name it" until then; every band is in the figures table.
-- **The second level is a switch,** not more charts: fees, rewards, fee rates and size share one chart slot under "Blocks over time", so the page stays one screen of figures and one of charts.
-- **Block health is what was watched.** Only blocks this server saw arrive have an audit, so the chart counts them in its caption, says what share of the period's blocks they are and since when, hatches the time before the first and breaks wherever a block has none. The area stands on an axis from zero, so a bad block is a notch down from the top and an ordinary period a full band; past 1,000 blocks a point is the lowest of its run, so a bad block is never averaged away. A point opens its block: a click, a second tap, or Enter.
-- **Past adjustments are a list, not a period's.** The latest ten, newest first, each opening the block that began its period, with all of them a press away, under the next one's expected change; ups and downs read as an arrow and a word, never a colour. They sit after the block charts, so the page still opens on the network now.
-- **Unknown is a pool.** It is ranked like any other, its page exists, and its row says it is the blocks no tag or address on the list names.
+- **The second level is a switch,** not more charts: fees, fee rates, size, match rate and pool shares share one chart slot under "Blocks over time", the switch a segmented row in the panel's head (one row that scrolls sideways on a phone, its far edge faded). Reward per block is not one of them: it is the subsidy plus fees, a nearly flat line, so fees carry the variation and the band the totals. The chart chosen stays chosen for the visit, so coming back from a block a point opened shows the same one.
+- **Block health is what was watched,** the "Match rate" tab. Only blocks this server saw arrive have an audit, so a line over the chart says what share of the period's blocks they are and since when, hatches the time before the first and breaks wherever a block has none. The area stands on an axis from zero, so a bad block is a notch down from the top and an ordinary period a full band; past 1,000 blocks a point is the lowest of its run, so a bad block is never averaged away. A point opens its block: a click, a second tap, or Enter.
+- **Past adjustments are a list, not a period's.** The latest six, newest first, each block's age under its height, each row opening the block that began its period, with all of them a press away; the next one is a figure in the band. Ups and downs read as an arrow and a word, never a colour.
+- **Unknown is a pool.** It is ranked like any other, its page exists, and "How these figures are made" says it is the blocks no tag or address on the list names.
 - **Test networks say what their figures mean.** Signet's blocks come from a few signers the list does not name; testnet4's minimum-difficulty rule makes its hashrate swing; regtest has no pools, a meaningless hashrate and no retargets; Testnet 5's figures read as mainnet's, so it has no note. A note under the title says so, and figures that mean nothing there say "Not meaningful on regtest".
 - **A pool's page** has its name as the title (dataset text), its site as a plain link only when it is `http` or `https`, its blocks and shares, its weekly share and hashrate, and its blocks 25 at a time.
 - **Nothing moves as it loads.** Each section holds the height its content will take; the coverage notes on a pool's page sit below its figures.
