@@ -275,14 +275,17 @@ function Figures(props: { h: History }) {
 const PHONE = "(max-width: 40em)";
 /** The longest run of missing steps drawn across rather than as a break. */
 const BRIDGE_STEPS = 5;
+const STRIP = "Flow, vB/s: arrived and left";
+const STRIP_SHORT = "Flow, vB/s";
+const NO_DATA = "No data stored";
 /** Under this many px the axis names its ends rather than ticks (`endLabels`). */
 const TICKS_FROM = 420;
 
 /** How wide the widest label draws, in px, in the plot's own font. */
-function labelWidth(labels: readonly string[], el: Element | undefined): number {
+function labelWidth(labels: readonly string[], el: Element | undefined, kind = "label"): number {
   if (!el || labels.length === 0) return 0;
   const ruler = document.createElement("span");
-  ruler.className = "mempool-label mempool-ruler";
+  ruler.className = `mempool-${kind} mempool-ruler`;
   el.append(ruler);
   let widest = 0;
   for (const label of labels) {
@@ -397,6 +400,9 @@ function Plot(props: {
     const room = w - ml - mr;
     const ticks = room < TICKS_FROM ? undefined : timeTicks(from, h.to, Math.floor(room / 96));
     const hatchTo = props.from === undefined ? dataFrom(h) : undefined;
+    // The strip's name, shorter where a large text size would run it off the plot.
+    const strip = [STRIP, STRIP_SHORT].find((t) => labelWidth([t], box, "strip") <= room) ?? "";
+    const hatchLabel = labelWidth([NO_DATA], box) + 16;
     return {
       w,
       height,
@@ -426,6 +432,8 @@ function Plot(props: {
         return { x: at, label: ticks.label(t), anchor };
       }),
       ends: endLabels(from, h.to, room),
+      strip,
+      hatchLabel,
       hatch: hatchTo === undefined ? undefined : { x: sx(h.from), w: sx(hatchTo) - sx(h.from) },
     };
   });
@@ -584,7 +592,7 @@ function Plot(props: {
                 )}
               </For>
               <text class="mempool-strip" x={f().ml} y={f().flowTop - 12}>
-                Flow, vB/s: arrived and left
+                {f().strip}
               </text>
               <Show when={f().hatch}>
                 {(hz) => (
@@ -603,9 +611,9 @@ function Plot(props: {
                       height={f().flowBottom - f().flowTop}
                       fill={`url(#${id}-hatch)`}
                     />
-                    <Show when={hz().w > 110}>
+                    <Show when={hz().w > f().hatchLabel}>
                       <text class="mempool-label" x={hz().x + 8} y={f().sizeTop + 16}>
-                        No data stored
+                        {NO_DATA}
                       </text>
                     </Show>
                   </>
