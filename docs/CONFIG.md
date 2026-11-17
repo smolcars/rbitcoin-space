@@ -85,6 +85,12 @@ VTXO pages for Ark implementations, per network ([`ARK.md`](ARK.md)). Off unless
 |---|---|---|
 | `ONION_LOCATION` | unset | The site's onion service, `http://` and a v3 address (56 characters, `a`–`z` and `2`–`7`, then `.onion`), no path. When set, every HTML page carries `Onion-Location: <it><path and query>`, which Tor Browser offers to open; other answers do not. Any other form stops the server at startup. Tor Browser honours it only on an HTTPS page ([`DEPLOY.md`](DEPLOY.md#as-a-tor-onion-service)) |
 
+## Site address
+
+| Variable | Default | What it does |
+|---|---|---|
+| `SITE_URL` | unset | The site's public address, `http://` or `https://` and a host with an optional port, nothing after it but one `/` (dropped): `https://rbitcoin.space`. When set, every page's head carries the link preview picture and the page's own address (`og:image`, `og:url` and the rest, [`FRONTEND.md`](FRONTEND.md#link-previews)), so a pasted link shows a large card; unset, the card is text only. Never taken from the request's `Host`, which a client chooses. Any other form stops the server at startup |
+
 ## Logging
 
 What each setting changes, and the event catalogue, are in [`LOGGING.md`](LOGGING.md).
@@ -165,8 +171,6 @@ The browser tests run at these defaults too, each test as a client of its own be
 ### Static files
 
 Pages and the files under `/assets` are answered from memory or disk with no node work behind them; a block page's head reads at most one row of the block table, two at once server-wide ([`FRONTEND.md`](FRONTEND.md#link-previews)). They have their own per-client limits, fixed: a burst of 400, refilled at 100 a second, and 96 in flight at once, counted separately from the API's. They still pass `MAX_CONCURRENT_REQUESTS`, `MAX_CONNECTIONS`, `CLIENT_MAX_CONNECTIONS` and the timeouts like every request, so a client flooding them is refused with `429` while others are served.
-
-There is no setting for the site's public address. Link previews ([`FRONTEND.md`](FRONTEND.md#link-previews)) leave out `og:url` and the canonical link rather than build them from the request's `Host`, which a client chooses. A preview image will need an absolute URL; that change adds the setting.
 
 ### Preflights
 

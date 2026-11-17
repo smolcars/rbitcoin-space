@@ -348,6 +348,8 @@ Tested with Caddy 2.11.9, with a certificate from a file in place of an automati
 
 A CDN in front must also honour the server's `Cache-Control` (confirmed blocks are cacheable for long, live answers are `no-store`) and key pages on the whole URL, query string included, since a page's head names that page for link previews ([`FRONTEND.md`](FRONTEND.md#link-previews)).
 
+Whatever the proxy, set `SITE_URL` in `.env` to the site's public address (`https://explorer.example.com`), so a link pasted into a chat app shows the site's picture and not only text ([`CONFIG.md`](CONFIG.md#site-address)).
+
 ### A proxy in a container
 
 Caddy as a container beside the server, from [`deploy/compose.proxy.yml`](../deploy/compose.proxy.yml). It puts the proxy and the server on a network of their own, `edge`, with a fixed subnet and the proxy at the pinned address `172.30.111.2`, which the server trusts; nothing is published on the host for the server.

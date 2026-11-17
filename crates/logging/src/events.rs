@@ -50,6 +50,8 @@ pub struct ServerStarting<'a> {
     pub cloudflare_web_analytics: bool,
     /// `ONION_LOCATION`, or null when unset. The onion address is public.
     pub onion_location: Option<&'a str>,
+    /// `SITE_URL`, or null when unset. The site's public address.
+    pub site_url: Option<&'a str>,
     pub max_body_bytes: usize,
     pub request_timeout_secs: u64,
     pub max_connections: usize,
@@ -1805,6 +1807,7 @@ mod tests {
                 mcp_enabled: false,
                 cloudflare_web_analytics: false,
                 onion_location: None,
+                site_url: None,
                 max_body_bytes: 1,
                 request_timeout_secs: 1,
                 max_connections: 1,

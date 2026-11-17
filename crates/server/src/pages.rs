@@ -26,12 +26,22 @@ const SITE: &str = "rbitcoin.space";
 /// without its facts, so a flood of block paths holds at most this many of a store's readers.
 const STORE_READS: usize = 2;
 
+/// The one link preview picture, 1200 by 630, for every page: under `/assets`, so it is served as
+/// built with a year's cache. A redrawn picture takes a new name, as chat apps cache it by its
+/// address; a test holds the name to the file's hash (docs/FRONTEND.md, "Link previews").
+pub(crate) const IMAGE: &str = "/assets/preview-55449820.png";
+
+/// What the picture shows, for a reader who cannot see it.
+const IMAGE_ALT: &str = "The rbitcoin.space logo: a crab lifting a block of layers.";
+
 /// The narrow no-break space the frontend groups digits with (`NNBSP` in `lib/format.ts`).
 const NNBSP: char = '\u{202f}';
 
 /// The built shell, read once at start, and what a head is made from.
 pub(crate) struct Pages {
     shell: Option<Shell>,
+    /// `SITE_URL`, without a trailing slash: the absolute addresses a picture card needs.
+    site: Option<String>,
     networks: Vec<Arc<NetworkContext>>,
     reads: Semaphore,
 }
@@ -68,11 +78,16 @@ pub(crate) struct Head {
 }
 
 impl Pages {
-    pub(crate) fn new(web_dir: Option<&Path>, networks: Vec<Arc<NetworkContext>>) -> Self {
+    pub(crate) fn new(
+        web_dir: Option<&Path>,
+        site: Option<&str>,
+        networks: Vec<Arc<NetworkContext>>,
+    ) -> Self {
         Self {
             shell: web_dir
                 .and_then(|d| std::fs::read_to_string(d.join("index.html")).ok())
                 .map(Shell::new),
+            site: site.map(str::to_owned),
             networks,
             reads: Semaphore::new(STORE_READS),
         }
@@ -429,12 +444,7 @@ fn node(ctx: &NetworkContext, on: &str, key: &str) -> Option<Head> {
 /// `/lightning/rankings?by=`, as `parseRanking` reads `URLSearchParams`: the first `by`, its
 /// name and value decoded, and capacity for anything else.
 fn rankings(on: &str, query: Option<&str>) -> Head {
-    let decode = lightning::nodes::decode;
-    let by = query.unwrap_or_default().split('&').find_map(|p| {
-        let (name, value) = p.split_once('=').unwrap_or((p, ""));
-        (decode(name).as_deref() == Some("by")).then(|| decode(value))
-    });
-    let (words, which) = match by.flatten().as_deref() {
+    let (words, which) = match ranking(query) {
         Some("channels") => ("by open channels", "with the most open channels"),
         Some("age") => ("oldest first", "that have been around longest"),
         _ => ("by capacity", "with the most capacity"),
@@ -442,6 +452,20 @@ fn rankings(on: &str, query: Option<&str>) -> Head {
     Head {
         title: format!("Lightning nodes {words}"),
         description: format!("The 100 Lightning nodes on {on} {which}."),
+    }
+}
+
+/// The rankings page's order, `channels` or `age`, or `None` for capacity, its default.
+fn ranking(query: Option<&str>) -> Option<&'static str> {
+    let decode = lightning::nodes::decode;
+    let by = query.unwrap_or_default().split('&').find_map(|p| {
+        let (name, value) = p.split_once('=').unwrap_or((p, ""));
+        (decode(name).as_deref() == Some("by")).then(|| decode(value))
+    });
+    match by.flatten().as_deref() {
+        Some("channels") => Some("channels"),
+        Some("age") => Some("age"),
+        _ => None,
     }
 }
 
@@ -600,21 +624,54 @@ fn escape(s: &str, out: &mut String) {
     }
 }
 
-/// The title element and the preview tags that replace the build's `<title>`.
-fn render(network: Network, head: &Head) -> String {
+/// Where a page is, for the picture card's absolute addresses.
+struct Address<'a> {
+    /// `SITE_URL`, checked at start: an origin with no trailing slash.
+    site: &'a str,
+    /// The request's path, as the client sent it.
+    path: &'a str,
+    /// The rankings page's order, the one query that names a page, as [`ranking`] reads it.
+    by: Option<&'static str>,
+}
+
+/// The title element and the preview tags that replace the build's `<title>`. With the site's
+/// address, a picture card; without it, a text card, as no absolute address can be written.
+fn render(network: Network, head: &Head, at: Option<&Address<'_>>) -> String {
     let mut title = String::from(title_prefix(network));
     escape(&head.title, &mut title);
     let mut description = String::new();
     escape(&head.description, &mut description);
-    format!(
+    let mut out = format!(
         "<title>{title} | {SITE}</title>\n    \
          <meta name=\"description\" content=\"{description}\" />\n    \
          <meta property=\"og:title\" content=\"{title}\" />\n    \
          <meta property=\"og:description\" content=\"{description}\" />\n    \
          <meta property=\"og:type\" content=\"website\" />\n    \
-         <meta property=\"og:site_name\" content=\"{SITE}\" />\n    \
-         <meta name=\"twitter:card\" content=\"summary\" />"
-    )
+         <meta property=\"og:site_name\" content=\"{SITE}\" />\n    "
+    );
+    let Some(at) = at else {
+        out.push_str("<meta name=\"twitter:card\" content=\"summary\" />");
+        return out;
+    };
+    let mut site = String::new();
+    escape(at.site, &mut site);
+    let mut url = site.clone();
+    escape(at.path, &mut url);
+    if let Some(by) = at.by {
+        let _ = write!(url, "?by={by}");
+    }
+    let _ = write!(
+        out,
+        "<meta property=\"og:url\" content=\"{url}\" />\n    \
+         <meta property=\"og:image\" content=\"{site}{IMAGE}\" />\n    \
+         <meta property=\"og:image:type\" content=\"image/png\" />\n    \
+         <meta property=\"og:image:width\" content=\"1200\" />\n    \
+         <meta property=\"og:image:height\" content=\"630\" />\n    \
+         <meta property=\"og:image:alt\" content=\"{IMAGE_ALT}\" />\n    \
+         <meta name=\"twitter:card\" content=\"summary_large_image\" />\n    \
+         <meta name=\"twitter:image\" content=\"{site}{IMAGE}\" />"
+    );
+    out
 }
 
 /// Every page path: the shell, its head filled in for the page.
@@ -622,13 +679,19 @@ pub(crate) async fn page(State(pages): State<Arc<Pages>>, uri: Uri) -> Response 
     let Some(shell) = &pages.shell else {
         return ApiError::NOT_FOUND.into_response();
     };
-    let html = match (shell.title, pages.head(uri.path(), uri.query()).await) {
+    let (path, query) = (uri.path(), uri.query());
+    let html = match (shell.title, pages.head(path, query).await) {
         (Some((start, end)), Some((network, head))) => {
             let (before, after) = (
                 shell.raw.get(..start).unwrap_or_default(),
                 shell.raw.get(end..).unwrap_or_default(),
             );
-            format!("{before}{}{after}", render(network, &head))
+            // Only the rankings page is named by its query, and only by `by`; the rest is left out.
+            let by = (split(path).1 == "/lightning/rankings")
+                .then(|| ranking(query))
+                .flatten();
+            let at = pages.site.as_deref().map(|site| Address { site, path, by });
+            format!("{before}{}{after}", render(network, &head, at.as_ref()))
         }
         _ => shell.raw.clone(),
     };
@@ -640,6 +703,7 @@ pub(crate) async fn page(State(pages): State<Arc<Pages>>, uri: Uri) -> Response 
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::indexing_slicing)]
 mod tests {
     use super::*;
 
@@ -726,6 +790,86 @@ mod tests {
         assert_eq!(split("/signet/tx/a"), (Network::Signet, "/tx/a"));
         assert_eq!(split("/signetx/tx"), (Network::Mainnet, "/signetx/tx"));
         assert_eq!(split("/regtest/"), (Network::Regtest, "/"));
+    }
+
+    fn tx() -> Head {
+        Head {
+            title: "Transaction a3f9c2e1…7b0d44e9".into(),
+            description: "Bitcoin transaction a3f9: its inputs.".into(),
+        }
+    }
+
+    #[test]
+    fn without_the_site_address_the_card_is_text_only() {
+        let html = render(Network::Mainnet, &tx(), None);
+        assert!(html.ends_with("<meta name=\"twitter:card\" content=\"summary\" />"));
+        assert!(
+            !html.contains("og:url") && !html.contains("og:image"),
+            "{html}"
+        );
+    }
+
+    #[test]
+    fn with_the_site_address_the_card_has_the_picture_and_the_page_address() {
+        let at = Address {
+            site: "https://rbitcoin.space",
+            path: "/signet/tx/abc",
+            by: None,
+        };
+        let html = render(Network::Signet, &tx(), Some(&at));
+        for tag in [
+            "<meta property=\"og:url\" content=\"https://rbitcoin.space/signet/tx/abc\" />"
+                .to_owned(),
+            format!("<meta property=\"og:image\" content=\"https://rbitcoin.space{IMAGE}\" />"),
+            "<meta property=\"og:image:type\" content=\"image/png\" />".to_owned(),
+            "<meta property=\"og:image:width\" content=\"1200\" />".to_owned(),
+            "<meta property=\"og:image:height\" content=\"630\" />".to_owned(),
+            format!("<meta property=\"og:image:alt\" content=\"{IMAGE_ALT}\" />"),
+            "<meta name=\"twitter:card\" content=\"summary_large_image\" />".to_owned(),
+            format!("<meta name=\"twitter:image\" content=\"https://rbitcoin.space{IMAGE}\" />"),
+        ] {
+            assert!(html.contains(&tag), "{tag} in {html}");
+        }
+        assert!(!html.contains("content=\"summary\""), "{html}");
+        let at = Address {
+            site: "https://rbitcoin.space",
+            path: "/lightning/rankings",
+            by: Some("age"),
+        };
+        let html = render(Network::Mainnet, &tx(), Some(&at));
+        assert!(html.contains("content=\"https://rbitcoin.space/lightning/rankings?by=age\""));
+    }
+
+    #[test]
+    fn a_hostile_path_is_escaped_in_the_page_address() {
+        let at = Address {
+            site: "https://rbitcoin.space",
+            path: "/tx/\"><script>alert('x')</script>&",
+            by: None,
+        };
+        let html = render(Network::Mainnet, &tx(), Some(&at));
+        assert!(html.contains(
+            "content=\"https://rbitcoin.space/tx/&quot;&gt;&lt;script&gt;alert(&#39;x&#39;)&lt;/script&gt;&amp;\""
+        ));
+        assert!(!html.contains("<script") && !html.contains("'x'"), "{html}");
+    }
+
+    /// The picture is a 1200 by 630 PNG under 300 KB, named for its own bytes, so a redrawn one
+    /// cannot keep an address chat apps have cached.
+    #[test]
+    fn the_picture_is_the_size_its_tags_say_and_named_for_its_bytes() {
+        use bitcoin::hashes::{Hash, sha256};
+        let file = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../web/public")
+            .join(IMAGE.trim_start_matches('/'));
+        let png = std::fs::read(&file).unwrap();
+        assert!(png.len() < 300 * 1024, "{} bytes", png.len());
+        assert_eq!(png.get(..8), Some(&b"\x89PNG\r\n\x1a\n"[..]));
+        assert_eq!(png.get(12..16), Some(&b"IHDR"[..]));
+        assert_eq!(png.get(16..24), Some(&[0, 0, 4, 176, 0, 0, 2, 118][..]));
+        let hash = sha256::Hash::hash(&png).to_string();
+        let name = IMAGE.trim_start_matches("/assets/preview-");
+        assert_eq!(name, format!("{}.png", &hash[..8]), "rename the picture");
     }
 
     #[test]

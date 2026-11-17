@@ -85,6 +85,7 @@ fn started(config: &Config, log: logging::Settings) {
         mcp_enabled: config.mcp,
         cloudflare_web_analytics: config.cloudflare_web_analytics,
         onion_location: config.onion_location.as_deref(),
+        site_url: config.site_url.as_deref(),
         max_body_bytes: l.max_body_bytes,
         request_timeout_secs: l.request_timeout.as_secs(),
         max_connections: l.max_connections,
@@ -233,6 +234,7 @@ mod tests {
             log_client_addr: false,
             cloudflare_web_analytics: false,
             onion_location: None,
+            site_url: None,
         };
         let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
         let server = tokio::spawn(App::new(&config).serve(listener, async {

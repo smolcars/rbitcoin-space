@@ -93,5 +93,5 @@ mempool.space puts these under `/graphs`. Ours are hand-drawn SVG (W10) on `/min
 | Fiat currency choice | Currency for converted values | planned | M3 | — | Not built. Needs prices, which the owner has parked |
 | Time display | Relative or absolute times, local time zone | different | M1 | — | No switch: detail pages show the relative time and the UTC time together; lists show relative times |
 | Languages | Translated interface | skipped | — | ref | Out of scope; English only |
-| Link previews | Social cards for block, tx and address pages | served | M5 | — | A title and description for every page, without an image ([`FRONTEND.md`](../FRONTEND.md#link-previews)) |
+| Link previews | Social cards for block, tx and address pages | served | M5 | — | A title and description for every page, and with `SITE_URL` set, one picture for every page and the page's address ([`FRONTEND.md`](../FRONTEND.md#link-previews)) |
 | Liquid | Liquid network and assets | skipped | — | — | Out of scope |

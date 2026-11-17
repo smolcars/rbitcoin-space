@@ -408,6 +408,9 @@ pub struct Config {
     pub cloudflare_web_analytics: bool,
     /// `ONION_LOCATION`: the onion service's origin, sent as `Onion-Location` on pages.
     pub onion_location: Option<String>,
+    /// `SITE_URL`: the site's public origin, without a trailing slash, for link previews' absolute
+    /// addresses. Never taken from a request's `Host`, which the client chooses.
+    pub site_url: Option<String>,
 }
 
 impl Config {
@@ -644,6 +647,15 @@ impl Config {
                 })
             })
             .transpose()?;
+        let site_url = var("SITE_URL")
+            .map(|v| {
+                site_origin(&v).ok_or_else(|| {
+                    "SITE_URL must be http:// or https:// and a host, with an optional port \
+                     and nothing after it but one /"
+                        .to_owned()
+                })
+            })
+            .transpose()?;
 
         Ok(Self {
             listen,
@@ -660,8 +672,55 @@ impl Config {
             log_client_addr,
             cloudflare_web_analytics,
             onion_location,
+            site_url,
         })
     }
+}
+
+/// `SITE_URL` as an origin: `http` or `https`, a host (a DNS name, IPv4 or bracketed IPv6) and an
+/// optional port, then at most one `/`, dropped. No user, path, query or fragment.
+fn site_origin(v: &str) -> Option<String> {
+    let (scheme, rest) = v.split_once("://")?;
+    if !matches!(scheme, "http" | "https") {
+        return None;
+    }
+    let authority = rest.strip_suffix('/').unwrap_or(rest);
+    let port = match authority.strip_prefix('[') {
+        Some(v6) => {
+            let (addr, after) = v6.split_once(']')?;
+            addr.parse::<std::net::Ipv6Addr>().ok()?;
+            match after {
+                "" => None,
+                p => Some(p.strip_prefix(':')?),
+            }
+        }
+        None => {
+            let (host, port) = match authority.split_once(':') {
+                Some((h, p)) => (h, Some(p)),
+                None => (authority, None),
+            };
+            dns_name(host).then_some(())?;
+            port
+        }
+    };
+    // Digits only: `u16::from_str` would also take a leading `+`.
+    let port_ok = port.is_none_or(|p| {
+        p.bytes().all(|b| b.is_ascii_digit()) && p.parse::<u16>().is_ok_and(|n| n > 0)
+    });
+    port_ok.then(|| format!("{scheme}://{authority}"))
+}
+
+/// A host name or IPv4 address: dot-separated labels of ASCII letters, digits and inner hyphens.
+fn dns_name(host: &str) -> bool {
+    host.len() <= 253
+        && host.split('.').all(|label| {
+            (1..=63).contains(&label.len())
+                && label
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+                && !label.starts_with('-')
+                && !label.ends_with('-')
+        })
 }
 
 /// `http://` and a v3 onion name: 56 base32 characters, lowercase as Tor writes them.
@@ -1206,6 +1265,58 @@ mod tests {
         ] {
             let e = parse(&[("ONION_LOCATION", &bad)]).unwrap_err();
             assert!(e.contains("ONION_LOCATION") && !e.contains(&bad), "{e}");
+        }
+        assert_eq!(parse(&[]).unwrap().site_url, None);
+        for (good, origin) in [
+            ("https://rbitcoin.space", "https://rbitcoin.space"),
+            ("https://rbitcoin.space/", "https://rbitcoin.space"),
+            (
+                "http://explorer.example:8080/",
+                "http://explorer.example:8080",
+            ),
+            ("http://192.0.2.7:65535", "http://192.0.2.7:65535"),
+            ("https://[2001:db8::1]", "https://[2001:db8::1]"),
+            ("https://[2001:db8::1]:443/", "https://[2001:db8::1]:443"),
+            ("http://localhost", "http://localhost"),
+        ] {
+            let c = parse(&[("SITE_URL", good)]).unwrap();
+            assert_eq!(c.site_url.as_deref(), Some(origin), "{good}");
+        }
+        for bad in [
+            "rbitcoin.space",
+            "//rbitcoin.space",
+            "ftp://rbitcoin.space",
+            "HTTPS://rbitcoin.space",
+            "javascript://rbitcoin.space",
+            "https://",
+            "https:///",
+            "https://rbitcoin.space//",
+            "https://rbitcoin.space/x",
+            "https://rbitcoin.space?x=1",
+            "https://rbitcoin.space/?x=1",
+            "https://rbitcoin.space#x",
+            "https://user@rbitcoin.space",
+            "https://user:pass@rbitcoin.space",
+            "https://rbitcoin.space:",
+            "https://rbitcoin.space:0",
+            "https://rbitcoin.space:+80",
+            "https://rbitcoin.space:65536",
+            "https://rbitcoin.space:80:80",
+            "https://rbit coin.space",
+            "https://rbitcoin..space",
+            "https://-rbitcoin.space",
+            "https://rbitcoin.space\"><script>",
+            "https://[2001:db8::1",
+            "https://[not-v6]",
+            "https://[2001:db8::1]x",
+            "https://\u{0440}bitcoin.space",
+        ] {
+            // The fixed message alone: the value is not echoed.
+            let e = parse(&[("SITE_URL", bad)]).unwrap_err();
+            assert!(
+                e.starts_with("SITE_URL must be http://") && e.ends_with("one /"),
+                "{bad}: {e}"
+            );
         }
         assert!(parse(&[("MAX_CONNECTIONS", "99999999")]).is_err());
         assert_eq!(parse(&[]).unwrap().ws, WsLimits::default());

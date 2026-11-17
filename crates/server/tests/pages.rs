@@ -183,6 +183,11 @@ fn graph() -> Index {
 /// Every network on, against the mock node; a store for each, holding one regtest block, and
 /// Lightning on regtest with [`graph`].
 async fn start(dir: &Path) -> (String, Log) {
+    start_at(dir, None).await
+}
+
+/// The server, told its public address (`SITE_URL`) when `site` is set.
+async fn start_at(dir: &Path, site: Option<&str>) -> (String, Log) {
     fill(dir).await;
     let (http, electrum, log) = mock_node().await;
     let mut vars: HashMap<String, String> = HashMap::new();
@@ -207,6 +212,9 @@ async fn start(dir: &Path) -> (String, Log) {
     vars.insert("BACKFILL_ENABLED".into(), "false".into());
     vars.insert("DATA_DIR".into(), dir.display().to_string());
     vars.insert("WEB_DIR".into(), dir.join("web").display().to_string());
+    if let Some(site) = site {
+        vars.insert("SITE_URL".into(), site.to_owned());
+    }
     let config = Config::from_vars(|k| vars.get(k).cloned()).unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap().to_string();
@@ -612,6 +620,68 @@ async fn every_kind_of_page_on_every_network_says_what_it_is() {
         get(&addr, "/signet/").await.title(),
         format!("Signet: Blocks and mempool{SITE}")
     );
+}
+
+#[tokio::test]
+async fn with_the_site_address_every_page_has_the_picture_and_its_own_address() {
+    let dir = temp("site");
+    let (addr, _) = start_at(&dir.0, Some("https://rbitcoin.space/")).await;
+    let ranked = "/lightning/rankings";
+    for (target, url) in [
+        ("/".to_owned(), "https://rbitcoin.space/".to_owned()),
+        (
+            format!("/tx/{TXID}"),
+            format!("https://rbitcoin.space/tx/{TXID}"),
+        ),
+        // A query is not part of a page's address, and what it holds is never written.
+        (
+            format!("/regtest/block/{KNOWN_HEIGHT}?x=%22%3E%3Cscript%3E&y='"),
+            format!("https://rbitcoin.space/regtest/block/{KNOWN_HEIGHT}"),
+        ),
+        (
+            "/signet".to_owned(),
+            "https://rbitcoin.space/signet".to_owned(),
+        ),
+        // Except the rankings page's order, written back in its one canonical form.
+        (
+            format!("{ranked}?x=%3Cb%3E&by=channels&by=age"),
+            format!("https://rbitcoin.space{ranked}?by=channels"),
+        ),
+        (
+            format!("{ranked}?b%79=age"),
+            format!("https://rbitcoin.space{ranked}?by=age"),
+        ),
+        (
+            format!("{ranked}?by=%22%3E%3Cb%3E"),
+            format!("https://rbitcoin.space{ranked}"),
+        ),
+    ] {
+        let r = get(&addr, &target).await;
+        assert_eq!(r.status, 200, "{target}");
+        let (before, after) = around_title();
+        assert!(
+            r.body.starts_with(before) && r.body.ends_with(after),
+            "{target}"
+        );
+        assert_eq!(r.meta("property", "og:url"), url, "{target}");
+        let image = r.meta("property", "og:image");
+        assert!(
+            image.starts_with("https://rbitcoin.space/assets/preview-") && image.ends_with(".png"),
+            "{target}: {image}"
+        );
+        assert_eq!(r.meta("name", "twitter:image"), image, "{target}");
+        assert_eq!(r.meta("property", "og:image:type"), "image/png");
+        assert_eq!(r.meta("property", "og:image:width"), "1200");
+        assert_eq!(r.meta("property", "og:image:height"), "630");
+        assert!(!r.meta("property", "og:image:alt").is_empty());
+        assert_eq!(r.meta("name", "twitter:card"), "summary_large_image");
+        assert!(
+            !r.body.contains("<b>") && !r.body.contains("%3C") && !r.body.contains("canonical"),
+            "{target}"
+        );
+    }
+    // A path that names no page is still the shell as built.
+    assert_eq!(get(&addr, "/no/such/page").await.body, SHELL);
 }
 
 #[tokio::test]

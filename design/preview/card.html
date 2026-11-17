@@ -1,0 +1,72 @@
+<!doctype html>
+<!--
+  The link preview picture, 1200 by 630. Redraw it with a headless Chromium, from design/preview/:
+  chrome-headless-shell --hide-scrollbars --allow-file-access-from-files --window-size=1200,630 --screenshot=card.png card.html
+  then name the file for its bytes and update IMAGE in crates/server/src/pages.rs (docs/FRONTEND.md, "Link previews").
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>rbitcoin.space link preview</title>
+    <style>
+      @font-face {
+        font-family: "Recursive Mono";
+        src: url("../fonts/recursive.woff2") format("woff2");
+        font-weight: 400 700;
+      }
+      /* The light theme's colours from design/tokens.css. */
+      :root {
+        --color-bg: #f4f6f7;
+        --color-text: #161b1e;
+        --color-text-muted: #56616a;
+      }
+      html,
+      body {
+        margin: 0;
+        width: 1200px;
+        height: 630px;
+        overflow: hidden;
+        background: var(--color-bg);
+        color: var(--color-text);
+        font-family: "Recursive Mono", monospace;
+      }
+      main {
+        box-sizing: border-box;
+        height: 100%;
+        padding: 0 96px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        /* Centred: a chat app that shows a square thumbnail crops the middle, where the mark is. */
+        text-align: center;
+      }
+      img {
+        width: 232px;
+        height: 232px;
+        margin: 0 0 28px;
+      }
+      h1 {
+        margin: 0;
+        font-size: 120px;
+        font-weight: 600;
+        line-height: 1;
+        letter-spacing: -0.03em;
+      }
+      p {
+        margin: 30px 0 0;
+        font-size: 44px;
+        font-weight: 400;
+        line-height: 1.2;
+        color: var(--color-text-muted);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <img src="../logo.svg" alt="" />
+      <h1>rbitcoin.space</h1>
+      <p>A Bitcoin block explorer</p>
+    </main>
+  </body>
+</html>

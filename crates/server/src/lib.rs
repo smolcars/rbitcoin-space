@@ -411,6 +411,7 @@ impl App {
         }
         let pages = Arc::new(pages::Pages::new(
             config.web_dir.as_deref(),
+            config.site_url.as_deref(),
             enabled_networks.clone(),
         ));
         let contexts = enabled_networks.clone();
