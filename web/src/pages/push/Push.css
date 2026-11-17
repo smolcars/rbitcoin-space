@@ -37,7 +37,7 @@
     min-width: 0;
   }
   /* Three figures, not the transaction page's four. */
-  .push .tx-summary {
+  .push-result .tx-summary {
     grid-template-columns: repeat(3, minmax(min-content, 1fr));
   }
 
@@ -57,7 +57,7 @@
 
   /* On a phone the fee and the size share a row; the amount has its own (as on the transaction page). */
   @media (max-width: 40em) {
-    .push .tx-summary__item--amount {
+    .push-result .tx-summary__item--amount {
       order: 1;
     }
   }

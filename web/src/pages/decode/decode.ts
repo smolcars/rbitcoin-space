@@ -273,6 +273,9 @@ const FAILURES: Record<string, string> = {
   "bad signature": "The signature does not verify",
   malformed: "It does not follow its format's rules",
   "too long": "Too long to be a payment string",
+  // The transaction check's refusals (docs/API.md "Checking a transaction").
+  "body must be one raw transaction in hex": "Hex, but not a transaction",
+  "body too large": "Too large to be a transaction",
 };
 
 /** A URL in three parts, the host set apart so a look-alike can be seen. */

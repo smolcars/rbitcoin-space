@@ -1,8 +1,10 @@
 // The decoder (docs/API.md "Decoding"): every kind from the server's recorded answers, its typed
 // failures, search on two networks landing on the one page, the keyboard, and the layout at every
-// width and text size with hostile text. The server is stubbed for `POST /app/decode` only.
+// width and text size with hostile text. The server is stubbed for `POST /app/decode` only: a raw
+// transaction is checked by the run's regtest node.
 import type { Page } from "@playwright/test";
-import { expect, test } from "./fixtures";
+import { chain, expect, test } from "./fixtures";
+import { MINER_SCRIPT, spending } from "./regtest";
 import { allAnswers, ANSWERS, serveDecode } from "./decode-answers";
 import { frames } from "./layout";
 import { pageFaults } from "./lightning-answers";
@@ -25,7 +27,7 @@ const HEADINGS: Record<string, string> = {
 
 /** Decodes `text` from the box, as a reader would, and waits for the result. */
 async function decode(page: Page, text: string, heading: string) {
-  const box = page.getByRole("textbox", { name: "Invoice, offer, LNURL or address" });
+  const box = page.getByRole("textbox", { name: "Transaction, invoice, offer, LNURL or address" });
   await box.fill(text);
   await box.press("Enter");
   await expect(page.getByRole("heading", { level: 2, name: heading })).toBeVisible();
@@ -93,7 +95,9 @@ test.describe("refused", () => {
     let answer: { status: number; error: string } = { status: 400, error: "bad checksum" };
     await serveDecode(page, () => answer);
     await page.goto("/decode");
-    const box = page.getByRole("textbox", { name: "Invoice, offer, LNURL or address" });
+    const box = page.getByRole("textbox", {
+      name: "Transaction, invoice, offer, LNURL or address",
+    });
     for (const [status, error, said] of [
       [400, "bad checksum", "The checksum fails: a character is wrong or missing"],
       [400, "bad signature", "The signature does not verify"],
@@ -118,7 +122,7 @@ test("pasting into search on two networks lands on the one decoder", async ({ pa
     await search.press("Enter");
     await expect(page).toHaveURL(/\/decode#satoshi%40bitcoin\.org$/);
     await expect(page.getByRole("heading", { level: 2, name: "Lightning address" })).toBeVisible();
-    await expect(page.getByRole("textbox", { name: /Invoice, offer/ })).toHaveValue(
+    await expect(page.getByRole("textbox", { name: /invoice, offer/ })).toHaveValue(
       "satoshi@bitcoin.org",
     );
   }
@@ -129,7 +133,7 @@ test("the keyboard reaches the box, decodes with Enter and reaches each copy but
 }) => {
   await serveDecode(page, () => ANSWERS["arkade"] ?? {});
   await page.goto("/decode");
-  const box = page.getByRole("textbox", { name: "Invoice, offer, LNURL or address" });
+  const box = page.getByRole("textbox", { name: "Transaction, invoice, offer, LNURL or address" });
   await box.focus();
   await page.keyboard.type("tark1example");
   await page.keyboard.press("Enter");
@@ -223,5 +227,38 @@ test.describe("on a touch screen", () => {
     await link.click();
     await expect(page).toHaveURL(/\/decode$/);
     await expect(page.getByRole("heading", { level: 1, name: "Decode" })).toBeVisible();
+  });
+});
+
+test.describe("a raw transaction", () => {
+  // The next block's rate may be refused while the server's fee level settles on regtest.
+  test.use({ consoleErrorsAllowed: [/status of 503/] });
+
+  test("raw transaction hex is checked on the server's network and handed to the broadcast page", async ({
+    page,
+    request,
+  }) => {
+    await page.goto("/decode");
+    const result = page.locator(".dec-result");
+    // A confirmed one: the node has it, so there is nothing to hand over.
+    const raw = await (await request.get(`/regtest/api/tx/${chain.txs.script_types}/hex`)).text();
+    await decode(page, raw, "Transaction");
+    await expect(result.getByText("Regtest", { exact: true })).toBeVisible();
+    await expect(result.getByText("Already confirmed")).toBeVisible();
+    await expect(result.getByRole("link", { name: "Broadcast", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /^Broadcast/ })).toHaveCount(0);
+
+    // One the node has never seen, spending a coin it does not have. Never sent.
+    const unsent = spending("ab".repeat(32), [[MINER_SCRIPT, 1000n]]);
+    await decode(page, unsent, "Transaction");
+    await expect(result.getByText(/coins the Regtest node does not have/)).toBeVisible();
+    await expect(result.getByRole("heading", { name: "Inputs and outputs" })).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`/decode#${unsent}$`));
+    await result.getByRole("link", { name: "Broadcast", exact: true }).click();
+    await expect(page).toHaveURL(/\/regtest\/tx\/push$/);
+    await expect(page.getByRole("textbox", { name: "Signed transaction in hex" })).toHaveValue(
+      unsent,
+    );
+    await expect(page.getByRole("button", { name: /^Broadcast/ })).toBeVisible();
   });
 });

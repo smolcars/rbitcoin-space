@@ -50,6 +50,13 @@
     margin: 0;
     font-size: var(--text-xl);
   }
+  .dec-result__to {
+    margin-inline-start: auto;
+    font-size: var(--text-sm);
+  }
+  .dec-result > .push-result {
+    margin-top: var(--space-4);
+  }
 
   /* The network as the string names it, in the site's network colours. */
   .dec-net {

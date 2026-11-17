@@ -1,8 +1,8 @@
 // Typed HTTP client for the public API at /api (Esplora, per network prefix). docs/FRONTEND.md shows how to use it.
-import { useLocation } from "@solidjs/router";
 import { createEffect, createMemo, createSignal } from "solid-js";
 import type { ChainTip } from "./blocks-topic";
-import { apiBase, type Network, networkFromPath, onNetwork } from "./network";
+import { apiBase, type Network, onNetwork } from "./network";
+import { useNetwork } from "./page";
 
 /**
  * A failed request. `status` is the HTTP status, or 0 when no reply arrived. `retryAfter` is the
@@ -455,8 +455,7 @@ export function createApi<T>(
   path: () => string | false | null | undefined,
   options: { as?: ReplyKind; stamped?: boolean; fresh?: boolean } = {},
 ): ApiRequest<T | Stamped<T>> {
-  const location = useLocation();
-  const network = createMemo(() => networkFromPath(location.pathname));
+  const network = useNetwork();
   let last: string | undefined;
   return createRequest(
     () => {

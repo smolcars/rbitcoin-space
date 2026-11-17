@@ -253,7 +253,7 @@ Once a kept address's whole history is in the store, `/api/address/:a/txs`, `/tx
 
 ### Checking a transaction
 
-`POST /app/tx/check` (each network's `/app`) is what the broadcast page shows before anyone sends: the body is a raw transaction, as `POST /tx` takes it, and the answer says what it does. It writes nothing and is served whether or not broadcast is on. The code is `crates/server/src/tx_check.rs`.
+`POST /app/tx/check` (each network's `/app`) is what the broadcast page shows before anyone sends, and what the decoder shows for pasted hex: the body is a raw transaction, as `POST /tx` takes it, and the answer says what it does. It writes nothing and is served whether or not broadcast is on. The code is `crates/server/src/tx_check.rs`.
 
 ```json
 { "tx": { "txid": "6033…6634", "version": 2, "locktime": 799999,

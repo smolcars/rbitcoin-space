@@ -1,6 +1,7 @@
 // The decoder (docs/API.md "Decoding"): one page for every network. The pasted string lives in
 // the fragment, which no server sees, and goes to the server in a POST body. Everything decoded is
-// the string's claim: drawn as text, and a URL is never a link.
+// the string's claim: drawn as text, and a URL is never a link. A raw transaction is checked on the
+// server's first network (`POST /app/tx/check`) and drawn as the broadcast page draws it.
 import { useLocation, useNavigate } from "@solidjs/router";
 import { createEffect, createSignal, For, Match, Show, Switch } from "solid-js";
 import type { JSX } from "@solidjs/web";
@@ -12,8 +13,12 @@ import { ApiError, createRequest, postApp } from "../../lib/api";
 import { useNow } from "../../lib/clock";
 import { TimeUtc } from "../../components/Time";
 import { formatBtcShort, formatRelative, groupDigits, truncateMiddle } from "../../lib/format";
+import { loadConfig, readConfig } from "../../lib/config";
 import { NETWORK_NAMES, type Network, onNetwork, paths } from "../../lib/network";
-import { usePageTitle } from "../../lib/page";
+import { NetworkScope, usePageTitle } from "../../lib/page";
+import { Link } from "../../components/Link";
+import { CheckedTx } from "../push/CheckedTx";
+import { type Checked, readChecked, readPasted } from "../push/push";
 import {
   type Bark,
   type ChannelRef,
@@ -48,7 +53,19 @@ export default function DecodePage() {
   });
   const [answer, { refetch }] = createRequest(
     () => pasted() || false,
-    async (s, signal) => {
+    async (s, signal): Promise<Decoded | TxAnswer> => {
+      const p = readPasted(s);
+      if (p.kind === "hex") {
+        // A failed config read is asked again, and kept for the broadcast page: never a guessed network.
+        const config = (await loadConfig()) ?? (await readConfig());
+        const network = config?.networks[0];
+        if (network === undefined)
+          throw new ApiError(0, "The server's networks could not be read.");
+        const v = await postApp<unknown>(network, "/tx/check", p.hex, { signal });
+        const c = readChecked(v);
+        if (c === null) throw new ApiError(0, "The answer could not be read.");
+        return { ...c, kind: "tx", network, hex: p.hex, broadcast: config?.broadcast === true };
+      }
       const v = await postApp<unknown>("mainnet", "/decode", s, { signal });
       if (!isDecoded(v)) throw new ApiError(0, "The answer could not be read.");
       return v;
@@ -76,8 +93,8 @@ export default function DecodePage() {
           class="dec__input mono"
           name="paste"
           rows="3"
-          aria-label="Invoice, offer, LNURL or address"
-          placeholder="Paste an invoice, offer, LNURL or address"
+          aria-label="Transaction, invoice, offer, LNURL or address"
+          placeholder="Paste a transaction, invoice, offer, LNURL or address"
           autocomplete="off"
           spellcheck={false}
           autocapitalize="off"
@@ -97,7 +114,9 @@ export default function DecodePage() {
       <Show
         when={pasted() !== ""}
         fallback={
-          <p class="dec__line">BOLT 11 and 12, LNURL, Lightning and Ark addresses, any network.</p>
+          <p class="dec__line">
+            Raw transactions, BOLT 11 and 12, LNURL, Lightning and Ark addresses.
+          </p>
         }
       >
         <Switch>
@@ -116,12 +135,44 @@ export default function DecodePage() {
           <Match when={answer.loading || answer.latest === undefined}>
             <Loading label="Decoding" />
           </Match>
-          <Match when={answer.latest}>
+          <Match when={answer.latest?.kind === "tx" && answer.latest}>
+            {(t) => <TxResult t={t()} />}
+          </Match>
+          <Match when={answer.latest?.kind !== "tx" && answer.latest}>
             {(d) => <Result d={d()} current={() => text().trim() === pasted()} />}
           </Match>
         </Switch>
       </Show>
     </div>
+  );
+}
+
+/** A raw transaction as the network it was checked on reads it. */
+type TxAnswer = Checked & { kind: "tx"; network: Network; hex: string; broadcast: boolean };
+
+function TxResult(props: { t: TxAnswer }) {
+  return (
+    <article class="dec-result" aria-label="Decoded">
+      <NetworkScope value={props.t.network}>
+        <header class="dec-result__head">
+          <h2 class="dec-result__kind">Transaction</h2>
+          <span class="dec-net" data-net={props.t.network}>
+            {NETWORK_NAMES[props.t.network]}
+          </span>
+          <Show when={props.t.broadcast && props.t.known === null}>
+            {/* The hex goes in the history entry's state, never in the URL. */}
+            <Link
+              class="dec-result__to"
+              href={paths.push()}
+              state={JSON.stringify({ hex: props.t.hex })}
+            >
+              Broadcast
+            </Link>
+          </Show>
+        </header>
+        <CheckedTx c={props.t} hex={props.t.hex} enabled={false} />
+      </NetworkScope>
+    </article>
   );
 }
 

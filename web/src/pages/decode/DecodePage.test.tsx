@@ -38,9 +38,72 @@ const json =
 describe("the decoder page", () => {
   it("is a box and a line when nothing is pasted, and asks nothing", async () => {
     const el = mount(() => <DecodePage />, "/decode");
-    await shows(el, "any network");
+    await shows(el, "Raw transactions");
     expect(el.querySelector("textarea")).not.toBeNull();
     expect(sent).toStrictEqual([]);
+  });
+
+  it("checks raw transaction hex on the server's first network and draws it there", async () => {
+    const txid = "fc40c92d9763e584976a4c55b50b231c214f2a5ae0514dadc8e1bf0958d68fa6";
+    const output = {
+      scriptpubkey: "0014",
+      scriptpubkey_asm: "OP_0",
+      scriptpubkey_type: "v0_p2wpkh",
+      scriptpubkey_address: "tb1qexample",
+      value: 4_999_999_000,
+    };
+    const tx = {
+      txid,
+      version: 2,
+      locktime: 0,
+      vin: [
+        {
+          txid,
+          vout: 0,
+          prevout: { ...output, value: 5_000_000_000 },
+          scriptsig: "",
+          witness: ["51"],
+          is_coinbase: false,
+          sequence: 4_294_967_293,
+        },
+      ],
+      vout: [output],
+      size: 99,
+      weight: 381,
+      fee: 1000,
+      status: { confirmed: false },
+    };
+    services["/app/config"] = json({ networks: ["signet", "mainnet"], broadcast: true });
+    services["/signet/app/tx/check"] = json({ tx, known: null });
+    const el = open("02AB\ncd");
+    await shows(el, "Inputs and outputs");
+    expect(sent.find((r) => r.url.endsWith("/tx/check"))).toStrictEqual({
+      url: "/signet/app/tx/check",
+      method: "POST",
+      body: "02abcd",
+    });
+    expect(sent.some((r) => r.url === "/app/decode")).toBe(false);
+    expect(text(el)).toContain("Transaction");
+    expect(text(el)).toContain("Signet");
+    // No broadcast button: a link to the broadcast page, the hex in history state, not the URL.
+    expect(el.querySelector(".push-send")).toBeNull();
+    const to = [...el.querySelectorAll("a")].find((a) => a.textContent === "Broadcast");
+    expect(to?.getAttribute("href")).toBe("/signet/tx/push");
+    expect(to?.getAttribute("state")).toBe('{"hex":"02abcd"}');
+    // The flow's links stay on the network it was checked on.
+    const hrefs = [...el.querySelectorAll("a")].map((a) => a.getAttribute("href"));
+    expect(hrefs).toContain("/signet/address/tb1qexample");
+  });
+
+  it("says hex that is no transaction is not one", async () => {
+    services["/app/config"] = json({ networks: ["signet"], broadcast: false });
+    services["/signet/app/tx/check"] = json(
+      { error: "body must be one raw transaction in hex" },
+      400,
+    );
+    const el = open("abcd");
+    await shows(el, "Hex, but not a transaction");
+    expect(el.querySelector(".push-result")).toBeNull();
   });
 
   it("sends the fragment's string in a POST body to the one route, never in the URL", async () => {
