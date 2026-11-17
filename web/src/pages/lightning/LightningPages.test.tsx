@@ -181,7 +181,7 @@ describe("the overview", () => {
     const el = mount(() => <LightningPage />, "/regtest/lightning?interval=24h");
     await shows(el, "Channels36 228↑Up 28");
     expect(text(el)).toContain("Nodes13 639No change");
-    expect(text(el)).toContain("↑Up 0.854 BTC");
+    expect(text(el)).toContain("↑Up 0.854\u00A0BTC");
     expect(text(el)).toContain("Median fee rate130 ppm");
     expect(text(el)).toContain("As of 12 Nov 2026, 18:30 UTC");
     expect(text(el)).not.toContain("when the record began");
@@ -195,7 +195,7 @@ describe("the overview", () => {
   it("charts the figure pressed, keeping it across periods", async () => {
     const el = mount(() => <LightningPage />, "/regtest/lightning");
     await vi.waitFor(() => expect(el.querySelector("[role=slider] svg")).not.toBeNull());
-    const fee = [...el.querySelectorAll<HTMLButtonElement>(".ln-fig")].find((b) =>
+    const fee = [...el.querySelectorAll<HTMLButtonElement>(".ln-ov-fig")].find((b) =>
       b.textContent?.startsWith("Median fee rate"),
     );
     fee?.click();
@@ -396,11 +396,11 @@ describe("the overview", () => {
       expect(s.querySelectorAll(".ln-bars__day")).toHaveLength(7);
       return s;
     });
-    await shows(section, "Since 12 Nov: 9 cooperative, 1 force, 1 penalty, 0.270 BTC.");
+    await shows(section, "Since 12 Nov: 9 cooperative, 1 force, 1 penalty, 0.270\u00A0BTC.");
     expect(section.querySelectorAll(".ln-bars__day--unknown")).toHaveLength(6);
     expect(text(section.querySelector(".ln-bars__ends") as HTMLElement)).toBe("6 Nov12 Nov");
     expect(text(section.querySelector(".ln-bars__readout") as HTMLElement)).toBe(
-      "12 NovCooperative 3Force 1Penalty 0Other 00.0900 BTC",
+      "12 NovCooperative 3Force 1Penalty 0Other 00.0900\u00A0BTC",
     );
     expect(section.querySelector(".ln-bars")?.getAttribute("aria-hidden")).toBe("true");
     const details = section.querySelector("details") as HTMLDetailsElement;

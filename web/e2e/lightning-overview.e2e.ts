@@ -293,7 +293,7 @@ test.describe("on a touch screen", () => {
       const now = page.locator("[aria-labelledby=ln-now-title]");
       for (const change of ["↑Up 300", "No change", "↓Down 990.00 BTC", "↑Up 12 ppm"])
         await expect(now).toContainText(change);
-      await expect(now).toContainText(/↓Down 1\u202F234\u202F567\u202F890 msat/);
+      await expect(now).toContainText(/↓Down 1\u202F234\u202F567\u202F890\smsat/);
       // A phone shows one node list at a time.
       await page.getByRole("button", { name: "Newest", exact: true }).click();
       await expect(page.getByRole("table", { name: "Newest nodes" })).toBeVisible();

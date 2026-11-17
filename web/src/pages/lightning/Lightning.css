@@ -1995,12 +1995,12 @@
   }
 
   /* The figures: six wells in a row, each a button that charts its figure. */
-  .ln-figs {
+  .ln-ov-figs {
     display: grid;
     grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: var(--space-2);
   }
-  .ln-fig {
+  .ln-ov-fig {
     display: grid;
     align-content: start;
     gap: 2px;
@@ -2014,34 +2014,44 @@
     text-align: start;
     cursor: pointer;
     transition: box-shadow var(--dur-quick) var(--ease-out);
+    container-type: inline-size;
   }
   @media (hover: hover) {
-    .ln-fig:hover {
+    .ln-ov-fig:hover {
       box-shadow: inset 0 0 0 1px var(--color-line-strong);
     }
   }
-  .ln-fig[aria-pressed="true"] {
+  .ln-ov-fig[aria-pressed="true"] {
     background: var(--color-surface);
     box-shadow:
       inset 0 0 0 1px var(--color-line-strong),
       inset 0 -3px 0 var(--color-accent);
   }
-  .ln-fig__label {
+  .ln-ov-fig__label {
     font-size: var(--text-sm);
     color: var(--color-text-muted);
   }
-  .ln-fig__value {
+  .ln-ov-fig__value {
     font-size: var(--text-xl);
     font-weight: var(--weight-bold);
     line-height: var(--leading-tight);
     white-space: nowrap;
   }
-  .ln-fig__value .unit {
+  .ln-ov-fig__value .unit {
     font-size: var(--text-sm);
     font-weight: var(--weight-regular);
     color: var(--color-text-muted);
   }
-  .ln-fig__change {
+  /* A change is one piece with its unit; a long one reads in magnitude in a narrow figure. */
+  @container (max-width: 8em) {
+    .ln-ov-fig__change .ln-fig--long > .ln-fig__exact {
+      display: none;
+    }
+    .ln-ov-fig__change .ln-fig--long > .ln-fig__short {
+      display: inline;
+    }
+  }
+  .ln-ov-fig__change {
     min-height: 1lh;
     font-size: var(--text-xs);
     color: var(--color-text-muted);
@@ -2112,6 +2122,8 @@
     display: inline-flex;
     align-items: center;
     gap: var(--space-1);
+  }
+  .ln-reach__key .num {
     white-space: nowrap;
   }
   .ln-reach__swatch {
@@ -2359,7 +2371,7 @@
   }
 
   @media (max-width: 80em) {
-    .ln-figs {
+    .ln-ov-figs {
       grid-template-columns: repeat(3, minmax(0, 1fr));
     }
     .ln-lists {
@@ -2389,14 +2401,14 @@
       grid-row: 3;
       grid-column: 1 / -1;
     }
-    .ln-figs {
+    .ln-ov-figs {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
     /* The time, the figure and its mean, a line each (Chart.css). */
     .ln-ov .ln-chart {
       min-height: calc(220px + 3 * 1.5625rem + 3.5rem);
     }
-    .ln-fig {
+    .ln-ov-fig {
       padding: var(--space-2) var(--space-3);
     }
     .ln-spark {
@@ -2408,9 +2420,6 @@
     }
     .ln-lists__pick {
       display: block;
-    }
-    .ln-lists__pick ul {
-      flex-wrap: nowrap;
     }
     .ln-lists__pick li {
       flex: 1 1 0;
@@ -2427,15 +2436,18 @@
       display: none;
     }
   }
-  /* A phone at 200% text: the figures at the size of the text round them, as the node page's
-     glance, so each fits whole in any reader's font; one a row. */
-  @media (max-width: 15em) {
-    .ln-fig__value,
-    .ln-fig__value .amount {
-      font-size: var(--text-md);
-    }
-    .ln-figs {
+  /* Larger text on a phone (320 px at 125%): one figure a row, so each value fits whole. */
+  @media (max-width: 18em) {
+    .ln-ov-figs {
       grid-template-columns: minmax(0, 1fr);
+    }
+  }
+  /* A phone at 200% text: the figures at the size of the text round them, as the node page's
+     glance, so each fits whole in any reader's font. */
+  @media (max-width: 15em) {
+    .ln-ov-fig__value,
+    .ln-ov-fig__value .amount {
+      font-size: var(--text-md);
     }
   }
 

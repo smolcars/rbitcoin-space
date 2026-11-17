@@ -53,7 +53,7 @@ test("the overview, a node and a channel, from mainnet's answers", async ({ page
   await serve(page, mainnet());
   await page.goto("/regtest/lightning");
   await expect(page.getByRole("heading", { name: "The network now" })).toBeAttached();
-  await expect(page.locator(".ln-fig").getByText(/^36\s228$/)).toBeVisible();
+  await expect(page.locator(".ln-ov-fig").getByText(/^36\s228$/)).toBeVisible();
   await expect(page.getByRole("heading", { name: "Movers" })).toBeVisible();
 
   // A phone shows one node list at a time.

@@ -24,7 +24,7 @@ import { SectionHeader } from "../../components/SectionHeader";
 import { Empty, ErrorState, Loading } from "../../components/States";
 import { type ApiRequest, createRequest } from "../../lib/api";
 import { useNow } from "../../lib/clock";
-import { formatBtcShort, formatUtc, groupDigits } from "../../lib/format";
+import { formatBtcShort, formatPowerOfTen, formatUtc, groupDigits } from "../../lib/format";
 import { type Network, paths } from "../../lib/network";
 import { useNetwork, usePageTitle } from "../../lib/page";
 import {
@@ -48,6 +48,7 @@ import {
   isSeries,
   KIND_SHORT,
   msat,
+  msatAsBtc,
   type Overview as OverviewAnswer,
   plus,
   ppm,
@@ -59,6 +60,7 @@ import { LiveFeed } from "./LiveFeed";
 import {
   ask,
   closesInWords,
+  Fig,
   Gate,
   LightningNav,
   NodeName,
@@ -76,7 +78,9 @@ type Period = (typeof PERIODS)[number];
 /** Days of closes drawn. */
 const CLOSE_DAYS = 30;
 
-const btc = (sats: number) => `${formatBtcShort(sats)} BTC`;
+/** A figure's unit kept with it: the last plain space becomes a no-break one. */
+const whole = (s: string) => s.replace(/ (?=[^ ]+$)/, "\u00A0");
+const btc = (sats: number) => whole(`${formatBtcShort(sats)} BTC`);
 
 /** "12 Nov": the year only when it is not the year of `ref`, the newest moment beside it. */
 function day(t: number, ref: number): string {
@@ -91,6 +95,8 @@ interface Figure {
   fmt: (n: number) => string;
   axis: (n: number) => string;
   unit?: string;
+  /** A long change in magnitude, for a figure's narrowest room. */
+  short?: (n: number) => string;
   /** The mean beside a median, in the chart's readout. */
   mean?: { key: keyof Stats; fmt: (n: number) => string };
 }
@@ -114,6 +120,7 @@ const FIGURES: readonly [Figure, ...Figure[]] = [
     fmt: ppm,
     axis: groupDigits,
     unit: "ppm",
+    short: (n) => `${formatPowerOfTen(n)} ppm`,
     mean: { key: "avg_fee_rate", fmt: ppm },
   },
   {
@@ -122,6 +129,7 @@ const FIGURES: readonly [Figure, ...Figure[]] = [
     fmt: msat,
     axis: groupDigits,
     unit: "msat",
+    short: msatAsBtc,
     mean: { key: "avg_base_fee_msat", fmt: msat },
   },
 ];
@@ -292,7 +300,7 @@ function Figures(props: {
     props.stats.nodes > 0 ? `${Math.round((n / props.stats.nodes) * 100)}%` : "–";
   return (
     <>
-      <div class="ln-figs" role="group" aria-label="Figures; the pressed one is charted below">
+      <div class="ln-ov-figs" role="group" aria-label="Figures; the pressed one is charted below">
         <For each={FIGURES}>
           {(f) => {
             const change = () => {
@@ -302,23 +310,33 @@ function Figures(props: {
             return (
               <button
                 type="button"
-                class="ln-fig"
+                class="ln-ov-fig"
                 aria-pressed={props.current === f.key ? "true" : "false"}
                 onClick={() => props.pick(f.key)}
               >
-                <span class="ln-fig__label">{f.label}</span>
-                <span class="ln-fig__value num">
+                <span class="ln-ov-fig__label">{f.label}</span>
+                <span class="ln-ov-fig__value num">
                   <Show when={f.unit === "BTC"} fallback={f.fmt(props.stats[f.key])}>
                     <Amount sats={props.stats[f.key]} short />
                   </Show>
                 </span>
-                <span class="ln-fig__change num">
+                <span class="ln-ov-fig__change">
                   <Show when={change()}>
                     {(d) => (
                       <>
                         <span aria-hidden="true">{d() > 0 ? "↑" : "↓"}</span>
                         <span class="visually-hidden">{d() > 0 ? "Up" : "Down"}</span>{" "}
-                        {f.fmt(Math.abs(d()))}
+                        <Show
+                          when={f.short}
+                          fallback={<span class="num">{whole(f.fmt(Math.abs(d())))}</span>}
+                        >
+                          {(short) => (
+                            <Fig
+                              exact={whole(f.fmt(Math.abs(d())))}
+                              short={whole(short()(Math.abs(d())))}
+                            />
+                          )}
+                        </Show>
                       </>
                     )}
                   </Show>
