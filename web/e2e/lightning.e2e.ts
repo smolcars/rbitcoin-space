@@ -318,12 +318,13 @@ test.describe("Lightning's lists", () => {
     await page.setViewportSize({ width: 390, height: 844 });
     for (const path of tabled(390)) {
       await page.goto(path);
-      const tables = page.locator("table.table--rows");
+      // Only what a phone shows: the overview's node lists show one at a time.
+      const tables = page.locator("table.table--rows:visible");
       await expect(tables.first()).toBeVisible();
       const count = await tables.count();
       for (let i = 0; i < count; i++) {
         if (i > 0) await page.goto(path);
-        await tapRow(page, page.locator("table.table--rows").nth(i), `${path}, table ${i + 1}`);
+        await tapRow(page, tables.nth(i), `${path}, table ${i + 1}`);
       }
     }
   });

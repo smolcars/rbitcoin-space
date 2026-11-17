@@ -308,44 +308,47 @@ function Figures(props: {
               return start === undefined ? undefined : props.stats[f.key] - start;
             };
             return (
-              <button
-                type="button"
-                class="ln-ov-fig"
-                aria-pressed={props.current === f.key ? "true" : "false"}
-                onClick={() => props.pick(f.key)}
-              >
-                <span class="ln-ov-fig__label">{f.label}</span>
-                <span class="ln-ov-fig__value num">
-                  <Show when={f.unit === "BTC"} fallback={f.fmt(props.stats[f.key])}>
-                    <Amount sats={props.stats[f.key]} short />
+              // Its own cell, which it fills: a figure is a control of several lines by design.
+              <div class="ln-ov-figs__cell">
+                <button
+                  type="button"
+                  class="ln-ov-fig"
+                  aria-pressed={props.current === f.key ? "true" : "false"}
+                  onClick={() => props.pick(f.key)}
+                >
+                  <span class="ln-ov-fig__label">{f.label}</span>
+                  <span class="ln-ov-fig__value num">
+                    <Show when={f.unit === "BTC"} fallback={f.fmt(props.stats[f.key])}>
+                      <Amount sats={props.stats[f.key]} short />
+                    </Show>
+                  </span>
+                  <span class="ln-ov-fig__change">
+                    <Show when={change()}>
+                      {(d) => (
+                        <>
+                          <span aria-hidden="true">{d() > 0 ? "↑" : "↓"}</span>
+                          <span class="visually-hidden">{d() > 0 ? "Up" : "Down"}</span>{" "}
+                          <Show
+                            when={f.short}
+                            fallback={<span class="num">{whole(f.fmt(Math.abs(d())))}</span>}
+                          >
+                            {(short) => (
+                              <Fig
+                                exact={whole(f.fmt(Math.abs(d())))}
+                                short={whole(short()(Math.abs(d())))}
+                              />
+                            )}
+                          </Show>
+                        </>
+                      )}
+                    </Show>
+                    <Show when={change() === 0}>No change</Show>
+                  </span>
+                  <Show when={props.series} fallback={<span class="ln-spark" />}>
+                    {(s) => <Spark series={s()} pick={(p) => p[f.key]} />}
                   </Show>
-                </span>
-                <span class="ln-ov-fig__change">
-                  <Show when={change()}>
-                    {(d) => (
-                      <>
-                        <span aria-hidden="true">{d() > 0 ? "↑" : "↓"}</span>
-                        <span class="visually-hidden">{d() > 0 ? "Up" : "Down"}</span>{" "}
-                        <Show
-                          when={f.short}
-                          fallback={<span class="num">{whole(f.fmt(Math.abs(d())))}</span>}
-                        >
-                          {(short) => (
-                            <Fig
-                              exact={whole(f.fmt(Math.abs(d())))}
-                              short={whole(short()(Math.abs(d())))}
-                            />
-                          )}
-                        </Show>
-                      </>
-                    )}
-                  </Show>
-                  <Show when={change() === 0}>No change</Show>
-                </span>
-                <Show when={props.series} fallback={<span class="ln-spark" />}>
-                  {(s) => <Spark series={s()} pick={(p) => p[f.key]} />}
-                </Show>
-              </button>
+                </button>
+              </div>
             );
           }}
         </For>
