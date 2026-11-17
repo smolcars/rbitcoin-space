@@ -172,6 +172,15 @@ function PeriodPicker(props: { period: Period }) {
   );
 }
 
+/** A figure's line when its load failed: a retry, since nothing else on the page loads it. */
+function Retry(props: { data: MiningData<unknown> }) {
+  return (
+    <button class="mining-retry" type="button" onClick={() => props.data.retry()}>
+      Could not load. Try again
+    </button>
+  );
+}
+
 /** A label, a large figure and a muted line under it. */
 function Fig(props: { label: string; children?: JSX.Element; sub?: JSX.Element; class?: string }) {
   return (
@@ -206,6 +215,7 @@ function Figures(props: {
     const a = props.rewards.answer();
     const fresh =
       props.rewardCount > 0 &&
+      props.ranking.error() === undefined &&
       props.rewards.error() === undefined &&
       a?.path === `/v1/mining/reward-stats/${props.rewardCount}`;
     return fresh ? rewardFigures(a.value) : undefined;
@@ -269,7 +279,14 @@ function Figures(props: {
           <Fig
             label="Next adjustment"
             sub={
-              <Show when={n()}>
+              <Show
+                when={n()}
+                fallback={
+                  <Show when={props.next.error() !== undefined}>
+                    <Retry data={props.next} />
+                  </Show>
+                }
+              >
                 {(d) => {
                   const mined = () => Math.min(PERIOD, Math.max(0, PERIOD - d().remainingBlocks));
                   return (
@@ -312,15 +329,13 @@ function Figures(props: {
               when={pay()}
               fallback={
                 <Show when={props.rewards.error() !== undefined && props.rewardCount > 0}>
-                  <button class="mining-retry" type="button" onClick={() => props.rewards.retry()}>
-                    Could not load. Try again
-                  </button>
+                  <Retry data={props.rewards} />
                 </Show>
               }
             >
               {(f) => (
                 <Show
-                  when={(blocks()?.value.blockCount ?? 0) <= REWARD_MAX}
+                  when={props.rewardCount < REWARD_MAX}
                   fallback={`The last ${groupDigits(REWARD_MAX)} blocks`}
                 >
                   <Amount sats={Math.round(f().perBlock)} short /> a block

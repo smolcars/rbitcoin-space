@@ -176,13 +176,46 @@ describe("mining page", () => {
   it("shows no reward totals when they fail, and offers a retry", async () => {
     replies["/v1/mining/reward-stats/40"] = () => Response.json({ error: "boom" }, { status: 500 });
     const el = mount(() => <MiningPage />, "/mining");
-    const retry = () =>
-      [...el.querySelectorAll("button")].find((b) => b.textContent === "Could not load. Try again");
-    await vi.waitFor(() => expect(retry()).toBeDefined());
+    const paid = () =>
+      [...el.querySelectorAll(".mining-fig")].find((f) => f.textContent?.startsWith("Paid"));
+    const retry = () => paid()?.querySelector("button");
+    await vi.waitFor(() => expect(retry()?.textContent).toBe("Could not load. Try again"));
     expect(text(el)).not.toContain("126.00 BTC");
     replies["/v1/mining/reward-stats/40"] = () => Response.json(REWARDS);
     retry()?.click();
     await vi.waitFor(() => expect(text(el)).toContain("126.00 BTC"));
+  });
+
+  it("drops the reward totals when the pools fail, since they count the pools' blocks", async () => {
+    replies["/v1/mining/pools/24h"] = () => Response.json({ error: "boom" }, { status: 500 });
+    const el = mount(() => <MiningPage />, "/mining");
+    await vi.waitFor(() => expect(text(el)).toContain("126.00 BTC"));
+    el.querySelector<HTMLAnchorElement>("a[href='/mining?period=24h']")?.click();
+    await vi.waitFor(() => expect(text(el)).toContain("Could not load the pools"));
+    expect(text(el)).not.toContain("126.00 BTC");
+  });
+
+  it("offers a retry when the next adjustment fails", async () => {
+    replies["/v1/difficulty-adjustment"] = () => Response.json({ error: "boom" }, { status: 500 });
+    const el = mount(() => <MiningPage />, "/mining");
+    const figures = () => el.querySelector("[aria-label='Mining figures']");
+    const retry = () =>
+      [...(figures()?.querySelectorAll("button") ?? [])].find(
+        (b) => b.textContent === "Could not load. Try again",
+      );
+    await vi.waitFor(() => expect(retry()).toBeDefined());
+    replies["/v1/difficulty-adjustment"] = () =>
+      Response.json({
+        progressPercent: 50,
+        difficultyChange: 2.5,
+        estimatedRetargetDate: Date.now() + 86_400_000,
+        remainingBlocks: 1008,
+        previousRetarget: 1,
+        nextRetargetHeight: 2016,
+        expectedBlocks: 1000,
+      });
+    retry()?.click();
+    await vi.waitFor(() => expect(figures()?.textContent).toContain("Up 2.50%"));
   });
 
   it("says plainly when the server keeps no mining history", async () => {
