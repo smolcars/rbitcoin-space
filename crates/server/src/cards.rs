@@ -218,17 +218,11 @@ impl Cards {
         if let Some((png, header)) = self.kept().get(&key, Instant::now()) {
             return png_response(png, header);
         }
-        let flight = Arc::clone(
-            self.building()
-                .entry(key.clone())
-                .or_insert_with(|| Arc::new(OnceCell::new())),
-        );
-        let drawn = flight.get_or_init(|| self.build(key.clone(), build)).await;
-        let mut building = self.building();
-        if building.get(&key).is_some_and(|f| Arc::ptr_eq(f, &flight)) {
-            building.remove(&key);
-        }
-        drop(building);
+        let flight = Waiting::new(self, &key);
+        let drawn = flight
+            .cell()
+            .get_or_init(|| self.build(key.clone(), build))
+            .await;
         match drawn {
             Some((png, header)) => png_response(png.clone(), header),
             None => self.fallback(),
@@ -258,6 +252,60 @@ impl Cards {
         self.kept()
             .put(key, png.clone(), life, header, Instant::now());
         Some((png, header))
+    }
+}
+
+/// One request's hold on a card being built. However the request ends, finished or cancelled
+/// (a timeout drops it mid-build), the last one out removes the build from `building`, so an
+/// abandoned build leaves nothing behind and a finished one is not reused once kept.
+struct Waiting<'a> {
+    cards: &'a Cards,
+    key: Key,
+    /// Taken in `drop`, under the map's lock, so every count of it changes under that lock.
+    flight: Option<Arc<Flight>>,
+}
+
+impl<'a> Waiting<'a> {
+    fn new(cards: &'a Cards, key: &Key) -> Self {
+        let flight = Arc::clone(
+            cards
+                .building()
+                .entry(key.clone())
+                .or_insert_with(|| Arc::new(OnceCell::new())),
+        );
+        Self {
+            cards,
+            key: key.clone(),
+            flight: Some(flight),
+        }
+    }
+
+    fn cell(&self) -> &Flight {
+        // Only `drop` takes it.
+        self.flight.as_deref().unwrap_or(&EMPTY)
+    }
+}
+
+/// Never filled: what [`Waiting::cell`] would give after `drop`, which cannot happen.
+static EMPTY: Flight = OnceCell::const_new();
+
+impl Drop for Waiting<'_> {
+    fn drop(&mut self) {
+        let mut building = self.cards.building();
+        let Some(flight) = self.flight.take() else {
+            return;
+        };
+        // The map's and ours: no other request holds it.
+        let last = Arc::strong_count(&flight) == 2;
+        if (last || flight.initialized())
+            && building
+                .get(&self.key)
+                .is_some_and(|f| Arc::ptr_eq(f, &flight))
+        {
+            building.remove(&self.key);
+        }
+        drop(flight);
+        drop(building);
     }
 }
 
@@ -662,6 +710,31 @@ mod tests {
         assert_eq!(p.heights().collect::<Vec<_>>(), vec![2, 1, 0]);
         let p = plan(0, None, true, None);
         assert_eq!(p.heights().collect::<Vec<_>>(), vec![0]);
+    }
+
+    #[tokio::test]
+    async fn a_build_every_request_left_leaves_nothing_behind_and_a_waiter_takes_over() {
+        let cards = Cards::new(None);
+        let key = |n: u32| Key::Block(Network::Mainnet, BlockId::Height(n));
+        // Requests for distinct cards, each cancelled mid-build.
+        for n in 0..5 {
+            let never = std::future::pending::<Option<(Card, bool)>>();
+            let r =
+                tokio::time::timeout(Duration::from_millis(5), cards.serve(key(n), never)).await;
+            assert!(r.is_err());
+        }
+        assert!(cards.building().is_empty());
+        // Two for one card: the first cancelled, the second still waits on the same build, and
+        // takes it over; then the map empties.
+        let first = cards.serve(key(9), std::future::pending());
+        let second = cards.serve(key(9), async { None });
+        let (cancelled, answered) = tokio::join!(
+            tokio::time::timeout(Duration::from_millis(5), first),
+            second
+        );
+        assert!(cancelled.is_err());
+        assert_eq!(answered.status(), axum::http::StatusCode::NOT_FOUND);
+        assert!(cards.building().is_empty());
     }
 
     #[test]
