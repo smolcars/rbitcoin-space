@@ -17,9 +17,12 @@
     padding-bottom: var(--space-4);
     border-bottom: 1px solid var(--color-line);
   }
+  /* At the largest text on a narrow phone, the name breaks rather than leaving the window. */
   .site-footer__brand p {
     display: flex;
     flex-direction: column;
+    min-width: 0;
+    overflow-wrap: anywhere;
     line-height: var(--leading-snug);
   }
   .site-footer__name {
