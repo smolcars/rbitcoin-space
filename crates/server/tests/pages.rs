@@ -38,6 +38,12 @@ const GENESIS: &str = "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60
 /// A block only the regtest table holds, at [`KNOWN_HEIGHT`].
 const KNOWN: &str = "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206";
 const KNOWN_HEIGHT: u32 = 7;
+/// A transaction the mock node knows, confirmed in [`KNOWN`].
+const CARD_TX: &str = "c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00";
+/// Transactions whose ids start so the mock node takes 5 s to answer: longer than a card waits.
+const SLOW: &str = "5105";
+/// The site's static link preview picture, as the build copies it to `/assets`.
+const PICTURE: &str = "assets/preview-55449820.png";
 /// Foundry USA's first listed payout script, so the block's miner is named.
 const FOUNDRY: &str = "76a9140e6ed2f95e8a7f3131535472e1009a1c77bd01e588ac";
 
@@ -52,7 +58,23 @@ async fn mock_node() -> (u16, u16, Log) {
         l.lock()
             .unwrap()
             .push(format!("{m} {u} {}", String::from_utf8_lossy(&body)));
-        async { (axum::http::StatusCode::NOT_FOUND, "{}") }
+        // One transaction, for its card; nothing else exists. A node that hangs on [`SLOW`].
+        let found = u.path() == format!("/tx/{CARD_TX}");
+        let slow = u.path().starts_with(&format!("/tx/{SLOW}"));
+        async move {
+            if slow {
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            }
+            if found {
+                let tx = format!(
+                    "{{\"txid\":\"{CARD_TX}\",\"fee\":1410,\"weight\":561,\"vout\":[{{\"value\":5000}},{{\"value\":12345}}],\
+                     \"status\":{{\"confirmed\":true,\"block_height\":7,\"block_hash\":\"{KNOWN}\",\"block_time\":1700000000}}}}"
+                );
+                (axum::http::StatusCode::OK, tx)
+            } else {
+                (axum::http::StatusCode::NOT_FOUND, "{}".to_owned())
+            }
+        }
     }));
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let http_port = listener.local_addr().unwrap().port();
@@ -93,8 +115,15 @@ fn temp(name: &str) -> Dir {
         std::process::id()
     ));
     let _ = std::fs::remove_dir_all(&d);
-    std::fs::create_dir_all(d.join("web")).unwrap();
+    std::fs::create_dir_all(d.join("web/assets")).unwrap();
     std::fs::write(d.join("web/index.html"), SHELL).unwrap();
+    std::fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../web/public")
+            .join(PICTURE),
+        d.join("web").join(PICTURE),
+    )
+    .unwrap();
     Dir(d)
 }
 
@@ -188,6 +217,11 @@ async fn start(dir: &Path) -> (String, Log) {
 
 /// The server, told its public address (`SITE_URL`) when `site` is set.
 async fn start_at(dir: &Path, site: Option<&str>) -> (String, Log) {
+    start_with(dir, site, &[]).await
+}
+
+/// With more settings.
+async fn start_with(dir: &Path, site: Option<&str>, more: &[(&str, &str)]) -> (String, Log) {
     fill(dir).await;
     let (http, electrum, log) = mock_node().await;
     let mut vars: HashMap<String, String> = HashMap::new();
@@ -215,6 +249,9 @@ async fn start_at(dir: &Path, site: Option<&str>) -> (String, Log) {
     if let Some(site) = site {
         vars.insert("SITE_URL".into(), site.to_owned());
     }
+    for (k, v) in more {
+        vars.insert((*k).to_owned(), (*v).to_owned());
+    }
     let config = Config::from_vars(|k| vars.get(k).cloned()).unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap().to_string();
@@ -228,6 +265,7 @@ struct Reply {
     status: u16,
     head: String,
     body: String,
+    bytes: Vec<u8>,
 }
 
 impl Reply {
@@ -264,7 +302,8 @@ async fn get(addr: &str, target: &str) -> Reply {
     Reply {
         status: head[9..12].parse().unwrap(),
         head,
-        body: String::from_utf8(raw[split + 4..].to_vec()).unwrap(),
+        body: String::from_utf8_lossy(&raw[split + 4..]).into_owned(),
+        bytes: raw[split + 4..].to_vec(),
     }
 }
 
@@ -665,10 +704,24 @@ async fn with_the_site_address_every_page_has_the_picture_and_its_own_address() 
         );
         assert_eq!(r.meta("property", "og:url"), url, "{target}");
         let image = r.meta("property", "og:image");
-        assert!(
-            image.starts_with("https://rbitcoin.space/assets/preview-") && image.ends_with(".png"),
-            "{target}: {image}"
-        );
+        // A transaction's and a block's page show their own card; every other page the site's.
+        let card = if target.starts_with("/tx/") {
+            Some(format!("https://rbitcoin.space/app/card/tx/{TXID}.png"))
+        } else if target.starts_with("/regtest/block/") {
+            Some(format!(
+                "https://rbitcoin.space/regtest/app/card/block/{KNOWN_HEIGHT}.png"
+            ))
+        } else {
+            None
+        };
+        match card {
+            Some(card) => assert_eq!(image, card, "{target}"),
+            None => assert!(
+                image.starts_with("https://rbitcoin.space/assets/preview-")
+                    && image.ends_with(".png"),
+                "{target}: {image}"
+            ),
+        }
         assert_eq!(r.meta("name", "twitter:image"), image, "{target}");
         assert_eq!(r.meta("property", "og:image:type"), "image/png");
         assert_eq!(r.meta("property", "og:image:width"), "1200");
@@ -901,4 +954,158 @@ async fn no_page_path_reaches_the_node_and_a_flood_stays_inside_the_static_limit
             "{needle} reached the node"
         );
     }
+}
+
+/// The PNG's width and height, from its header.
+fn png_size(bytes: &[u8]) -> (u32, u32) {
+    assert_eq!(&bytes[..8], b"\x89PNG\r\n\x1a\n");
+    let at = |i: usize| u32::from_be_bytes(bytes[i..i + 4].try_into().unwrap());
+    (at(16), at(20))
+}
+
+#[tokio::test]
+async fn a_transaction_page_and_a_block_page_name_their_own_card() {
+    let dir = temp("card-heads");
+    let (addr, _) = start_at(&dir.0, Some("https://rbitcoin.space")).await;
+    for (path, image, alt) in [
+        (
+            format!("/signet/tx/{}", TXID.to_uppercase()),
+            format!("https://rbitcoin.space/signet/app/card/tx/{TXID}.png"),
+            format!("Signet transaction {TXID}: "),
+        ),
+        (
+            "/regtest/block/0007".to_owned(),
+            "https://rbitcoin.space/regtest/app/card/block/7.png".to_owned(),
+            "Regtest block 7: ".to_owned(),
+        ),
+        (
+            format!("/block/{GENESIS}"),
+            format!("https://rbitcoin.space/app/card/block/{GENESIS}.png"),
+            format!("Bitcoin block {GENESIS}: "),
+        ),
+    ] {
+        let r = get(&addr, &path).await;
+        assert_eq!(r.meta("property", "og:image"), image, "{path}");
+        assert_eq!(r.meta("name", "twitter:image"), image, "{path}");
+        assert!(
+            r.meta("property", "og:image:alt").starts_with(&alt),
+            "{path}"
+        );
+    }
+    // The projected blocks' pages are no block's: the site's picture.
+    let r = get(&addr, "/block/next/2").await;
+    assert!(r.meta("property", "og:image").contains("/assets/preview-"));
+    // Without the site's address, nothing names a picture, a card included.
+    let dir = temp("card-heads-off");
+    let (addr, _) = start(&dir.0).await;
+    let r = get(&addr, &format!("/tx/{TXID}")).await;
+    assert!(!r.body.contains("og:image") && !r.body.contains("/app/card/"));
+}
+
+#[tokio::test]
+async fn a_card_address_answers_its_card_or_the_static_picture_and_a_bad_id_is_not_found() {
+    let dir = temp("cards");
+    let (addr, log) = start(&dir.0).await;
+    let picture = std::fs::read(dir.0.join("web").join(PICTURE)).unwrap();
+
+    // The block the table holds, by height and by hash, and the transaction the node knows.
+    for path in [
+        "/regtest/app/card/block/7.png".to_owned(),
+        format!("/regtest/app/card/block/{KNOWN}.png"),
+        format!("/regtest/app/card/tx/{CARD_TX}.png"),
+    ] {
+        let r = get(&addr, &path).await;
+        assert_eq!(r.status, 200, "{path}");
+        assert_eq!(r.header("content-type"), Some("image/png"), "{path}");
+        assert_eq!(png_size(&r.bytes), (1200, 630), "{path}");
+        assert!(
+            r.bytes.len() < 300 * 1024,
+            "{path}: {} bytes",
+            r.bytes.len()
+        );
+        assert_ne!(r.bytes, picture, "{path} is its own card");
+        // Its block is at the tip the server knows of: it can change.
+        assert_eq!(
+            r.header("cache-control"),
+            Some("public, max-age=60"),
+            "{path}"
+        );
+        // Kept: the same bytes again, and the node is not asked twice.
+        assert_eq!(get(&addr, &path).await.bytes, r.bytes, "{path}");
+    }
+    let asked = |needle: &str| {
+        log.lock()
+            .unwrap()
+            .iter()
+            .filter(|l| l.contains(needle))
+            .count()
+    };
+    assert_eq!(asked(CARD_TX), 1);
+
+    // A transaction the node does not know, a block the table does not hold: the static picture.
+    for path in [
+        format!("/app/card/tx/{TXID}.png"),
+        format!("/signet/app/card/block/{KNOWN}.png"),
+        "/testnet4/app/card/block/123.png".to_owned(),
+    ] {
+        let r = get(&addr, &path).await;
+        assert_eq!(r.status, 200, "{path}");
+        assert_eq!(r.header("content-type"), Some("image/png"), "{path}");
+        assert_eq!(r.bytes, picture, "{path}");
+        assert_eq!(
+            r.header("cache-control"),
+            Some("public, max-age=60"),
+            "{path}"
+        );
+    }
+    // A block card never asks the node.
+    assert_eq!(asked("123"), 0);
+
+    // An id the page would not take, or no `.png`: not found, and nothing asked.
+    for path in [
+        "/app/card/tx/abc.png".to_owned(),
+        format!("/app/card/tx/{TXID}"),
+        format!("/app/card/tx/{TXID}.PNG"),
+        format!("/app/card/tx/{TXID}0.png"),
+        format!("/app/card/tx/%3Cb%3E{}.png", &TXID[3..]),
+        "/app/card/block/12345678901.png".to_owned(),
+        "/app/card/block/-1.png".to_owned(),
+        "/app/card/block/.png".to_owned(),
+        "/app/card/address/bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq.png".to_owned(),
+        format!("/nonet/app/card/tx/{TXID}.png"),
+    ] {
+        let r = get(&addr, &path).await;
+        assert_eq!(r.status, 404, "{path}");
+        assert_ne!(r.header("content-type"), Some("image/png"), "{path}");
+    }
+}
+
+#[tokio::test]
+async fn cards_are_built_two_at_a_time_and_a_node_that_hangs_gets_the_static_picture() {
+    let dir = temp("card-flood");
+    let (addr, log) = start(&dir.0).await;
+    let picture = std::fs::read(dir.0.join("web").join(PICTURE)).unwrap();
+    let started = std::time::Instant::now();
+    let mut set = tokio::task::JoinSet::new();
+    for i in 0..20u32 {
+        let addr = addr.clone();
+        let path = format!("/app/card/tx/{SLOW}{:060x}.png", i);
+        set.spawn(async move { get(&addr, &path).await });
+    }
+    while let Some(r) = set.join_next().await {
+        let r = r.unwrap();
+        assert_eq!(r.status, 200);
+        assert_eq!(r.header("content-type"), Some("image/png"));
+        assert_eq!(r.bytes, picture);
+    }
+    // Two reached the node and waited their 3 s; the rest had the picture at once.
+    let took = started.elapsed();
+    assert!(took < std::time::Duration::from_secs(5), "{took:?}");
+    let asked = log
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|l| l.contains(&format!("/tx/{SLOW}")))
+        .count();
+    assert_eq!(asked, 2);
 }

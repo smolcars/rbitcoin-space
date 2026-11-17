@@ -734,6 +734,7 @@ dependencies = [
  "axum",
  "bark",
  "bitcoin",
+ "card",
  "engine",
  "hyper",
  "hyper-util",

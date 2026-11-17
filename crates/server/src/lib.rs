@@ -11,6 +11,7 @@ pub mod ark_arkade;
 pub mod ark_bark;
 mod audits;
 pub mod blocks;
+mod cards;
 pub mod config;
 pub mod decode;
 pub mod difficulty;
@@ -51,7 +52,7 @@ use axum::http::{HeaderMap, HeaderValue, Method};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get, post};
-use axum::{Json, Router, middleware};
+use axum::{Extension, Json, Router, middleware};
 use node::esplora::Esplora;
 use serde_json::json;
 use tokio::net::TcpListener;
@@ -281,6 +282,8 @@ pub fn network_routes() -> Router<Arc<NetworkContext>> {
         .route("/app/block/{hash}/summary", get(summary::facts))
         .route("/app/block/{hash}/txs", get(summary::txs))
         .route("/app/blocks/summary", get(summary::batch))
+        .route("/app/card/tx/{file}", get(cards::tx))
+        .route("/app/card/block/{file}", get(cards::block))
         .route("/app/tx/{txid}/relatives", get(relatives::route))
         .route("/app/tx/{txid}/replacements", get(replacements::route))
         .route(
@@ -328,6 +331,8 @@ impl App {
             .route("/healthz", get(healthz))
             .merge(app_config::routes(config));
         let sockets = ws::Sockets::new(&config.ws, config.limits.request_timeout);
+        // Link preview cards' slots and drawn pictures, for the whole server (`cards`).
+        let cards = Arc::new(cards::Cards::new(config.web_dir.as_deref()));
         // One large-address join at the node at a time, for the whole server (`ledger`).
         let lane = Arc::new(tokio::sync::Semaphore::new(1));
         let mut enabled_networks = Vec::new();
@@ -385,6 +390,7 @@ impl App {
                                 .layer(DefaultBodyLimit::max(esplora::MAX_BROADCAST_BODY)),
                         )
                         .with_state(ctx)
+                        .layer(Extension(Arc::clone(&cards)))
                 }
                 None if prefix.is_empty() => Router::new(),
                 None => {

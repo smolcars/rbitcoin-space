@@ -89,7 +89,7 @@ VTXO pages for Ark implementations, per network ([`ARK.md`](ARK.md)). Off unless
 
 | Variable | Default | What it does |
 |---|---|---|
-| `SITE_URL` | unset | The site's public address, `http://` or `https://` and a host with an optional port, nothing after it but one `/` (dropped): `https://rbitcoin.space`. When set, every page's head carries the link preview picture and the page's own address (`og:image`, `og:url` and the rest, [`FRONTEND.md`](FRONTEND.md#link-previews)), so a pasted link shows a large card; unset, the card is text only. Never taken from the request's `Host`, which a client chooses. Any other form stops the server at startup |
+| `SITE_URL` | unset | The site's public address, `http://` or `https://` and a host with an optional port, nothing after it but one `/` (dropped): `https://rbitcoin.space`. When set, every page's head carries a link preview picture (a transaction's and a block's own card, the site's picture for the rest) and the page's own address (`og:image`, `og:url` and the rest, [`FRONTEND.md`](FRONTEND.md#link-previews)), so a pasted link shows a large card; unset, the card is text only. Never taken from the request's `Host`, which a client chooses. Any other form stops the server at startup |
 
 ## Logging
 

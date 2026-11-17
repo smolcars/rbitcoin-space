@@ -26,8 +26,9 @@ const SITE: &str = "rbitcoin.space";
 /// without its facts, so a flood of block paths holds at most this many of a store's readers.
 const STORE_READS: usize = 2;
 
-/// The one link preview picture, 1200 by 630, for every page: under `/assets`, so it is served as
-/// built with a year's cache. A redrawn picture takes a new name, as chat apps cache it by its
+/// The site's link preview picture, 1200 by 630, for every page but a transaction's and a block's,
+/// which name their own card (`cards`), and what a card answers when it cannot be drawn: under
+/// `/assets`, so it is served as built with a year's cache. A redrawn picture takes a new name, as chat apps cache it by its
 /// address; a test holds the name to the file's hash (docs/FRONTEND.md, "Link previews").
 pub(crate) const IMAGE: &str = "/assets/preview-55449820.png";
 
@@ -370,7 +371,7 @@ fn title_prefix(network: Network) -> &'static str {
 }
 
 /// A height as the frontend takes one: 1 to 10 decimal digits within `u32` (`parseBlockId`).
-fn height(s: &str) -> Result<u32, ()> {
+pub(crate) fn height(s: &str) -> Result<u32, ()> {
     if s.is_empty() || s.len() > 10 || !s.bytes().all(|b| b.is_ascii_digit()) {
         return Err(());
     }
@@ -632,6 +633,45 @@ struct Address<'a> {
     path: &'a str,
     /// The rankings page's order, the one query that names a page, as [`ranking`] reads it.
     by: Option<&'static str>,
+    /// The page's own picture, for a transaction or a block; else the site's one.
+    card: Option<Card>,
+}
+
+/// A transaction's or block's own picture (`cards`): its path under the site, written from the
+/// parsed id alone, and what it shows.
+#[derive(Debug, PartialEq, Eq)]
+struct Card {
+    path: String,
+    alt: String,
+}
+
+/// The card for a transaction or block page's path, its id parsed as [`Pages::head`] parses it.
+fn card(network: Network, rest: &str) -> Option<Card> {
+    let on = chain(network);
+    let prefix = network.path_prefix();
+    let mut segs = rest.split('/');
+    let s = [segs.next(), segs.next(), segs.next(), segs.next()];
+    match s {
+        [_, Some("tx"), Some(id), None] => {
+            let txid = esplora::txid(id).ok()?;
+            Some(Card {
+                path: format!("{prefix}/app/card/tx/{txid}.png"),
+                alt: format!(
+                    "{on} transaction {txid}: its amount, fee rate, fee, size and status, with its block among the newest blocks."
+                ),
+            })
+        }
+        [_, Some("block"), Some(id), None] if id != "next" => {
+            let id = crate::cards::block_id(id)?;
+            Some(Card {
+                path: format!("{prefix}/app/card/block/{id}.png"),
+                alt: format!(
+                    "{on} block {id}: its height, time, miner, transactions and fees, with its neighbours in the chain."
+                ),
+            })
+        }
+        _ => None,
+    }
 }
 
 /// The title element and the preview tags that replace the build's `<title>`. With the site's
@@ -660,16 +700,27 @@ fn render(network: Network, head: &Head, at: Option<&Address<'_>>) -> String {
     if let Some(by) = at.by {
         let _ = write!(url, "?by={by}");
     }
+    let (mut image, mut alt) = (site.clone(), String::new());
+    match &at.card {
+        Some(c) => {
+            escape(&c.path, &mut image);
+            escape(&c.alt, &mut alt);
+        }
+        None => {
+            image.push_str(IMAGE);
+            alt.push_str(IMAGE_ALT);
+        }
+    }
     let _ = write!(
         out,
         "<meta property=\"og:url\" content=\"{url}\" />\n    \
-         <meta property=\"og:image\" content=\"{site}{IMAGE}\" />\n    \
+         <meta property=\"og:image\" content=\"{image}\" />\n    \
          <meta property=\"og:image:type\" content=\"image/png\" />\n    \
          <meta property=\"og:image:width\" content=\"1200\" />\n    \
          <meta property=\"og:image:height\" content=\"630\" />\n    \
-         <meta property=\"og:image:alt\" content=\"{IMAGE_ALT}\" />\n    \
+         <meta property=\"og:image:alt\" content=\"{alt}\" />\n    \
          <meta name=\"twitter:card\" content=\"summary_large_image\" />\n    \
-         <meta name=\"twitter:image\" content=\"{site}{IMAGE}\" />"
+         <meta name=\"twitter:image\" content=\"{image}\" />"
     );
     out
 }
@@ -690,7 +741,12 @@ pub(crate) async fn page(State(pages): State<Arc<Pages>>, uri: Uri) -> Response 
             let by = (split(path).1 == "/lightning/rankings")
                 .then(|| ranking(query))
                 .flatten();
-            let at = pages.site.as_deref().map(|site| Address { site, path, by });
+            let at = pages.site.as_deref().map(|site| Address {
+                site,
+                path,
+                by,
+                card: card(network, split(path).1),
+            });
             format!("{before}{}{after}", render(network, &head, at.as_ref()))
         }
         _ => shell.raw.clone(),
@@ -815,6 +871,7 @@ mod tests {
             site: "https://rbitcoin.space",
             path: "/signet/tx/abc",
             by: None,
+            card: None,
         };
         let html = render(Network::Signet, &tx(), Some(&at));
         for tag in [
@@ -835,6 +892,7 @@ mod tests {
             site: "https://rbitcoin.space",
             path: "/lightning/rankings",
             by: Some("age"),
+            card: None,
         };
         let html = render(Network::Mainnet, &tx(), Some(&at));
         assert!(html.contains("content=\"https://rbitcoin.space/lightning/rankings?by=age\""));
@@ -846,12 +904,66 @@ mod tests {
             site: "https://rbitcoin.space",
             path: "/tx/\"><script>alert('x')</script>&",
             by: None,
+            card: None,
         };
         let html = render(Network::Mainnet, &tx(), Some(&at));
         assert!(html.contains(
             "content=\"https://rbitcoin.space/tx/&quot;&gt;&lt;script&gt;alert(&#39;x&#39;)&lt;/script&gt;&amp;\""
         ));
         assert!(!html.contains("<script") && !html.contains("'x'"), "{html}");
+    }
+
+    #[test]
+    fn transaction_and_block_pages_name_their_card_from_the_parsed_id() {
+        let txid = "4a705c0b4a53b3b9991663d5adae4959d67841d12b9a1ef3666934518c42e459";
+        let c = card(Network::Signet, &format!("/tx/{}", txid.to_uppercase())).unwrap();
+        assert_eq!(c.path, format!("/signet/app/card/tx/{txid}.png"));
+        assert!(
+            c.alt.starts_with(&format!("Signet transaction {txid}: ")),
+            "{}",
+            c.alt
+        );
+        let c = card(Network::Mainnet, "/block/0976200").unwrap();
+        assert_eq!(c.path, "/app/card/block/976200.png");
+        let hash = "00000000000000000001241ca13d41915e64b9dc6e5059d7b6fc7ad193c9cb61";
+        let c = card(Network::Regtest, &format!("/block/{hash}")).unwrap();
+        assert_eq!(c.path, format!("/regtest/app/card/block/{hash}.png"));
+        for rest in [
+            "/".to_owned(),
+            "/block/next".to_owned(),
+            "/block/next/2".to_owned(),
+            format!("/tx/{txid}/x"),
+            format!("/tx/{}", &txid[1..]),
+            "/tx/<script>".to_owned(),
+            "/block/12345678901".to_owned(),
+            format!("/address/{txid}"),
+            "/blocks/5".to_owned(),
+        ] {
+            assert_eq!(card(Network::Mainnet, &rest), None, "{rest}");
+        }
+    }
+
+    #[test]
+    fn a_card_is_the_picture_and_its_words_are_escaped() {
+        let at = Address {
+            site: "https://rbitcoin.space",
+            path: "/tx/x\"><b>",
+            by: None,
+            card: Some(Card {
+                path: "/app/card/tx/a.png".into(),
+                alt: "a <b> & \"c\"".into(),
+            }),
+        };
+        let html = render(Network::Mainnet, &tx(), Some(&at));
+        for tag in [
+            "<meta property=\"og:image\" content=\"https://rbitcoin.space/app/card/tx/a.png\" />",
+            "<meta name=\"twitter:image\" content=\"https://rbitcoin.space/app/card/tx/a.png\" />",
+            "<meta property=\"og:image:alt\" content=\"a &lt;b&gt; &amp; &quot;c&quot;\" />",
+            "<meta property=\"og:url\" content=\"https://rbitcoin.space/tx/x&quot;&gt;&lt;b&gt;\" />",
+        ] {
+            assert!(html.contains(tag), "{tag} in {html}");
+        }
+        assert!(!html.contains(IMAGE) && !html.contains("<b>"), "{html}");
     }
 
     /// The picture is a 1200 by 630 PNG under 300 KB, named for its own bytes, so a redrawn one

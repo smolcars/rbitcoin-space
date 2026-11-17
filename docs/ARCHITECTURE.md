@@ -57,7 +57,7 @@ A network is enabled by setting its variables (`.env.example`). Mainnet is serve
 |---|---|---|
 | `/api/*` | Esplora REST and the approved BlindBit v1 surface, as rbitcoin serves them | Passed through an allow-list of routes with typed parameters. Public and stable |
 | `/api/v1/*` | mempool.space-shaped subset | Only the endpoints listed as served in [`COMPAT.md`](COMPAT.md) |
-| `/app/*` | Private API for our frontend | May change in any release; the frontend and server ship together |
+| `/app/*` | Private API for our frontend | May change in any release; the frontend and server ship together. Also the link preview cards' pictures, `/app/card/…` ([`FRONTEND.md`](FRONTEND.md#link-previews)) |
 | `/app/ws` | WebSocket for live updates | See below |
 | `/api/v1/ws` | mempool.space-shaped WebSocket | For wallets and bots; the same hub ([`WS.md`](WS.md#the-mempoolspace-shaped-socket-apiv1ws)) |
 | `/mcp` | Model Context Protocol, for chat bots and coding agents | Off by default. Read-only tools that ask the routes above ([`MCP.md`](MCP.md)) |
