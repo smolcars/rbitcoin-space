@@ -6,6 +6,8 @@ import "./Note.css";
 /** Room kept between the note and the screen's edges, and between it and its figure, in px. */
 const EDGE = 8;
 const GAP = 6;
+/** How long a note waits after the mouse leaves its figure, so the mouse can cross to it, in ms. */
+const LINGER = 150;
 
 /**
  * A figure that explains itself: a note opens over the page while a mouse is on it or it has
@@ -33,7 +35,13 @@ export function Note(props: {
   let figure: HTMLElement | undefined;
   let pop: HTMLElement | undefined;
   let close: (() => void) | undefined;
-  onCleanup(() => close?.());
+  /** Set while a close is under way: Escape gives focus back to the figure, which must not reopen it. */
+  let closing = false;
+  let leaving: ReturnType<typeof setTimeout> | undefined;
+  onCleanup(() => {
+    clearTimeout(leaving);
+    close?.();
+  });
 
   const place = () => {
     if (!pop || !figure) return;
@@ -51,7 +59,7 @@ export function Note(props: {
     pop.style.setProperty("--y", `${Math.round(up ? above : f.bottom + GAP)}px`);
   };
   const show = () => {
-    if (close) return;
+    if (close || closing) return;
     setOpen(true);
     // Drawn before it is measured, and placed before the browser paints it.
     flush();
@@ -59,6 +67,8 @@ export function Note(props: {
     close = openPop(
       () => {
         close = undefined;
+        closing = true;
+        queueMicrotask(() => (closing = false));
         setOpen(false);
       },
       () => [figure, pop],
@@ -66,6 +76,19 @@ export function Note(props: {
     );
   };
   const hide = () => close?.();
+  // A mouse only: a touch is a tap on what the figure sits in, such as a block's link, or, on a
+  // button, its focus. The note stays while the mouse is on it, so it can be read up close.
+  const stay = () => clearTimeout(leaving);
+  const enter = (e: PointerEvent) => {
+    if (e.pointerType !== "mouse") return;
+    stay();
+    show();
+  };
+  const leave = (e: PointerEvent) => {
+    if (e.pointerType !== "mouse") return;
+    stay();
+    leaving = setTimeout(hide, LINGER);
+  };
 
   const inside = () => (
     <>
@@ -75,7 +98,13 @@ export function Note(props: {
       </span>
       <Show when={open()}>
         <Portal>
-          <span ref={(el) => (pop = el)} class="note" aria-hidden="true">
+          <span
+            ref={(el) => (pop = el)}
+            class="note"
+            aria-hidden="true"
+            onPointerEnter={stay}
+            onPointerLeave={leave}
+          >
             <span class="note__title">{props.title}</span>
             {props.children}
           </span>
@@ -83,10 +112,6 @@ export function Note(props: {
       </Show>
     </>
   );
-  // A mouse only: a touch is a tap on what the figure sits in, such as a block's link, or, on a
-  // button, its focus.
-  const enter = (e: PointerEvent) => e.pointerType === "mouse" && show();
-  const leave = (e: PointerEvent) => e.pointerType === "mouse" && hide();
   return props.focusable === true ? (
     <button
       ref={(el) => (figure = el)}

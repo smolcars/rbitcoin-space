@@ -36,8 +36,7 @@
     letter-spacing: normal;
     text-align: left;
     white-space: normal;
-    /* Read, never pressed: in a link, a press on it would follow the link. */
-    pointer-events: none;
+    cursor: default;
   }
   .note__title {
     color: var(--color-text);
