@@ -15,8 +15,10 @@ const MIN_SPEED = 0.02;
  * (unless motion is reduced). Touch and pen are left to the browser. A press that moves less than
  * a few pixels is still a click, and a drag released over a link does not follow it. While the
  * mouse is over a box that can scroll, it is marked `data-grab`; while dragging, `data-dragging`.
+ * Returns a stop for the glide: call it before scrolling the box from code, since a smooth scroll
+ * may not have moved the box by the glide's next frame, which would then carry on over it.
  */
-export function dragScroll(el: HTMLElement): void {
+export function dragScroll(el: HTMLElement): () => void {
   let pointer: number | undefined;
   let lastX = 0;
   let dragging = false;
@@ -123,6 +125,7 @@ export function dragScroll(el: HTMLElement): void {
   el.addEventListener("pointerup", end);
   el.addEventListener("pointercancel", end);
   el.addEventListener("wheel", stopGlide, { passive: true });
+  el.addEventListener("keydown", stopGlide);
   el.addEventListener("click", onClick, true);
   el.addEventListener("dragstart", onDragStart);
   onCleanup(() => {
@@ -134,7 +137,9 @@ export function dragScroll(el: HTMLElement): void {
     el.removeEventListener("pointerup", end);
     el.removeEventListener("pointercancel", end);
     el.removeEventListener("wheel", stopGlide);
+    el.removeEventListener("keydown", stopGlide);
     el.removeEventListener("click", onClick, true);
     el.removeEventListener("dragstart", onDragStart);
   });
+  return stopGlide;
 }

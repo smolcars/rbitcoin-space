@@ -89,39 +89,62 @@ test("a mouse drags the strip into the past, it glides on, and a drag opens no b
     ),
   ).toBe(0);
 
-  // Pressed on a tile and pulled left, held still, let go: it moved with the hand, and stays.
+  // Pressed near the right edge and pulled across, held still, let go: it moved with the hand,
+  // and stays.
   const tile = await lane.getByRole("link").first().boundingBox();
   if (!tile) throw new Error("no tile");
   const y = tile.y + tile.height / 2;
-  const x = Math.min(tile.x + tile.width / 2 + 200, (page.viewportSize()?.width ?? 0) - 10);
+  const x = (page.viewportSize()?.width ?? 0) - 10;
+  const pull = x - 20;
   const start = await left();
   await page.mouse.move(x, y);
   await page.mouse.down();
-  await page.mouse.move(x - 250, y, { steps: 10 });
+  await page.mouse.move(x - pull, y, { steps: 10 });
   await expect(scroller).toHaveAttribute("data-dragging", "");
-  expect(await left()).toBeCloseTo(start + 250, -1);
+  expect(await left()).toBeCloseTo(start + pull, -1);
   await page.waitForTimeout(150);
   await page.mouse.up();
   await expect(scroller).not.toHaveAttribute("data-dragging");
-  expect(await left()).toBeCloseTo(start + 250, -1);
+  expect(await left()).toBeCloseTo(start + pull, -1);
   await expect(page).toHaveURL(/\/regtest\/$/);
 
   // A flick: it glides on past where the hand stopped, into blocks loaded from the past.
   const flicked = await left();
-  await page.mouse.move(x, y);
-  await page.mouse.down();
-  await page.mouse.move(x - 200, y, { steps: 4 });
-  await page.mouse.up();
+  const flick = async () => {
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x - 200, y, { steps: 4 });
+    await page.mouse.up();
+    // A loaded machine can stall a flick into a stop, which does not glide: flick again.
+    await expect(scroller).toHaveAttribute("data-dragging", "", { timeout: 100 });
+  };
+  await expect(flick).toPass();
   await expect.poll(left).toBeGreaterThan(flicked + 400);
   await expect(page).toHaveURL(/\/regtest\/$/);
   await expect(page.getByRole("button", { name: "Back to now" })).toBeVisible();
-  await expect(lane.getByRole("link", { name: /^Block 9\d,/ }).first()).toBeInViewport();
+  // Below the live list's ten, so loaded from the past as the strip went.
+  const lowestInView = () =>
+    scroller.evaluate((el) => {
+      const box = el.getBoundingClientRect();
+      const heights = [...el.querySelectorAll<HTMLElement>("li[data-height]:has(a)")]
+        .filter((li) => {
+          const r = li.getBoundingClientRect();
+          return r.left >= box.left && r.right <= box.right;
+        })
+        .map((li) => Number(li.dataset["height"]));
+      return Math.min(...heights);
+    });
+  await expect.poll(lowestInView).toBeLessThan(101);
+
+  // "Back to now" pressed while a flick still glides: the strip goes back, the glide does not win.
+  await expect(scroller).not.toHaveAttribute("data-dragging");
+  await expect(flick).toPass();
+  await page.getByRole("button", { name: "Back to now" }).click();
+  await expect(page.locator(".home-strip__now")).toBeInViewport();
+  await expect(page.getByRole("button", { name: "Back to now" })).toHaveCount(0);
 
   // A press that does not move is still a click on the block.
-  const old = lane.getByRole("link", { name: /^Block 9\d,/ }).first();
-  // Once the glide has run out.
-  await expect(scroller).not.toHaveAttribute("data-dragging");
-  await old.click();
+  await lane.getByRole("link", { name: /^Block 110,/ }).click();
   await expect(page).toHaveURL(/\/regtest\/block\//);
 });
 

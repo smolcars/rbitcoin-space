@@ -210,6 +210,8 @@ export function BlockStrip(props: {
   /** Whether projected tiles drawn now settle their layers in by themselves (see `sequence`). */
   let settleNew = false;
   let scroller: HTMLDivElement | undefined;
+  /** Ends a mouse flick's glide, so it cannot carry on over a scroll from here. */
+  let stopGlide: (() => void) | undefined;
   let lane: HTMLOListElement | undefined;
   let upcoming: HTMLDivElement | undefined;
   let next: HTMLDivElement | undefined;
@@ -586,6 +588,7 @@ export function BlockStrip(props: {
   /** Back to the "now" line: glides when it is near and motion is welcome, else jumps. */
   const toNow = (focus: boolean) => {
     if (!scroller) return;
+    stopGlide?.();
     const left = nowAt();
     const near = Math.abs(scroller.scrollLeft - left) < 3 * viewWidth;
     scroller.scrollTo({ left, behavior: near && !motion().reduced ? "smooth" : "instant" });
@@ -708,7 +711,7 @@ export function BlockStrip(props: {
         class="home-strip__scroller"
         ref={(el) => {
           scroller = el;
-          dragScroll(el);
+          stopGlide = dragScroll(el);
         }}
       >
         <div class="home-strip__track">
