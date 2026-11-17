@@ -346,23 +346,28 @@ export function flowPoints(h: History) {
   const entered = mean((g) => g.in);
   const mined = mean((g) => g.mined);
   const other = mean((g) => g.other);
+  // `null` is a break: the paths never join across one, however near its neighbours stand.
   const drawn = {
     x: [] as number[],
-    entered: [] as number[],
-    mined: [] as number[],
-    other: [] as number[],
+    entered: [] as (number | null)[],
+    mined: [] as (number | null)[],
+    other: [] as (number | null)[],
   };
-  const add = (t: number, i: number) => {
+  const add = (t: number, i: number | null) => {
     drawn.x.push(t);
-    drawn.entered.push(entered[i] ?? 0);
-    drawn.mined.push(mined[i] ?? 0);
-    drawn.other.push(other[i] ?? 0);
+    drawn.entered.push(i === null ? null : (entered[i] ?? 0));
+    drawn.mined.push(i === null ? null : (mined[i] ?? 0));
+    drawn.other.push(i === null ? null : (other[i] ?? 0));
   };
+  const runOf = (i: number) => keys[i]?.split(":")[0];
   for (const [i, p] of ps.entries()) {
     add(p.time, i);
-    // The end of a run: its last value holds to the end of its step, inside the period.
-    if (keys[i + 1]?.split(":")[0] !== keys[i]?.split(":")[0]) {
-      add(Math.min(p.time + h.step, h.to), i);
+    // The end of a run: its last value holds to the end of its step, inside the period, and
+    // the next run starts after a break.
+    if (runOf(i + 1) !== runOf(i)) {
+      const end = Math.min(p.time + h.step, h.to);
+      add(end, i);
+      if (i + 1 < ps.length) add(end, null);
     }
   }
   return { step, entered, mined, other, drawn };

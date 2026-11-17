@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { runs } from "../../components/chart/geometry";
 import {
   coverageSentence,
   crosshair,
@@ -216,9 +217,15 @@ describe("the flow drawn", () => {
     const { drawn } = flowPoints(history({ points }));
     expect(drawn.x.slice(-3)).toStrictEqual([T0 + 540, T0 + 600, T0 + 660]);
     expect(drawn.mined.slice(-3)).toStrictEqual([0, 200, 200]);
-    // A break: each run's last value holds over its minute, never into the gap.
-    const broken = flowPoints(history({ points: [point(T0), point(T0 + 1200)] })).drawn;
-    expect(broken.x).toStrictEqual([T0, T0 + 60, T0 + 1200, T0 + 1260]);
+    // A break (six minutes missing, the fewest that break): each run's last value holds over its
+    // minute, then a break the paths never join across, though the next point is only 6 min on.
+    const broken = flowPoints(history({ points: [point(T0), point(T0 + 420)] })).drawn;
+    expect(broken.x).toStrictEqual([T0, T0 + 60, T0 + 60, T0 + 420, T0 + 480]);
+    expect(broken.entered).toStrictEqual([100, 100, null, 100, 100]);
+    expect(runs(broken.x, (i) => broken.entered[i] !== null, 360)).toStrictEqual([
+      [0, 1],
+      [3, 4],
+    ]);
     // Never past the period's end.
     const end = flowPoints(history({ to: T0 + 30, points: [point(T0)] })).drawn;
     expect(end.x).toStrictEqual([T0, T0 + 30]);

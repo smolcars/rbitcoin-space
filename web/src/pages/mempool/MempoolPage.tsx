@@ -355,7 +355,7 @@ function Plot(props: {
     const yAxis = linearAxis(0, extent(stack.at(-1)?.hi ?? [])?.[1] ?? 1, narrow ? 3 : 5, true);
     const F = props.flow;
     const D = F.drawn;
-    const outTop = D.mined.map((m, i) => m + (D.other[i] ?? 0));
+    const outTop = D.mined.map((m, i) => (m === null ? null : m + (D.other[i] ?? 0)));
     const fAxis = linearAxis(0, extent(D.entered, outTop)?.[1] ?? 1, 2, true);
     const yLabels = yAxis.ticks.map((t) => formatSi(t, "vB"));
     const fLabels = fAxis.ticks.map((t) => formatSi(t, ""));

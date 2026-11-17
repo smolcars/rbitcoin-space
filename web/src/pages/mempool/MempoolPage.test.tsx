@@ -79,6 +79,9 @@ describe("mempool history page", () => {
     expect(subpaths(drawnLayers[0]?.getAttribute("d"))).toBe(2);
     expect(subpaths(drawnLayers[6]?.getAttribute("d"))).toBe(2);
     expect(drawnLayers[6]?.getAttribute("style")).toContain("fill: var(--fee-7)");
+    // The flow breaks in the same place, and only there.
+    expect(subpaths(chart.querySelector(".mempool-flow-in")?.getAttribute("d"))).toBe(2);
+    expect(subpaths(chart.querySelector(".mempool-flow-mined")?.getAttribute("d"))).toBe(2);
   });
 
   it("shows a period with a single point", async () => {
