@@ -173,6 +173,18 @@ describe("mining page", () => {
     expect(requests.some((p) => p.includes("reward-stats"))).toBe(false);
   });
 
+  it("shows no reward totals when they fail, and offers a retry", async () => {
+    replies["/v1/mining/reward-stats/40"] = () => Response.json({ error: "boom" }, { status: 500 });
+    const el = mount(() => <MiningPage />, "/mining");
+    const retry = () =>
+      [...el.querySelectorAll("button")].find((b) => b.textContent === "Could not load. Try again");
+    await vi.waitFor(() => expect(retry()).toBeDefined());
+    expect(text(el)).not.toContain("126.00 BTC");
+    replies["/v1/mining/reward-stats/40"] = () => Response.json(REWARDS);
+    retry()?.click();
+    await vi.waitFor(() => expect(text(el)).toContain("126.00 BTC"));
+  });
+
   it("says plainly when the server keeps no mining history", async () => {
     replies["/v1/mining/pools/1w"] = () =>
       Response.json(

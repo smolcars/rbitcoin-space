@@ -196,13 +196,19 @@ function Figures(props: {
 }) {
   const now = useNow();
   const h = () => props.hashrates.answer()?.value;
-  const blocks = () => props.ranking.answer();
+  // A failed load keeps the last answer: never show it as the new period's.
+  const blocks = () => (props.ranking.error() === undefined ? props.ranking.answer() : undefined);
   const period = (): Period => answeredPeriod(blocks()) ?? props.period;
   const last = () => props.past.answer()?.value[0];
   const n = () => props.next.answer()?.value;
+  /** The totals for the blocks counted now: none while another count's answer is all there is. */
   const pay = () => {
-    const a = props.rewards.answer()?.value;
-    return props.rewardCount > 0 && a ? rewardFigures(a) : undefined;
+    const a = props.rewards.answer();
+    const fresh =
+      props.rewardCount > 0 &&
+      props.rewards.error() === undefined &&
+      a?.path === `/v1/mining/reward-stats/${props.rewardCount}`;
+    return fresh ? rewardFigures(a.value) : undefined;
   };
   /** A figure that failed or has nothing to count reads as a dash; one still loading is blank. */
   const dash = (failed: unknown) => (failed === undefined ? "" : MISSING);
@@ -302,7 +308,16 @@ function Figures(props: {
         <Fig
           label="Paid to miners"
           sub={
-            <Show when={pay()}>
+            <Show
+              when={pay()}
+              fallback={
+                <Show when={props.rewards.error() !== undefined && props.rewardCount > 0}>
+                  <button class="mining-retry" type="button" onClick={() => props.rewards.retry()}>
+                    Could not load. Try again
+                  </button>
+                </Show>
+              }
+            >
               {(f) => (
                 <Show
                   when={(blocks()?.value.blockCount ?? 0) <= REWARD_MAX}

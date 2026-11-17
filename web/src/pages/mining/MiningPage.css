@@ -698,3 +698,22 @@
     }
   }
 }
+
+@layer pages {
+  /* A figure that failed: its retry is the line under it, a thumb's height on a phone. */
+  .mining-retry {
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    color: var(--color-text);
+    text-decoration: underline;
+    text-align: left;
+    cursor: pointer;
+  }
+  @media (max-width: 40em) {
+    .mining-retry {
+      min-height: 44px;
+    }
+  }
+}
