@@ -74,6 +74,57 @@ test("the strip scrolls right into the past, down to block 0, and back to now", 
   await expect(lane.getByRole("link", { name: /^Block 110,/ })).toBeInViewport();
 });
 
+test("a mouse drags the strip into the past, it glides on, and a drag opens no block", async ({
+  page,
+}) => {
+  await page.goto("/regtest/");
+  const lane = page.getByRole("list", { name: "Mined blocks, newest first" });
+  const scroller = page.locator(".home-strip__scroller");
+  await expect(lane.getByRole("link").first()).toHaveAccessibleName(/^Block 110,/);
+  const left = () => scroller.evaluate((el) => el.scrollLeft);
+  // No bar to aim for: the strip is moved by hand.
+  expect(
+    await scroller.evaluate(
+      (el) => (el instanceof HTMLElement ? el.offsetHeight : 0) - el.clientHeight,
+    ),
+  ).toBe(0);
+
+  // Pressed on a tile and pulled left, held still, let go: it moved with the hand, and stays.
+  const tile = await lane.getByRole("link").first().boundingBox();
+  if (!tile) throw new Error("no tile");
+  const y = tile.y + tile.height / 2;
+  const x = Math.min(tile.x + tile.width / 2 + 200, (page.viewportSize()?.width ?? 0) - 10);
+  const start = await left();
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x - 250, y, { steps: 10 });
+  await expect(scroller).toHaveAttribute("data-dragging", "");
+  expect(await left()).toBeCloseTo(start + 250, -1);
+  await page.waitForTimeout(150);
+  await page.mouse.up();
+  await expect(scroller).not.toHaveAttribute("data-dragging");
+  expect(await left()).toBeCloseTo(start + 250, -1);
+  await expect(page).toHaveURL(/\/regtest\/$/);
+
+  // A flick: it glides on past where the hand stopped, into blocks loaded from the past.
+  const flicked = await left();
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x - 200, y, { steps: 4 });
+  await page.mouse.up();
+  await expect.poll(left).toBeGreaterThan(flicked + 400);
+  await expect(page).toHaveURL(/\/regtest\/$/);
+  await expect(page.getByRole("button", { name: "Back to now" })).toBeVisible();
+  await expect(lane.getByRole("link", { name: /^Block 9\d,/ }).first()).toBeInViewport();
+
+  // A press that does not move is still a click on the block.
+  const old = lane.getByRole("link", { name: /^Block 9\d,/ }).first();
+  // Once the glide has run out.
+  await expect(scroller).not.toHaveAttribute("data-dragging");
+  await old.click();
+  await expect(page).toHaveURL(/\/regtest\/block\//);
+});
+
 test("each tile shows its fee gauge and figures, and a coinbase-only block says so", async ({
   page,
 }) => {

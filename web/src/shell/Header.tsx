@@ -7,6 +7,7 @@ import { Logo } from "./Logo";
 import { NetworkSwitch } from "./NetworkSwitch";
 import { ThemeToggle } from "./ThemeToggle";
 import "./Header.css";
+import { dragScroll } from "../components/dragScroll";
 
 const NAV = [
   { href: "/blocks", label: "Blocks", match: (p: string) => /^\/blocks?(\/|$)/.test(p) },
@@ -110,7 +111,7 @@ export function Header(props: {
         <div class="site-header__search">
           <SearchField ref={(el) => (search = el)} />
         </div>
-        <nav class="nav" aria-label="Main">
+        <nav class="nav" aria-label="Main" ref={(el) => dragScroll(el)}>
           {nav().map((item) => (
             // "true", the current section, not "page": the router marks and unmarks "page" on
             // links whose address is exactly the page's, and took the mark off when a query

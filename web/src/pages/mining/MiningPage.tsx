@@ -72,6 +72,7 @@ import { Adjustments, Change } from "./Adjustments";
 import { HealthChart } from "./Health";
 import { RecentBlocks, tileAge } from "./RecentBlocks";
 import "./MiningPage.css";
+import { dragScroll } from "../../components/dragScroll";
 
 /** Charts are shorter on a phone, so the hashrate fits whole on its first screen. */
 const narrow = (): boolean =>
@@ -637,7 +638,7 @@ function OverTime(props: { period: Period; network: Network; ranking: MiningData
   return (
     <section class="mining-section" aria-labelledby="mining-blocks-title">
       <SectionHeader title="Blocks over time" id="mining-blocks-title">
-        <div class="mining-tabs" role="group" aria-label="Show">
+        <div class="mining-tabs" role="group" aria-label="Show" ref={(el) => dragScroll(el)}>
           <For each={offered()}>
             {(t) => (
               <button

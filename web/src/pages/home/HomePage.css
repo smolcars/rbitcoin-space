@@ -42,7 +42,8 @@
     position: relative;
     overflow-x: auto;
     overscroll-behavior-x: contain;
-    scrollbar-width: thin;
+    /* Moved by a drag, a swipe, the wheel or the keys, not a bar (components/dragScroll.ts). */
+    scrollbar-width: none;
     /* Room above for the "now" label and the crossing tile's lift. */
     padding-block: var(--space-6) var(--space-2);
     padding-inline: max(var(--gutter), var(--safe-l)) max(var(--gutter), var(--safe-r));
@@ -54,6 +55,9 @@
       #000 calc(100% - var(--space-5)),
       transparent
     );
+  }
+  .home-strip__scroller::-webkit-scrollbar {
+    display: none;
   }
   .home-strip__track {
     display: flex;

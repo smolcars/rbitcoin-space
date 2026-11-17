@@ -72,6 +72,7 @@ import {
   Tag,
   usePhone,
 } from "./parts";
+import { dragScroll } from "../../components/dragScroll";
 
 /** How long typing must pause before the filter asks, as the header's search waits. */
 export const FILTER_WAIT_MS = 280;
@@ -473,7 +474,10 @@ export function OpenList(props: ListProps) {
           class="ln-node-chips"
           role="group"
           aria-label="Channel state"
-          ref={(el) => scrollCue(el)}
+          ref={(el) => {
+            scrollCue(el);
+            dragScroll(el);
+          }}
         >
           <Link
             class="btn ln-node-chip"
@@ -905,7 +909,10 @@ export function ClosedList(props: ListProps) {
             class="ln-node-chips"
             role="group"
             aria-label="Kind of close"
-            ref={(el) => scrollCue(el)}
+            ref={(el) => {
+              scrollCue(el);
+              dragScroll(el);
+            }}
           >
             <Link
               class="btn ln-node-chip"

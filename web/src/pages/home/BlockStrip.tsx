@@ -58,6 +58,7 @@ import {
 } from "./projection";
 import { ProjectedTile, projectedLayers, sameLayers, TILE_LAYER_MIN } from "./ProjectedTile";
 import { createSummaries, type TileFacts } from "./summaries";
+import { dragScroll } from "../../components/dragScroll";
 
 const MAX_WEIGHT = 4_000_000;
 /** Projected tiles on screen, not the ones fading out. */
@@ -703,7 +704,13 @@ export function BlockStrip(props: {
         </Show>
         <LiveIndicator status={props.status} stale={props.stale} />
       </div>
-      <div class="home-strip__scroller" ref={scroller}>
+      <div
+        class="home-strip__scroller"
+        ref={(el) => {
+          scroller = el;
+          dragScroll(el);
+        }}
+      >
         <div class="home-strip__track">
           <div class="home-strip__upcoming" ref={upcoming}>
             <p class="home-strip__pending">{note()}</p>

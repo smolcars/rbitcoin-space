@@ -594,7 +594,11 @@
     grid-template-columns: repeat(10, minmax(6.5rem, 1fr));
     overflow-x: auto;
     scroll-snap-type: x proximity;
-    scrollbar-width: thin;
+    /* Moved by a drag, a swipe, the wheel or the keys, not a bar (components/dragScroll.ts). */
+    scrollbar-width: none;
+  }
+  .mining--overview .mining-tiles::-webkit-scrollbar {
+    display: none;
   }
   .mining--overview .mining-tiles > li {
     scroll-snap-align: start;

@@ -39,6 +39,7 @@ import {
 import { ClosedList, OpenList } from "./NodeChannels";
 import { FeeFigures, NodeFees, NodeHistory, RecentChanges } from "./NodeCharts";
 import { ask, Gate, LightningNav, rememberList, SatsFig, Stat, Tag } from "./parts";
+import { dragScroll } from "../../components/dragScroll";
 
 export default function NodePage() {
   const params = useParams<{ key: string }>();
@@ -124,7 +125,12 @@ function Body(props: { node: NodeDetail; network: Network }) {
       <div class="ln-node-views">
         {/* noscroll: a view change keeps the tabs where they are on screen. */}
         <nav class="ln-picker ln-node-tabs" aria-label="Node views">
-          <ul ref={(el) => scrollCue(el)}>
+          <ul
+            ref={(el) => {
+              scrollCue(el);
+              dragScroll(el);
+            }}
+          >
             <For each={NODE_VIEWS}>
               {(v) => (
                 <li>

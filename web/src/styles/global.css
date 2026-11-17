@@ -154,6 +154,22 @@
       transparent
     );
   }
+  /* A sideways scroller a mouse can drag (components/dragScroll.ts). */
+  @media (hover: hover) and (pointer: fine) {
+    [data-grab] {
+      cursor: grab;
+    }
+  }
+  /* Important, to win over the components' and pages' later layers while the hand is on it. */
+  [data-dragging],
+  [data-dragging] * {
+    cursor: grabbing !important;
+    user-select: none !important;
+  }
+  /* Snapping would pull against the hand and the glide; it settles once they end. */
+  [data-dragging] {
+    scroll-snap-type: none !important;
+  }
   /* A thumb's target round a small control on a touch screen, drawn nowhere and moving nothing:
      an invisible box at least --touch each way, centred on it (docs/DESIGN.md "Touch"). */
   @media (pointer: coarse) {
