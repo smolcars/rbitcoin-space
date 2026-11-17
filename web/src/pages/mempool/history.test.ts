@@ -183,20 +183,35 @@ describe("the flow drawn", () => {
     );
     const f = flowPoints(history({ points }));
     expect(f.step).toBe(600);
-    expect(f.x).toStrictEqual([T0, T0 + 600]);
-    // Minutes 1 to 10 arrive at 100 to 1,000 vB/s: a mean of 550.
-    expect(f.entered[0]).toBeCloseTo(550);
-    expect(f.mined[0]).toBeCloseTo(60);
-    expect(f.other[0]).toBeCloseTo(10);
-    // The last two minutes are a group of their own.
-    expect(f.entered[1]).toBeCloseTo(1150);
+    // Each point holds its ten minutes' mean: minutes 1 to 10 arrive at 100 to 1,000 vB/s, 550.
+    expect(f.entered).toHaveLength(12);
+    for (const i of [0, 3, 9]) {
+      expect(f.entered[i]).toBeCloseTo(550);
+      expect(f.mined[i]).toBeCloseTo(60);
+      expect(f.other[i]).toBeCloseTo(10);
+    }
+    // The last two minutes, through the newest, are a group of their own.
+    expect(f.entered[10]).toBeCloseTo(1150);
+    expect(f.entered[11]).toBeCloseTo(1150);
+  });
+
+  it("never averages across a break in recording", () => {
+    // Six minutes missing inside one ten minutes: the size breaks there, and so does the mean.
+    const h = history({
+      points: [point(T0, { in_vsize: 6000 }), point(T0 + 420, { in_vsize: 18_000 })],
+    });
+    expect(flowPoints(h).entered).toStrictEqual([100, 300]);
+    // Five missing are bridged, and share a mean.
+    const bridged = history({
+      points: [point(T0, { in_vsize: 6000 }), point(T0 + 360, { in_vsize: 18_000 })],
+    });
+    expect(flowPoints(bridged).entered).toStrictEqual([200, 200]);
   });
 
   it("draws coarser steps as recorded", () => {
     const h = history({ step: 3600, points: [point(T0), point(T0 + 3600, { in_vsize: 12_000 })] });
     const f = flowPoints(h);
     expect(f.step).toBe(3600);
-    expect(f.x).toStrictEqual([T0, T0 + 3600]);
     expect(f.entered).toStrictEqual([100, 200]);
   });
 });
@@ -246,24 +261,21 @@ describe("the fee filter", () => {
 });
 
 describe("the crosshair", () => {
-  it("reads the flow point whose ten minutes hold the point under it, and what the shown bands hold", () => {
-    const points = Array.from({ length: 20 }, (_, i) => point(T0 + i * 60));
+  it("reads both strips at the one point: the bands shown and its ten minutes' flow", () => {
+    // Arrivals at 100 vB/s in the first ten minutes, 300 vB/s in the next.
+    const points = Array.from({ length: 20 }, (_, i) =>
+      point(T0 + i * 60, { in_vsize: i < 10 ? 6000 : 18_000 }),
+    );
     const h = history({ points });
     const s = seriesOf(h);
     const f = flowPoints(h);
-    expect(crosshair(h, s, f, 3, 0)?.flow).toBe(0);
-    expect(crosshair(h, s, f, 13, 0)?.flow).toBe(1);
+    expect(crosshair(h, s, f, 3, 0)?.flow.entered).toBe(100);
+    expect(crosshair(h, s, f, 13, 0)?.flow.entered).toBe(300);
     expect(crosshair(h, s, f, 13, 0)?.point.time).toBe(T0 + 780);
     // The test point holds 100 kvB under 0.12, 50 kvB at 0.5 to 1 and 400 kvB at 1 to 1.5.
     expect(crosshair(h, s, f, 13, 0)?.shown).toBe(550_000);
     expect(crosshair(h, s, f, 13, 6)?.shown).toBe(400_000);
     expect(crosshair(h, s, f, 20, 0)).toBeUndefined();
-  });
-
-  it("finds no flow where its ten minutes are missing", () => {
-    const h = history({ points: [point(T0), point(T0 + 1200)] });
-    const f = { ...flowPoints(h), x: [T0] };
-    expect(crosshair(h, seriesOf(h), f, 1, 0)?.flow).toBe(-1);
   });
 });
 

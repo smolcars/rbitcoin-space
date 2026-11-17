@@ -307,36 +307,46 @@ export function figures(h: History) {
 
 /** The flow reads in means over this many seconds when the answer is finer: about a block. */
 export const FLOW_STEP = 600;
+/** The longest run of missing steps drawn across rather than as a break. */
+export const BRIDGE_STEPS = 5;
 
 /**
- * The flow's points in vB a second: what arrived, what blocks took and what left otherwise. A
- * minute holds one block or none, so a finer answer is read in ten-minute means weighted by the
- * minutes seen, else a block's minute dwarfs what arrives. Coarser answers are drawn as recorded.
+ * The flow at each point in vB a second: what arrived, what blocks took and what left otherwise.
+ * A minute holds one block or none, so a finer answer gives each point the mean of its ten
+ * minutes, weighted by the minutes seen, else a block's minute dwarfs what arrives; coarser
+ * answers are as recorded. A break in recording ends a mean, so none reaches across one, and the
+ * values stand at the points' own times, so the flow breaks and ends where the size does.
  */
 export function flowPoints(h: History) {
   const step = Math.max(h.step, FLOW_STEP);
-  const groups = new Map<number, { n: number; in: number; mined: number; other: number }>();
-  for (const p of h.points) {
-    const t = Math.floor(p.time / step) * step;
-    const g = groups.get(t) ?? { n: 0, in: 0, mined: 0, other: 0 };
+  const gap = h.step * (BRIDGE_STEPS + 1);
+  const ps = h.points;
+  let run = 0;
+  const keys = ps.map((p, i) => {
+    if (i > 0 && p.time - (ps[i - 1]?.time ?? p.time) > gap) run += 1;
+    return `${run}:${Math.floor(p.time / step)}`;
+  });
+  const groups = new Map<string, { n: number; in: number; mined: number; other: number }>();
+  for (const [i, p] of ps.entries()) {
+    const key = keys[i] ?? "";
+    const g = groups.get(key) ?? { n: 0, in: 0, mined: 0, other: 0 };
     g.n += p.samples;
     g.in += p.in_vsize * p.samples;
     g.mined += p.mined_vsize * p.samples;
     g.other += Math.max(0, p.out_vsize - p.mined_vsize) * p.samples;
-    groups.set(t, g);
+    groups.set(key, g);
   }
-  const x: number[] = [];
-  const entered: number[] = [];
-  const mined: number[] = [];
-  const other: number[] = [];
-  for (const [t, g] of groups) {
-    if (g.n === 0) continue;
-    x.push(t);
-    entered.push(g.in / g.n / 60);
-    mined.push(g.mined / g.n / 60);
-    other.push(g.other / g.n / 60);
-  }
-  return { step, x, entered, mined, other };
+  const mean = (pick: (g: { in: number; mined: number; other: number }) => number) =>
+    keys.map((k) => {
+      const g = groups.get(k);
+      return g && g.n > 0 ? pick(g) / g.n / 60 : 0;
+    });
+  return {
+    step,
+    entered: mean((g) => g.in),
+    mined: mean((g) => g.mined),
+    other: mean((g) => g.other),
+  };
 }
 
 export type Series = ReturnType<typeof seriesOf>;
@@ -386,15 +396,15 @@ export function layersFrom(s: Series, floor: number) {
 }
 
 /**
- * What the crosshair reads at point `i`: the point, what of it the shown bands hold, and the flow
- * point whose span holds its time (-1 where the flow has none), so one crosshair reads both charts.
+ * What the crosshair reads at point `i` in both strips: the point, what of it the shown bands
+ * hold, and the flow there (the flow's values stand at the same points as the size's).
  */
 export function crosshair(h: History, s: Series, f: Flow, i: number, floor: number) {
   const p = h.points[i];
   if (!p) return undefined;
-  const bucket = Math.floor(p.time / f.step) * f.step;
   const shown =
     (floor === 0 ? (s.unsplit?.[i] ?? 0) : 0) +
     s.bands.reduce((sum, b, k) => (k >= floor ? sum + (b[i] ?? 0) : sum), 0);
-  return { point: p, shown, flow: f.x.indexOf(bucket) };
+  const flow = { entered: f.entered[i] ?? 0, mined: f.mined[i] ?? 0, other: f.other[i] ?? 0 };
+  return { point: p, shown, flow };
 }

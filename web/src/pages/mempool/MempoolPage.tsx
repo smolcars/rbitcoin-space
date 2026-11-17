@@ -28,6 +28,7 @@ import {
 import { type Network, paths } from "../../lib/network";
 import { useNetwork, usePageTitle } from "../../lib/page";
 import {
+  BRIDGE_STEPS,
   bandName,
   coverageSentence,
   crosshair,
@@ -273,8 +274,6 @@ function Figures(props: { h: History }) {
 }
 
 const PHONE = "(max-width: 40em)";
-/** The longest run of missing steps drawn across rather than as a break. */
-const BRIDGE_STEPS = 5;
 const STRIP = "Flow, vB/s: arrived and left";
 const STRIP_SHORT = "Flow, vB/s";
 const NO_DATA = "No data stored";
@@ -396,7 +395,6 @@ function Plot(props: {
     });
     // A few missing minutes are bridged; points either side of n missing steps stand n + 1 apart.
     const gap = h.step * (BRIDGE_STEPS + 1);
-    const fgap = F.step === h.step ? gap : F.step * 1.5;
     const room = w - ml - mr;
     const ticks = room < TICKS_FROM ? undefined : timeTicks(from, h.to, Math.floor(room / 96));
     const hatchTo = props.from === undefined ? dataFrom(h) : undefined;
@@ -421,9 +419,10 @@ function Plot(props: {
       sy,
       yTicks: yAxis.ticks.map((t, k) => ({ y: Math.round(sy(t)) + 0.5, label: yLabels[k] ?? "" })),
       fTicks: fAxis.ticks.map((t, k) => ({ y: Math.round(fy(t)) + 0.5, label: fLabels[k] ?? "" })),
-      mined: areaPath(F.x, F.mined, 0, sx, fy, fgap, 1.5, undefined, true),
-      other: areaPath(F.x, outTop, F.mined, sx, fy, fgap, 1.5, undefined, true),
-      entered: linePath(F.x, F.entered, sx, fy, fgap, true),
+      // Each point holds its ten minutes' mean, so the means step at their edges.
+      mined: areaPath(x, F.mined, 0, sx, fy, gap, 1.5, undefined, true),
+      other: areaPath(x, outTop, F.mined, sx, fy, gap, 1.5, undefined, true),
+      entered: linePath(x, F.entered, sx, fy, gap, true),
       ticks: ticks?.ticks.map((t) => {
         const at = sx(t);
         // A label near an end stays on the plot.
@@ -457,7 +456,6 @@ function Plot(props: {
   ];
   const offered = () => filterFrom(props.s);
   const shownBand = (k: number) => (k === -1 ? floor() === 0 : k >= floor());
-  const flowAt = (i: number, values: readonly number[]) => (i < 0 ? "–" : rateText(values[i] ?? 0));
 
   const pick = (e: PointerEvent) => {
     const f = frame();
@@ -496,7 +494,6 @@ function Plot(props: {
     const a = at();
     if (!a) return "";
     const p = a.point;
-    const F = props.flow;
     const bands = rows()
       .filter((k) => shownBand(k) && (k !== -1 || bandValue(-1) > 0))
       .map((k) =>
@@ -510,9 +507,9 @@ function Plot(props: {
       `Transactions ${groupDigits(p.count)}`,
       `Lowest accepted ${formatFeeRate(p.min_fee_rate / 1000)} sat/vB`,
       ...bands,
-      `Arrived ${flowAt(a.flow, F.entered)}`,
-      `Mined ${flowAt(a.flow, F.mined)}`,
-      `Left otherwise ${flowAt(a.flow, F.other)}`,
+      `Arrived ${rateText(a.flow.entered)}`,
+      `Mined ${rateText(a.flow.mined)}`,
+      `Left otherwise ${rateText(a.flow.other)}`,
     ].join(", ");
   };
   const choose = (k: number) => {
@@ -738,17 +735,17 @@ function Plot(props: {
           <li>
             <span class="mempool-key mempool-key--in" />
             Arrived
-            <span class="num">{flowAt(at()?.flow ?? -1, props.flow.entered)}</span>
+            <span class="num">{rateText(at()?.flow.entered ?? 0)}</span>
           </li>
           <li>
             <span class="mempool-key mempool-key--mined" />
             Mined
-            <span class="num">{flowAt(at()?.flow ?? -1, props.flow.mined)}</span>
+            <span class="num">{rateText(at()?.flow.mined ?? 0)}</span>
           </li>
           <li>
             <span class="mempool-key mempool-key--other" />
             Left otherwise
-            <span class="num">{flowAt(at()?.flow ?? -1, props.flow.other)}</span>
+            <span class="num">{rateText(at()?.flow.other ?? 0)}</span>
           </li>
         </ul>
       </div>

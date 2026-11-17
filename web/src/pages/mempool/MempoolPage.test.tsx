@@ -114,8 +114,13 @@ describe("mempool history page", () => {
       }),
     );
     const el = mount(() => <MempoolPage />, "/mempool");
-    await drawn(el);
+    const chart = await drawn(el);
     expect(text(el)).toMatch(/Recorded since 12 Nov( 2026)?, 15:00 UTC\./);
+    // The flow starts where the records do, not at its ten minutes' start, left of the plot.
+    const flowStart = /^M([\d.]+)/.exec(
+      chart.querySelector(".mempool-flow-in")?.getAttribute("d") ?? "",
+    );
+    expect(Number(flowStart?.[1])).toBeGreaterThanOrEqual(52);
     expect(text(el)).not.toContain("No data stored");
     // The choice marked is "Recorded", not "24 h", which means the whole day.
     expect(el.querySelector(".periods [aria-current=page]")?.textContent).toBe(
