@@ -633,6 +633,7 @@
   }
   .tx-strip__mined {
     flex-grow: var(--m);
+    flex-direction: row-reverse;
   }
   .tx-strip__slot {
     flex: 1 1 0;

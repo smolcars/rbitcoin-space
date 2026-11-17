@@ -103,6 +103,8 @@ export function Strip(props: { place: StripPlace; color: string; landed: boolean
         </Show>
       </span>
       <span class="tx-strip__now" />
+      {/* Its own block first, drawn farthest right: a later block adds a cell nearer the line,
+          and the cell that landed stays the same element, so the landing never plays again. */}
       <span class="tx-strip__mined">
         <For each={cells(props.place.mined)}>
           {(i) => (
@@ -110,8 +112,8 @@ export function Strip(props: { place: StripPlace; color: string; landed: boolean
               class={[
                 "tx-strip__slot tx-strip__slot--mined",
                 {
-                  "is-here": props.place.projected + i === props.place.here,
-                  "is-landed": props.landed && props.place.projected + i === props.place.here,
+                  "is-here": props.place.projected + props.place.mined - 1 - i === props.place.here,
+                  "is-landed": props.landed && i === 0,
                 },
               ]}
             />

@@ -155,7 +155,8 @@ describe("TransactionPage", () => {
     expect(text(el)).toContain("3 of 6 confirmations");
     // Mined three blocks ago: across the "now" line, two blocks found since beside it.
     expect(el.querySelectorAll(".tx-strip__slot--mined")).toHaveLength(3);
-    expect(el.querySelector(".tx-strip__slot--mined:last-child")?.classList).toContain("is-here");
+    // Its own block is drawn farthest right (the lane runs right to left).
+    expect(el.querySelector(".tx-strip__slot--mined:first-child")?.classList).toContain("is-here");
     // 141 sats over ceil(561 / 4) = 141 vB, said once, in the fee rate's figure.
     const fee = text(el.querySelector(".tx-answer__cell--fee") as Element);
     expect(fee).toContain("1.00 sat/vB");
@@ -267,7 +268,8 @@ describe("TransactionPage", () => {
     expect(el.querySelector(".tx-status")?.textContent).toBe("Confirmed");
     // The square crosses the line and lands in its block, once.
     expect(el.querySelector(".tx-strip__marker")).toBeNull();
-    expect(el.querySelector(".tx-strip__slot.is-landed")).not.toBeNull();
+    const landed = el.querySelector(".tx-strip__slot.is-landed");
+    expect(landed).not.toBeNull();
     expect(text(el.querySelector(".tx-answer__cell--where") as Element)).toContain("block 975 516");
     expect(live(el)).toBe("Confirmed in block 975 516.");
     // The tip from the blocks topic counts the confirmations, and the strip follows.
@@ -275,6 +277,9 @@ describe("TransactionPage", () => {
     await settle();
     expect(text(el)).toContain("2 of 6 confirmations");
     expect(el.querySelectorAll(".tx-strip__slot--mined")).toHaveLength(2);
+    // It landed once: a later block adds a cell, and the one that landed is the same element.
+    expect(el.querySelectorAll(".tx-strip__slot.is-landed")).toHaveLength(1);
+    expect(el.querySelector(".tx-strip__slot.is-landed")).toBe(landed);
   });
 
   it("falls back to checking over HTTP when the live channel drops, and says so", async () => {
