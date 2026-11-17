@@ -95,9 +95,25 @@ describe("createReplacements", () => {
     expect((asks[1] ?? 0) - (asks[0] ?? 0)).toBeGreaterThanOrEqual(4500);
   });
 
+  it("shows the list the page already holds at once when opened again, then asks within the gap", async () => {
+    await vi.advanceTimersByTimeAsync(30_000);
+    mount(() => <Probe />, "/regtest/");
+    FakeSocket.last().hello();
+    version(1);
+    await vi.waitFor(() => expect(feeds[0]?.stories()).toStrictEqual([]));
+    const before = asks.length;
+    // The reader comes back to the page a moment later: the topic says nothing new.
+    await vi.advanceTimersByTimeAsync(200);
+    mount(() => <Probe />, "/regtest/");
+    expect(feeds[1]?.stories()).toStrictEqual([]);
+    expect(asks).toHaveLength(before);
+    await vi.advanceTimersByTimeAsync(1400);
+    expect(asks).toHaveLength(before + 1);
+  });
+
   it("asks the server, never the browser's cache, which can hold the list from before a change", async () => {
     // Past the wait the tests before left: asks are remembered page-wide, on a clock they ran ahead.
-    await vi.advanceTimersByTimeAsync(30_000);
+    await vi.advanceTimersByTimeAsync(60_000);
     mount(() => <Probe />, "/regtest/");
     FakeSocket.last().hello();
     version(1);

@@ -276,3 +276,25 @@ test.describe("in a wide face", () => {
     }
   });
 });
+
+// The panel used to show its placeholder rows on the next page for up to 10 s: it waited out the
+// gap since the last ask, and for the topic's first message, which a socket already subscribed
+// never sends again. It now shows the list the page already holds at once.
+test("the recent replacements panel shows the list it holds at once on the next page", async ({
+  page,
+}) => {
+  await recorded(page);
+  const newest = (RECORDED.all[0]?.tx.txid ?? "").slice(0, 8);
+  const top = page
+    .getByRole("table", { name: "The newest replacements, newest first" })
+    .locator("tbody tr")
+    .first();
+  await page.goto("/regtest/");
+  await expect(top).toContainText(newest);
+  await page.getByRole("navigation").getByRole("link", { name: "Mempool", exact: true }).click();
+  await expect(page).toHaveURL(/\/regtest\/mempool$/);
+  await expect(top).toContainText(newest, { timeout: 1000 });
+  await page.goBack();
+  await expect(page).toHaveURL(/\/regtest\/$/);
+  await expect(top).toContainText(newest, { timeout: 1000 });
+});

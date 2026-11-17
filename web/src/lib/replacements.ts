@@ -163,6 +163,11 @@ export const replacementsTopic: Topic<ReplacementsMessage> = {
  * the change (docs/FRONTEND.md "Following live data").
  */
 const asked = new Map<string, number>();
+/**
+ * The last answer to each list, page-wide, so a feed opened again (the reader came back to the
+ * home page, or went on to the mempool page) shows it at once while it asks for a newer one.
+ */
+const answers = new Map<string, Tree[]>();
 
 /** Waits this long for the topic before asking over HTTP anyway. */
 export const TOPIC_WAIT_MS = 3000;
@@ -191,18 +196,12 @@ export function createReplacements(
   fullRbf: () => boolean,
   options: { gapMs: number; around?: () => (() => void) | undefined },
 ): Replacements {
-  const [stories, setStories] = createSignal<Story[]>();
-  const [error, setError] = createSignal<unknown>();
-  const [off, setOff] = createSignal(false);
-  const status = useLiveStatus();
-  let heard: number | undefined;
-  let controller: AbortController | undefined;
-  let again = false;
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  const listKey = (full: boolean) =>
+    `${network}${full ? "/v1/fullrbf/replacements" : "/v1/replacements"}`;
   let kept = new Map<string, [string, Story]>();
   let shownFull: boolean | undefined;
-
-  const apply = (trees: Tree[], full: boolean) => {
+  /** The trees as stories, reusing each one that did not change. */
+  const read = (trees: Tree[], full: boolean) => {
     const next = new Map<string, [string, Story]>();
     const list = trees.map((t) => {
       const key = JSON.stringify(t);
@@ -213,6 +212,22 @@ export function createReplacements(
     });
     kept = next;
     shownFull = full;
+    return list;
+  };
+  // A list this page already holds is shown at once and asked for again, within the gap: the
+  // topic sends no first message to a feed that joins while another is subscribed.
+  const held = answers.get(listKey(fullRbf()));
+  const [stories, setStories] = createSignal<Story[] | undefined>(held && read(held, fullRbf()));
+  const [error, setError] = createSignal<unknown>();
+  const [off, setOff] = createSignal(false);
+  const status = useLiveStatus();
+  let heard: number | undefined;
+  let controller: AbortController | undefined;
+  let again = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const apply = (trees: Tree[], full: boolean) => {
+    const list = read(trees, full);
     setOff(false);
     const after = options.around?.();
     setStories(list);
@@ -229,7 +244,7 @@ export function createReplacements(
     clearTimeout(timer);
     const full = fullRbf();
     const path = full ? "/v1/fullrbf/replacements" : "/v1/replacements";
-    const key = `${network}${path}`;
+    const key = listKey(full);
     const wait = (asked.get(key) ?? 0) + options.gapMs - Date.now();
     if (wait > 0) {
       timer = setTimeout(load, wait);
@@ -245,6 +260,7 @@ export function createReplacements(
           throw new ApiError(0, "The server sent a list this page cannot read.");
         }
         const trees = answer.map((t) => readTree(t)).filter((t): t is Tree => t !== undefined);
+        answers.set(key, trees);
         apply(trees, full);
       } catch (e: unknown) {
         if (c.signal.aborted) return;
@@ -293,6 +309,7 @@ export function createReplacements(
   });
 
   onSettled(() => {
+    if (held) load();
     // The topic's first message is the record as it stands; without one soon, ask anyway.
     const first = setTimeout(() => {
       if (heard === undefined && !off()) load();
