@@ -90,6 +90,8 @@ export interface CoinbaseTag {
   parts: TagPart[];
   /** The script bytes shown, as hex, for scripts with no text. */
   hex: string;
+  /** True when `parts` holds only the words; false when it is every visible character. */
+  words: boolean;
 }
 
 /** The scriptSig is at most 100 bytes by consensus; anything longer from the API is cut there. */
@@ -165,10 +167,111 @@ function isHeight(chunk: Chunk | undefined, height: number): boolean {
   );
 }
 
+// Merged mining's magic, which opens a commitment of hash bytes; its "mm" would join a word.
+const MERGED_MINING = [0xfa, 0xbe, 0x6d, 0x6d];
+
+/** A run of characters that are not text: shown as one counted run of dots. */
+const isHidden = (p: TagPart | undefined): p is { hidden: number } =>
+  p !== undefined && "hidden" in p;
+
+/** Appends to `parts`, joining a part to the one before it when they are of the same kind. */
+function append(parts: TagPart[], p: TagPart) {
+  const last = parts.at(-1);
+  if (isHidden(last) && "hidden" in p) last.hidden += p.hidden;
+  else if (last && "text" in last && "text" in p) last.text += p.text;
+  else parts.push({ ...p });
+}
+
+/**
+ * One pushed piece decoded as UTF-8: visible characters as text, anything else hidden; with
+ * `merged`, merged mining's magic is hidden whole, so its "mm" is never the start of a word.
+ */
+function decodeChunk(data: Uint8Array, decoder: TextDecoder, merged: boolean): TagPart[] {
+  const parts: TagPart[] = [];
+  let from = 0;
+  const decode = (bytes: Uint8Array) => {
+    for (const ch of decoder.decode(bytes))
+      append(parts, HIDDEN.test(ch) ? { hidden: 1 } : { text: ch });
+  };
+  if (merged)
+    for (let i = 0; i + MERGED_MINING.length <= data.length; i++) {
+      if (MERGED_MINING.some((b, k) => data[i + k] !== b)) continue;
+      decode(data.subarray(from, i));
+      append(parts, { hidden: MERGED_MINING.length });
+      from = i + MERGED_MINING.length;
+      i = from - 1;
+    }
+  decode(data.subarray(from));
+  return parts;
+}
+
+const utf8 = new TextEncoder();
+
+/** Characters in a string as a person counts them: code points, not UTF-16 units. */
+const chars = (s: string): number => s.match(/./gsu)?.length ?? 0;
+
+// ASCII punctuation rare in a tag, but as likely as any other byte in random data.
+const ODD = /["$%*+;<=>?[\\\]^`{|}~]/g;
+const ODD_END = /^["$%*+;<=>?[\\\]^`{|}~]|["$%*+;<=>?[\\\]^`{|}~]$/u;
+
+/**
+ * Whether a run of visible characters reads as something a person wrote rather than random bytes
+ * that happened to decode: 7 bytes or more, at most one rare punctuation mark in 8 bytes, and five
+ * letters or digits in a row (or two groups of three around `.`, `/` or `-`, or of two around a
+ * space), or three letters outside ASCII in a row, which random bytes almost never form.
+ */
+function isWords(text: string): boolean {
+  const bytes = utf8.encode(text).length;
+  return (
+    bytes >= 7 &&
+    (text.match(ODD)?.length ?? 0) <= Math.floor(bytes / 8) &&
+    (/[A-Za-z0-9]{5}|[A-Za-z0-9]{3}[./-][A-Za-z0-9]{3}|[A-Za-z0-9]{2} [A-Za-z0-9]{2}/.test(text) ||
+      /\p{L}{3}/u.test(text.replaceAll(/\p{ASCII}/gu, " ")))
+  );
+}
+
+/**
+ * A run with its stray ends dropped: a lone rare punctuation mark at either end ("AntPool965>"),
+ * and a letter or two outside a tag in slashes ("c/BTC.COM/", "/F2Pool/d"), which are a push's
+ * length byte or an extranonce's. Markup keeps its brackets: it has more than one such mark.
+ */
+function tidy(text: string): string {
+  const t = text.trim();
+  const odd = t.match(ODD)?.length ?? 0;
+  return (odd === 1 ? t.replace(ODD_END, "") : t)
+    .replace(/^[^/\s]{1,2}(?=\/.*\/)/u, "")
+    .replace(/(\/[^/]*\/)[^/\s]{1,2}$/u, "$1")
+    .replace(/^([^/]{4,}\/)[^/\s]{1,2}$/u, "$1");
+}
+
+/**
+ * The words in a coinbase, push by push: runs that do not read as words become hidden, hidden runs
+ * at either end are dropped, and it stops at the first long hidden run after the words, since what
+ * follows an extranonce is chance. Empty when nothing reads as words.
+ * Its limit: random bytes read as words about once in 700 runs of 20 (the test measures it), and a
+ * stray character beside a tag that is not in slashes stays ("Mined by AntPool616 Z").
+ */
+function wordsOf(chunks: TagPart[][]): TagPart[] {
+  const out: TagPart[] = [];
+  for (const parts of chunks)
+    for (const p of parts) {
+      const words = "text" in p ? tidy(p.text) : "";
+      append(out, "text" in p ? (isWords(words) ? { text: words } : { hidden: chars(p.text) }) : p);
+    }
+  let a = 0;
+  while (isHidden(out[a])) a++;
+  const cut = out.findIndex((p, k) => k > a && isHidden(p) && p.hidden >= 8);
+  const words = out.slice(a, cut === -1 ? out.length : cut);
+  if (isHidden(words.at(-1))) words.pop();
+  return words;
+}
+
 /**
  * The coinbase scriptSig as text. Each pushed piece is decoded as UTF-8; anything that would not
- * show or could disguise the text becomes a counted run of dots. Attacker-controlled: the result
- * is plain strings for text nodes, at most {@link TAG_MAX_BYTES} bytes' worth.
+ * show or could disguise the text becomes a counted run of dots. When some of it reads as words
+ * (a pool's name, a message), only the words are kept, so "Mined by Luxor" reads alone; otherwise
+ * every visible character is shown. Attacker-controlled: the result is plain strings for text
+ * nodes, at most {@link TAG_MAX_BYTES} bytes' worth.
  */
 export function coinbaseTag(scriptsigHex: string | undefined, height: number): CoinbaseTag | null {
   if (scriptsigHex === undefined) return null;
@@ -176,29 +279,25 @@ export function coinbaseTag(scriptsigHex: string | undefined, height: number): C
   if (!bytes) return null;
   const chunks = scriptChunks(bytes);
   if (isHeight(chunks[0], height)) chunks.shift();
-  const parts: TagPart[] = [];
-  const push = (p: TagPart) => {
-    const last = parts.at(-1);
-    if (last && "hidden" in last && "hidden" in p) last.hidden += p.hidden;
-    else if (last && "text" in last && "text" in p) last.text += p.text;
-    else parts.push(p);
-  };
   const decoder = new TextDecoder("utf-8", { fatal: false, ignoreBOM: true });
-  let readable = 0;
-  for (const { op, data } of chunks) {
-    // An opcode that pushes nothing is script, not text.
-    if (op > 0x4e) {
-      push({ hidden: 1 });
-      continue;
-    }
-    for (const ch of decoder.decode(data)) {
-      if (HIDDEN.test(ch)) push({ hidden: 1 });
-      else {
-        push({ text: ch });
-        if (ch.trim() !== "") readable++;
-      }
-    }
-  }
+  // Every visible character, push by push: what is shown when nothing reads as words.
+  const all: TagPart[] = [];
+  for (const { op, data } of chunks)
+    for (const p of op > 0x4e ? [{ hidden: 1 }] : decodeChunk(data, decoder, false)) append(all, p);
+  // Pushes are read one by one, so their length bytes never show. A coinbase need not be a valid
+  // script, though: from the first byte that pushes nothing, the rest is read as it is.
+  const raw = chunks.findIndex((c) => c.op > 0x4e);
+  const decoded = (raw === -1 ? chunks : chunks.slice(0, raw)).map((c) =>
+    decodeChunk(c.data, decoder, true),
+  );
+  const rest = chunks[raw];
+  if (rest) decoded.push(decodeChunk(bytes.subarray(rest.at), decoder, true));
+  const readable = all.reduce(
+    (n, p) => n + ("text" in p ? chars(p.text.replaceAll(/\s/gu, "")) : 0),
+    0,
+  );
+  const words = wordsOf(decoded);
+  const parts = words.length > 0 ? words : all;
   // Trailing space is invisible and leading space misaligns; neither carries meaning.
   const first = parts[0];
   if (first && "text" in first) first.text = first.text.trimStart();
@@ -207,6 +306,7 @@ export function coinbaseTag(scriptsigHex: string | undefined, height: number): C
   const shown = bytes.subarray(chunks[0]?.at ?? bytes.length);
   return {
     readable: readable >= 3,
+    words: words.length > 0,
     parts: parts.filter((p) => !("text" in p) || p.text !== ""),
     hex: Array.from(shown, (v) => v.toString(16).padStart(2, "0")).join(""),
   };

@@ -1,0 +1,426 @@
+{
+  "recorded": "2026-11-17",
+  "source": "Esplora GET /tx/:txid of each block's coinbase, mainnet",
+  "blocks": [
+    {
+      "height": 0,
+      "scriptsig": "04ffff001d0104455468652054696d65732030332f4a616e2f32303039204368616e63656c6c6f72206f6e206272696e6b206f66207365636f6e64206261696c6f757420666f722062616e6b73",
+      "reads": "The Times 03/Jan/2009 Chancellor on brink of second bailout for banks"
+    },
+    {
+      "height": 1,
+      "scriptsig": "04ffff001d0104",
+      "reads": "·····"
+    },
+    {
+      "height": 2,
+      "scriptsig": "04ffff001d010b",
+      "reads": "·····"
+    },
+    {
+      "height": 9,
+      "scriptsig": "04ffff001d0134",
+      "reads": "····4"
+    },
+    {
+      "height": 170,
+      "scriptsig": "04ffff001d0102",
+      "reads": "·····"
+    },
+    {
+      "height": 1000,
+      "scriptsig": "04ffff001d02fd04",
+      "reads": "······"
+    },
+    {
+      "height": 10000,
+      "scriptsig": "04ffff001d026f03",
+      "reads": "····o·"
+    },
+    {
+      "height": 50000,
+      "scriptsig": "0415112a1c02c100",
+      "reads": "··*···"
+    },
+    {
+      "height": 100000,
+      "scriptsig": "044c86041b020602",
+      "reads": "L·····"
+    },
+    {
+      "height": 130000,
+      "scriptsig": "042f931d1a014a",
+      "reads": "/···J"
+    },
+    {
+      "height": 150000,
+      "scriptsig": "044b6d0b1a020b02",
+      "reads": "Km····"
+    },
+    {
+      "height": 180000,
+      "scriptsig": "045bfaaf4f02400c062f503253482f",
+      "reads": "[··O@·/P2SH/"
+    },
+    {
+      "height": 200000,
+      "scriptsig": "03400d0302ef02062f503253482f522cfabe6d6dd90d39663d10f8fd25ec88338295d4c6ce1c90d4aeb368d8bdbadcc1da3b635801000000000000000474073e03",
+      "reads": "··/P2SH/···mm··9f=···%·3·······Ԯ·hؽ····;cX········t·>·"
+    },
+    {
+      "height": 210000,
+      "scriptsig": "03503403062f503253482f04ac2cb6500808003a0201000002072f736c7573682f",
+      "reads": "/slush/"
+    },
+    {
+      "height": 220000,
+      "scriptsig": "70736a043c1f051a04ff28e401522cfabe6d6d0000000000000000000048692066726f6d2035304254432e636f6d2036ac1eeeed88",
+      "reads": "Hi from 50BTC.com 6"
+    },
+    {
+      "height": 227931,
+      "scriptsig": "035b7a030e436f696e4c61622e2f503253482f045c00000008d629b6d62e07d099",
+      "reads": "CoinLab./P2SH/"
+    },
+    {
+      "height": 240000,
+      "scriptsig": "0380a90300043713011a0400000000522cfabe6d6d000000000000c5dd000008e0000048692066726f6d2035304254432e636f6d203133ac1eeeed88",
+      "reads": "Hi from 50BTC.com 13"
+    },
+    {
+      "height": 250000,
+      "scriptsig": "0390d0030447f9fc5108880055609a63010000",
+      "reads": "G··Q··U`·c··"
+    },
+    {
+      "height": 260000,
+      "scriptsig": "03a0f70304524290dc3900000000001d0c",
+      "reads": "RB·········"
+    },
+    {
+      "height": 270000,
+      "scriptsig": "03b01e04062f503253482f0403ed8752083022e970e43801000e323434623161332f736c7573682f",
+      "reads": "244b1a3/slush/"
+    },
+    {
+      "height": 280000,
+      "scriptsig": "03c045040d00456c69676975730052d1f15bfabe6d6d9a0db0e9e9d7f934b39d9bd3ad5e960ec05e32e38b8fb3f3546ecb8de2d1873b0400000000000000002f737333372f00d09f38020000000052000000",
+      "reads": "Eligius"
+    },
+    {
+      "height": 300000,
+      "scriptsig": "03e09304062f503253482f0403c86d53087ceca141295a00002e522cfabe6d6d7561cf262313da1144026c8f7a43e3899c44f6145f39a36507d36679a8b700610400000000000000",
+      "reads": "/P2SH/··mS|·A)Z··R,··mmua·&#···D·l·zC㉜D··_9·e··fy···a········"
+    },
+    {
+      "height": 320000,
+      "scriptsig": "0300e204e4b883e5bda9e7a59ee4bb99e9b1bcfabe6d6d41ba9c7a8da03a5bb81963f36d25ed4e310b15d8521bdb5cb6e60c8ecb9e83fb1000000000000000a163494fc18601004d696e65642062792077616e676c75393230",
+      "reads": "七彩神仙鱼"
+    },
+    {
+      "height": 330000,
+      "scriptsig": "03100905e4b883e5bda9e7a59ee4bb99e9b1bcfabe6d6df1aa98de5394f2cf825f200e95a385b9e37970f08e9ef7cb0bbfc2283105fb5e10000000000000000122012a74f053224d696e6564206279206632706f6f6c7363616e74",
+      "reads": "七彩神仙鱼"
+    },
+    {
+      "height": 340000,
+      "scriptsig": "032030051c4d696e656420627920416e74506f6f6c20626a30190b221554c077a74b0e00000073548c",
+      "reads": "Mined by AntPool bj0"
+    },
+    {
+      "height": 350000,
+      "scriptsig": "03305705e4b883e5bda9e7a59ee4bb99e9b1bcfabe6d6d86f0ad661ddc86662285abfb0f7dfac6ef37a0a104ee394e57c35b65111a203610000000000000000308491be7e30c004d696e656420627920646a6d696e6572373737",
+      "reads": "七彩神仙鱼"
+    },
+    {
+      "height": 360000,
+      "scriptsig": "03407e05e4b883e5bda9e7a59ee4bb99e9b1bcfabe6d6d241b085d5c70429641fd71b4031ee8aac369ac024e4fe611b0e94d4887fb35ee10000000000000000ac26642142602004d696e65642062792068616e64616e73783831",
+      "reads": "七彩神仙鱼"
+    },
+    {
+      "height": 380000,
+      "scriptsig": "0360cc05fabe6d6db6df17fc32a7e972246ad01405e5ca6ba6d585f54ebeb14c485b9244930aaf8c01000000000000000265010066424a018e9c632f736c7573682f",
+      "reads": "/slush/"
+    },
+    {
+      "height": 390000,
+      "scriptsig": "0370f30504602c7c560800005d4d000305b2102f426974467572792f4249503130302f",
+      "reads": "/BitFury/BIP100/"
+    },
+    {
+      "height": 400000,
+      "scriptsig": "03801a060004cc2acf560433c30f37085d4a39ad543b0c000a425720537570706f727420384d200a666973686572206a696e78696e092f425720506f6f6c2f",
+      "reads": "BW Support····fisher jinxin·/BW Pool/"
+    },
+    {
+      "height": 420000,
+      "scriptsig": "03a068060fe4b883e5bda9e7a59ee4bb99e9b1bc204368616e646c65722047756f206c6f7665732059616e6759616e67204a696e2e04f09f909f0f4d696e6564206279207a7a68687a7a0000000000000000000000000000000000000000000000000000",
+      "reads": "七彩神仙鱼Chandler Guo loves YangYang Jin.·Mined by zzhhzz"
+    },
+    {
+      "height": 430000,
+      "scriptsig": "03b08f0600041c31db57046c704c3808f16d0013627612000a425720537570706f727420384d200a666973686572206a696e78696e092f425720506f6f6c2f",
+      "reads": "BW Support····fisher jinxin·/BW Pool/"
+    },
+    {
+      "height": 450000,
+      "scriptsig": "03d0dd0637e4b883e5bda9e7a59ee4bb99e9b1bccf701c9911ed27e3355a96098c77d4c8ce81b541199d29ed269ff465f30d946302000000f09f909f124d696e65642062792079746c393130313330000000000000000000000000000000000000000000",
+      "reads": "七彩神仙鱼"
+    },
+    {
+      "height": 470000,
+      "scriptsig": "03f02b070004134c365904cab9f6240c193133599a95010000000000162f426974636f696e2d496e6469612f4249503134382f",
+      "reads": "/Bitcoin-India/BIP148/"
+    },
+    {
+      "height": 480000,
+      "scriptsig": "0300530701650502703cb1d622050068fb622f736c7573682f",
+      "reads": "/slush/"
+    },
+    {
+      "height": 500000,
+      "scriptsig": "0320a107046f0a385a632f4254432e434f4d2ffabe6d6dbdd0ee86f9a1badfd0aa1b3c9dac8d90840cf973f7b2590d6c9adde1a6e0974a010000000000000001283da9a172020000000000",
+      "reads": "/BTC.COM/"
+    },
+    {
+      "height": 520000,
+      "scriptsig": "0340ef07184d696e656420627920416e74506f6f6c363136205ae1ac5b28000000000842dd",
+      "reads": "Mined by AntPool616 Z"
+    },
+    {
+      "height": 530000,
+      "scriptsig": "03501608048561385b622f4254432e434f4d2ffabe6d6d65c184025dd8deaee0ea84fdd7ffd39a1a3d3dc18386f2f0853d610599fa08a701000000000000005b04225a0d0aabea00000000",
+      "reads": "/BTC.COM/"
+    },
+    {
+      "height": 550000,
+      "scriptsig": "03706408fabe6d6d39369afd4ea6132131f2fb5845801020ca484ae4aa70db796980aff8f0e505a10100000000000000286510007a261b000031564acb1a2f736c7573682f",
+      "reads": "/slush/"
+    },
+    {
+      "height": 570000,
+      "scriptsig": "0390b20804c97aa45c622f4254432e434f4d2ffabe6d6dfac44509868684ba5550eb3e3e86abd88da08594d66231a0ee6ee71d8a8a78be080000000ca3d3af6f3caa3b7b57010000000000",
+      "reads": "/BTC.COM/"
+    },
+    {
+      "height": 590000,
+      "scriptsig": "03b000091b4d696e656420627920416e74506f6f6c393100005b022050d4652afabe6d6d0098dcc323981441c32c6c95cc3a7ef118f9ad313f72fe5930f65ba82c197b86040000000000000075b8000091970600",
+      "reads": "Mined by AntPool91"
+    },
+    {
+      "height": 600000,
+      "scriptsig": "03c027090004ff52aa5d042b05083008a6e7b35c6e202a00092f426974667572792f",
+      "reads": "/Bitfury/"
+    },
+    {
+      "height": 610000,
+      "scriptsig": "03d04e0904cdf0055e2f706f6f6c696e2e636f6d2ffabe6d6dbd3e1d737908176c7c8b032d1cbb2d3bd757aa74a13967415a81d7a8aa4b6a4801000000000000009203296ad79f275d984609d182a505151267defb1400833c000000000000",
+      "reads": "poolin.com/"
+    },
+    {
+      "height": 620000,
+      "scriptsig": "03e075091a2f5669614254432f4d696e6564206279206a616e616a6f6c312f2cfabe6d6dcfe0572a5be73339d0ac2fd409566f9abf471704d92aeff9e2080570987558cf10000000000000001032e0fd089772350567793c6cf2c70000",
+      "reads": "/ViaBTC/Mined by janajol1/"
+    },
+    {
+      "height": 630000,
+      "scriptsig": "03f09c091b4d696e656420627920416e74506f6f6c313139ae006f20074d6528fabe6d6d2ab1948d50b3d991e2a0821df74358ed9c2553af00c7a61f97771ca0acee106e0400000000000000cbec00802461f905",
+      "reads": "Mined by AntPool119"
+    },
+    {
+      "height": 650000,
+      "scriptsig": "0310eb091d2f5669614254432f4d696e6564206279207a68756a756e7169616e672f2cfabe6d6db7b330154c5b2b7507ad3a322fabe2529f85c0a72ce229cff773ab9bfd94d5d410000000000000001070a93608c352a4f98b1ffa486cbf0000",
+      "reads": "/ViaBTC/Mined by zhujunqiang/"
+    },
+    {
+      "height": 680000,
+      "scriptsig": "0340600a0463f77f602f706f6f6c696e2e636f6d2ffabe6d6d4e4176dc3ab61820d9dde06fde2d60832bbfd022a3c3dd2fe59d88f95a0b08fa0100000000000000c5398f003bff87935185713123d0946c12904517cd0069396a0000000000",
+      "reads": "poolin.com/"
+    },
+    {
+      "height": 690000,
+      "scriptsig": "0350870a2cfabe6d6df44f4104c66721856b0ef94ec35666fe17dee7641dfe8c2e8a1c8e535310633b10000000f09f909f082f4632506f6f6c2f0000000000000000000000000000000000000000000000000000000000000000000000000500be735d00",
+      "reads": "/F2Pool/"
+    },
+    {
+      "height": 700000,
+      "scriptsig": "0360ae0a2cfabe6d6d078b52bc69cf0982356d3eb439efe5489aee2c74da629dcc1a8b50a309cc0800100000000212030400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000005008a1c0000",
+      "reads": "··mm··R·i···5m>·9··H··,t·b····P··················"
+    },
+    {
+      "height": 720000,
+      "scriptsig": "0380fc0a0487f4ec612f466f756e6472792055534120506f6f6c202364726f70676f6c642f0264eb9e4401000000000000",
+      "reads": "Foundry USA Pool #dropgold/"
+    },
+    {
+      "height": 740000,
+      "scriptsig": "03a04a0b04aeee240d627463706f6f6c2f3365616575fabe6d6d8c6f7280c539d5d0864ea4664ff7cc818ce51a9ed4684aeac1249a84aca31252020000008e9b20aa133a22ef0000ddd300000000",
+      "reads": "btcpool/3eaeu"
+    },
+    {
+      "height": 750000,
+      "scriptsig": "03b0710b1b4d696e656420627920416e74506f6f6c383439e7008303943ae6affabe6d6d4735711a5d6f299d497bbe555b41a0d1af7ddd12ac4aaa5799354abd9233ea3102000000000000000000c5996302000000000000",
+      "reads": "Mined by AntPool849"
+    },
+    {
+      "height": 780000,
+      "scriptsig": "03e0e60b047dc409642f466f756e6472792055534120506f6f6c202364726f70676f6c642f0692cef6798c010000000000",
+      "reads": "Foundry USA Pool #dropgold/"
+    },
+    {
+      "height": 800000,
+      "scriptsig": "0300350c0120130909092009092009102cda1492140000000000",
+      "reads": "··· ·· ··,·········"
+    },
+    {
+      "height": 820000,
+      "scriptsig": "0320830c1b2f5669614254432f4d696e656420627920756e6f6d696e696e672f2cfabe6d6db5116cab79fae4a29a6c932d524ea5605c47863d7fddc1fbc3b8fe05677d48091000000000000000107cbce80302e729d4a43414c93800000000000000",
+      "reads": "/ViaBTC/Mined by unomining/"
+    },
+    {
+      "height": 840000,
+      "scriptsig": "0340d10c192f5669614254432f4d696e65642062792062757a7a3132302f2cfabe6d6d144b553283a6e1a150c9989428c0695e3a1bef7d482ed1f829bbe25897fd37dc10000000000000001058a4c9000cc3a31889b38ae08249000000000000",
+      "reads": "/ViaBTC/Mined by buzz120/"
+    },
+    {
+      "height": 850000,
+      "scriptsig": "0350f80c0f2f736c7573682f3c00ab05a4cfdfc7fabe6d6d7ec3238a244076bde571abc7b5e96d101080a65bc19d5306f2e26d4dcc0a685b1000000000000000000037291a00660000000000",
+      "reads": "/slush/"
+    },
+    {
+      "height": 870000,
+      "scriptsig": "0370460d04635e33672f466f756e6472792055534120506f6f6c202364726f70676f6c642f44d44756e40a000000000000",
+      "reads": "Foundry USA Pool #dropgold/"
+    },
+    {
+      "height": 880000,
+      "scriptsig": "03806d0d04ffa98d672f466f756e6472792055534120506f6f6c202364726f70676f6c642f32014a88fb2b000000000000",
+      "reads": "Foundry USA Pool #dropgold/"
+    },
+    {
+      "height": 900000,
+      "scriptsig": "03a0bb0d162f5669614254432f4d696e6564206279206e6476312f2cfabe6d6df2d93a8929b144c37681bb0dbd323c2f2be9558c4ac93a4648ee3bea5f070d50100000000000000010ac16650078daec1bf295d508a963000000000000",
+      "reads": "/ViaBTC/Mined by ndv1/"
+    },
+    {
+      "height": 920000,
+      "scriptsig": "03c0090e0495a8f6682f466f756e6472792055534120506f6f6c202364726f70676f6c642ffabe6d6d67ac206a280f5bdd73e11001ee449951013332d4f068007cd54549c910d5dc470100000000000000254646218e00000000000000",
+      "reads": "Foundry USA Pool #dropgold/"
+    },
+    {
+      "height": 950000,
+      "scriptsig": "03f07e0e182f5669614254432f4d696e6564206279206d69726138382f2cfabe6d6d874849f13bf31dc99db87e9e1542d6dadbd130de5671271865d9c2a7fc15cb76100000000000000010b5d56d0737901387444496bd2b01000000000000",
+      "reads": "/ViaBTC/Mined by mira88/"
+    },
+    {
+      "height": 960000,
+      "scriptsig": "0300a60e04dcd9686a2f53424943727970746f2e636f6d20506f6f6c2f65750ab182026dc24c6ab1560000",
+      "reads": "SBICrypto.com Pool/"
+    },
+    {
+      "height": 970000,
+      "scriptsig": "0310cd0e1d506f7765726564206279204c75786f7220546563685d004b018edea6fafabe6d6d61579212716a521575039051bb7ae5897ed6fd02d8106e7272a1f0e17b8851861000000000000000000011cb0070e6000000004b",
+      "reads": "Powered by Luxor Tech"
+    },
+    {
+      "height": 976276,
+      "scriptsig": "0394e50e2cfabe6d6d7521bafbba66909f7261162406cb6ace63d862a1462ce5036222f0736bbe51b410000000f09f909f092f4632506f6f6c2f6b00000000000000000000000000000000000000000000000000000000000000000000000500e73b0200",
+      "reads": "/F2Pool/"
+    },
+    {
+      "height": 976277,
+      "scriptsig": "0395e50e0494a417532f466f756e6472792055534120506f6f6c202364726f70676f6c642f55b585708c7e060000000000",
+      "reads": "Foundry USA Pool #dropgold/"
+    },
+    {
+      "height": 976278,
+      "scriptsig": "0396e50e04f456e7532f466f756e6472792055534120506f6f6c202364726f70676f6c642f588bb9fd0000bef67b0b0200",
+      "reads": "Foundry USA Pool #dropgold/"
+    },
+    {
+      "height": 976279,
+      "scriptsig": "0397e50e2cfabe6d6d44494772aaec88077a21e892208c1e6f04d57b0a817432fce17571564954175a10000000f09f909f092f4632506f6f6c2f620000000000000000000000000000000000000000000000000000000000000000000000050014000000",
+      "reads": "/F2Pool/"
+    },
+    {
+      "height": 976280,
+      "scriptsig": "0398e50e1a5376322f4d415241f09f87baf09f87b8f09f87baf09f87b82f2f14020000140000000000000000000005cf0007c4fa",
+      "reads": "Sv2/MARA🇺🇸🇺🇸//"
+    },
+    {
+      "height": 976281,
+      "scriptsig": "0399e50e1b4d696e656420627920416e74506f6f6c3936302001b50657f5e1aefabe6d6d88e6c8ebd878ffd41799ec871bac78563446fa122e3aa69ad17293a7495f9f01100000000000000000005e54c400000000000000",
+      "reads": "Mined by AntPool960"
+    },
+    {
+      "height": 976282,
+      "scriptsig": "039ae50e0442c603622f466f756e6472792055534120506f6f6c202364726f70676f6c642f687ab5478625000000000000",
+      "reads": "Foundry USA Pool #dropgold/"
+    },
+    {
+      "height": 976283,
+      "scriptsig": "039be50e194d696e656420627920416e74506f6f6c20b8005c025bd1a111fabe6d6da8368ca5d0cd9bd1f7a9745f95e4596caa9d67443b8691643d06499ccf5e752410000000000000000000308ee19d000000000000",
+      "reads": "Mined by AntPool"
+    },
+    {
+      "height": 976284,
+      "scriptsig": "039ce50e2cfabe6d6d96ec05eecce564671d5eeae3c6ca43100c5523ec4902683b90efd2e84d555f1b10000000f09f909f092f4632506f6f6c2f64000000000000000000000000000000000000000000000000000000000000000000000005003c73d37a",
+      "reads": "/F2Pool/"
+    },
+    {
+      "height": 976285,
+      "scriptsig": "039de50e1b4d696e656420627920416e74506f6f6c393036e4012e015ecbc6c6fabe6d6d12b590cf9cf33be7d90fefe22f621b24411f31dc3c6b536319499050454332501000000000000000000013cc9141000000000000",
+      "reads": "Mined by AntPool906"
+    },
+    {
+      "height": 976286,
+      "scriptsig": "039ee50e2cfabe6d6d0928f809240c1fa14d65adc33bf8481e9ed5639e5ae6ffdca70a251bf2e4d69710000000f09f909f092f4632506f6f6c2f6c0000000000000000000000000000000000000000000000000000000000000000000000050000000000",
+      "reads": "/F2Pool/"
+    },
+    {
+      "height": 976287,
+      "scriptsig": "039fe50e041e69fc6a3a2f2f37323661336231342d313838362d346666392d626561352d32356333386135363933313800013e6f1815000000000000",
+      "reads": "//726a3b14-1886-4ff9-bea5-25c38a569318"
+    },
+    {
+      "height": 976288,
+      "scriptsig": "03a0e50e1b4d696e656420627920416e74506f6f6c3936353e0027016a0c3e1ffabe6d6d7ad252c53f45249c332217e7fb77428cd78fcb7f347b2d3116fa177d9ceafc9810000000000000000000470e34f5000000000000",
+      "reads": "Mined by AntPool965"
+    },
+    {
+      "height": 976289,
+      "scriptsig": "03a1e50e12636c6f766572706f6f6c2001d5076a322885fabe6d6d51168b557d6d033850aca78a101383fd4104c152f79ca0d77ccbf32830cc532e1000000000000000000082494804000000000000",
+      "reads": "cloverpool"
+    },
+    {
+      "height": 976290,
+      "scriptsig": "03a2e50e046da5ba6c2f466f756e6472792055534120506f6f6c202364726f70676f6c642f6dda001af342000000000000",
+      "reads": "Foundry USA Pool #dropgold/"
+    },
+    {
+      "height": 976291,
+      "scriptsig": "03a3e50e04f30e076e2f466f756e6472792055534120506f6f6c202364726f70676f6c642f76023f96f10d000000000000",
+      "reads": "Foundry USA Pool #dropgold/"
+    },
+    {
+      "height": 976292,
+      "scriptsig": "03a4e50e2cfabe6d6db72916b91dcba94940b8336167f08ca1240f9ead98096ef37699806e039ada8e10000000f09f909f092f4632506f6f6c2f7300000000000000000000000000000000000000000000000000000000000000000000000500c0ee4e00",
+      "reads": "/F2Pool/"
+    },
+    {
+      "height": 976293,
+      "scriptsig": "03a5e50e162f5669614254432f4d696e6564206279206a6161672f2cfabe6d6dc1ca35e8633ba92153a43a02f48f06ebee4ff6ef7d8f5d03cdb197264ec2062b100000000000000010a8abe80371ded038272108c1a104000000000000",
+      "reads": "/ViaBTC/Mined by jaag/"
+    },
+    {
+      "height": 976294,
+      "scriptsig": "03a6e50e164d696e6564206279204c75786f72c500b50572e31146fabe6d6de69ffdeebc9a11809875001c017997ff6929534168d39d51144965bc01d8fea110000000000000000000758b00f86f0000000000",
+      "reads": "Mined by Luxor"
+    },
+    {
+      "height": 976295,
+      "scriptsig": "03a7e50e2cfabe6d6d3f574be4f9f0449eefac2063715860178c4123829edbf456094e2e41a24d3d0e10000000f09f909f092f4632506f6f6c2f64000000000000000000000000000000000000000000000000000000000000000000000005002e651e15",
+      "reads": "/F2Pool/"
+    }
+  ]
+}

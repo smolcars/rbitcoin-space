@@ -7,7 +7,9 @@ import { Link } from "../../components/Link";
 import type { Outspend, Transaction, Vout } from "../../lib/esplora";
 import { feeColor, groupDigits } from "../../lib/format";
 import { paths } from "../../lib/network";
-import { classify, isText, opReturnData, printable } from "./script";
+import type { TagPart } from "../block/chain";
+import { type ChainText, coinbaseText, inputText, outputText } from "./chaintext";
+import { classify } from "./script";
 import {
   cssMs,
   isCoinbase,
@@ -25,18 +27,64 @@ export interface Selection {
   index: number;
 }
 
-/** OP_RETURN text shown on a flow card is cut here; the inspector has the rest. */
-const CARD_TEXT_CHARS = 40;
+/** What a card names when there is no address: the script type, and an OP_RETURN's size when its data is not text. */
+function scriptLabel(out: Vout): string {
+  const about = outputText(out)?.about;
+  return about ? `OP_RETURN, ${about}` : classify(out.scriptpubkey).label;
+}
 
-/** What a card names when there is no address: the script type, with an OP_RETURN's text if it has some. */
-export function scriptLabel(out: Vout): string {
-  const c = classify(out.scriptpubkey);
-  if (c.kind !== "op_return") return c.label;
-  const data = opReturnData(out.scriptpubkey);
-  if (!isText(data))
-    return data.length > 0 ? `OP_RETURN, ${groupDigits(data.length)} bytes` : "OP_RETURN";
-  const p = printable(data, CARD_TEXT_CHARS);
-  return `OP_RETURN “${p.text}${p.chars < printable(data).chars ? "…" : ""}”`;
+/** Chain text as text nodes: hidden runs as muted dots (six at most), counted in their title. */
+export function ChainWords(props: { parts: TagPart[] }) {
+  return (
+    <For each={props.parts}>
+      {(p) =>
+        "text" in p ? (
+          p.text
+        ) : (
+          <span
+            class="tx-hidden"
+            title={`${p.hidden} ${p.hidden === 1 ? "character" : "characters"} that are not text`}
+          >
+            {"·".repeat(Math.min(p.hidden, 6))}
+          </span>
+        )
+      }
+    </For>
+  );
+}
+
+/**
+ * A card's text line under its ledger row: the text in quotes, after its label when the card's
+ * name does not give it; or what a payload that is not text is ("Inscription, image/png, 793 B").
+ */
+function Memo(props: { t: ChainText | null; label: boolean }) {
+  return (
+    <Show when={props.t}>
+      {(t) => (
+        <Show
+          when={t().parts}
+          fallback={
+            <Show when={t().about}>
+              {(a) => (
+                <span class="tx-flow__memo tx-flow__memo--about">
+                  {t().label}, {a()}
+                </span>
+              )}
+            </Show>
+          }
+        >
+          {(parts) => (
+            <span class="tx-flow__memo">
+              <Show when={props.label}>
+                <span class="tx-flow__memo-label">{t().label}</span>{" "}
+              </Show>
+              “<ChainWords parts={parts()} />”
+            </span>
+          )}
+        </Show>
+      )}
+    </Show>
+  );
 }
 
 interface Ribbon {
@@ -261,6 +309,7 @@ export function Flow(props: {
                 <Amount sats={totalOut(props.tx)} unit={false} fit />
               </span>
               <span class="tx-flow__meta">New coins and fees</span>
+              <Memo t={coinbaseText(props.tx)} label={false} />
               {openButton("in", 0)}
             </li>
           }
@@ -283,6 +332,7 @@ export function Flow(props: {
                     ? classify(input.prevout.scriptpubkey).label
                     : ""}
                 </span>
+                <Memo t={inputText(input)} label />
                 {openButton("in", i())}
               </li>
             )}
@@ -339,6 +389,7 @@ export function Flow(props: {
                   spend={props.outspends()?.[i()]}
                 />
               </span>
+              <Memo t={outputText(out)?.parts ? outputText(out) : null} label={false} />
               {openButton("out", i())}
             </li>
           )}

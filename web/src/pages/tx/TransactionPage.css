@@ -343,6 +343,21 @@
     white-space: pre-wrap;
     overflow-wrap: anywhere;
   }
+  /* Text someone wrote, in the reading font, whole. */
+  .tx-text {
+    width: 100%;
+    max-height: 16rem;
+    overflow: auto;
+    margin: 0;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-m);
+    background: var(--color-surface-sunken);
+    color: var(--color-text);
+    font-size: var(--text-md);
+    line-height: var(--leading-body);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
   .tx-code__empty,
   .tx-code__note {
     color: var(--color-text-muted);
@@ -383,6 +398,9 @@
     gap: var(--space-1);
     min-width: 0;
     font-weight: var(--weight-medium);
+    overflow-wrap: anywhere;
+  }
+  .tx-fact__wrap {
     overflow-wrap: anywhere;
   }
   .tx-fact__sub {
@@ -778,7 +796,8 @@
     grid-template-columns: minmax(0, 1fr) auto 28px;
     grid-template-areas:
       "who amt open"
-      "meta meta open";
+      "meta meta open"
+      "memo memo memo";
     align-items: center;
     column-gap: var(--space-3);
     min-width: 0;
@@ -808,6 +827,32 @@
   .tx-flow__label {
     color: var(--color-text-muted);
     overflow-wrap: anywhere;
+  }
+  /* Text on the chain: its own line under the ledger row, in quotes, cut after two lines. */
+  .tx-flow__memo {
+    grid-area: memo;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    margin-block: var(--space-1);
+    padding-top: var(--space-1);
+    border-top: 1px dashed var(--color-line);
+    color: var(--color-text);
+    line-height: var(--leading-snug);
+    overflow-wrap: anywhere;
+  }
+  .tx-flow__memo-label,
+  .tx-flow__memo--about {
+    color: var(--color-text-muted);
+    font-size: var(--text-xs);
+  }
+  .tx-flow__memo--about {
+    display: block;
+  }
+  .tx-hidden {
+    color: var(--color-text-muted);
+    letter-spacing: -0.1em;
   }
   .tx-flow__amt {
     grid-area: amt;
@@ -934,7 +979,8 @@
       grid-template-areas:
         "amt ."
         "who who"
-        "meta meta";
+        "meta meta"
+        "memo memo";
       column-gap: var(--space-1);
       min-height: 0;
       padding: var(--space-1) var(--space-1) var(--space-1) var(--space-2);
@@ -961,6 +1007,10 @@
         "who who"
         "amt amt"
         "meta meta";
+    }
+    /* A narrow card's lines are short: one more of them for the text. */
+    .tx-flow__memo {
+      -webkit-line-clamp: 3;
     }
   }
 

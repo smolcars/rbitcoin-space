@@ -700,7 +700,9 @@ function BlockView(props: { hash?: string | undefined; height?: number | undefin
                     ? tag()?.hex
                       ? "No readable text; shown as hex"
                       : "The miner wrote nothing after the height"
-                    : tag() && "Written by the miner. Dots stand for bytes that are not text")
+                    : tag()?.parts.some((p) => "hidden" in p)
+                      ? "Written by the miner. Dots stand for bytes that are not text"
+                      : tag() && "Written by the miner")
                 }
               />
             </dl>

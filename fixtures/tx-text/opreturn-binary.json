@@ -1,0 +1,62 @@
+{
+  "recorded": "2026-11-17",
+  "tx": {
+    "fee": 1000,
+    "locktime": 0,
+    "sigops": 1,
+    "size": 245,
+    "status": {
+      "block_hash": "00000000000000000000202a236ab9e7fac791960c83686054eb5d5baa63688b",
+      "block_height": 976294,
+      "block_time": 1794929057,
+      "confirmed": true
+    },
+    "txid": "e740bb3932ce046005fc6b50e38fcf059555e1d89717ca18a614af71c54de2ff",
+    "version": 2,
+    "vin": [
+      {
+        "is_coinbase": false,
+        "prevout": {
+          "scriptpubkey": "0014ed6f753fb955090c233e46837d6da6fc57d0825f",
+          "scriptpubkey_address": "bc1qa4hh20ae25yscge7g6ph6mdxl3tapqjlztwx0r",
+          "scriptpubkey_asm": "OP_0 OP_PUSHBYTES_20 ed6f753fb955090c233e46837d6da6fc57d0825f",
+          "scriptpubkey_type": "v0_p2wpkh",
+          "value": 6000
+        },
+        "scriptsig": "",
+        "scriptsig_asm": "",
+        "sequence": 4294967295,
+        "txid": "a9670b7d6bfae4ef9938071210af3f9e3a03bc1c2085910649b559be1d1c484c",
+        "vout": 1,
+        "witness": [
+          "3045022100c14ca5df1f048dec6bca4a99abfc9c0b3b93e310fb288539527b348cc32f81ca02205da60c15ff0019485d815d201cb58b9191e09be2056b53dc441123b940d063b401",
+          "03e44890e148485ee0d26c2d1f0183d669a87ad3fbb26af74a4d83d562540b2e88"
+        ]
+      }
+    ],
+    "vout": [
+      {
+        "scriptpubkey": "6a2a8ac1303232437d522ce97596676cea9570279e090ef0519e5f2992df1b779161f7cbb54249c23550f8ee",
+        "scriptpubkey_asm": "OP_RETURN OP_PUSHBYTES_42 8ac1303232437d522ce97596676cea9570279e090ef0519e5f2992df1b779161f7cbb54249c23550f8ee",
+        "scriptpubkey_type": "op_return",
+        "value": 0
+      },
+      {
+        "scriptpubkey": "0014ed6f753fb955090c233e46837d6da6fc57d0825f",
+        "scriptpubkey_address": "bc1qa4hh20ae25yscge7g6ph6mdxl3tapqjlztwx0r",
+        "scriptpubkey_asm": "OP_0 OP_PUSHBYTES_20 ed6f753fb955090c233e46837d6da6fc57d0825f",
+        "scriptpubkey_type": "v0_p2wpkh",
+        "value": 5000
+      }
+    ],
+    "weight": 650
+  },
+  "outspends": [
+    {
+      "spent": false
+    },
+    {
+      "spent": false
+    }
+  ]
+}

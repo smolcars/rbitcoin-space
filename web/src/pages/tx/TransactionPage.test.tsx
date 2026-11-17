@@ -853,7 +853,9 @@ describe("TransactionPage", () => {
     await settle();
     expect(el.querySelector("img")).toBeNull();
     const card = el.querySelector(".tx-flow__col--out .tx-flow__item") as Element;
-    expect(text(card)).toContain('OP_RETURN “<img src=x onerror="alert(1)">\\u{202e}”');
+    expect(text(card)).toContain(
+      'OP_RETURN0.00000000 BTCUnspendable“<img src=x onerror="alert(1)">\\u{202e}”',
+    );
     expect(text(card)).toContain("Unspendable");
     const open = card.querySelector<HTMLButtonElement>(".tx-flow__open");
     open?.click();
@@ -861,7 +863,7 @@ describe("TransactionPage", () => {
     expect(open?.getAttribute("aria-expanded")).toBe("true");
     const inspector = el.querySelector("#tx-inspector") as Element;
     expect(text(inspector)).toContain("Output 0");
-    expect(inspector.querySelector(".tx-code__text")?.textContent).toBe(
+    expect(inspector.querySelector(".tx-text")?.textContent).toBe(
       '<img src=x onerror="alert(1)">\\u{202e}',
     );
     expect(el.querySelector("img")).toBeNull();

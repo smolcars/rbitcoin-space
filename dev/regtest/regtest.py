@@ -58,6 +58,13 @@ HOSTILE_NOTES = [
     b"line1\nline2\r\n\x1b[31mANSI\x1b[0m\x00NUL",
 ]
 HOSTILE_TAG = "<script>alert('cb')</script>\u202e <b>pool</b>".encode()
+# Inscriptions an attacker can reveal: markup as text, JSON, and an SVG with a script, which a page
+# must never draw. (content type, body)
+HOSTILE_INSCRIPTIONS = [
+    (b"text/html;charset=utf-8", "<script>alert('ins')</script>\u202e<img src=x onerror=alert(2)>".encode()),
+    (b"application/json", b'{"p":"brc-20","op":"<b>mint</b>","tick":"\\u202e"}'),
+    (b"image/svg+xml", b'<svg xmlns="http://www.w3.org/2000/svg" onload="alert(3)"/>'),
+]
 
 
 # --- docker -----------------------------------------------------------------
@@ -216,6 +223,62 @@ def mine_at_fixed_times(n):
     return hashes
 
 
+# --- taproot ----------------------------------------------------------------
+# Just enough secp256k1 to commit to a script: the internal key is the generator, so the output key
+# is (1 + tweak)·G. Nobody signs anything: the script ends in OP_TRUE.
+
+P_FIELD = 2**256 - 2**32 - 977
+N_ORDER = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
+G = (0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798,
+     0x483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8)
+
+
+def point_add(a, b):
+    if a is None:
+        return b
+    if b is None:
+        return a
+    if a[0] == b[0] and (a[1] + b[1]) % P_FIELD == 0:
+        return None
+    if a == b:
+        m = 3 * a[0] * a[0] * pow(2 * a[1], -1, P_FIELD)
+    else:
+        m = (b[1] - a[1]) * pow(b[0] - a[0], -1, P_FIELD)
+    x = (m * m - a[0] - b[0]) % P_FIELD
+    return x, (m * (a[0] - x) - a[1]) % P_FIELD
+
+
+def point_mul(k):
+    out, add = None, G
+    while k:
+        if k & 1:
+            out = point_add(out, add)
+        add, k = point_add(add, add), k >> 1
+    return out
+
+
+def tagged(name, data):
+    t = sha256(name.encode())
+    return sha256(t + t + data)
+
+
+def push(data):
+    if len(data) <= 75:
+        return bytes([len(data)]) + data
+    return b"\x4c" + bytes([len(data)]) + data if len(data) <= 255 else b"\x4d" + struct.pack("<H", len(data)) + data
+
+
+def inscription_output(content_type, body):
+    """A P2TR output whose one leaf is an ordinals envelope then OP_TRUE; registers its unlock."""
+    leaf = b"\x00\x63" + push(b"ord") + push(b"\x01") + push(content_type) + b"\x00" + push(body) + b"\x68" + OP_TRUE
+    internal = G[0].to_bytes(32, "big")
+    tweak = tagged("TapTweak", internal + tagged("TapLeaf", b"\xc0" + varint(len(leaf)) + leaf))
+    q = point_mul((1 + int.from_bytes(tweak, "big")) % N_ORDER)
+    spk = b"\x51\x20" + q[0].to_bytes(32, "big")
+    UNLOCK[spk] = (b"", [leaf, bytes([0xC0 | (q[1] & 1)]) + internal])
+    return spk
+
+
 def submit_tagged_block(tag_bytes, short_by):
     """Mines an empty block by hand whose coinbase carries tag_bytes after the height, and claims
     short_by sats less than the subsidy. Returns (block hash, coinbase txid)."""
@@ -245,14 +308,18 @@ def submit_tagged_block(tag_bytes, short_by):
 
 
 def hostile():
-    """A mined transaction with hostile OP_RETURN text and a payment to the P2WPKH address, then a
-    block whose coinbase tag is markup with a right-to-left override and claims less than it may."""
-    [coin] = take_coins()
+    """A mined transaction with hostile OP_RETURN text and a payment to the P2WPKH address, a mined
+    reveal of hostile inscriptions (one per input), then a block whose coinbase tag is markup with a
+    right-to-left override and claims less than it may."""
+    coin, commit_coin = take_coins(2)
     outs = [(b"\x6a" + bytes([len(n)]) + n, 0) for n in HOSTILE_NOTES] + [(P2WPKH, 10_000)]
     txid = broadcast([coin], outs, 2)
+    spks = [inscription_output(t, b) for t, b in HOSTILE_INSCRIPTIONS]
+    commit = broadcast([commit_coin], [(spk, 10_000) for spk in spks], 2)
+    reveal = broadcast([(commit, i, spk, 10_000) for i, spk in enumerate(spks)], [(P2WPKH, 20_000)], 2)
     mine(1)
     block, coinbase = submit_tagged_block(HOSTILE_TAG, 1_000)
-    return {"tx": txid, "block": block, "coinbase": coinbase}
+    return {"tx": txid, "reveal": reveal, "block": block, "coinbase": coinbase}
 
 
 def rbf(gap=0.0):
@@ -365,7 +432,7 @@ def main():
     sub.add_parser("cpfp", help="broadcast a low-fee parent and a high-fee child").set_defaults(
         f=lambda _: print(json.dumps(cpfp(), indent=2)))
     sub.add_parser("scenario", help="reset, build the known chain, print its manifest").set_defaults(f=cmd_scenario)
-    sub.add_parser("hostile", help="mine hostile OP_RETURN text and a hostile coinbase tag").set_defaults(
+    sub.add_parser("hostile", help="mine hostile OP_RETURN text, inscriptions and a coinbase tag").set_defaults(
         f=lambda _: print(json.dumps(hostile(), indent=2)))
     args = p.parse_args()
     try:

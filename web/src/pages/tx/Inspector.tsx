@@ -3,19 +3,20 @@ import type { JSX } from "@solidjs/web";
 import { Amount } from "../../components/Amount";
 import { Hash } from "../../components/Hash";
 import type { Outspend, Transaction, Vin, Vout } from "../../lib/esplora";
-import { groupDigits } from "../../lib/format";
+import { formatSize, groupDigits } from "../../lib/format";
 import { paths } from "../../lib/network";
-import { Code } from "./Code";
-import type { Selection } from "./Flow";
+import type { TagPart } from "../block/chain";
 import {
-  classify,
-  disassemble,
-  hexToBytes,
-  isText,
-  lastPush,
-  opReturnData,
-  printable,
-} from "./script";
+  coinbaseText,
+  inputText,
+  inscriptionOf,
+  isTextInscription,
+  outputText,
+  tapscript,
+} from "./chaintext";
+import { Code } from "./Code";
+import { ChainWords, type Selection } from "./Flow";
+import { classify, disassemble, isText, lastPush, opReturnData } from "./script";
 import {
   coinbaseHeight,
   formatSequence,
@@ -57,10 +58,19 @@ function Script(props: { label: string; hex: string }) {
   );
 }
 
-/** Data decoded as text when it reads as text, with invisible bytes made visible. */
-function DataText(props: { label: string; bytes: Uint8Array }) {
-  const p = createMemo(() => printable(props.bytes, SHOW_ALL_MAX));
-  return <Code label={props.label} value={p().text} copy={false} cut={p().chars >= SHOW_ALL_MAX} />;
+/** Text someone wrote on the chain, whole, in the reading font: text nodes only. */
+function TextWell(props: { label: string; parts: TagPart[] }) {
+  return (
+    <div class="tx-code">
+      <div class="tx-code__head">
+        <span class="tx-code__label">{props.label}</span>
+      </div>
+      {/* oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- a scrolling box must take focus so the keyboard can scroll it */}
+      <p class="tx-text" tabindex="0">
+        <ChainWords parts={props.parts} />
+      </p>
+    </div>
+  );
 }
 
 /** Everything about one input or output: scripts, witness, sequence, what it spends or what spent it. */
@@ -85,7 +95,7 @@ export function Inspector(props: {
       </div>
       <Switch>
         <Match when={props.selected.side === "in" && props.tx.vin?.[props.selected.index]}>
-          {(vin) => <InputDetails vin={vin()} version={props.tx.version} />}
+          {(vin) => <InputDetails vin={vin()} tx={props.tx} />}
         </Match>
         <Match when={props.selected.side === "out" && props.tx.vout[props.selected.index]}>
           {(vout) => (
@@ -102,7 +112,13 @@ export function Inspector(props: {
   );
 }
 
-function InputDetails(props: { vin: Vin; version: number }) {
+function InputDetails(props: { vin: Vin; tx: Transaction }) {
+  const inscription = createMemo(() => inscriptionOf(props.vin));
+  const text = createMemo(() => inputText(props.vin, SHOW_ALL_MAX)?.parts ?? null);
+  const coinbase = createMemo(() =>
+    props.vin.is_coinbase ? (coinbaseText(props.tx)?.parts ?? null) : null,
+  );
+  const height = () => props.tx.status?.block_height;
   const prevKind = () =>
     props.vin.prevout ? classify(props.vin.prevout.scriptpubkey).kind : undefined;
   const witness = () => props.vin.witness ?? [];
@@ -112,8 +128,8 @@ function InputDetails(props: { vin: Vin; version: number }) {
     const kind = prevKind();
     if (kind === "p2wsh" && w.length > 0) return { label: "Witness script", hex: w.at(-1) ?? "" };
     if (kind === "p2tr") {
-      const stack = w.length > 1 && w.at(-1)?.startsWith("50") ? w.slice(0, -1) : w;
-      return stack.length >= 2 ? { label: "Tapscript", hex: stack.at(-2) ?? "" } : null;
+      const t = tapscript(props.vin);
+      return t === null ? null : { label: "Tapscript", hex: t };
     }
     if (kind === "p2sh") {
       const redeem = lastPush(props.vin.scriptsig ?? "");
@@ -135,7 +151,7 @@ function InputDetails(props: { vin: Vin; version: number }) {
           fallback={
             <>
               <Fact label="Spends">New coins: this is a coinbase</Fact>
-              <Show when={coinbaseHeight(props.vin.scriptsig)}>
+              <Show when={coinbaseHeight(props.vin.scriptsig, height())}>
                 {(h) => <Fact label="Block height in script">{groupDigits(h())}</Fact>}
               </Show>
             </>
@@ -174,19 +190,33 @@ function InputDetails(props: { vin: Vin; version: number }) {
               </>
             )}
           </Show>
+          <Show when={inscription()}>
+            {(ins) => (
+              <Fact label="Inscription">
+                <span class="tx-fact__wrap">{ins().contentType || "No content type"}</span>
+                <span class="tx-fact__sub num">
+                  {formatSize(ins().size, "B")}
+                  {isTextInscription(ins()) ? "" : ", not shown"}
+                </span>
+              </Fact>
+            )}
+          </Show>
         </Show>
         <Show when={props.vin.sequence !== undefined}>
           <Fact label="Sequence">
             <span class="num">{formatSequence(props.vin.sequence ?? 0)}</span>
             <span class="tx-fact__sub">
-              {sequenceMeaning(props.vin.sequence ?? 0, props.version)}
+              {sequenceMeaning(props.vin.sequence ?? 0, props.tx.version)}
             </span>
           </Fact>
         </Show>
       </dl>
       <div class="tx-codes">
-        <Show when={props.vin.is_coinbase}>
-          <DataText label="Coinbase data as text" bytes={hexToBytes(props.vin.scriptsig ?? "")} />
+        <Show when={coinbase()}>
+          {(parts) => <TextWell label="Coinbase text" parts={parts()} />}
+        </Show>
+        <Show when={text()}>
+          {(parts) => <TextWell label="Inscription text" parts={parts()} />}
         </Show>
         <Show when={(props.vin.scriptsig ?? "") !== ""}>
           <Script
@@ -285,7 +315,10 @@ function OutputDetails(props: {
                 />
               }
             >
-              <DataText label="Data as text" bytes={d()} />
+              <TextWell
+                label="OP_RETURN text"
+                parts={outputText(props.vout, SHOW_ALL_MAX)?.parts ?? []}
+              />
             </Show>
           )}
         </Show>

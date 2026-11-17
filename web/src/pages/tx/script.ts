@@ -117,7 +117,7 @@ function opName(op: number): string {
 }
 
 /** One step through a script: an opcode, with its data when it pushes. */
-interface Op {
+export interface Op {
   op: number;
   /** Pushed bytes; undefined for opcodes that push nothing. */
   data?: Uint8Array;

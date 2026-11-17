@@ -19,7 +19,7 @@ test("a confirmed transaction names every output type and links where the money 
     const named = outputs.getByText(type, { exact: true }).first();
     await (wide ? expect(named).toBeVisible() : expect(named).toBeAttached());
   }
-  await expect(outputs).toContainText("OP_RETURN “mempool.based regtest”0.00000000 BTCUnspendable");
+  await expect(outputs).toContainText("OP_RETURN0.00000000 BTCUnspendable“mempool.based regtest”");
   // Amounts keep their unit for screen readers, though the cards show bare numbers.
   await expect(outputs.getByText("1.00000000 BTC", { exact: true }).first()).toBeAttached();
   // spend_p2sh_p2a spent the P2SH and P2A outputs.

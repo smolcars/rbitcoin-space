@@ -119,15 +119,21 @@ export function confirmations(
   return Math.max(1, tip - blockHeight + 1);
 }
 
-/** The BIP34 height pushed at the start of a coinbase scriptSig, if it is there. */
-export function coinbaseHeight(scriptsig: string | undefined): number | undefined {
-  if (!scriptsig) return undefined;
+/**
+ * The BIP34 height pushed at the start of a coinbase scriptSig, when it is the block's own height.
+ * Before BIP34 the first push is anything (the genesis block's is its difficulty bits).
+ */
+export function coinbaseHeight(
+  scriptsig: string | undefined,
+  height: number | undefined,
+): number | undefined {
+  if (!scriptsig || height === undefined) return undefined;
   const len = Number.parseInt(scriptsig.slice(0, 2), 16);
   if (!(len >= 1 && len <= 8) || scriptsig.length < 2 + len * 2) return undefined;
   let n = 0;
   for (let k = len - 1; k >= 0; k--)
     n = n * 256 + Number.parseInt(scriptsig.slice(2 + k * 2, 4 + k * 2), 16);
-  return Number.isSafeInteger(n) ? n : undefined;
+  return n === height ? n : undefined;
 }
 
 /** A duration token in milliseconds, whether the token is written in `s` or `ms`. */

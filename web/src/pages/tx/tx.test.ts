@@ -130,11 +130,15 @@ describe("transaction facts", () => {
   });
 
   it("reads the height a coinbase commits to", () => {
-    expect(coinbaseHeight("039ce20e041331f56a")).toBe(975_516);
-    expect(coinbaseHeight("016e")).toBe(110);
-    expect(coinbaseHeight("")).toBeUndefined();
-    expect(coinbaseHeight("09ffffffffffffffffff")).toBeUndefined();
-    expect(coinbaseHeight("03ab")).toBeUndefined();
+    expect(coinbaseHeight("039ce20e041331f56a", 975_516)).toBe(975_516);
+    expect(coinbaseHeight("016e", 110)).toBe(110);
+    expect(coinbaseHeight("039ce20e041331f56a", 975_517)).toBeUndefined();
+    expect(coinbaseHeight("039ce20e041331f56a", undefined)).toBeUndefined();
+    expect(coinbaseHeight("", 0)).toBeUndefined();
+    expect(coinbaseHeight("09ffffffffffffffffff", 0)).toBeUndefined();
+    expect(coinbaseHeight("03ab", 0)).toBeUndefined();
+    // The genesis coinbase starts with its difficulty bits, 486 604 799 read as a number.
+    expect(coinbaseHeight("04ffff001d0104", 0)).toBeUndefined();
   });
 
   it("accepts only 64 hex characters as a txid", () => {

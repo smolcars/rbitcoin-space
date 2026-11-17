@@ -1,7 +1,8 @@
 // Chain data is attacker-controlled text (docs/SECURITY.md rule 14). This puts markup, a
-// `javascript:` URL, bidi overrides, ANSI escapes and NUL on the run's chain, in OP_RETURN outputs
-// and a hand-built coinbase tag, and checks every page shows them as inert, visible text. It mines,
-// so it runs after every other test (the `mines` project).
+// `javascript:` URL, bidi overrides, ANSI escapes and NUL on the run's chain, in OP_RETURN outputs,
+// inscriptions (HTML, JSON and an SVG with a script) and a hand-built coinbase tag, and checks every
+// page shows them as inert, visible text, and never draws the SVG. It mines, so it runs after every
+// other test (the `mines` project).
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import type { Page } from "@playwright/test";
@@ -11,6 +12,7 @@ const REGTEST = fileURLToPath(new URL("../../dev/regtest/regtest.py", import.met
 
 interface Hostile {
   tx: string;
+  reveal: string;
   block: string;
   coinbase: string;
 }
@@ -18,7 +20,9 @@ interface Hostile {
 /** What the page did with the text: anything that would mean it was read as markup or a link. */
 async function inert(page: Page, dialogs: string[]) {
   const found = await page.evaluate(() => ({
-    elements: document.body.querySelectorAll("script, img, iframe, object, embed, b").length,
+    elements: document.body.querySelectorAll(
+      "script, img, iframe, object, embed, b, [onload], [onerror]",
+    ).length,
     hrefs: [...document.querySelectorAll("a[href]")]
       .map((a) => a.getAttribute("href") ?? "")
       .filter((h) => !/^(\/|#|https:\/\/github\.com\/)/.test(h)),
@@ -49,17 +53,38 @@ test("hostile chain data is shown as text on every page that shows it", async ({
 
   await page.goto(`/regtest/tx/${made.tx}`);
   const outputs = page.getByRole("list", { name: "Outputs" });
-  await expect(outputs).toContainText("OP_RETURN “<img src=x onerror=alert(1)>”");
-  await expect(outputs).toContainText("OP_RETURN “javascript:alert(document.domain)”");
-  await expect(outputs).toContainText("OP_RETURN “</title><script>alert(1)</script>”");
+  // The text has a line of its own under the card, in quotes.
+  await expect(outputs).toContainText("Unspendable“<img src=x onerror=alert(1)>”");
+  await expect(outputs).toContainText("Unspendable“javascript:alert(document.domain)”");
+  await expect(outputs).toContainText("Unspendable“</title><script>alert(1)</script>”");
   await expect(outputs).toContainText(
-    String.raw`OP_RETURN “line1\u{a}line2\u{d}\u{a}\u{1b}[31mANSI\u{1b}[0m\u{0}NUL”`,
+    String.raw`Unspendable“line1\u{a}line2\u{d}\u{a}\u{1b}[31mANSI\u{1b}[0m\u{0}NUL”`,
   );
   // Mostly bidi and zero-width characters: not text, so it is shown as its bytes.
   await expect(outputs).toContainText("OP_RETURN, 34 bytes");
   await page.getByRole("button", { name: "Details of output 2" }).click();
   await expect(page.getByRole("heading", { name: "Output 2" })).toBeFocused();
   await expect(page.getByText(/^e280ae6576696ce280ac/).first()).toBeVisible();
+  await inert(page, dialogs);
+
+  // One input per inscription: text as text, the SVG named by its type and size only.
+  await page.goto(`/regtest/tx/${made.reveal}`);
+  const inputs = page.getByRole("list", { name: "Inputs" });
+  await expect(inputs).toContainText(
+    String.raw`Inscription “<script>alert('ins')</script>\u{202e}<img src=x onerror=alert(2)>”`,
+  );
+  await expect(inputs).toContainText(
+    String.raw`Inscription “{"p":"brc-20","op":"<b>mint</b>","tick":"\u202e"}”`,
+  );
+  await expect(inputs).toContainText("Inscription, image/svg+xml, 59 B");
+  await page.getByRole("button", { name: "Details of input 2" }).click();
+  await expect(page.getByRole("heading", { name: "Input 2" })).toBeFocused();
+  await expect(page.locator("#tx-inspector")).toContainText("image/svg+xml59 B, not shown");
+  await page.getByRole("button", { name: "Details of input 0" }).click();
+  await expect(page.locator("#tx-inspector")).toContainText("text/html;charset=utf-8");
+  await expect(page.locator("#tx-inspector .tx-text")).toHaveText(
+    String.raw`<script>alert('ins')</script>\u{202e}<img src=x onerror=alert(2)>`,
+  );
   await inert(page, dialogs);
 
   await page.goto(`/regtest/block/${made.block}`);
@@ -75,7 +100,10 @@ test("hostile chain data is shown as text on every page that shows it", async ({
   await inert(page, dialogs);
 
   await page.goto(`/regtest/tx/${made.coinbase}`);
-  await expect(page.getByRole("list", { name: "Inputs" })).toContainText("Coinbase");
+  // The same reading as the block page's tag, under the coinbase card.
+  await expect(page.getByRole("list", { name: "Inputs" })).toContainText(
+    "New coins and fees“<script>alert('cb')</script>· <b>pool</b>”",
+  );
   await page.getByRole("button", { name: "Details of input 0" }).click();
   await expect(page.getByRole("heading", { name: "Input 0" })).toBeFocused();
   await inert(page, dialogs);
