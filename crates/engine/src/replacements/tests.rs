@@ -443,38 +443,77 @@ async fn the_stored_record_survives_a_restart_and_keeps_its_bound() {
     assert_eq!(txids(&db::load(&again, 100).await.unwrap()), kept);
 }
 
-/// The table at its default bound: its size on disk, and how long putting it back takes.
+/// The table at its default bound: its size on disk, and how long putting it back takes. Each
+/// link keeps both sides' outputs: `SIDES=wallet` (the default) two P2WPKH outputs a side, as a
+/// fee bump of a payment has; `SIDES=worst` the most a side can keep, 32 outputs of 34-byte
+/// scripts with the largest values; `SIDES=none` nothing, as before outputs were kept.
 /// `cargo test --release -p engine -- --ignored --nocapture replacements_benchmark`
 #[tokio::test]
 #[ignore = "a measurement, not a check"]
 #[allow(clippy::print_stdout)]
 async fn replacements_benchmark() {
+    use crate::outputs::{MAX_OUTPUTS, Outputs};
+    use bitcoin::{Amount, ScriptBuf, TxOut};
+    let mode = std::env::var("SIDES").unwrap_or_else(|_| "wallet".into());
+    let side = |n: u32| -> Option<Outputs> {
+        let out = |v: u64, len: usize, i: u32| TxOut {
+            value: Amount::from_sat(v),
+            script_pubkey: ScriptBuf::from_bytes(
+                (0..len).map(|k| (n ^ i ^ k as u32) as u8).collect(),
+            ),
+        };
+        match mode.as_str() {
+            "none" => None,
+            "worst" => Some(Outputs::of(
+                &(0..MAX_OUTPUTS as u32)
+                    .map(|i| out(u64::MAX, 34, i))
+                    .collect::<Vec<_>>(),
+            )),
+            _ => Some(Outputs::of(&[out(84_000, 22, 0), out(1_250_000, 22, 1)])),
+        }
+    };
     let t = temp();
     let keep = 10_000;
     let mut n = 0u32;
     // Twice the bound, in writes of 20 links, so the bound has pruned half.
     for _ in 0..(2 * keep / 20) {
-        let links = (0..20)
-            .map(|_| {
-                n += 1;
-                let mut l = link(1, 2);
-                let mut a = [0u8; 32];
-                a[..4].copy_from_slice(&n.to_le_bytes());
-                l.txid = Txid::from_byte_array(a);
-                a[4] = 1;
-                l.by = Txid::from_byte_array(a);
-                Change::Link(l)
-            })
-            .collect();
+        let mut links = Vec::new();
+        for _ in 0..20 {
+            n += 1;
+            let mut l = link(1, 2);
+            let mut a = [0u8; 32];
+            a[..4].copy_from_slice(&n.to_le_bytes());
+            l.txid = Txid::from_byte_array(a);
+            a[4] = 1;
+            l.by = Txid::from_byte_array(a);
+            links.push(Change::Link(l));
+            let sides = Sides {
+                outputs: side(n),
+                by_outputs: side(!n),
+                inputs: Some(1),
+                by_inputs: Some(1),
+                shared: Some(1),
+            };
+            if !sides.is_empty() {
+                links.push(Change::Sides(l.txid, sides));
+            }
+        }
         db::write(&t.store, vec![links], keep).await.unwrap();
     }
     let started = std::time::Instant::now();
-    let loaded = db::load(&t.store, keep).await.unwrap();
+    let loaded = db::load_kept(&t.store, keep).await.unwrap();
     let took = started.elapsed();
     let mut r = Replacements::new(keep);
-    for l in loaded.iter().copied() {
-        r.restore(l);
+    for (l, s) in loaded.iter().cloned() {
+        r.restore_with(l, s);
     }
+    let kept: usize = loaded
+        .iter()
+        .map(|(_, s)| {
+            s.outputs.as_ref().map_or(0, Outputs::heap_bytes)
+                + s.by_outputs.as_ref().map_or(0, Outputs::heap_bytes)
+        })
+        .sum();
     let rows: i64 = t
         .store
         .read(crate::store::Read::Blocks, |sql| {
@@ -494,10 +533,12 @@ async fn replacements_benchmark() {
         .await
         .unwrap_or(-1);
     println!(
-        "rows {rows}, loaded {} in {took:?}, table and indexes {bytes} bytes ({} a row), record {}",
+        "sides {mode}: rows {rows}, loaded {} in {took:?}, table and indexes {bytes} bytes ({} a \
+         row), record {}, outputs kept in memory {kept} bytes ({} a link)",
         loaded.len(),
         bytes / rows.max(1),
-        r.len()
+        r.len(),
+        kept / loaded.len().max(1),
     );
 }
 
@@ -966,4 +1007,201 @@ async fn answers_dropped_after_another_reorg_do_not_spend_its_reads() {
         "this reorg still has its reads"
     );
     assert_eq!(r.mined(&id(4)), Mined::In(Some((12, block(162)))));
+}
+
+// What a link keeps beside its figures: each side's outputs and inputs.
+
+/// Outputs paying `value` to a script tagged `n`, and 1,000 sats to a script tagged 0 (change).
+fn outs(n: u8, value: u64) -> crate::outputs::Outputs {
+    use bitcoin::{Amount, ScriptBuf, TxOut};
+    let pay = |v: u64, tag: u8| TxOut {
+        value: Amount::from_sat(v),
+        script_pubkey: ScriptBuf::from_bytes([&[0x00, 0x14][..], &[tag; 20]].concat()),
+    };
+    crate::outputs::Outputs::of(&[pay(value, n), pay(1000, 0)])
+}
+
+fn sides(a: u8, b: u8) -> Sides {
+    Sides {
+        outputs: Some(outs(a, 5000)),
+        by_outputs: Some(outs(b, 4000)),
+        inputs: Some(2),
+        by_inputs: Some(3),
+        shared: Some(2),
+    }
+}
+
+#[test]
+fn each_version_keeps_its_outputs_through_replace_again() {
+    let mut r = Replacements::new(10);
+    r.insert_with(link(1, 2), sides(1, 2));
+    r.insert_with(link(2, 3), sides(2, 3));
+    let changes = r.take_changes();
+    assert_eq!(
+        changes,
+        vec![
+            Change::Link(link(1, 2)),
+            Change::Sides(id(1), sides(1, 2)),
+            Change::Link(link(2, 3)),
+            Change::Sides(id(2), sides(2, 3)),
+        ]
+    );
+    // Each version once: the first as replaced, the middle from its own link, the newest as the
+    // replacement of the middle one.
+    let v = |n: u8| r.version_of(&id(n)).unwrap();
+    assert_eq!(v(1).outputs, Some(outs(1, 5000)));
+    assert_eq!(v(1).facts, link(1, 2).tx);
+    assert_eq!(v(2).outputs, Some(outs(2, 5000)));
+    assert_eq!(v(3).outputs, Some(outs(3, 4000)));
+    assert_eq!(
+        (v(3).inputs, v(3).facts),
+        (Some(3), link(2, 3).by_tx.unwrap())
+    );
+    assert_eq!(r.version_of(&id(9)), None);
+    // A link without them keeps nothing beside it, and says nothing to the store.
+    r.insert(link(4, 5));
+    assert_eq!(r.take_changes(), vec![Change::Link(link(4, 5))]);
+    assert_eq!(r.version_of(&id(4)).unwrap().outputs, None);
+    assert_eq!(r.sides(&id(4)), None);
+}
+
+#[test]
+fn the_original_confirmed_after_all_keeps_its_outputs() {
+    // B replaced A; then a miner confirmed A: the tracker no longer held A, so the new link has
+    // neither A's figures nor its outputs, and both come from A's old link.
+    let mut r = Replacements::new(10);
+    r.insert_with(link(1, 2), sides(1, 2));
+    r.take_changes();
+    let came_back = Sides {
+        outputs: Some(outs(2, 4000)),
+        inputs: Some(3),
+        ..Sides::default()
+    };
+    r.insert_with(won_after_all(), came_back);
+    let want = Sides {
+        outputs: Some(outs(2, 4000)),
+        by_outputs: Some(outs(1, 5000)),
+        inputs: Some(3),
+        by_inputs: Some(2),
+        shared: None,
+    };
+    assert_eq!(r.sides(&id(2)), Some(&want));
+    assert_eq!(
+        r.take_changes()[1],
+        Change::Sides(id(2), want),
+        "what the store is given"
+    );
+    assert_eq!(r.version_of(&id(1)).unwrap().outputs, Some(outs(1, 5000)));
+    assert_eq!(r.sides(&id(1)), None, "the old link went with its outputs");
+}
+
+#[test]
+fn outputs_leave_with_their_link() {
+    let mut r = Replacements::new(2);
+    r.insert_with(link(1, 2), sides(1, 2));
+    r.insert_with(link(3, 4), sides(3, 4));
+    r.insert_with(link(5, 6), sides(5, 6));
+    assert_eq!(r.sides(&id(1)), None, "past the bound");
+    assert!(r.sides(&id(3)).is_some());
+    // Back in the mempool: no longer replaced, so nothing to compare.
+    r.returned(&id(3));
+    assert_eq!((r.sides(&id(3)), r.version_of(&id(3))), (None, None));
+    assert!(r.sides(&id(5)).is_some());
+}
+
+#[tokio::test]
+async fn outputs_survive_a_restart() {
+    let t = temp();
+    let mut r = Replacements::new(10);
+    r.insert_with(link(1, 2), sides(1, 2));
+    r.insert_with(link(2, 3), sides(2, 3));
+    r.insert(link(7, 8));
+    let too_many = Sides {
+        outputs: Some(crate::outputs::Outputs::TooMany(400)),
+        ..Sides::default()
+    };
+    r.insert_with(link(9, 10), too_many.clone());
+    db::write(&t.store, vec![r.take_changes()], 10)
+        .await
+        .unwrap();
+    let again = Store::open(&t.dir, "regtest", Options::default()).unwrap();
+    let mut back = Replacements::new(10);
+    for (l, s) in db::load_kept(&again, 10).await.unwrap() {
+        back.restore_with(l, s);
+    }
+    for n in [1, 2, 3, 7, 8, 9] {
+        assert_eq!(back.version_of(&id(n)), r.version_of(&id(n)), "{n}");
+    }
+    assert_eq!(back.sides(&id(9)), Some(&too_many));
+    assert_eq!(back.sides(&id(7)), None);
+}
+
+/// A table written before migration 0021 reads back with its links whole and nothing beside them;
+/// a row written after it keeps what it was given.
+#[tokio::test]
+async fn rows_from_before_the_outputs_read_back_without_them() {
+    use crate::store::MIGRATIONS;
+    let dir = std::env::temp_dir().join(format!(
+        "rbitcoin-space-replacements-old-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    let at = MIGRATIONS
+        .iter()
+        .position(|(n, _)| *n == "0021_replacement_outputs.sql")
+        .unwrap();
+    let old = Store::open_with(&dir, "regtest", Options::default(), &MIGRATIONS[..at]).unwrap();
+    // The statement the build before wrote with: no outputs columns.
+    let l = link(1, 2);
+    old.write(move |sql| {
+        sql.prepare(
+            "INSERT INTO replacements (txid, by, seen, fee, vsize, weight, value, time, rbf, \
+             by_fee, by_vsize, by_weight, by_value, by_time, by_rbf, mined, height, block) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, 0, NULL, \
+             NULL)",
+        )?
+        .execute(crate::store::params![
+            l.txid.to_byte_array(),
+            l.by.to_byte_array(),
+            l.seen as i64,
+            l.tx.fee as i64,
+            l.tx.vsize,
+            l.tx.weight,
+            l.tx.value as i64,
+            l.tx.time,
+            l.tx.rbf,
+            l.by_tx.map(|f| f.fee as i64),
+            l.by_tx.map(|f| f.vsize),
+            l.by_tx.map(|f| f.weight),
+            l.by_tx.map(|f| f.value as i64),
+            l.by_tx.map(|f| f.time),
+            l.by_tx.map(|f| f.rbf),
+        ])?;
+        Ok(())
+    })
+    .await
+    .unwrap();
+    old.close().await;
+    let store = Store::open(&dir, "regtest", Options::default()).unwrap();
+    let mut r = Replacements::new(10);
+    r.insert_with(link(3, 4), sides(3, 4));
+    db::write(&store, vec![r.take_changes()], 10).await.unwrap();
+    let loaded = db::load_kept(&store, 10).await.unwrap();
+    assert_eq!(
+        loaded,
+        vec![(link(1, 2), Sides::default()), (link(3, 4), sides(3, 4))]
+    );
+    // A stored form that does not read back is left out, as if never recorded.
+    store
+        .write(|sql| {
+            sql.prepare("UPDATE replacements SET outputs = x'0102' WHERE by = ?1")?
+                .execute(crate::store::params![id(4).to_byte_array()])?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    let loaded = db::load_kept(&store, 10).await.unwrap();
+    assert_eq!(loaded[1].1.outputs, None);
+    assert_eq!(loaded[1].1.by_outputs, sides(3, 4).by_outputs);
+    let _ = std::fs::remove_dir_all(&dir);
 }

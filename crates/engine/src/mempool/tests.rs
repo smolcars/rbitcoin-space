@@ -181,7 +181,7 @@ fn records_carry_fee_size_value_and_time() {
     assert_eq!(r.value, Amount::from_sat(1000 + 1001 + 1002));
     assert_eq!(u64::from(r.weight), t.weight().to_wu());
     assert_eq!(r.time, 1_700_000_000);
-    assert_eq!((r.outputs, r.spends.len()), (3, 2));
+    assert_eq!((r.outputs, r.spends().len()), (3, 2));
     assert_eq!(r.flags, crate::flags::of(&t));
     assert_eq!(r.flags, crate::flags::NO_RBF | crate::flags::V2);
     // The fingerprint is keyed per mempool: another instance hashes differently.
@@ -189,6 +189,52 @@ fn records_carry_fee_size_value_and_time() {
         Mempool::default().keys().key(&coin(0)),
         m.keys().key(&coin(0))
     );
+}
+
+#[test]
+fn records_keep_outputs_without_growing_the_slot() {
+    use crate::outputs::{MAX_OUTPUTS, Outputs};
+    // The map's slot is what every mempool transaction costs: outputs ride in the heap
+    // allocation the inputs already have, and their word count in padding.
+    assert_eq!(std::mem::size_of::<(Txid, TxInfo)>(), 96);
+    let m = Mempool::default();
+    let mut t = tx(&[coin(0), coin(1)], 2, 7);
+    t.output[0].script_pubkey = ScriptBuf::from_bytes([&[0x00, 0x14][..], &[7; 20]].concat());
+    t.output[1].script_pubkey = ScriptBuf::from_bytes(vec![0x6a; 60]);
+    let r = m.keys().record(&entry(&t), &t);
+    assert_eq!(r.kept_outputs(), Some(Outputs::of(&t.output)));
+    assert_eq!(
+        r.spends().len(),
+        2,
+        "the inputs are untouched by what follows them"
+    );
+    assert_eq!(r.inputs(), 2);
+    // value 2 + tag 1 + 22, value 2 + tag 1 + hash 16: 44 bytes in 6 words.
+    assert_eq!(r.kept_bytes(), 48);
+    // Too many: only the count, and no heap beyond the inputs.
+    let many = tx(&[coin(2)], MAX_OUTPUTS as u32 + 1, 8);
+    let r = m.keys().record(&entry(&many), &many);
+    assert_eq!(
+        r.kept_outputs(),
+        Some(Outputs::TooMany(MAX_OUTPUTS as u32 + 1))
+    );
+    assert_eq!((r.kept_bytes(), r.spends().len()), (0, 1));
+    // Dropped for the budget: the inputs stay, the outputs read as not kept.
+    let mut r = m.keys().record(&entry(&t), &t);
+    r.drop_outputs();
+    assert_eq!((r.kept_outputs(), r.spends().len()), (None, 2));
+}
+
+#[test]
+fn shared_inputs_are_counted_from_the_fingerprints() {
+    let m = Mempool::default();
+    let a = tx(&[coin(0), coin(1), coin(2)], 1, 1);
+    let b = tx(&[coin(1), coin(2), coin(3), coin(4)], 1, 2);
+    let c = tx(&[out(&a, 0)], 1, 3);
+    let rec = |t: &Transaction| m.keys().record(&entry(t), t);
+    assert_eq!(rec(&a).shared_inputs(&rec(&b)), 2);
+    assert_eq!(rec(&b).shared_inputs(&rec(&a)), 2);
+    assert_eq!(rec(&c).shared_inputs(&rec(&b)), 0, "a child shares nothing");
 }
 
 #[test]
@@ -774,6 +820,48 @@ async fn follows_sends_replacements_and_blocks_with_reasons() {
     let state = tracker.read(|m| (m.seq(), m.iter().map(|(k, v)| (*k, v.clone())).collect()));
     assert_eq!(mirror, state);
     assert_eq!(txids(&tracker), pool_txids(&mock));
+    task.abort();
+}
+
+#[tokio::test(start_paused = true)]
+async fn outputs_are_kept_while_the_budget_lasts() {
+    let mock = Mock::new();
+    // Each transaction's two outputs (empty scripts) take 6 bytes, one word: room for two.
+    let txs: Vec<Transaction> = (0..3).map(|i| tx(&[coin(i)], 2, i)).collect();
+    for t in &txs {
+        mock.send(t);
+    }
+    let (tracker, task) = Tracker::start(
+        mock.clone(),
+        Config {
+            kept_outputs: 16,
+            ..config()
+        },
+    );
+    let mut ev = tracker.events();
+    let s = cycle(next_cycle(&mut ev).await);
+    assert_eq!((s.added, s.unkept, s.kept_bytes), (3, 1, 16));
+    let kept = tracker.read(|m| {
+        txs.iter()
+            .filter(|t| m.get(&t.compute_txid()).unwrap().kept_outputs().is_some())
+            .count()
+    });
+    assert_eq!(kept, 2);
+    // What leaves frees its share for what comes next.
+    mock.mine(&[&txs[0], &txs[1]]);
+    tracker.tip_changed();
+    cycle(next_cycle(&mut ev).await);
+    let late = tx(&[coin(9)], 2, 9);
+    mock.send(&late);
+    let s = cycle(next_cycle(&mut ev).await);
+    assert_eq!(s.unkept, 0);
+    assert!(tracker.read(|m| {
+        m.get(&late.compute_txid())
+            .unwrap()
+            .kept_outputs()
+            .is_some()
+    }));
+    assert_eq!(tracker.read(Mempool::kept_bytes), s.kept_bytes);
     task.abort();
 }
 
@@ -1482,4 +1570,127 @@ async fn once_the_announced_block_is_applied_quiet_probes_skip_again() {
     tokio::time::sleep(Duration::from_secs(5)).await;
     assert!(mock.n.listings.load(Ordering::SeqCst) - listings <= 1);
     task.abort();
+}
+
+// What keeping outputs costs.
+
+/// This process's resident memory, KB (`ps`).
+fn rss_kb() -> u64 {
+    let out = std::process::Command::new("ps")
+        .args(["-o", "rss=", "-p", &std::process::id().to_string()])
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&out.stdout).trim().parse().unwrap()
+}
+
+/// The non-coinbase public mainnet transactions in `fixtures/flags/mainnet.json`.
+fn mainnet_sample() -> Vec<Transaction> {
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../fixtures/flags/mainnet.json"
+    );
+    let rows: Vec<serde_json::Value> =
+        serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    rows.iter()
+        .filter(|r| r["index"] != 0)
+        .map(|r| {
+            let hex = r["hex"].as_str().unwrap();
+            let bytes: Vec<u8> = (0..hex.len())
+                .step_by(2)
+                .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
+                .collect();
+            bitcoin::consensus::deserialize(&bytes).unwrap()
+        })
+        .collect()
+}
+
+/// A synthetic mempool of `N` transactions (300,000 by default), each a copy of a template with
+/// its own inputs and scripts, held with their outputs (`KEPT=on`, the default) or without
+/// (`KEPT=off`). Templates: `MIX=mainnet`, the public mainnet transactions above in turn; or
+/// `MIX=wallet`, one or two inputs paying two P2WPKH or P2TR outputs. Run once per setting, so
+/// each process measures one mempool:
+/// `KEPT=on MIX=mainnet cargo test --release -p engine -- --ignored --nocapture kept_outputs_memory`
+#[test]
+#[ignore = "a measurement, not a check"]
+#[allow(clippy::print_stdout)]
+fn kept_outputs_memory() {
+    let env = |k: &str, d: &str| std::env::var(k).unwrap_or_else(|_| d.to_string());
+    let n: usize = env("N", "300000").parse().unwrap();
+    let kept = env("KEPT", "on") == "on";
+    let mix = env("MIX", "mainnet");
+    let templates = match mix.as_str() {
+        "mainnet" => mainnet_sample(),
+        _ => (0..4u32)
+            .map(|i| {
+                let mut t = tx(&[coin(0); 2][..1 + (i as usize % 2)], 2, 0);
+                let script = if i < 2 {
+                    [&[0x00, 0x14][..], &[1; 20]].concat()
+                } else {
+                    [&[0x51, 0x20][..], &[1; 32]].concat()
+                };
+                for (o, v) in t.output.iter_mut().zip([84_000u64, 1_250_000]) {
+                    o.script_pubkey = ScriptBuf::from_bytes(script.clone());
+                    o.value = Amount::from_sat(v);
+                }
+                t
+            })
+            .collect(),
+    };
+    let outputs: usize = templates.iter().map(|t| t.output.len()).sum();
+    let mut m = Mempool::default();
+    let before = rss_kb();
+    let mut seq = 0;
+    let mut done = 0usize;
+    while done < n {
+        let mut added = Vec::with_capacity(1000);
+        for i in done..(done + 1000).min(n) {
+            let mut t = templates[i % templates.len()].clone();
+            let tag = u32::try_from(i).unwrap();
+            t.lock_time = LockTime::from_consensus(tag);
+            for (j, input) in t.input.iter_mut().enumerate() {
+                input.previous_output = OutPoint::new(Txid::all_zeros(), tag ^ (j as u32) << 24);
+            }
+            // Scripts of their own, so nothing is shared that a real mempool would not share.
+            for o in &mut t.output {
+                let mut s = o.script_pubkey.to_bytes();
+                if let Some(last) = s.last_mut() {
+                    *last ^= tag as u8;
+                }
+                o.script_pubkey = ScriptBuf::from_bytes(s);
+            }
+            let mut info = m.keys().record(&entry(&t), &t);
+            if !kept {
+                info.drop_outputs();
+            }
+            added.push((t.compute_txid(), info));
+        }
+        done += added.len();
+        added.sort_by_key(|(t, _)| *t);
+        seq += 1;
+        let d = Delta {
+            seq,
+            mempool_sequence: seq,
+            tip: ChainTip {
+                height: 1,
+                hash: BlockHash::all_zeros(),
+            },
+            added,
+            removed: Vec::new(),
+            replaced: Vec::new(),
+            blocks: Vec::new(),
+        };
+        assert!(m.apply(&d));
+    }
+    let after = rss_kb();
+    println!(
+        "mix {mix} ({} templates, {:.2} outputs each), kept {kept}: {} transactions, RSS {} KB \
+         ({:.1} bytes a transaction), kept outputs {} bytes ({:.1} a transaction)",
+        templates.len(),
+        outputs as f64 / templates.len() as f64,
+        m.len(),
+        after - before,
+        (after - before) as f64 * 1024.0 / n as f64,
+        m.kept_bytes(),
+        m.kept_bytes() as f64 / n as f64,
+    );
 }

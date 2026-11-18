@@ -8,7 +8,10 @@ use bitcoin::{Amount, BlockHash, OutPoint, Transaction, Txid};
 use node::esplora::ChainTip;
 use node::rpc::model::MempoolEntry;
 
-/// What we keep for every mempool transaction: 64 bytes plus 8 per input.
+use crate::outputs::{self, Outputs};
+
+/// What we keep for every mempool transaction: 64 bytes, plus on the heap 8 per input and its
+/// outputs as kept ([`crate::outputs`]), in one allocation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TxInfo {
     /// Base fee, without `prioritisetransaction` deltas.
@@ -25,13 +28,18 @@ pub struct TxInfo {
     /// Signals replaceability itself (BIP 125: an input's sequence below `0xfffffffe`). rbitcoin
     /// replaces regardless; kept for the `/api/v1` replacement trees' `rbf`. Fits in padding.
     pub rbf: bool,
+    /// How many of `words`, at the end, hold the outputs as kept: 0 when they are not (too many,
+    /// or past the tracker's budget). Fits in padding, so the record does not grow.
+    kept: u16,
     /// Its feature bits in the reference's layout: from its own bytes ([`crate::flags::of`]),
     /// and [`crate::flags::REPLACEMENT`] when the tracker saw it replace another transaction.
     pub flags: u64,
     /// Output count, to find children of a removed transaction.
     pub(crate) outputs: u32,
-    /// Keyed 64-bit fingerprints of the outpoints it spends, to find what replaced it.
-    pub(crate) spends: Box<[u64]>,
+    /// Keyed 64-bit fingerprints of the outpoints it spends, to find what replaced it; then its
+    /// outputs as kept, packed little-endian into the last `kept` words, so a replacement can say
+    /// what changed after the node has forgotten this version.
+    words: Box<[u64]>,
 }
 
 impl TxInfo {
@@ -46,9 +54,57 @@ impl TxInfo {
             size: weight.div_ceil(4),
             time,
             rbf: false,
+            kept: 0,
             flags: 0,
             outputs: 0,
-            spends: Box::new([]),
+            words: Box::new([]),
+        }
+    }
+
+    /// Keyed fingerprints of the outpoints it spends.
+    pub(crate) fn spends(&self) -> &[u64] {
+        let n = self.words.len().saturating_sub(usize::from(self.kept));
+        self.words.get(..n).unwrap_or_default()
+    }
+
+    /// How many inputs it has.
+    pub fn inputs(&self) -> u32 {
+        u32::try_from(self.spends().len()).unwrap_or(u32::MAX)
+    }
+
+    /// Its outputs as kept: `None` when they were not (the tracker's budget for them was spent,
+    /// or the record was built without them).
+    pub fn kept_outputs(&self) -> Option<Outputs> {
+        if self.outputs as usize > outputs::MAX_OUTPUTS {
+            return Some(Outputs::TooMany(self.outputs));
+        }
+        if self.kept == 0 {
+            return None;
+        }
+        let words = self.words.get(self.spends().len()..)?;
+        let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
+        let (_, n) = outputs::decode_n(&bytes, self.outputs as usize)?;
+        Some(Outputs::Kept(bytes.get(..n)?.into()))
+    }
+
+    /// How many of the outpoints it spends `other` spends too. Exact but for a collision of the
+    /// keyed 64-bit fingerprints.
+    pub fn shared_inputs(&self, other: &TxInfo) -> u32 {
+        let theirs: HashSet<u64> = other.spends().iter().copied().collect();
+        let n = self.spends().iter().filter(|k| theirs.contains(k)).count();
+        u32::try_from(n).unwrap_or(u32::MAX)
+    }
+
+    /// Heap bytes its kept outputs take.
+    pub(crate) fn kept_bytes(&self) -> u64 {
+        u64::from(self.kept) * 8
+    }
+
+    /// Forgets its outputs, keeping its inputs: past the tracker's budget.
+    pub(crate) fn drop_outputs(&mut self) {
+        if self.kept > 0 {
+            self.words = self.spends().into();
+            self.kept = 0;
         }
     }
 }
@@ -99,6 +155,8 @@ pub struct Mempool {
     tip: Option<ChainTip>,
     vsize: u64,
     fees: Amount,
+    /// Heap bytes the held transactions' kept outputs take, for the tracker's budget.
+    kept: u64,
     keys: Keys,
 }
 
@@ -115,6 +173,7 @@ impl Default for Mempool {
             tip: None,
             vsize: 0,
             fees: Amount::ZERO,
+            kept: 0,
             keys: Keys::default(),
         }
     }
@@ -131,6 +190,20 @@ impl Keys {
         let value = tx.output.iter().fold(Amount::ZERO, |sum, o| {
             sum.checked_add(o.value).unwrap_or(Amount::MAX)
         });
+        // At most `MAX_KEPT_BYTES` / 8 words, so `kept` always holds the count.
+        let kept = outputs::encode_tx(&tx.output)
+            .filter(|k| k.len().div_ceil(8) <= usize::from(u16::MAX))
+            .unwrap_or_default();
+        let kept_words = kept.len().div_ceil(8);
+        let mut words = Vec::with_capacity(tx.input.len() + kept_words);
+        words.extend(tx.input.iter().map(|i| self.key(&i.previous_output)));
+        words.extend(kept.chunks(8).map(|c| {
+            let mut w = [0u8; 8];
+            for (to, from) in w.iter_mut().zip(c) {
+                *to = *from;
+            }
+            u64::from_le_bytes(w)
+        }));
         TxInfo {
             fee: entry.fees.base,
             value,
@@ -139,13 +212,10 @@ impl Keys {
             size: sat(tx.total_size() as u64),
             time: sat(entry.time),
             rbf: tx.is_explicitly_rbf(),
+            kept: u16::try_from(kept_words).unwrap_or(0),
             flags: crate::flags::of(tx),
             outputs: sat(tx.output.len() as u64),
-            spends: tx
-                .input
-                .iter()
-                .map(|i| self.key(&i.previous_output))
-                .collect(),
+            words: words.into_boxed_slice(),
         }
     }
 
@@ -249,6 +319,11 @@ impl Mempool {
         self.fees
     }
 
+    /// Heap bytes the held transactions' kept outputs take ([`TxInfo::kept_outputs`]).
+    pub fn kept_bytes(&self) -> u64 {
+        self.kept
+    }
+
     /// Which of `txids` spends an output of which, from the inputs held for each: `(parent,
     /// child)` index pairs into `txids`, each once. Exact but for a collision of the keyed 64-bit
     /// input fingerprints. Costs one hash per output of the transactions given.
@@ -265,7 +340,7 @@ impl Mempool {
             let Some(info) = self.txs.get(t) else {
                 continue;
             };
-            for k in &info.spends {
+            for k in info.spends() {
                 if let Some(&parent) = outputs.get(k)
                     && parent != child
                     && !links.contains(&(parent, child))
@@ -309,12 +384,12 @@ impl Mempool {
     ) -> Vec<(Txid, Removal)> {
         let new_spends: HashMap<u64, Txid> = added
             .iter()
-            .flat_map(|(txid, info)| info.spends.iter().map(move |k| (*k, *txid)))
+            .flat_map(|(txid, info)| info.spends().iter().map(move |k| (*k, *txid)))
             .collect();
         let mut out: Vec<(Txid, Option<Removal>)> = removed
             .iter()
             .map(|txid| {
-                let spends = self.txs.get(txid).map_or(&[][..], |i| &i.spends[..]);
+                let spends = self.txs.get(txid).map_or(&[][..], |i| i.spends());
                 let reason = blocks
                     .iter()
                     .find(|b| b.txids.contains(txid))
@@ -351,7 +426,7 @@ impl Mempool {
                 .collect();
             let mut settled = false;
             for (txid, reason) in out.iter_mut().filter(|(_, r)| r.is_none()) {
-                let spends = self.txs.get(txid).map_or(&[][..], |i| &i.spends[..]);
+                let spends = self.txs.get(txid).map_or(&[][..], |i| i.spends());
                 if let Some(by) = spends.iter().find_map(|k| replaced.get(k)) {
                     *reason = Some(Removal::Replaced { by: *by });
                     settled = true;
@@ -380,7 +455,7 @@ impl Mempool {
         let mut generation: Vec<Txid> = self
             .txs
             .iter()
-            .filter(|(t, i)| !out.contains(*t) && i.spends.iter().any(spent))
+            .filter(|(t, i)| !out.contains(*t) && i.spends().iter().any(spent))
             .map(|(t, _)| *t)
             .collect();
         // A child of a conflicted transaction goes with it: one pass per generation.
@@ -396,7 +471,9 @@ impl Mempool {
             generation = self
                 .txs
                 .iter()
-                .filter(|(t, i)| !out.contains(*t) && i.spends.iter().any(|k| outputs.contains(k)))
+                .filter(|(t, i)| {
+                    !out.contains(*t) && i.spends().iter().any(|k| outputs.contains(k))
+                })
                 .map(|(t, _)| *t)
                 .collect();
         }
@@ -425,7 +502,7 @@ impl Mempool {
             let before = added.len();
             added.retain(|(t, i)| {
                 let gone = mined(t)
-                    || i.spends.iter().any(|k| {
+                    || i.spends().iter().any(|k| {
                         dead.contains(k) || blocks.iter().any(|b| b.spends.contains_key(k))
                     });
                 if gone && !mined(t) {
@@ -446,16 +523,19 @@ impl Mempool {
         }
         for (txid, _) in &d.removed {
             if let Some(info) = self.txs.remove(txid) {
+                self.kept = self.kept.saturating_sub(info.kept_bytes());
                 self.vsize = self.vsize.saturating_sub(u64::from(info.vsize));
                 self.fees = self.fees.checked_sub(info.fee).unwrap_or(Amount::ZERO);
             }
         }
         for (txid, info) in &d.added {
             if let Some(old) = self.txs.insert(*txid, info.clone()) {
+                self.kept = self.kept.saturating_sub(old.kept_bytes());
                 self.vsize = self.vsize.saturating_sub(u64::from(old.vsize));
                 self.fees = self.fees.checked_sub(old.fee).unwrap_or(Amount::ZERO);
             }
             self.vsize += u64::from(info.vsize);
+            self.kept += info.kept_bytes();
             self.fees = self.fees.checked_add(info.fee).unwrap_or(Amount::MAX);
         }
         self.seq = d.seq;

@@ -151,6 +151,10 @@ pub struct Config {
     pub blocks: usize,
     /// Deltas a subscriber may fall behind before it must resubscribe.
     pub subscriber_queue: usize,
+    /// Most heap bytes the held transactions' kept outputs may take ([`TxInfo::kept_outputs`]).
+    /// A transaction that arrives past it is held without its outputs, so a replacement of it
+    /// cannot say what changed in them (`docs/MEMPOOL.md`, "The record").
+    pub kept_outputs: u64,
 }
 
 impl Default for Config {
@@ -163,9 +167,14 @@ impl Default for Config {
             in_flight: 2,
             blocks: 6,
             subscriber_queue: 64,
+            kept_outputs: KEPT_OUTPUTS,
         }
     }
 }
+
+/// The default [`Config::kept_outputs`]: 32 MiB, about twice what a 300,000-transaction mempool of
+/// mainnet's usual outputs takes (`docs/MEMPOOL.md`, "The record").
+pub const KEPT_OUTPUTS: u64 = 32 << 20;
 
 /// What one cycle did and cost.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -194,6 +203,10 @@ pub struct CycleStats {
     pub tip: Option<ChainTip>,
     /// For a [`Event::Block`]: from [`Tracker::block_found`] to the delta's publication.
     pub since_found: Option<Duration>,
+    /// Added without their outputs kept, past [`Config::kept_outputs`].
+    pub unkept: usize,
+    /// Heap bytes the held transactions' kept outputs take after the cycle.
+    pub kept_bytes: u64,
 }
 
 /// Something worth recording. Read with [`Tracker::events`]; the tracker itself logs nothing.
@@ -560,6 +573,7 @@ impl<S: Source> Poller<S> {
             let _ = self.shared.deltas.send(Arc::new(delta));
         }
         stats.size = state.len();
+        stats.kept_bytes = state.kept_bytes();
         stats.mempool_sequence = state.mempool_sequence();
         drop(state);
         stats.tip = Some(tip);
@@ -668,6 +682,20 @@ impl<S: Source> Poller<S> {
                 Removal::Evicted => stats.evicted += 1,
             }
         }
+        // Outputs are kept while the budget lasts; what leaves in this delta frees its share next.
+        let mut room = self
+            .config
+            .kept_outputs
+            .saturating_sub(self.read(Mempool::kept_bytes));
+        for (_, info) in &mut added {
+            let b = info.kept_bytes();
+            if b > room {
+                info.drop_outputs();
+                stats.unkept += 1;
+            } else {
+                room -= b;
+            }
+        }
         stats.listed = listing.txids.len();
         stats.added = added.len();
         stats.mempool_sequence = listing.mempool_sequence;
@@ -699,6 +727,7 @@ impl<S: Source> Poller<S> {
             let _ = self.shared.deltas.send(Arc::new(delta));
         }
         stats.size = state.len();
+        stats.kept_bytes = state.kept_bytes();
         drop(state);
         self.last_sequence = Some(listing.mempool_sequence);
         // Listed transactions still missing details must be retried: no probe skip until then.

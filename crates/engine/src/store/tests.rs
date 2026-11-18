@@ -171,7 +171,9 @@ async fn a_file_at_0019_takes_only_0020() {
         }),
         ..Options::default()
     };
-    let store = Store::open_with(&dir.0, "regtest", options, MIGRATIONS).unwrap();
+    // The list as it shipped with `0020`: later migrations are not this test's.
+    let shipped = MIGRATIONS.get(..=at).unwrap();
+    let store = Store::open_with(&dir.0, "regtest", options, shipped).unwrap();
     assert_eq!(*applied.lock().unwrap(), ["0020_lightning_blocks.sql"]);
     assert_eq!(version(&store).await, 20);
     let indexes: Vec<String> = store

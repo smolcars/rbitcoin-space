@@ -20,3 +20,4 @@
 0018_lightning_fees.sql bca5a98c9756d566
 0019_lightning_penalties.sql b85f793526bcd167
 0020_lightning_blocks.sql ef1b71c089090a34
+0021_replacement_outputs.sql a00b75d36c5c6293

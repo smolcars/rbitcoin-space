@@ -4,12 +4,16 @@
 use bitcoin::hashes::Hash;
 use bitcoin::{BlockHash, Txid};
 
-use super::{Change, Facts, Link, Mined};
+use super::{Change, Facts, Link, Mined, Sides};
+use crate::outputs::Outputs;
 use crate::store::{Error, Read, Sql, SqlError, Store, params};
 
 const INSERT: &str = "INSERT OR REPLACE INTO replacements (txid, by, seen, fee, vsize, weight, \
     value, time, rbf, by_fee, by_vsize, by_weight, by_value, by_time, by_rbf, mined, height, \
     block) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)";
+
+const SIDES: &str = "UPDATE replacements SET outputs = ?2, by_outputs = ?3, inputs = ?4, \
+    by_inputs = ?5, shared = ?6 WHERE txid = ?1";
 
 const MINED: &str = "UPDATE replacements SET mined = ?2, height = ?3, block = ?4 WHERE by = ?1";
 const RETURNED: &str = "DELETE FROM replacements WHERE txid = ?1";
@@ -19,8 +23,8 @@ const RETURNED: &str = "DELETE FROM replacements WHERE txid = ?1";
 const PRUNE: &str = "DELETE FROM replacements WHERE n <= (SELECT max(n) FROM replacements) - ?1";
 
 const LOAD: &str = "SELECT txid, by, seen, fee, vsize, weight, value, time, rbf, by_fee, \
-    by_vsize, by_weight, by_value, by_time, by_rbf, mined, height, block FROM replacements \
-    ORDER BY n DESC LIMIT ?1";
+    by_vsize, by_weight, by_value, by_time, by_rbf, mined, height, block, outputs, by_outputs, \
+    inputs, by_inputs, shared FROM replacements ORDER BY n DESC LIMIT ?1";
 
 /// The record's changes from one step (a tracker delta, a check's answers), in the order the
 /// record made them ([`super::Replacements::take_changes`]).
@@ -65,8 +69,21 @@ pub async fn write_from(
 pub(crate) fn insert(sql: &Sql, batch: &[Change]) -> Result<(), Error> {
     let (mut insert, mut delete) = (sql.prepare(INSERT)?, sql.prepare(RETURNED)?);
     let mut mined = sql.prepare(MINED)?;
+    let mut sides = sql.prepare(SIDES)?;
     for c in batch {
         let l = match c {
+            Change::Sides(t, s) => {
+                let blob = |o: &Option<Outputs>| o.as_ref().map(Outputs::to_blob);
+                sides.execute(params![
+                    t.to_byte_array(),
+                    blob(&s.outputs),
+                    blob(&s.by_outputs),
+                    s.inputs,
+                    s.by_inputs,
+                    s.shared,
+                ])?;
+                continue;
+            }
             Change::Link(l) => l,
             Change::Mined(by, m) => {
                 let (m, height, block) = mined_columns(*m);
@@ -158,13 +175,44 @@ fn read(r: &rusqlite::Row) -> Result<Link, SqlError> {
     })
 }
 
+/// What a row keeps beside its link. Outputs that do not read back are left out, as if never
+/// recorded, rather than trusted.
+fn read_sides(r: &rusqlite::Row) -> Result<Sides, SqlError> {
+    let outputs = |i: usize| -> Result<Option<Outputs>, SqlError> {
+        Ok(r.get::<_, Option<Vec<u8>>>(i)?
+            .and_then(|b| Outputs::from_blob(&b)))
+    };
+    let count = |i: usize| -> Result<Option<u32>, SqlError> {
+        Ok(r.get::<_, Option<i64>>(i)?
+            .and_then(|v| u32::try_from(v).ok()))
+    };
+    Ok(Sides {
+        outputs: outputs(18)?,
+        by_outputs: outputs(19)?,
+        inputs: count(20)?,
+        by_inputs: count(21)?,
+        shared: count(22)?,
+    })
+}
+
 /// The newest `keep` links, oldest first, to put back into a record.
 pub async fn load(store: &Store, keep: usize) -> Result<Vec<Link>, Error> {
+    Ok(load_kept(store, keep)
+        .await?
+        .into_iter()
+        .map(|(l, _)| l)
+        .collect())
+}
+
+/// [`load`] with what each link keeps beside its figures ([`super::Replacements::restore_with`]).
+pub async fn load_kept(store: &Store, keep: usize) -> Result<Vec<(Link, Sides)>, Error> {
     store
         .read(Read::Replacements, move |sql| {
             let mut out = sql
                 .prepare(LOAD)?
-                .query_map(params![int(keep as u64)], read)?
+                .query_map(params![int(keep as u64)], |r| {
+                    Ok((read(r)?, read_sides(r)?))
+                })?
                 .collect::<Result<Vec<_>, _>>()?;
             out.reverse();
             Ok(out)

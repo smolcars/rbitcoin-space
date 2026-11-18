@@ -10,6 +10,7 @@ pub mod ledger;
 pub mod lightning;
 pub mod mempool;
 pub mod mining;
+pub mod outputs;
 pub mod projected;
 pub mod replacements;
 pub mod store;
