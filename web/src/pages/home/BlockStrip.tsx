@@ -15,7 +15,8 @@ import { Amount } from "../../components/Amount";
 import { FeeRate } from "../../components/FeeRate";
 import { Link } from "../../components/Link";
 import { Note } from "../../components/Note";
-import { type Layer, Strata, strataLayers } from "../../components/Strata";
+import { type Layer, Strata, strataLayers, strataSide } from "../../components/Strata";
+import "../../components/BlockBox.css";
 import { ErrorState } from "../../components/States";
 import { useNow } from "../../lib/clock";
 import type { Block } from "../../lib/esplora";
@@ -721,7 +722,7 @@ export function BlockStrip(props: {
               when={keys().length > 0}
               fallback={
                 <div class="home-tile home-tile--projected" ref={next}>
-                  <div class="home-tile__body">
+                  <div class="home-tile__body block-box">
                     <span class="home-tile__title">Next block</span>
                     <span class="home-tile__waiting">
                       <span class="home-tile__since num">{sinceTip() ?? ""}</span>
@@ -895,6 +896,9 @@ function MinedTile(props: {
     },
     { equals: sameLayers },
   );
+  /** The layers on the box's right face: its own, what it was projected to be, or how full it is. */
+  const side = () =>
+    strataSide(layers().length > 0 ? layers() : guessing() ? (guess ?? []) : [], full());
   const miner = () => summary()?.miner?.name;
   /** Seconds from its parent's time to its own, when it is timed before its parent. */
   const early = () => {
@@ -926,7 +930,7 @@ function MinedTile(props: {
       data-height={b().height}
     >
       <Link
-        class="home-tile__body"
+        class="home-tile__body block-box"
         href={paths.block(b().id)}
         aria-label={label()}
         tabindex={props.stop ? 0 : -1}
@@ -964,7 +968,11 @@ function MinedTile(props: {
             </Match>
           </Switch>
         </span>
-        <span class="home-tile__strata" aria-hidden="true">
+        <span
+          class="home-tile__strata block-box__core"
+          style={{ "--core-side": side() }}
+          aria-hidden="true"
+        >
           {/* The neutral gauge: how full the block is, until its layers arrive and settle over it. */}
           <Show when={(layers().length === 0 && !guessing()) || settle}>
             <span
@@ -1038,7 +1046,7 @@ function SkeletonTile(props: { skip?: number }) {
       aria-hidden="true"
       style={{ "--skip": String(props.skip ?? 0) }}
     >
-      <span class="home-tile__body">
+      <span class="home-tile__body block-box">
         <span class="home-tile__bone home-tile__bone--title" />
         <span class="home-tile__bone" />
         <span class="home-tile__bone home-tile__bone--short" />

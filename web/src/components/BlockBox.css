@@ -1,0 +1,56 @@
+/* A block tile drawn as a box (docs/DESIGN.md "Idea"): a right and a top face behind the front, in
+   its border's color, width and style, so a dashed tile is an open wireframe and a hover or the
+   accent outlines the whole box. Put `block-box` on the tile's 1.5 px bordered body, and
+   `block-box__core` on its full-width gauge with `--core-side` from `strataSide`, so its layers
+   show on the right face. A tile clears the faces with `--box-top` and `--box-side`. */
+@layer components {
+  .block-box {
+    --box-edge: 1.5px;
+    position: relative;
+  }
+  .block-box::before,
+  .block-box::after {
+    content: "";
+    position: absolute;
+    box-sizing: border-box;
+    border-width: var(--box-edge);
+    border-style: inherit;
+    border-color: inherit;
+    pointer-events: none;
+  }
+  /* The right face first, so the gauge's layers paint over it. */
+  .block-box::before {
+    top: calc(-1 * var(--box-edge));
+    left: calc(100% + var(--box-edge));
+    width: var(--tile-depth);
+    height: calc(100% + 2 * var(--box-edge));
+    border-left-width: 0;
+    background: var(--box-side, var(--tile-face-side));
+    transform-origin: 0 0;
+    transform: skewY(-45deg);
+  }
+  .block-box::after {
+    left: calc(-1 * var(--box-edge));
+    bottom: calc(100% + var(--box-edge));
+    width: calc(100% + 2 * var(--box-edge));
+    height: var(--tile-depth);
+    border-bottom-width: 0;
+    background: var(--box-top, var(--tile-face-top));
+    transform-origin: 0 100%;
+    transform: skewX(-45deg);
+  }
+  .block-box__core::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: calc(100% + var(--box-edge));
+    width: var(--tile-depth);
+    background: var(--core-side, none);
+    opacity: var(--core-opacity, 1);
+    filter: brightness(var(--tile-side-shade));
+    transform-origin: 0 0;
+    transform: skewY(-45deg);
+    pointer-events: none;
+  }
+}
