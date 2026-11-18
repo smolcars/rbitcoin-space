@@ -5,7 +5,11 @@
    show on the right face. A tile clears the faces with `--box-top` and `--box-side`. */
 @layer components {
   .block-box {
-    --box-edge: 1.5px;
+    /* The faces' outline, as wide as the tile's border. */
+    --box-line: 1.5px;
+    /* Where the faces meet the front: 1 px, what a 1.5 px border draws at 1x, so no seam opens
+       there; at 2x the faces overlap the front's border by half a pixel, unseen. */
+    --box-edge: 1px;
     position: relative;
   }
   .block-box::before,
@@ -13,7 +17,7 @@
     content: "";
     position: absolute;
     box-sizing: border-box;
-    border-width: var(--box-edge);
+    border-width: var(--box-line);
     border-style: inherit;
     border-color: inherit;
     pointer-events: none;
@@ -45,12 +49,23 @@
     top: 0;
     bottom: 0;
     left: calc(100% + var(--box-edge));
-    width: var(--tile-depth);
+    /* Inside the face's far edge, so its outline stays whole. */
+    width: calc(var(--tile-depth) - var(--box-line));
     background: var(--core-side, none);
     opacity: var(--core-opacity, 1);
     filter: brightness(var(--tile-side-shade));
     transform-origin: 0 0;
     transform: skewY(-45deg);
     pointer-events: none;
+  }
+  /* The side gives the final layers at once; while the front's settle or grow into them, it waits,
+     then fades in, so the two faces never disagree for long. Reduced motion zeroes it. */
+  .block-box__core:has(.strata--settle, .strata--morph)::after {
+    animation: block-core-in var(--dur-slow) var(--ease-out) var(--dur-slow) backwards;
+  }
+  @keyframes block-core-in {
+    from {
+      opacity: 0;
+    }
   }
 }
