@@ -402,6 +402,8 @@ export interface Replacements {
   replacedBy: ReplacementLink[];
   replaces: ReplacementLink[];
   truncated: boolean;
+  /** Its line of versions, oldest first, joined by version links only (docs/MEMPOOL.md). */
+  versions: string[];
 }
 
 export function parseReplacements(v: unknown): Replacements | undefined {
@@ -409,7 +411,11 @@ export function parseReplacements(v: unknown): Replacements | undefined {
   const r = v as Record<string, unknown>;
   const replacedBy = linksOf(r["replaced_by"]);
   const replaces = linksOf(r["replaces"]);
+  const line = r["versions"];
+  // At most 33 from the server; a list that is not one of txids is read as none.
+  const versions =
+    Array.isArray(line) && line.length <= 64 && line.every((x) => isTxid(x)) ? line : [];
   return replacedBy && replaces
-    ? { replacedBy, replaces, truncated: r["truncated"] === true }
+    ? { replacedBy, replaces, truncated: r["truncated"] === true, versions }
     : undefined;
 }

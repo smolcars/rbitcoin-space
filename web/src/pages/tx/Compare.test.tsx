@@ -145,20 +145,6 @@ describe("Compare", () => {
     });
   });
 
-  it("names a child that left with its parent, whichever way round it was asked", async () => {
-    answers[`${A}/${B}`] = { ...(answers[`${A}/${B}`] as object), shared_inputs: 0, child: "b" };
-    const el = mount(() => <Held versions={[A, B]} from={0} to={1} here={A} />);
-    await vi.waitFor(() => {
-      flush();
-      expect(text(el)).toContain("is not an earlier version");
-    });
-    // The second is the child: it is the one said to spend none of the other's coins.
-    expect(text(el)).toContain("Version 2 spends none of the coins Version 1, this page spends");
-    expect(el.querySelector("table")).toBeNull();
-    // Two versions only: no pickers.
-    expect(el.querySelector("select")).toBeNull();
-  });
-
   it("offers to try again when the server cannot compare", async () => {
     const el = mount(() => <Held versions={[B, C]} from={0} to={1} here={B} />);
     await vi.waitFor(() => {

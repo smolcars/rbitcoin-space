@@ -4,7 +4,6 @@ import {
   type KeptOutput,
   matchOutputs,
   parseComparison,
-  versionLine,
   type VersionOutputs,
 } from "./compare";
 
@@ -132,36 +131,5 @@ describe("parseComparison", () => {
     });
     expect(c?.a.outputs).toStrictEqual({ state: "kept", list: [{ value: 1, script: "00" }] });
     expect(c && "sharedInputs" in c).toBe(false);
-  });
-});
-
-describe("versionLine", () => {
-  const id = (n: number) => String(n).repeat(64).slice(0, 64);
-  const link = (a: number, b: number, shared?: number) => ({
-    txid: id(a),
-    by: id(b),
-    ...(shared === undefined ? {} : { shared }),
-  });
-
-  it("runs back through earlier versions and on through later ones, skipping children", () => {
-    // 1 → 2 → 3 (here) → 4 → 5; 7 is a child of 2 that left with it when 3 replaced 2.
-    const earlier = [link(7, 3, 0), link(2, 3, 1), link(1, 2)];
-    const later = [link(3, 4), link(4, 5)];
-    expect(versionLine(id(3), earlier, later)).toStrictEqual([1, 2, 3, 4, 5].map((n) => id(n)));
-    expect(versionLine(id(3), [], [])).toStrictEqual([id(3)]);
-    // Only a child: no earlier version.
-    expect(versionLine(id(3), [link(7, 3, 0)], [])).toStrictEqual([id(3)]);
-  });
-
-  it("never walks forward through a child's link", () => {
-    // 7 left with its parent when 3 replaced that parent; 4 replaced 3 later.
-    expect(versionLine(id(7), [], [link(7, 3, 0), link(3, 4)])).toStrictEqual([id(7)]);
-  });
-
-  it("stops at a loop", () => {
-    expect(versionLine(id(1), [link(2, 1), link(1, 2)], [link(1, 2)])).toStrictEqual([
-      id(2),
-      id(1),
-    ]);
   });
 });

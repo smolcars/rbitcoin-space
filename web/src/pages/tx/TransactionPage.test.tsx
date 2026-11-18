@@ -792,7 +792,7 @@ describe("TransactionPage", () => {
     expect(rail.classList).not.toContain("tx-rail--open");
   });
 
-  it("compares a confirmed replacement opened fresh, and asks nothing of an older one", async () => {
+  it("compares a confirmed replacement opened fresh, however long ago it confirmed", async () => {
     const OLD = "e".repeat(64);
     serve(payment(confirmed));
     replies[`/app/tx/${TXID}/replacements`] = {
@@ -802,6 +802,7 @@ describe("TransactionPage", () => {
         truncated: false,
         replaced_by: [],
         replaces: [{ txid: OLD, by: TXID, rate: 500, by_rate: 1000, shared_inputs: 1 }],
+        versions: [OLD, TXID],
       },
     };
     const v = (txid: string) => ({
@@ -814,26 +815,55 @@ describe("TransactionPage", () => {
       status: 200,
       body: { a: v(OLD), b: v(TXID), shared_inputs: 1 },
     };
+    // Thousands of blocks deep: the record holds links by count, not by age.
+    const saved = { ...replies };
+    serve(payment(confirmed), [], "985000");
+    Object.assign(replies, {
+      [`/app/tx/${TXID}/replacements`]: saved[`/app/tx/${TXID}/replacements`],
+      [`/app/tx/${OLD}/compare/${TXID}`]: saved[`/app/tx/${OLD}/compare/${TXID}`],
+    });
+    // Settled: the page follows nothing live, so it opens no socket, and asks all the same.
     const el = page(`/tx/${TXID}`);
-    await settle();
-    FakeSocket.last().hello({ network: "mainnet" });
     await vi.waitFor(async () => {
       await settle();
       expect(el.querySelector(".tx-versions .tx-compare__figures")).not.toBeNull();
     });
     expect(text(el.querySelector(".tx-versions") as Element)).toContain("Version 2, this page");
+  });
 
-    // Buried past the record's reach: the page asks nothing of the record.
-    for (const d of disposers.splice(0)) d();
-    clearApiCache();
-    fetchMock.mockClear();
-    serve(payment(confirmed), [], "976000");
-    const buried = page(`/tx/${TXID}`);
+  it("asks again when replaced, and offers no comparison for a child that left with its parent", async () => {
+    const PARENT_REPLACEMENT = "f".repeat(64);
+    serve(payment({ confirmed: false }));
+    const el = page(`/tx/${TXID}`);
     await settle();
-    FakeSocket.last().hello({ network: "mainnet" });
+    const ws = FakeSocket.last();
+    ws.hello({ network: "mainnet" });
+    ws.receive(mempoolMsg(0));
     await settle();
-    expect(text(buried)).toContain("Confirmed");
-    expect(fetchMock.mock.calls.some(([u]) => u.startsWith("/app/tx/"))).toBe(false);
+    const asked = () =>
+      fetchMock.mock.calls.filter(([u]) => u === `/app/tx/${TXID}/replacements`).length;
+    const before = asked();
+    // Its parent is replaced and it leaves too: the topic's link says nothing of how.
+    replies[`/app/tx/${TXID}/replacements`] = {
+      status: 200,
+      body: {
+        txid: TXID,
+        truncated: false,
+        replaced_by: [{ txid: TXID, by: PARENT_REPLACEMENT, shared_inputs: 0 }],
+        replaces: [],
+        versions: [],
+      },
+    };
+    ws.receive(
+      msg({ state: "replaced", truncated: false, chain: [{ txid: TXID, by: PARENT_REPLACEMENT }] }),
+    );
+    await vi.waitFor(async () => {
+      await settle();
+      expect(asked()).toBe(before + 1);
+      expect(text(el)).toContain("not replaced by a new version of itself");
+    });
+    expect(el.querySelector(".tx-compare")).toBeNull();
+    expect(el.querySelector(".tx-chain__compare")).toBeNull();
   });
 
   it("names what it replaced in the details", async () => {

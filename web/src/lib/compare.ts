@@ -1,7 +1,6 @@
 // Two versions of a replaced transaction side by side (`/app/tx/:txid/compare/:other`,
 // docs/FRONTEND.md "A transaction's relatives and replacements"), and the pure matching of their
 // outputs. Scripts and addresses are attacker-controlled text: they are only ever shown as text.
-import type { ReplacementLink } from "./track-topics";
 
 /** One output as the server kept it: a script in full (with its address), or a long one's hash. */
 export interface KeptOutput {
@@ -36,8 +35,6 @@ export interface Comparison {
   b: Version;
   /** Inputs both spend, when one directly replaced the other. */
   sharedInputs?: number;
-  /** The side that left with a replaced parent: never a version, so nothing to compare. */
-  child?: "a" | "b";
   /** The sizes' basis: `weight` when a side came from the node (weight over four, both sides). */
   vsizeBasis: "sigops" | "weight";
 }
@@ -124,8 +121,6 @@ export function parseComparison(v: unknown): Comparison | undefined {
   const out: Comparison = { a, b, vsizeBasis: r["vsize_basis"] === "weight" ? "weight" : "sigops" };
   const shared = opt(r["shared_inputs"]);
   if (shared !== undefined) out.sharedInputs = shared;
-  const child = r["child"];
-  if (child === "a" || child === "b") out.child = child;
   return out;
 }
 
@@ -228,43 +223,4 @@ export function inputChange(
     dropped: Math.max(0, a.inputs - shared),
     added: Math.max(0, b.inputs - shared),
   };
-}
-
-/** The longest line of versions a page offers to compare, as the server's chains are cut. */
-const MAX_LINE = 65;
-
-/**
- * The line of versions `here` belongs to, oldest first: back through what it replaced (`earlier`,
- * skipping children that left with a replaced parent, which are not versions), then forward
- * through what replaced it (`later`, oldest link first).
- */
-export function versionLine(
-  here: string,
-  earlier: readonly ReplacementLink[],
-  later: readonly ReplacementLink[],
-): string[] {
-  const back: string[] = [];
-  const seen = new Set([here]);
-  // What replaced `by` directly: a known conflict first; one the server has no count for may
-  // still be a version, a child that left with its parent (0) never is.
-  const before = (by: string): ReplacementLink | undefined => {
-    const step = (l: ReplacementLink) => l.by === by && !seen.has(l.txid);
-    return (
-      earlier.find((x) => step(x) && x.shared !== undefined && x.shared > 0) ??
-      earlier.find((x) => step(x) && x.shared === undefined)
-    );
-  };
-  for (let l = before(here); l && back.length < MAX_LINE; l = before(l.txid)) {
-    back.unshift(l.txid);
-    seen.add(l.txid);
-  }
-  const line = [...back, here];
-  // A child that left with its replaced parent is not a version of what replaced the parent.
-  for (const l of later) {
-    if (line.at(-1) !== l.txid || seen.has(l.by) || line.length >= MAX_LINE) break;
-    if (l.shared === 0) break;
-    line.push(l.by);
-    seen.add(l.by);
-  }
-  return line;
 }

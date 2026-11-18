@@ -139,105 +139,91 @@ function Answer(props: { c: Comparison; name: (txid: string) => string; busy: bo
   const b = () => props.c.b;
   const matched = () => matchOutputs(a().outputs, b().outputs);
   const inputs = () => inputChange(a(), b(), props.c.sharedInputs);
-  // Which side left with a replaced parent, whichever way round it was asked.
-  const child = () => (props.c.child === "a" ? a() : props.c.child === "b" ? b() : undefined);
-  const other = () => (props.c.child === "a" ? b() : a());
   return (
     <div class={["tx-compare__answer", { "is-busy": props.busy }]}>
-      <Show when={child()} keyed>
-        {(c) => (
-          <p class="tx-compare__note">
-            {props.name(c.txid)} spends none of the coins {props.name(other().txid)} spends: it left
-            the mempool because a transaction it spent from was replaced, so it is not an earlier
-            version of this payment and there is nothing to compare.
-          </p>
-        )}
+      <div class="tx-compare__scroll">
+        <table class="tx-compare__figures">
+          <caption class="visually-hidden">
+            {props.name(a().txid)} against {props.name(b().txid)}
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col">
+                <span class="visually-hidden">Figure</span>
+              </th>
+              <th scope="col">
+                <span class="tx-compare__version">{props.name(a().txid)}</span>
+                <Hash value={a().txid} href={paths.tx(a().txid)} copy={false} head={6} tail={4} />
+              </th>
+              <th scope="col">
+                <span class="tx-compare__version">{props.name(b().txid)}</span>
+                <Hash value={b().txid} href={paths.tx(b().txid)} copy={false} head={6} tail={4} />
+              </th>
+              <th scope="col">Change</th>
+            </tr>
+          </thead>
+          <tbody>
+            <Figure
+              label="Fee"
+              a={a().fee}
+              b={b().fee}
+              show={(v) => <Sats sats={v} />}
+              change={(d) => <Signed sats={d} />}
+            />
+            <Figure
+              label="Fee rate"
+              a={a().rate}
+              b={b().rate}
+              show={(v) => <FeeRate rate={v} />}
+              change={(d) => (
+                <span class="num">
+                  {d > 0 ? "+" : d < 0 ? "−" : "±"}
+                  <FeeRate rate={Math.abs(d)} />
+                </span>
+              )}
+            />
+            <Figure
+              label="Virtual size"
+              a={a().vsize}
+              b={b().vsize}
+              show={(v) => <span class="num">{formatSize(v)}</span>}
+              change={(d) => (
+                <span class="num">
+                  {d > 0 ? "+" : d < 0 ? "−" : "±"}
+                  {formatSize(Math.abs(d))}
+                </span>
+              )}
+            />
+            <Figure
+              label="Paid out"
+              a={a().value}
+              b={b().value}
+              show={(v) => <Amount sats={v} />}
+              change={(d) => <Signed sats={d} btc />}
+            />
+            <Figure
+              label="Inputs"
+              always
+              a={a().inputs}
+              b={b().inputs}
+              show={(v) => <span class="num">{groupDigits(v)}</span>}
+              change={() => (
+                <Show when={inputs()} fallback={<span class="tx-compare__muted">{MISSING}</span>}>
+                  {(n) => <InputsChange {...n()} />}
+                </Show>
+              )}
+            />
+          </tbody>
+        </table>
+      </div>
+      <Show when={props.c.vsizeBasis === "weight"}>
+        <p class="tx-compare__note">
+          Sizes and rates here are weight over four for both versions: the node does not count
+          signature operations for a version this server never held, so neither side does.
+        </p>
       </Show>
-      <Show when={child() === undefined}>
-        <div class="tx-compare__scroll">
-          <table class="tx-compare__figures">
-            <caption class="visually-hidden">
-              {props.name(a().txid)} against {props.name(b().txid)}
-            </caption>
-            <thead>
-              <tr>
-                <th scope="col">
-                  <span class="visually-hidden">Figure</span>
-                </th>
-                <th scope="col">
-                  <span class="tx-compare__version">{props.name(a().txid)}</span>
-                  <Hash value={a().txid} href={paths.tx(a().txid)} copy={false} head={6} tail={4} />
-                </th>
-                <th scope="col">
-                  <span class="tx-compare__version">{props.name(b().txid)}</span>
-                  <Hash value={b().txid} href={paths.tx(b().txid)} copy={false} head={6} tail={4} />
-                </th>
-                <th scope="col">Change</th>
-              </tr>
-            </thead>
-            <tbody>
-              <Figure
-                label="Fee"
-                a={a().fee}
-                b={b().fee}
-                show={(v) => <Sats sats={v} />}
-                change={(d) => <Signed sats={d} />}
-              />
-              <Figure
-                label="Fee rate"
-                a={a().rate}
-                b={b().rate}
-                show={(v) => <FeeRate rate={v} />}
-                change={(d) => (
-                  <span class="num">
-                    {d > 0 ? "+" : d < 0 ? "−" : "±"}
-                    <FeeRate rate={Math.abs(d)} />
-                  </span>
-                )}
-              />
-              <Figure
-                label="Virtual size"
-                a={a().vsize}
-                b={b().vsize}
-                show={(v) => <span class="num">{formatSize(v)}</span>}
-                change={(d) => (
-                  <span class="num">
-                    {d > 0 ? "+" : d < 0 ? "−" : "±"}
-                    {formatSize(Math.abs(d))}
-                  </span>
-                )}
-              />
-              <Figure
-                label="Paid out"
-                a={a().value}
-                b={b().value}
-                show={(v) => <Amount sats={v} />}
-                change={(d) => <Signed sats={d} btc />}
-              />
-              <Figure
-                label="Inputs"
-                always
-                a={a().inputs}
-                b={b().inputs}
-                show={(v) => <span class="num">{groupDigits(v)}</span>}
-                change={() => (
-                  <Show when={inputs()} fallback={<span class="tx-compare__muted">{MISSING}</span>}>
-                    {(n) => <InputsChange {...n()} />}
-                  </Show>
-                )}
-              />
-            </tbody>
-          </table>
-        </div>
-        <Show when={props.c.vsizeBasis === "weight"}>
-          <p class="tx-compare__note">
-            Sizes and rates here are weight over four for both versions: the node does not count
-            signature operations for a version this server never held, so neither side does.
-          </p>
-        </Show>
-        <h4 class="tx-compare__subtitle">Outputs, matched by where they pay</h4>
-        <Outputs matched={matched()} name={props.name} a={a().txid} b={b().txid} />
-      </Show>
+      <h4 class="tx-compare__subtitle">Outputs, matched by where they pay</h4>
+      <Outputs matched={matched()} name={props.name} a={a().txid} b={b().txid} />
     </div>
   );
 }

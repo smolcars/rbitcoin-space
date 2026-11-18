@@ -17,7 +17,6 @@ import {
   type TxState,
   txTopic,
 } from "../../lib/track-topics";
-import { versionLine } from "../../lib/compare";
 import { Compare } from "./Compare";
 import { type Liveness, place, type Relatives, group, ratesDiffer, type StripPlace } from "./state";
 
@@ -272,36 +271,30 @@ function TxList(props: { txids: string[]; label: string }) {
 export function Chain(props: {
   chain: ReplacementLink[];
   truncated: boolean;
-  /** What this version replaced, from the replacements route: the line's older versions. */
-  earlier?: ReplacementLink[];
-  /** What replaced it, from the replacements route, which says how many inputs each pair shares. */
+  /**
+   * Its line of versions, from the replacements route (docs/MEMPOOL.md, "Versions"): nothing is
+   * offered for comparison until the route has said which links are versions'.
+   */
+  versions?: string[];
+  /** What replaced it, from the same route, which says how many inputs each pair shares. */
   later?: ReplacementLink[];
 }) {
   const last = () => props.chain.at(-1);
   const here = () => props.chain[0]?.txid ?? "";
-  // The topic's links say nothing of shared inputs; the route's do.
-  const sharedOf = (l: ReplacementLink) =>
-    l.shared ?? props.later?.find((k) => k.txid === l.txid && k.by === l.by)?.shared;
-  const forward = (): ReplacementLink[] =>
-    props.chain.map((l) => {
-      const shared = sharedOf(l);
-      return shared === undefined ? l : { ...l, shared };
-    });
-  const versions = () => versionLine(here(), props.earlier ?? [], forward());
+  const versions = () => props.versions ?? [];
   const at = (txid: string) => versions().indexOf(txid);
-  // It left with a replaced parent: it is not a version of what replaced that parent.
-  const child = () => {
-    const first = props.chain[0];
-    return first !== undefined && sharedOf(first) === 0;
-  };
+  // Its own link is a child's: it left with a replaced parent, and is no version of what
+  // replaced that parent. Only the route says so; the topic's links do not.
+  const child = () => props.later?.find((k) => k.txid === here())?.shared === 0;
   // The one pair shown, by txid, whichever control picked it: this version and what replaced it
   // until a link or a picker chooses another.
   const [pair, setPair] = createSignal<[string, string]>();
   const shown = (): [number, number] => {
     const p = pair();
-    return p && at(p[0]) >= 0 && at(p[1]) >= 0
-      ? [at(p[0]), at(p[1])]
-      : [at(here()), at(here()) + 1];
+    if (p && at(p[0]) >= 0 && at(p[1]) >= 0) return [at(p[0]), at(p[1])];
+    // What replaced it when that is a version; else, the newest of its line, the one before.
+    const i = at(here());
+    return i >= 0 && i + 1 < versions().length ? [i, i + 1] : [i - 1, i];
   };
   const pick = (from: number, to: number) =>
     setPair([versions()[from] ?? "", versions()[to] ?? ""]);
@@ -382,7 +375,7 @@ export function Chain(props: {
           replaced, and left the mempool with it.
         </p>
       </Show>
-      <Show when={!child() && versions().length > 1 && shown()[0] >= 0 && shown()[1] >= 0}>
+      <Show when={versions().length > 1 && shown()[0] >= 0 && shown()[1] >= 0}>
         <Compare
           versions={versions()}
           from={shown()[0]}

@@ -51,6 +51,7 @@ describe("Chain", () => {
           { txid: B, by: C },
         ]}
         truncated={false}
+        versions={[A, B, C]}
       />
     ));
     await settled(() => expect(asked).toStrictEqual(["ab"]));
@@ -71,6 +72,30 @@ describe("Chain", () => {
     expect((el.querySelectorAll("select")[1] as HTMLSelectElement).value).toBe("1");
   });
 
+  it("offers nothing to compare until the route has said which links are versions'", async () => {
+    const el = mount(() => <Chain chain={[{ txid: A, by: B }]} truncated={false} />);
+    await settled(() => expect(el.querySelector(".tx-chain__list")).not.toBeNull());
+    expect(el.querySelector(".tx-compare")).toBeNull();
+    expect(el.querySelector(".tx-chain__compare")).toBeNull();
+    expect(asked).toStrictEqual([]);
+  });
+
+  it("still compares a child with what it bumped, and never with what replaced its parent", async () => {
+    // A bumped to B; then Q replaced B's parent and removed B. B's line is A and B.
+    const Q = "f".repeat(64);
+    const el = mount(() => (
+      <Chain
+        chain={[{ txid: B, by: Q }]}
+        truncated={false}
+        later={[{ txid: B, by: Q, shared: 0 }]}
+        versions={[A, B]}
+      />
+    ));
+    await settled(() => expect(asked).toStrictEqual(["ab"]));
+    expect(el.textContent).toContain("not replaced by a new version");
+    expect(el.querySelector(".tx-chain__compare")).toBeNull();
+  });
+
   it("offers no comparison on a child that left with its replaced parent", async () => {
     // X left when B replaced its parent; then C replaced B. X is no version of B or C.
     const el = mount(() => (
@@ -81,6 +106,7 @@ describe("Chain", () => {
         ]}
         truncated={false}
         later={[{ txid: X, by: B, shared: 0 }]}
+        versions={[]}
       />
     ));
     await settled(() => expect(el.textContent).toContain("not replaced by a new version"));
