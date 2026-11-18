@@ -119,29 +119,27 @@ export function lookalikes(own: string, txs: readonly Transaction[]): Map<string
     }
   }
 
-  // Whether two addresses of one bucket appear in different transactions.
-  const apart = (a: string, b: string) =>
-    multi.has(a) || multi.has(b) || firstTx.get(a) !== firstTx.get(b);
   // A few addresses of each bucket stand for all of it, so a bucket of thousands (a transaction's
-  // dust outputs ground to one pair of ends) costs no more per address than a pair: if any address
-  // of the bucket is apart from a given one, one of these is.
+  // dust outputs ground to one pair of ends) costs no more per address than a pair: two that appear
+  // in more than one transaction, and two from each of the first three transactions its addresses
+  // were first met in. If any address of the bucket other than a given one appears outside a given
+  // transaction, one of these does: one of two that appear in several, the one or other of its own
+  // transaction's two, or, past three transactions, one of two others' first.
   const standIns = (bucket: readonly string[]): string[] => {
-    const [first, second] = bucket;
-    const firstT = first === undefined ? undefined : firstTx.get(first);
-    const other = bucket.find((b) => firstTx.get(b) !== firstT);
-    const multis = [];
+    const multis: string[] = [];
+    const byTx = new Map<number, string[]>();
     for (const b of bucket) {
-      if (!multi.has(b)) continue;
-      multis.push(b);
-      if (multis.length === 2) break;
+      if (multi.has(b) && multis.length < 2) multis.push(b);
+      const t = firstTx.get(b) ?? -1;
+      const met = byTx.get(t);
+      if (met) {
+        if (met.length < 2) met.push(b);
+      } else if (byTx.size < 3) byTx.set(t, [b]);
     }
-    return [first, second, other, ...multis].filter((b) => b !== undefined);
+    return [...multis, ...[...byTx.values()].flat()];
   };
   const stood = new Map<string, string[]>();
 
-  // What each lookalike address resembles: the page's own address first, else another address of
-  // its bucket from another transaction. Never the page's own address itself: it is in every row.
-  const resembles = new Map<string, Lookalike>();
   const describe = (here: string, like: string, f: Form, isOwn: boolean): Lookalike => {
     const g = forms.get(like) ?? form(like);
     const other = g?.folded ?? like.toLowerCase();
@@ -154,32 +152,34 @@ export function lookalikes(own: string, txs: readonly Transaction[]): Map<string
       prefix: f.prefix,
     };
   };
-  for (const [a, f] of forms) {
-    if (!f || a === own) continue;
-    if (ownKey === f.ownKey) {
-      resembles.set(a, describe(a, own, f, true));
-      continue;
-    }
+  // What an address in transaction `t` resembles: the page's own address first, else another
+  // address of its bucket that appears in a transaction other than `t`, so "elsewhere" is true of
+  // the row it is said under. Never the page's own address itself: it is in every row.
+  const resembles = (a: string, t: number): Lookalike | undefined => {
+    const f = forms.get(a);
+    if (!f || a === own) return undefined;
+    if (ownKey === f.ownKey) return describe(a, own, f, true);
     const bucket = buckets.get(f.pairKey);
-    if (!bucket || bucket.length < 2) continue;
+    if (!bucket || bucket.length < 2) return undefined;
     let ins = stood.get(f.pairKey);
     if (!ins) {
       ins = standIns(bucket);
       stood.set(f.pairKey, ins);
     }
-    const like = ins.find((b) => b !== a && apart(a, b));
-    if (like !== undefined) resembles.set(a, describe(a, like, f, false));
-  }
+    const like = ins.find((b) => b !== a && (multi.has(b) || firstTx.get(b) !== t));
+    return like === undefined ? undefined : describe(a, like, f, false);
+  };
 
   const out = new Map<string, Lookalike[]>();
-  if (resembles.size === 0) return out;
-  for (const [txid, list] of perTx) {
-    const found: Lookalike[] = [];
+  for (const [t, [txid, list]] of perTx.entries()) {
+    // Those of the page's own address first: the warning's headline is theirs, and it shows few.
+    const mine: Lookalike[] = [];
+    const others: Lookalike[] = [];
     for (const a of list) {
-      const l = resembles.get(a);
-      if (l) found.push(l);
+      const l = resembles(a, t);
+      if (l) (l.own ? mine : others).push(l);
     }
-    if (found.length > 0) out.set(txid, found);
+    if (mine.length + others.length > 0) out.set(txid, [...mine, ...others]);
   }
   return out;
 }

@@ -27,7 +27,7 @@ import {
   txFeeRate,
 } from "./address";
 import { type Lookalike, lookalikes } from "./lookalike";
-import { LookalikeWarning } from "./Lookalike";
+import { LookalikeWarning } from "./LookalikeWarning";
 import { Skeleton, settled, UnconfirmedMark } from "./parts";
 
 /** Confirmed transactions per page of address history; the first page adds the unconfirmed ones. */

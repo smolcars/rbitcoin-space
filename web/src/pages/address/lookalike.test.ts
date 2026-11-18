@@ -126,6 +126,28 @@ describe("lookalikes of the page's own address", () => {
     const pkh = `1Ab${"z".repeat(27)}WXYZ`;
     expect(lookalikes(pkh, [tx([`3Ab${"z".repeat(27)}WXYZ`], [pkh])]).size).toBe(0);
   });
+
+  it("never compares bech32 addresses of different lengths, nor pay to anchor", () => {
+    // One future witness version, the same ends, programs of different lengths.
+    const short = `bc1zxy${"q".repeat(30)}4rmc`;
+    const long = `bc1zxy${"q".repeat(40)}4rmc`;
+    expect(lookalikes(short, [tx([long], [short])]).size).toBe(0);
+    expect(lookalikes(short, [tx([`bc1zxy${"p".repeat(30)}4rmc`], [short])]).size).toBe(1);
+    // Pay to anchor is one fixed address: nothing looks like it, and it like nothing.
+    const anchor = "bc1pfeessrawgf";
+    expect(lookalikes(anchor, [tx([anchor], [anchor])]).size).toBe(0);
+  });
+
+  it("covers the test networks' other base58 forms", () => {
+    const pkh = `nWk${"1".repeat(27)}Auat`;
+    const t1 = tx([`nwK${"2".repeat(27)}auAT`], [pkh]);
+    expect(lookalikes(pkh, [t1]).get(t1.txid)?.[0]?.own).toBe(true);
+    const two = `2Wk${"1".repeat(28)}Auat`;
+    const t2 = tx([`2wK${"3".repeat(28)}auAT`], [two]);
+    expect(lookalikes(two, [t2]).get(t2.txid)?.[0]?.own).toBe(true);
+    // A testnet P2PKH and a testnet P2SH with the same ends are different kinds.
+    expect(lookalikes(pkh, [tx([`2Wk${"1".repeat(27)}Auat`], [pkh])]).size).toBe(0);
+  });
 });
 
 describe("lookalikes between other addresses in the history", () => {
@@ -165,6 +187,48 @@ describe("lookalikes between other addresses in the history", () => {
     // Once one of them appears in another transaction too, both rows say so.
     const again = tx([batch.vout[0]?.scriptpubkey_address ?? ""], [own]);
     expect(lookalikes(own, [batch, again]).size).toBe(2);
+  });
+
+  it("names as elsewhere only an address that is in another transaction", () => {
+    // A and B look alike and share a transaction; A is paid again in another.
+    const a = `bc1pdcl${"q".repeat(51)}4uu7`;
+    const b = `bc1pdcl${"p".repeat(51)}4uu7`;
+    const both = tx([own], [a, b]);
+    const again = tx([own], [a]);
+    const found = lookalikes(own, [both, again]);
+    // Under the first row only B has a lookalike elsewhere (A, paid again); B is nowhere else.
+    expect(found.get(both.txid)?.map((l) => [l.here, l.like])).toStrictEqual([[b, a]]);
+    expect(found.get(again.txid)?.map((l) => [l.here, l.like])).toStrictEqual([[a, b]]);
+  });
+
+  it("finds the one address elsewhere however a bucket's addresses are spread", () => {
+    // The bucket: A first met in the first transaction and named again in the second, S only in
+    // the second, B only in the first. Under the second row, A's lookalike elsewhere is B.
+    const a = `bc1pdcl${"q".repeat(51)}4uu7`;
+    const s = `bc1pdcl${"p".repeat(51)}4uu7`;
+    const b = `bc1pdcl${"r".repeat(51)}4uu7`;
+    const first = tx([own], [a, b]);
+    const second = tx([own], [a, s]);
+    const pairs = lookalikes(own, [first, second])
+      .get(second.txid)
+      ?.map((l) => [l.here, l.like]);
+    expect(pairs).toStrictEqual([
+      [a, b],
+      [s, a],
+    ]);
+  });
+
+  it("lists a lookalike of the page's own address before the others", () => {
+    const payee = `bc1pdcl${"q".repeat(51)}4uu7`;
+    const fakePayee = `bc1pdcl${"p".repeat(51)}4uu7`;
+    const fakeOwn = `bc1qxy${"q".repeat(32)}4rmc`;
+    const paid = tx([own], [payee]);
+    const poison = tx([], [fakePayee, fakeOwn, own]);
+    expect(
+      lookalikes(own, [paid, poison])
+        .get(poison.txid)
+        ?.map((l) => l.own),
+    ).toStrictEqual([true, false]);
   });
 
   it("says nothing for an address that is only repeated", () => {
