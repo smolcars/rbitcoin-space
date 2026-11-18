@@ -12,6 +12,7 @@ pub mod ark_bark;
 mod audits;
 pub mod blocks;
 mod cards;
+pub mod compare;
 pub mod config;
 pub mod decode;
 pub mod difficulty;
@@ -286,6 +287,7 @@ pub fn network_routes() -> Router<Arc<NetworkContext>> {
         .route("/app/card/block/{file}", get(cards::block))
         .route("/app/tx/{txid}/relatives", get(relatives::route))
         .route("/app/tx/{txid}/replacements", get(replacements::route))
+        .route("/app/tx/{txid}/compare/{other}", get(compare::route))
         .route(
             "/app/tx/check",
             post(tx_check::route).layer(DefaultBodyLimit::max(esplora::MAX_BROADCAST_BODY)),

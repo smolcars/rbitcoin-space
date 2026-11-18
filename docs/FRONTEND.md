@@ -266,12 +266,13 @@ The totals, the same object as the facts' `audit` (which leaves out `id`, `heigh
 
 #### A transaction's relatives and replacements
 
-For the transaction page: who it will be mined with, and what replaced what. Per network, under its `/app` (`crates/server/src/relatives.rs`, `crates/server/src/replacements.rs`). Both answer from the server's memory and never ask the node, so they are cheap and need no caps beyond the ordinary request limits. Both are `Cache-Control: no-store`: the mempool moves.
+For the transaction page: who it will be mined with, what replaced what, and what changed between two versions. Per network, under its `/app` (`crates/server/src/relatives.rs`, `crates/server/src/replacements.rs`, `crates/server/src/compare.rs`). They answer from the server's memory (the compare route asks the node only in the one case below), so they are cheap and need no caps beyond the ordinary request limits. All are `Cache-Control: no-store`: the mempool moves.
 
 | Route | Answer |
 |---|---|
 | `GET /app/tx/:txid/relatives` | A mempool transaction's cluster, its chunks and its parents and children (below) |
 | `GET /app/tx/:txid/replacements` | What this transaction replaced and what replaced it, as far as the server remembers (below) |
+| `GET /app/tx/:txid/compare/:other` | Two versions of one replaced transaction side by side: figures, inputs and outputs (below) |
 
 **Relatives.** The cluster is the node's own (`getmempoolcluster`), as the projected blocks last asked for it: at most one mempool update behind. Which member spends which is read from the transactions' inputs.
 
@@ -292,14 +293,31 @@ For the transaction page: who it will be mined with, and what replaced what. Per
 
 ```json
 {"txid":"<B>","truncated":false,
- "replaced_by":[{"txid":"<B>","by":"<C>","seen":1794467700,"fee":695,"vsize":139,"rate":5000,"by_fee":2000,"by_vsize":139,"by_rate":14388}],
- "replaces":[{"txid":"<A>","by":"<B>","seen":1794467643,"fee":139,"vsize":139,"rate":1000,"by_fee":695,"by_vsize":139,"by_rate":5000}]}
+ "replaced_by":[{"txid":"<B>","by":"<C>","seen":1794467700,"fee":695,"vsize":139,"rate":5000,"by_fee":2000,"by_vsize":139,"by_rate":14388,"shared_inputs":1}],
+ "replaces":[{"txid":"<A>","by":"<B>","seen":1794467643,"fee":139,"vsize":139,"rate":1000,"by_fee":695,"by_vsize":139,"by_rate":5000,"shared_inputs":1}]}
 ```
 
 - `replaced_by` follows this transaction forward to the newest replacement known, oldest link first. The last link's `by` is the one to show.
 - `replaces` walks backward: what this one replaced, and what those replaced, newest first. A replacement can replace several transactions at once (a transaction and its children: a child leaves with its replaced parent and carries the same replacement).
-- Each link: `seen` is when the server saw it (Unix seconds); `fee`, `vsize` and `rate` are the replaced transaction's own, `by_*` the replacement's, `null` when the replacement was confirmed in the block that removed the original. At most 32 links each way; `truncated` says there were more.
+- Each link: `seen` is when the server saw it (Unix seconds); `fee`, `vsize` and `rate` are the replaced transaction's own, `by_*` the replacement's, `null` when the replacement was confirmed in the block that removed the original. `shared_inputs` is how many inputs the two share, `null` when not recorded; `0` means the replaced transaction was a child that left with its replaced parent, not an earlier version. At most 32 links each way; `truncated` says there were more.
 - Empty lists mean the server saw no replacement since it started, not that there was none. `503` with the mempool engine switched off; `400` for a malformed txid.
+
+**Compare.** Two versions of one transaction, `a` the first named and `b` the second, in any order, neighbours or not: both must be in one history of the replacement record (the same newest end).
+
+```json
+{"shared_inputs":1,
+ "a":{"txid":"<A>","fee":500,"vsize":200,"weight":800,"value":1000,"rate":2500,"inputs":2,"from":"record",
+      "outputs":{"state":"kept","list":[{"value":1000,"script":"0014…","address":"bc1q…"}]}},
+ "b":{"txid":"<B>","fee":1000,"vsize":250,"weight":1000,"value":2001,"rate":4000,"inputs":1,"from":"mempool",
+      "outputs":{"state":"kept","list":[{"value":1000,"script":"0014…","address":"bc1q…"},
+                                       {"value":1001,"script_len":83,"script_hash":"<32 hex>"}]}}}
+```
+
+- `outputs` is as kept while the version waited in the mempool ([`MEMPOOL.md`](MEMPOOL.md#outputs-kept-for-the-compare-view)): `kept` with each output's value (sats) and its script as hex with its `address` (`null` for a script without one), or for a script over 34 bytes its length and the first 16 bytes of its SHA-256 as hex; `too_many` with `count` past 32 outputs; `not_recorded` when the server has none (a link stored before outputs were kept, a child that left with its parent, a version the tracker held past its budget, or one the node has forgotten). Scripts are attacker-controlled bytes: show them as text.
+- `inputs` is the version's input count, `null` when not recorded. `shared_inputs` is how many inputs both spend, only when one directly replaced the other and the tracker held both, else `null`; `0` means `a` was not an earlier version but a child that left with its replaced parent.
+- `from` says where the version came from: `record`, `mempool` (still waiting, from the tracker), `node`, or `none` when nothing is known of it but its txid. Figures are `null` when unknown.
+- **The one node read:** a version the record names but holds no outputs for, and the tracker does not hold (a replacement confirmed straight from a block), is asked of the node's Esplora (`/tx/:txid`), one read, so at most two a request and none for a txid the record does not know.
+- `404` `{"error":"not two versions of one transaction"}`; `400` for a malformed txid or the same one twice; `503` with the mempool engine switched off.
 
 #### Mempool history
 

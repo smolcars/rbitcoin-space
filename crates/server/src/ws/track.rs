@@ -29,7 +29,7 @@ use super::{Conn, Frame, Hub, Snapshot, Topic};
 use crate::config::{Limits, Network, WsLimits};
 use crate::esplora::HeavyShare;
 use crate::limits::Clients;
-use crate::replacements::{Batch, Facts, Kept, Link, MAX_LINKS, Mined, Replacements};
+use crate::replacements::{Batch, Facts, Kept, Link, MAX_LINKS, Mined, Replacements, Sides};
 use crate::{ApiError, esplora};
 use engine::replacements::{Answer, Ask, Lookup};
 
@@ -342,10 +342,16 @@ impl Tracking {
     }
 
     /// Puts back links recorded before (from the store), oldest first.
+    #[cfg(test)]
     pub(crate) fn restore_replacements(&self, links: Vec<Link>) {
+        self.restore_kept(links.into_iter().map(|l| (l, Sides::default())).collect());
+    }
+
+    /// [`Self::restore_replacements`] with what each link keeps beside its figures.
+    pub(crate) fn restore_kept(&self, links: Vec<(Link, Sides)>) {
         let mut st = lock(&self.state);
-        for l in links {
-            st.replacements.restore(l);
+        for (l, s) in links {
+            st.replacements.restore_with(l, s);
         }
     }
 
@@ -606,8 +612,8 @@ impl Tracking {
                 .binary_search_by_key(by, |(t, _)| *t)
                 .ok()
                 .and_then(|i| d.added.get(i))
-                .map(|(_, i)| Facts::of(i))
-                .or_else(|| tracker.read(|m| m.get(by).map(Facts::of)));
+                .map(|(_, i)| i.clone())
+                .or_else(|| tracker.read(|m| m.get(by).cloned()));
             // The tracker names as a replacement only what entered the mempool in this cycle or
             // sits in one of the window's blocks.
             let mined = d
@@ -620,10 +626,11 @@ impl Tracking {
                 by: *by,
                 seen,
                 tx: Facts::of(info),
-                by_tx: by_info,
+                by_tx: by_info.as_ref().map(Facts::of),
                 mined,
             };
-            st.replacements.insert(link);
+            st.replacements
+                .insert_with(link, Sides::of(info, by_info.as_ref()));
         }
         for (txid, reason) in &d.removed {
             if let Removal::Confirmed { height, block } = reason {

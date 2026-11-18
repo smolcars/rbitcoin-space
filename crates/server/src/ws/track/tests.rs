@@ -283,7 +283,7 @@ impl Mock {
         n.sequence += 1;
     }
 
-    fn evict(&self, id: Txid) {
+    pub(crate) fn evict(&self, id: Txid) {
         let mut n = self.node();
         let gone = n.with_descendants(&[id]);
         n.take(&gone);

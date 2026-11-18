@@ -17,7 +17,7 @@ use axum::http::header::CACHE_CONTROL;
 use axum::response::{IntoResponse, Response};
 use axum::{Json, http::StatusCode};
 pub use engine::replacements::db::Batch;
-pub use engine::replacements::{Change, Facts, Link, MAX_LINKS, Mined, Replacements};
+pub use engine::replacements::{Change, Facts, Link, MAX_LINKS, Mined, Replacements, Sides};
 use engine::store::Store;
 use logging::events::{ReplacementsRestored, ReplacementsStoreFailed};
 use serde_json::json;
@@ -43,10 +43,22 @@ pub async fn route(
     let body = ctx.track.with_replacements(|r| {
         let (later, more_later) = r.chain(&txid);
         let (earlier, more_earlier) = r.earlier(&txid);
+        // With how many inputs each pair shares: 0 says a child left with its replaced parent,
+        // not an earlier version (the compare view's line of versions skips those).
+        let json = |l: &Link| {
+            let mut v = l.json();
+            if let serde_json::Value::Object(m) = &mut v {
+                m.insert(
+                    "shared_inputs".into(),
+                    json!(r.sides(&l.txid).and_then(|s| s.shared)),
+                );
+            }
+            v
+        };
         json!({
             "txid": txid,
-            "replaced_by": later.iter().map(Link::json).collect::<Vec<_>>(),
-            "replaces": earlier.iter().map(Link::json).collect::<Vec<_>>(),
+            "replaced_by": later.iter().map(json).collect::<Vec<_>>(),
+            "replaces": earlier.iter().map(json).collect::<Vec<_>>(),
             "truncated": more_later || more_earlier,
         })
     });
@@ -109,10 +121,10 @@ impl Kept {
     pub async fn restore(&self, track: &crate::ws::Tracking) {
         let started = Instant::now();
         let keep = track.with_replacements(Replacements::cap);
-        match engine::replacements::db::load(&self.store, keep).await {
+        match engine::replacements::db::load_kept(&self.store, keep).await {
             Ok(links) => {
                 let n = links.len();
-                track.restore_replacements(links);
+                track.restore_kept(links);
                 logging::emit(&ReplacementsRestored {
                     network: self.network.name(),
                     links: n,

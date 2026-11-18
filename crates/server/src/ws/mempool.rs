@@ -773,6 +773,8 @@ async fn report(
                     summary.replaced += c.replaced as u64;
                     summary.evicted += c.evicted as u64;
                     summary.vanished += c.vanished as u64;
+                    summary.outputs_kept_bytes = c.kept_bytes;
+                    summary.outputs_unkept += c.unkept as u64;
                     summary.node_calls += u64::from(c.calls);
                     summary.node_bytes += c.bytes;
                     summary.cycle_ms_max = summary.cycle_ms_max.max(ms(c.duration));
@@ -872,7 +874,8 @@ async fn report(
                     logging::emit(&summary);
                 }
                 let (txs, stale) = (summary.txs, summary.stale);
-                summary = MempoolSummary { txs, stale, ..summary_line(network) };
+                let outputs_kept_bytes = summary.outputs_kept_bytes;
+                summary = MempoolSummary { txs, stale, outputs_kept_bytes, ..summary_line(network) };
             }
         }
     }
@@ -901,6 +904,8 @@ fn summary_line(network: &'static str) -> MempoolSummary {
         replaced: 0,
         evicted: 0,
         vanished: 0,
+        outputs_kept_bytes: 0,
+        outputs_unkept: 0,
         node_calls: 0,
         node_bytes: 0,
         cycle_ms_max: 0.0,
