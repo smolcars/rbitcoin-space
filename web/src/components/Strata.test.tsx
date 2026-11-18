@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { feeBand } from "../lib/format";
-import { bandRange, describeBands, Strata, strataLayers, strataTop } from "./Strata";
+import { bandRange, describeBands, Strata, strataLayers, strataSide, strataTop } from "./Strata";
 import { mount } from "./test-utils";
 
 const zeros = () => Array.from({ length: 12 }, () => 0);
@@ -130,5 +130,27 @@ describe("Strata", () => {
       "var(--fee-8)",
     ]);
     expect(layers.map((l) => l.style.getPropertyValue("--i"))).toStrictEqual(["0", "1"]);
+  });
+});
+
+describe("strataSide", () => {
+  it("draws the layers from the floor up, clear above them", () => {
+    const bands = zeros();
+    bands[0] = 300_000;
+    bands[11] = 100_000;
+    expect(strataSide(strataLayers(bands, 0.4, 0.05), 0.4)).toBe(
+      "linear-gradient(to top, var(--fee-1) 0.00% 30.00%, var(--fee-12) 30.00% 40.00%, transparent 40.00%)",
+    );
+  });
+
+  it("draws how full the block is in the neutral tone when it has no layers yet", () => {
+    expect(strataSide([], 0.5)).toBe(
+      "linear-gradient(to top, var(--color-line) 0 50.00%, transparent 50.00%)",
+    );
+  });
+
+  it("draws nothing for nothing", () => {
+    expect(strataSide([], 0)).toBe("none");
+    expect(strataSide([], Number.NaN)).toBe("none");
   });
 });

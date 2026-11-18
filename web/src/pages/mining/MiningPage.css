@@ -230,7 +230,8 @@
     grid-template-columns: repeat(auto-fill, minmax(7rem, 1fr));
     gap: var(--tile-gap);
     margin: 0;
-    padding: 0;
+    /* Room for the boxes' top and right faces (BlockBox.css). */
+    padding: var(--tile-depth) var(--tile-depth) 0 0;
     list-style: none;
   }
   .mining-tile {
@@ -242,7 +243,7 @@
   .mining-tile--empty {
     height: var(--tile-h);
     margin-bottom: calc(1.5 * var(--text-xs) + var(--space-1));
-    border-radius: var(--radius-m);
+    border-radius: var(--radius-s);
     background: var(--color-surface);
     box-shadow: inset 0 0 0 1px var(--color-line);
   }
@@ -251,9 +252,9 @@
     flex-direction: column;
     height: var(--tile-h);
     padding: var(--space-2) var(--space-3);
-    overflow: hidden;
     border: 1.5px solid var(--color-line);
-    border-radius: var(--radius-m);
+    /* Nearly square, so the box's faces meet its corners. */
+    border-radius: var(--radius-s);
     background: var(--color-surface);
     text-decoration: none;
     color: inherit;
@@ -278,7 +279,7 @@
     font-size: var(--text-xs);
   }
   /* The block's capacity as a box, its fee layers settled from the floor: the room above is room
-     the block left. */
+     the block left. Full width, so the layers turn the corner onto the right face, as on the strip. */
   .mining-tile__strata {
     --strata-seam: var(--color-surface-sunken);
     position: relative;
@@ -286,11 +287,11 @@
     display: flex;
     align-items: flex-end;
     min-height: 0;
-    margin: var(--space-2) 0 var(--space-1);
-    border-radius: var(--radius-s);
+    margin: var(--space-2) calc(-1 * var(--space-3)) var(--space-1);
     background: var(--color-surface-sunken);
-    box-shadow: inset 0 0 0 1px var(--color-line);
-    overflow: hidden;
+    box-shadow:
+      inset 0 1px var(--color-line),
+      inset 0 -1px var(--color-line);
   }
   .mining-tile__fill {
     width: 100%;
@@ -312,10 +313,15 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  /* Clipped here now the tile is not, at the tile's inner edge as before: its padding is the foot's,
+     so a narrow tile's count and age may use it and stay inside the tile. */
   .mining-tile__foot {
     display: flex;
     justify-content: space-between;
     gap: var(--space-1);
+    margin-inline: calc(-1 * var(--space-3));
+    padding-inline: var(--space-3);
+    overflow: hidden;
     font-size: var(--text-xs);
     color: var(--color-text-muted);
     white-space: nowrap;

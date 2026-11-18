@@ -203,9 +203,9 @@
     flex-direction: column;
     height: var(--tile-h);
     padding: var(--space-2) var(--space-3);
-    overflow: hidden;
     border: 1.5px dashed var(--color-line-strong);
-    border-radius: var(--radius-m);
+    /* Nearly square, so the box's faces meet its corners. */
+    border-radius: var(--radius-s);
     background: transparent;
     text-decoration: none;
     transform-origin: 50% 100%;
@@ -261,7 +261,8 @@
     font-size: var(--text-xs);
   }
   /* The block's capacity as a box: the gauge fills it from the floor, so the empty part above reads
-     as room left, never as missing data. */
+     as room left, never as missing data. It runs the tile's full width, a core through the box, so
+     its layers carry on round the corner onto the right face (BlockBox.css). */
   .home-tile__strata {
     --strata-seam: var(--color-surface-sunken);
     position: relative;
@@ -269,19 +270,23 @@
     display: flex;
     align-items: flex-end;
     min-height: 0;
-    margin: var(--space-1) 0 var(--space-1);
-    border-radius: var(--radius-s);
+    margin: var(--space-1) calc(-1 * var(--space-3));
     background: var(--color-surface-sunken);
-    box-shadow: inset 0 0 0 1px var(--color-line);
-    overflow: hidden;
+    box-shadow:
+      inset 0 1px var(--color-line),
+      inset 0 -1px var(--color-line);
   }
   .home-tile--projected .home-tile__strata {
     --strata-seam: var(--color-surface-sunken);
-    box-shadow: inset 0 0 0 1px var(--color-line-strong);
+    box-shadow:
+      inset 0 1px var(--color-line-strong),
+      inset 0 -1px var(--color-line-strong);
   }
+  /* Clipped here, not on the gauge, whose right face reaches outside it. */
   .home-tile__layers {
     position: absolute;
     inset: 0;
+    overflow: hidden;
   }
   /* How full the block is, in a neutral tone: fee colors are only for fee data. */
   .home-tile__fill {
@@ -316,10 +321,15 @@
     font-size: var(--text-xs);
     color: var(--color-text-muted);
   }
+  /* Clipped sideways at the tile's inner edge, as the tile once clipped it, so a wide font's count
+     and age stay inside; not up and down, where the note's focus ring reaches. */
   .home-tile__foot {
     display: flex;
     justify-content: space-between;
     gap: var(--space-1);
+    margin-inline: calc(-1 * var(--space-3));
+    padding-inline: var(--space-3);
+    overflow-x: clip;
     font-size: var(--text-xs);
     color: var(--color-text-muted);
     white-space: nowrap;
@@ -335,9 +345,14 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  /* Projected tiles hold layers on the sunken band, seamed in its color. */
-  .home-tile--projected .home-tile__body {
+  /* Projected tiles hold layers on the sunken band, seamed in its color. A projected box is open,
+     and so is a block still crossing the line, until it sets. */
+  .home-tile--projected .home-tile__body,
+  .home-tile--crossing .home-tile__body {
     --strata-seam: var(--color-surface-sunken);
+    --box-top: transparent;
+    --box-side: transparent;
+    --core-opacity: 0.55;
   }
   /* An empty block: a dashed floor, so the empty tile reads as measured, not as missing. */
   .home-tile__fill--floor {
@@ -371,9 +386,9 @@
     position: relative;
     z-index: 1;
   }
+  /* The whole box, its faces too, outlined in the accent. */
   .home-tile--landing .home-tile__body {
     border-color: var(--color-accent);
-    box-shadow: 0 0 0 3px var(--color-accent-soft);
   }
   .home-tile--crossing .home-tile__body {
     border-style: dashed;
@@ -792,7 +807,7 @@
     .home-strip {
       --tile-w: 7.5rem;
       --tile-h: 10rem;
-      --tile-gap: 0.625rem;
+      --tile-gap: 0.875rem;
     }
     .home-strip__legend,
     .home-strip__pending {

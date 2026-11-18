@@ -1,0 +1,82 @@
+/* A block tile drawn as a box (docs/DESIGN.md "Idea"): a right and a top face behind the front, in
+   its border's color, width and style, so a dashed tile is an open wireframe and a hover or the
+   accent outlines the whole box. Put `block-box` on the tile's 1.5 px bordered body, and
+   `block-box__core` on its full-width gauge with `--core-side` from `strataSide`, so its layers
+   show on the right face. A tile clears the faces with `--box-top` and `--box-side`. */
+@layer components {
+  .block-box {
+    /* The faces' outline, as wide as the tile's border. */
+    --box-line: 1.5px;
+    /* Where the faces meet the front: 1 px, what a 1.5 px border draws at 1x, so no seam opens
+       there; at 2x the faces overlap the front's border by half a pixel, unseen. */
+    --box-edge: 1px;
+    position: relative;
+  }
+  .block-box::before,
+  .block-box::after {
+    content: "";
+    position: absolute;
+    box-sizing: border-box;
+    border-width: var(--box-line);
+    border-style: inherit;
+    border-color: inherit;
+    pointer-events: none;
+  }
+  /* The right face first, so the gauge's layers paint over it. */
+  .block-box::before {
+    top: calc(-1 * var(--box-edge));
+    left: calc(100% + var(--box-edge));
+    width: var(--tile-depth);
+    height: calc(100% + 2 * var(--box-edge));
+    border-left-width: 0;
+    background: var(--box-side, var(--tile-face-side));
+    transform-origin: 0 0;
+    transform: skewY(-45deg);
+  }
+  .block-box::after {
+    left: calc(-1 * var(--box-edge));
+    bottom: calc(100% + var(--box-edge));
+    width: calc(100% + 2 * var(--box-edge));
+    height: var(--tile-depth);
+    border-bottom-width: 0;
+    background: var(--box-top, var(--tile-face-top));
+    transform-origin: 0 100%;
+    transform: skewX(-45deg);
+  }
+  .block-box__core::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: calc(100% + var(--box-edge));
+    /* Inside the face's far edge, so its outline stays whole. */
+    width: calc(var(--tile-depth) - var(--box-line));
+    background: var(--core-side, none);
+    opacity: var(--core-opacity, 1);
+    filter: brightness(var(--tile-side-shade));
+    transform-origin: 0 0;
+    transform: skewY(-45deg);
+    pointer-events: none;
+  }
+  /* The side gives the final layers at once, so while the front's settle or grow into them it
+     waits, then fades in as they finish: as the last of up to twelve layers drops (Strata.css), or
+     as they finish growing. Under reduced motion it fades with the front's. A tile whose layers the
+     strip drops itself fades its side the same way (BlockStrip.tsx). */
+  .block-box__core:has(.strata--settle)::after {
+    animation: block-core-in var(--dur-slow) var(--ease-out) calc(11 * var(--stagger)) backwards;
+  }
+  .block-box__core:has(.strata--morph)::after {
+    animation: block-core-in var(--dur-slow) var(--ease-out) var(--dur-slow) backwards;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .block-box__core:has(.strata--settle, .strata--morph)::after {
+      animation-delay: 0s;
+      animation-duration: var(--dur-fade);
+    }
+  }
+  @keyframes block-core-in {
+    from {
+      opacity: 0;
+    }
+  }
+}

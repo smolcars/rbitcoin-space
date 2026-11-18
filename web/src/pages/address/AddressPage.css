@@ -555,4 +555,134 @@
       grid-template-columns: minmax(0, 1fr);
     }
   }
+
+  /* ---- A history row's lookalike address (LookalikeWarning.tsx) ---- */
+  /* The page's caution notice, under its row: icon, words and a rule, never the colour alone. */
+  .lookalike {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-3);
+    margin-bottom: var(--space-2);
+    padding: var(--space-3) var(--space-4);
+    border-left: 3px solid var(--color-caution);
+    border-radius: 0 var(--radius-m) var(--radius-m) 0;
+    background: var(--color-surface-sunken);
+    font-size: var(--text-sm);
+    line-height: 1.45;
+  }
+  .lookalike__icon {
+    width: 16px;
+    height: 16px;
+    flex: none;
+    margin-top: 2px;
+    fill: none;
+    stroke: var(--color-caution);
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .lookalike__body {
+    display: grid;
+    gap: var(--space-2);
+    min-width: 0;
+    max-width: 46rem;
+  }
+  .lookalike__title {
+    font-weight: var(--weight-bold);
+  }
+  /* The two addresses one above the other, so the eye runs down from one to the other. */
+  .lookalike__pair {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 2px var(--space-3);
+    align-items: baseline;
+  }
+  .lookalike__label {
+    color: var(--color-text-muted);
+  }
+  .lookalike__address {
+    font-family: var(--font-mono);
+    font-size: 0.92em;
+    font-variant-numeric: slashed-zero;
+    word-break: break-all;
+  }
+  /* Where the two agree: bold and underlined. Where they differ: quieter. */
+  .lookalike__agree {
+    /* An agreeing end is read as one piece: the line breaks before it, never inside it. */
+    white-space: nowrap;
+    font-weight: var(--weight-bold);
+    text-decoration: underline 2px var(--color-caution);
+    text-underline-offset: 3px;
+  }
+  /* But one longer than a narrow screen is wide breaks where it must. */
+  .lookalike__agree--long {
+    white-space: normal;
+  }
+  .lookalike__differ {
+    color: var(--color-text-muted);
+  }
+  .lookalike__text,
+  .lookalike__more {
+    color: var(--color-text-muted);
+  }
+  @media (max-width: 40em) {
+    .lookalike {
+      padding: var(--space-3);
+    }
+    /* Labels over their addresses: a whole address needs the width. */
+    .lookalike__pair {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .lookalike__pair .lookalike__label:not(:first-child) {
+      margin-top: var(--space-1);
+    }
+  }
+
+  /* ---- The page's lookalike notice (LookalikeNotice.tsx) ---- */
+  /* Above the totals, in the row note's caution language on a panel's ground: rule, icon, words. */
+  .address-poison {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-3);
+    margin-top: var(--space-4);
+    padding: var(--space-4);
+    border: 1px solid var(--color-line);
+    border-left: 3px solid var(--color-caution);
+    border-radius: 0 var(--radius-l) var(--radius-l) 0;
+    background: var(--color-surface);
+    font-size: var(--text-sm);
+    line-height: 1.45;
+  }
+  .address-poison .lookalike__icon {
+    margin-top: 3px;
+  }
+  .address-poison__body {
+    display: grid;
+    gap: var(--space-2);
+    justify-items: start;
+    min-width: 0;
+    max-width: 46rem;
+  }
+  .address-poison__title {
+    font-size: var(--text-md);
+    font-weight: var(--weight-bold);
+    line-height: 1.3;
+  }
+  .address-poison .lookalike__pair {
+    justify-self: stretch;
+  }
+  .address-poison__more,
+  .address-poison__text {
+    color: var(--color-text-muted);
+  }
+  /* The note a jump lands on: the focus ring around it, not a second colour. */
+  .lookalike:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+  @media (max-width: 40em) {
+    .address-poison {
+      padding: var(--space-3);
+    }
+  }
 }

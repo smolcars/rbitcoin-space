@@ -4,7 +4,8 @@ import { FeeRate } from "../../components/FeeRate";
 import { Link } from "../../components/Link";
 import { SectionHeader } from "../../components/SectionHeader";
 import { ErrorState } from "../../components/States";
-import { Strata, strataLayers } from "../../components/Strata";
+import { Strata, strataLayers, strataSide } from "../../components/Strata";
+import "../../components/BlockBox.css";
 import { createApi } from "../../lib/api";
 import type { Block } from "../../lib/esplora";
 import { useNow } from "../../lib/clock";
@@ -101,7 +102,7 @@ function Tile(props: { block: Block; facts: BlockSummary | undefined }) {
   const miner = () => props.facts?.miner?.name;
   return (
     <li class="mining-tile">
-      <Link class="mining-tile__body" href={paths.block(b().id)}>
+      <Link class="mining-tile__body block-box" href={paths.block(b().id)}>
         <span class="mining-tile__height num">
           <span class="visually-hidden">Block </span>
           {groupDigits(b().height)}
@@ -112,7 +113,11 @@ function Tile(props: { block: Block; facts: BlockSummary | undefined }) {
             {(r) => <FeeRate rate={r().median} />}
           </Show>
         </span>
-        <span class="mining-tile__strata" aria-hidden="true">
+        <span
+          class="mining-tile__strata block-box__core"
+          style={{ "--core-side": strataSide(layers(), full()) }}
+          aria-hidden="true"
+        >
           <Show
             when={layers().length > 0}
             fallback={<span class="mining-tile__fill" style={{ "--fill": String(full()) }} />}

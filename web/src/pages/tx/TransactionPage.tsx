@@ -12,19 +12,28 @@ import {
 import type { JSX } from "@solidjs/web";
 import { Amount, Sats } from "../../components/Amount";
 import { FeeRate } from "../../components/FeeRate";
+import { Note } from "../../components/Note";
 import { Hash, HashFull } from "../../components/Hash";
 import { Link } from "../../components/Link";
 import { More } from "../../components/More";
 import { SectionHeader } from "../../components/SectionHeader";
 import { Empty, ErrorState } from "../../components/States";
 import { TimeAgo, TimeUtc } from "../../components/Time";
-import { createApi, createRequest, fetchApi, fetchApp, isNotFound } from "../../lib/api";
-import { type BlocksMessage, blocksTopic } from "../../lib/blocks-topic";
+import {
+  createApi,
+  createRequest,
+  fetchApi,
+  fetchApp,
+  fetchStamped,
+  isNotFound,
+} from "../../lib/api";
+import { type BlocksMessage, blocksTopic, type ChainTip } from "../../lib/blocks-topic";
 import type { Outspend, Transaction, TxStatus } from "../../lib/esplora";
 import { feeColor, formatSize, groupDigits, MISSING, truncateMiddle } from "../../lib/format";
 import { NETWORK_NAMES, paths } from "../../lib/network";
 import { useLiveStatus } from "../../lib/live";
 import { useNetwork, usePageTitle } from "../../lib/page";
+import { fetchSummaries } from "../../lib/summary";
 import { type ReplacementLink, type TxMessage, txTopic } from "../../lib/track-topics";
 import { TxLightning } from "../lightning/TxLightning";
 import { Code } from "./Code";
@@ -55,6 +64,7 @@ import {
   stripPlace,
 } from "./state";
 import { confirmations, features, isCoinbase, isTxid, lockTimeMeaning, vsize } from "./tx";
+import { judgeFee, parentsOf, verdictDetail, verdictText, verdictTitle } from "./verdict";
 import "./TransactionPage.css";
 
 export { POLL_MS } from "./Live";
@@ -115,6 +125,7 @@ function TransactionView(props: { txid: string }) {
   // Fetched alongside the transaction rather than after it, so neither waits on the other.
   const [outspends, { refetch: refetchSpends }] = createApi<Outspend[]>(
     () => `/tx/${props.txid}/outspends`,
+    { stamped: true },
   );
   const [tipText, { refetch: refetchTip }] = createApi<string>(() => "/blocks/tip/height", {
     as: "text",
@@ -134,7 +145,13 @@ function TransactionView(props: { txid: string }) {
   const missing = () => tx.state === "errored" && isNotFound(tx.error);
   // undefined while loading; null when it failed, so the page can say so instead of waiting.
   const spends = () =>
-    outspends.state === "ready" ? outspends() : outspends.state === "errored" ? null : undefined;
+    outspends.state === "ready"
+      ? outspends()?.value
+      : outspends.state === "errored"
+        ? null
+        : undefined;
+  /** The chain tip the spends are as of: what the fee verdict checks before trusting them. */
+  const spendsTip = () => (outspends.state === "ready" ? outspends()?.tip : undefined);
 
   const [model, setModel] = createSignal<Model>(EMPTY);
   const socket = useLiveStatus();
@@ -457,6 +474,7 @@ function TransactionView(props: { txid: string }) {
               tip={tip()}
               confs={confs()}
               spends={spends}
+              spendsTip={spendsTip}
               justConfirmed={justConfirmed()}
               reorged={reorged()}
               replaced={replaced()}
@@ -624,6 +642,7 @@ function Body(props: {
   tip: number | undefined;
   confs: number | undefined;
   spends: () => Outspend[] | null | undefined;
+  spendsTip: () => ChainTip | undefined;
   justConfirmed: boolean;
   /** The height of the block that held it, when a reorganisation sent it back to the mempool. */
   reorged: number | undefined;
@@ -770,6 +789,56 @@ function Body(props: {
     const own = rate();
     return eff !== undefined && own !== undefined && ratesDiffer(eff, own) ? eff : undefined;
   };
+  // Its rate against its block's low end: only once mined, and only when nothing could make it
+  // mislead (docs/FRONTEND.md "A confirmed transaction's fee verdict").
+  /** Whether a verdict may come: its line is kept from then on. */
+  const judged = () => {
+    const at = status();
+    return (
+      confirmed() &&
+      !coinbase() &&
+      rate() !== undefined &&
+      at?.block_hash !== undefined &&
+      at.block_height !== undefined
+    );
+  };
+  const verdictKey = () => {
+    const at = status();
+    // After the page's own spends, which are used when they are as of this block.
+    if (!judged() || props.spends() === undefined) return false;
+    return `${at?.block_height}:${at?.block_hash}`;
+  };
+  const [verdict] = createRequest(verdictKey, async (key, signal) => {
+    const [h = "", block = ""] = key.split(":");
+    const height = Number(h);
+    try {
+      return await judgeFee({
+        rate: rate(),
+        block,
+        height,
+        parents: parentsOf(props.tx.vin ?? []),
+        summary: async () => (await fetchSummaries(network(), [block], signal)).get(block),
+        // Spends answered before this block was known (asked as it arrived, before a live
+        // confirmation, or while another block held it at this height) cannot show a child mined
+        // in it: they are asked again.
+        spends: async () => {
+          const value = props.spends();
+          const tip = props.spendsTip();
+          const sameLoad = props.tx.status.block_hash === block;
+          return sameLoad && tip !== undefined && tip.height >= height
+            ? { value, tip }
+            : fetchStamped<Outspend[]>(network(), `/tx/${props.tx.txid}/outspends`, {
+                signal,
+                fresh: true,
+              });
+        },
+        status: (txid) =>
+          fetchStamped<TxStatus>(network(), `/tx/${txid}/status`, { signal, fresh: true }),
+      });
+    } catch {
+      return undefined;
+    }
+  });
   const lock = () => lockTimeMeaning(props.tx.locktime, props.tx.vin);
   const [raw, setRaw] = createSignal<{ hex?: string; error?: unknown; loading?: boolean }>({});
   const [rawShown, setRawShown] = createSignal(false);
@@ -945,6 +1014,22 @@ function Body(props: {
                   Effective <FeeRate rate={eff()} />
                 </span>
               )}
+            </Show>
+            {/* Its line is kept from the moment a verdict may come, so one arriving moves nothing
+                where this cell has a row to itself (the narrowest phones). */}
+            <Show when={judged()}>
+              <span class="tx-answer__sub tx-verdict">
+                <Show
+                  when={verdictKey() !== false && verdict.state === "ready" && verdict()}
+                  fallback={"\u00A0"}
+                >
+                  {(said) => (
+                    <Note focusable below title={verdictTitle(said())} figure={verdictText(said())}>
+                      {verdictDetail(said())}
+                    </Note>
+                  )}
+                </Show>
+              </span>
             </Show>
           </dd>
         </div>

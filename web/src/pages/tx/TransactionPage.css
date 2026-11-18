@@ -623,6 +623,17 @@
   .tx-answer__nowrap {
     white-space: nowrap;
   }
+  /* The verdict on its rate: a quiet line under the fee, its note a tap or key away. On a touch
+     screen its button reaches a thumb's height past the line, over the lines beside it. */
+  .tx-verdict .note-figure {
+    text-align: left;
+  }
+  @media (pointer: coarse) {
+    .tx-verdict .note-figure {
+      padding-block: calc((var(--touch) - 1lh) / 2);
+      margin-block: calc((var(--touch) - 1lh) / -2);
+    }
+  }
   /* A sentence with figures in it: tabular digits, free to wrap between its words. */
   .tx-answer__figures {
     font-variant-numeric: tabular-nums slashed-zero;

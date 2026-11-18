@@ -145,3 +145,17 @@
     }
   }
 }
+
+@layer components {
+  /* A note under a row (DataTable's `rowNote`): one with the row above, no rule between them. */
+  .table .table__note > td {
+    border-top: 0;
+    padding-top: 0;
+    white-space: normal;
+  }
+  @media (hover: hover) {
+    .table tbody tr.table__note:hover {
+      background: none;
+    }
+  }
+}

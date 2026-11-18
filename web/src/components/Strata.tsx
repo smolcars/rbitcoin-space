@@ -66,6 +66,21 @@ export const strataTop = (layers: readonly Layer[]): number => {
   return last ? last.y + last.h : 0;
 };
 
+/**
+ * The layers as a CSS gradient from the floor up, for a surface that repeats them without their
+ * own elements (a tile's right face, `BlockBox.css`). With no layers, how full the block is, in
+ * the neutral gauge's tone; `none` when there is nothing to draw.
+ */
+export function strataSide(layers: readonly Layer[], fill = 0): string {
+  const pct = (x: number) => `${(Math.min(1, Math.max(0, x)) * 100).toFixed(2)}%`;
+  if (layers.length === 0) {
+    if (!(fill > 0)) return "none";
+    return `linear-gradient(to top, var(--color-line) 0 ${pct(fill)}, transparent ${pct(fill)})`;
+  }
+  const stops = layers.map((l) => `var(--fee-${l.band}) ${pct(l.y)} ${pct(l.y + l.h)}`);
+  return `linear-gradient(to top, ${stops.join(", ")}, transparent ${pct(strataTop(layers))})`;
+}
+
 /** A band's range in words: `under 0.20 sat/vB`, `0.50 to 1.00 sat/vB`, `10.0 sat/vB and up`. */
 export function bandRange(band: number, unsplit = false): string {
   if (unsplit && band === 1) return "under 0.20 sat/vB";

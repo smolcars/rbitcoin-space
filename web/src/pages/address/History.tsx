@@ -1,5 +1,14 @@
 import { useSearchParams } from "@solidjs/router";
-import { createMemo, createSignal, For, Match, onCleanup, Show, Switch } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  Match,
+  onCleanup,
+  Show,
+  Switch,
+} from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { Amount } from "../../components/Amount";
 import "../../components/Button.css";
@@ -26,6 +35,8 @@ import {
   sortUtxos,
   txFeeRate,
 } from "./address";
+import type { Lookalike } from "./lookalike";
+import { LookalikeWarning } from "./LookalikeWarning";
 import { Skeleton, settled, UnconfirmedMark } from "./parts";
 
 /** Confirmed transactions per page of address history; the first page adds the unconfirmed ones. */
@@ -51,13 +62,18 @@ const plural = (n: number, one: string, many: string) =>
  * the URL (`?view=unspent`), so a link or a reload opens the same one. Loaded pages survive a
  * switch between views.
  */
-/** The pages after the first, whether the last of them was full, and which rows are new. */
+/**
+ * The pages after the first, whether the last of them was full, whether one has answered since
+ * the first page last changed (an empty answer adds no rows, and still says there are no more),
+ * and which rows are new.
+ */
 interface Later {
   txs: Transaction[];
   full: boolean;
+  answered: boolean;
   fresh: ReadonlySet<string>;
 }
-const NOTHING_LATER: Later = { txs: [], full: true, fresh: new Set() };
+const NOTHING_LATER: Later = { txs: [], full: true, answered: false, fresh: new Set() };
 
 export function History(props: {
   address: string;
@@ -75,6 +91,13 @@ export function History(props: {
    * listed apart.
    */
   kept?: boolean;
+  /** Lookalike addresses by txid, worked out by the page from what this section reports loaded. */
+  lookalike: ReadonlyMap<string, readonly Lookalike[]>;
+  /**
+   * Hands the page every transaction loaded, first page and later ones, and whether more could be
+   * loaded, whenever either changes; and nothing once this section is gone.
+   */
+  onShown: (txs: Transaction[] | undefined, more: boolean) => void;
 }) {
   const network = useNetwork();
   const path = `/address/${encodeURIComponent(props.address)}`;
@@ -148,6 +171,8 @@ export function History(props: {
     const next: Later = {
       txs: old ? keptAfterRefresh(f, mergePages(old, prev.txs), PAGE) : prev.txs,
       full: old && prev.txs.length === 0 ? pageIsFull(old, PAGE) : prev.full,
+      // A changed first page may have more after it again.
+      answered: false,
       fresh: new Set(old ? [...ids].filter((id) => !known.has(id)) : []),
     };
     known = new Set([...known, ...ids]);
@@ -160,7 +185,18 @@ export function History(props: {
     const f = first();
     return f ? mergePages(f, later()) : undefined;
   });
-  const hasNext = () => (later().length === 0 ? pageIsFull(first() ?? [], PAGE) : after().full);
+  // The page works out the lookalikes over every loaded page at once (its notice and these rows read
+  // the one answer), so a later page's lookalike also marks the earlier rows it imitates.
+  const hasNext = () =>
+    later().length === 0 && !after().answered ? pageIsFull(first() ?? [], PAGE) : after().full;
+  createEffect(
+    () => [shown(), hasNext()] as const,
+    ([list, more]) => {
+      props.onShown(list, more);
+    },
+  );
+  // A notice must not outlive the rows it points at (a kept history the server dropped, say).
+  onCleanup(() => props.onShown(undefined, false));
 
   const loadMore = async () => {
     if (!shown()?.at(-1) || loadingMore()) return;
@@ -176,13 +212,20 @@ export function History(props: {
           props.kept === true
             ? `${path}/txs/chain/${encodeURIComponent(last.txid)}`
             : `${path}/txs?after_txid=${encodeURIComponent(last.txid)}`,
-          { signal: controller.signal },
+          // Past the browser's cache: an empty answer says the history has no more, so one kept
+          // from before a reorg must not say it for the chain that followed.
+          { signal: controller.signal, fresh: true },
         );
         // A refresh while this was in flight may have changed the history it continues (new
         // transactions, a reorg), so the reply could leave a gap or bring back stale rows: it is
         // dropped, and the next page is asked for after the rows the refresh left.
         if (generation === asked) {
-          setAfter((a) => ({ ...a, txs: [...a.txs, ...page], full: pageIsFull(page, PAGE) }));
+          setAfter((a) => ({
+            ...a,
+            txs: [...a.txs, ...page],
+            full: pageIsFull(page, PAGE),
+            answered: true,
+          }));
           break;
         }
       }
@@ -286,6 +329,7 @@ export function History(props: {
               shown={shown()}
               total={total()}
               rowClass={(tx) => (tx && fresh().has(tx.txid) ? "address-row--new" : undefined)}
+              lookalike={props.lookalike}
               more={
                 <Show when={shown()}>
                   <div class="address-more">
@@ -357,6 +401,8 @@ function Transactions(props: {
   shown: Transaction[] | undefined;
   total: number | undefined;
   rowClass: (tx: Transaction | null) => string | undefined;
+  /** Lookalike addresses by txid (lookalike.ts); a row in it carries a warning. */
+  lookalike: ReadonlyMap<string, readonly Lookalike[]>;
   more: JSX.Element;
 }) {
   const network = useNetwork();
@@ -437,6 +483,15 @@ function Transactions(props: {
             rows={props.shown ?? placeholders(props.total)}
             rowHref={(t) => (t ? paths.tx(t.txid) : undefined)}
             rowClass={props.rowClass}
+            rowNote={{
+              when: (t) => t !== null && props.lookalike.has(t.txid),
+              render: (t) => (
+                <LookalikeWarning
+                  txid={t?.txid ?? ""}
+                  found={(t && props.lookalike.get(t.txid)) ?? []}
+                />
+              ),
+            }}
           />
           <Show when={props.shown === undefined}>
             <span class="visually-hidden" role="status">

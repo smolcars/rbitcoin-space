@@ -1,8 +1,9 @@
-import { useParams } from "@solidjs/router";
+import { useParams, useSearchParams } from "@solidjs/router";
 import {
   createEffect,
   createMemo,
   createSignal,
+  flush,
   For,
   Match,
   onCleanup,
@@ -26,6 +27,9 @@ import { History } from "./History";
 import { LargeAddress } from "./Large";
 import { asksAgain, LEDGER_POLL_MS, readLedger, waiting } from "./ledger";
 import { AddingUp, KeptAddress } from "./Kept";
+import { type Lookalike, lookalikes, summarize } from "./lookalike";
+import { LookalikeNotice, noticeTitle } from "./LookalikeNotice";
+import { lookalikeId } from "./LookalikeWarning";
 import { Notice, settled } from "./parts";
 import { SilentPaymentAddress } from "./SilentPayment";
 import { Totals } from "./Totals";
@@ -196,6 +200,59 @@ function AddressBody(props: { address: string; found: Recognised | null }) {
       (whole() ? `${path}/txs/chain` : !kept() && !large() && `${path}/txs`),
     { fresh: true },
   );
+  // Lookalike addresses in every history page loaded (lookalike.ts), worked out once here for the
+  // notice at the top and the rows' notes alike; History reports what it has loaded.
+  const [shownTxs, setShownTxs] = createSignal<Transaction[]>();
+  // Whether the history could load more: what it says of itself, never the totals, which are
+  // another answer and can be older or newer than the list.
+  const [moreTxs, setMoreTxs] = createSignal(false);
+  const onShown = (txs: Transaction[] | undefined, more: boolean) => {
+    setShownTxs(txs);
+    setMoreTxs(more);
+  };
+  const lookalike = createMemo(() => {
+    const list = shownTxs();
+    return list ? lookalikes(address, list) : new Map<string, Lookalike[]>();
+  });
+  const poison = createMemo(() => summarize(lookalike()));
+  // Said once to screen readers, when the notice first appears: not again as pages load or refresh.
+  const [announced, setAnnounced] = createSignal("");
+  createEffect(poison, (p) => {
+    if (p && untrack(announced) === "") setAnnounced(noticeTitle(p));
+  });
+  const [search, setSearch] = useSearchParams<{ view: string }>();
+  const jump = () => {
+    const txid = poison()?.first;
+    if (txid === undefined) return;
+    // The rows live in the transactions view.
+    if (search.view !== undefined) {
+      setSearch({ view: undefined }, { replace: true, scroll: false });
+      flush();
+    }
+    const note = document.getElementById(lookalikeId(txid));
+    if (!note) return;
+    const row = note.closest("tr")?.previousElementSibling ?? note;
+    const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    // The row and its note, clear of the sticky header (the root's scroll-padding-top).
+    row.scrollIntoView({ block: "start", behavior: reduced ? "auto" : "smooth" });
+    note.focus({ preventScroll: true });
+  };
+  const notice = () => (
+    <Show when={poison()}>
+      {(p) => (
+        <LookalikeNotice
+          summary={p()}
+          loaded={shownTxs()?.length ?? 0}
+          more={moreTxs()}
+          // By the rows themselves too: as an address becomes a kept one, the mixed list it
+          // had is still showing until the kept list answers.
+          confirmedOnly={whole() && (shownTxs() ?? []).every((t) => t.status.confirmed)}
+          address={address}
+          onJump={jump}
+        />
+      )}
+    </Show>
+  );
   let refreshHistory = () => {
     // Replaced by History once it mounts.
   };
@@ -280,86 +337,98 @@ function AddressBody(props: { address: string; found: Recognised | null }) {
   });
 
   return (
-    <Switch>
-      <Match when={pageRefusal() === "no-index"}>
-        <Notice title="This server does not index addresses" tone="caution">
-          Its node runs without an address index, so it cannot show the balance or history of any
-          address. This says nothing about this address or its funds: look it up with another
-          explorer or your own node.
-        </Notice>
-      </Match>
-      <Match when={pageRefusal() === "invalid"}>
-        <Malformed network={network()} />
-      </Match>
-      <Match when={pageRefusal() === "wrong-network" && props.found}>
-        {(f) => <WrongNetwork found={f()} network={network()} />}
-      </Match>
-      {/* An address the server keeps its own totals for: they come at once. */}
-      <Match when={kept()}>
-        {(k) => (
-          <>
-            <LiveLine watch={watch()} socket={socket()} />
-            <KeptAddress
-              address={props.address}
-              ledger={k()}
-              stats={stats}
-              retry={retryAll}
-              whole={
-                <History
-                  address={props.address}
-                  stats={stats}
-                  first={first}
-                  retryFirst={() => refetchFirst()}
-                  onRefresh={(fn) => {
-                    refreshHistory = fn;
-                  }}
-                  kept
-                />
-              }
-            />
-          </>
-        )}
-      </Match>
-      {/* What the node says about an address above its cap, its unconfirmed transactions, and
-          whether the server is adding it up. */}
-      <Match when={large()}>
-        <LargeAddress
-          address={props.address}
-          note={
-            waiting(ledger()) || ledger().state === "failed" ? (
-              <AddingUp ledger={ledger()} />
-            ) : undefined
-          }
-        />
-      </Match>
-      <Match when={true}>
-        <LiveLine watch={watch()} socket={socket()} />
-        <Show when={busyRetrying()}>
-          <p class="address-busy" role="status">
-            The server is busy for a moment, so this page is waiting to ask again.
-          </p>
-        </Show>
-        <Totals stats={stats} retry={retryAll} />
-        <BalanceChart
-          address={props.address}
-          stats={stats}
-          after={first.state !== "unresolved" && first.state !== "pending"}
-          onRefresh={(fn) => {
-            refreshBalance = fn;
-          }}
-        />
-        <History
-          address={props.address}
-          held={!ledgerAnswered()}
-          stats={stats}
-          first={first}
-          retryFirst={() => refetchFirst()}
-          onRefresh={(fn) => {
-            refreshHistory = fn;
-          }}
-        />
-      </Match>
-    </Switch>
+    <>
+      {/* Present from the start, so the one announcement it makes is heard. */}
+      <p class="visually-hidden address-announce" aria-live="polite">
+        {announced()}
+      </p>
+      <Switch>
+        <Match when={pageRefusal() === "no-index"}>
+          <Notice title="This server does not index addresses" tone="caution">
+            Its node runs without an address index, so it cannot show the balance or history of any
+            address. This says nothing about this address or its funds: look it up with another
+            explorer or your own node.
+          </Notice>
+        </Match>
+        <Match when={pageRefusal() === "invalid"}>
+          <Malformed network={network()} />
+        </Match>
+        <Match when={pageRefusal() === "wrong-network" && props.found}>
+          {(f) => <WrongNetwork found={f()} network={network()} />}
+        </Match>
+        {/* An address the server keeps its own totals for: they come at once. */}
+        <Match when={kept()}>
+          {(k) => (
+            <>
+              <LiveLine watch={watch()} socket={socket()} />
+              {notice()}
+              <KeptAddress
+                address={props.address}
+                ledger={k()}
+                stats={stats}
+                retry={retryAll}
+                whole={
+                  <History
+                    address={props.address}
+                    stats={stats}
+                    first={first}
+                    retryFirst={() => refetchFirst()}
+                    onRefresh={(fn) => {
+                      refreshHistory = fn;
+                    }}
+                    kept
+                    lookalike={lookalike()}
+                    onShown={onShown}
+                  />
+                }
+              />
+            </>
+          )}
+        </Match>
+        {/* What the node says about an address above its cap, its unconfirmed transactions, and
+            whether the server is adding it up. */}
+        <Match when={large()}>
+          <LargeAddress
+            address={props.address}
+            note={
+              waiting(ledger()) || ledger().state === "failed" ? (
+                <AddingUp ledger={ledger()} />
+              ) : undefined
+            }
+          />
+        </Match>
+        <Match when={true}>
+          <LiveLine watch={watch()} socket={socket()} />
+          <Show when={busyRetrying()}>
+            <p class="address-busy" role="status">
+              The server is busy for a moment, so this page is waiting to ask again.
+            </p>
+          </Show>
+          {notice()}
+          <Totals stats={stats} retry={retryAll} />
+          <BalanceChart
+            address={props.address}
+            stats={stats}
+            after={first.state !== "unresolved" && first.state !== "pending"}
+            onRefresh={(fn) => {
+              refreshBalance = fn;
+            }}
+          />
+          <History
+            address={props.address}
+            held={!ledgerAnswered()}
+            stats={stats}
+            first={first}
+            retryFirst={() => refetchFirst()}
+            onRefresh={(fn) => {
+              refreshHistory = fn;
+            }}
+            lookalike={lookalike()}
+            onShown={onShown}
+          />
+        </Match>
+      </Switch>
+    </>
   );
 }
 

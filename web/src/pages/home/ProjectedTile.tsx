@@ -1,7 +1,8 @@
 import { type Accessor, createMemo, createSignal, onCleanup, Show, untrack } from "solid-js";
 import { Amount } from "../../components/Amount";
 import { FeeRate } from "../../components/FeeRate";
-import { type Layer, Strata, strataLayers } from "../../components/Strata";
+import { type Layer, Strata, strataLayers, strataSide } from "../../components/Strata";
+import "../../components/BlockBox.css";
 import { formatFeeRate, groupDigits } from "../../lib/format";
 import { Link } from "../../components/Link";
 import { type Network, paths } from "../../lib/network";
@@ -72,7 +73,7 @@ export function ProjectedTile(props: {
           data-key={tile().key}
         >
           <Link
-            class="home-tile__body"
+            class="home-tile__body block-box"
             href={paths.projected(tile().slot + 1)}
             aria-label={projectedLabel(tile(), props.network)}
           >
@@ -90,7 +91,10 @@ export function ProjectedTile(props: {
                 <Amount sats={tile().fees} short approx />
               </span>
             </Show>
-            <span class="home-tile__strata">
+            <span
+              class="home-tile__strata block-box__core"
+              style={{ "--core-side": strataSide(layers()) }}
+            >
               <Show
                 when={layers().length > 0}
                 fallback={<span class="home-tile__fill home-tile__fill--floor" />}
