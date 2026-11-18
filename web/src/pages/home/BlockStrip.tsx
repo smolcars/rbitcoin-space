@@ -438,7 +438,18 @@ export function BlockStrip(props: {
     for (const el of projected) {
       if (first.has(idOf(el))) continue;
       if (crossing.length > 0 && !m.reduced) {
-        el.querySelectorAll(".strata__layer").forEach((layer, i) =>
+        const layers = el.querySelectorAll(".strata__layer");
+        // The box's right face shows them as the last one drops (BlockBox.css).
+        const core = el.querySelector(".block-box__core");
+        if (core)
+          play(core, [{ opacity: 0 }], {
+            pseudoElement: "::after",
+            duration: m.slow,
+            easing: m.easeOut,
+            delay: m.block * 0.4 + Math.max(0, layers.length - 1) * m.stagger,
+            fill: "backwards",
+          });
+        layers.forEach((layer, i) =>
           play(
             layer,
             [

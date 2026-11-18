@@ -313,11 +313,14 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  /* Clipped here now the tile is not: a narrow tile's count and age stay inside it. */
+  /* Clipped here now the tile is not, at the tile's inner edge as before: its padding is the foot's,
+     so a narrow tile's count and age may use it and stay inside the tile. */
   .mining-tile__foot {
     display: flex;
     justify-content: space-between;
     gap: var(--space-1);
+    margin-inline: calc(-1 * var(--space-3));
+    padding-inline: var(--space-3);
     overflow: hidden;
     font-size: var(--text-xs);
     color: var(--color-text-muted);
