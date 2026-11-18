@@ -172,6 +172,19 @@ impl Default for Config {
     }
 }
 
+/// The removed-record handles the tracker keeps room for without giving any back (24 bytes each).
+pub(super) const LEFT_SLACK: usize = 1024;
+
+/// Stops counting the removed records nothing holds any more, and gives back the list's own
+/// memory once it is mostly empty: a block or a restarted node can remove a whole mempool at
+/// once, and a handle kept past its record's last holder would pin that record's memory.
+pub(super) fn forget_released(left: &mut Vec<(Weak<[u64]>, u64)>) {
+    left.retain(|(w, _)| w.strong_count() > 0);
+    if left.capacity() > LEFT_SLACK && left.capacity() / 4 > left.len() {
+        left.shrink_to(left.len().max(LEFT_SLACK));
+    }
+}
+
 /// The default [`Config::kept_outputs`]: 32 MiB, about twice what a 300,000-transaction mempool of
 /// mainnet's usual outputs takes (`docs/MEMPOOL.md`, "The record").
 pub const KEPT_OUTPUTS: u64 = 32 << 20;
@@ -794,7 +807,7 @@ impl<S: Source> Poller<S> {
         // The budget bounds every record alive: the map, what waits here, and what left the map
         // but something still holds. Outputs past it are never stored.
         let staged: u64 = self.pending.values().map(TxInfo::kept_bytes).sum();
-        self.left.retain(|(w, _)| w.strong_count() > 0);
+        forget_released(&mut self.left);
         let held: u64 = self.left.iter().map(|(_, b)| b).sum();
         let mut room = self
             .config
@@ -853,6 +866,8 @@ impl<S: Source> Poller<S> {
 
     /// Keeps counting what `delta` removes from the map for as long as anything holds it.
     fn left(&mut self, state: &Mempool, delta: &Delta) {
+        // Each delta, not only each fetch: a block's delta comes with no fetch.
+        forget_released(&mut self.left);
         for (t, _) in &delta.removed {
             if let Some(info) = state.get(t)
                 && info.kept_bytes() > 0

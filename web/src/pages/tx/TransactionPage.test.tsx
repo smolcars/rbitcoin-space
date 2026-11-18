@@ -866,6 +866,40 @@ describe("TransactionPage", () => {
     expect(el.querySelector(".tx-chain__compare")).toBeNull();
   });
 
+  it("asks again when a reorg sends a confirmed transaction back and it is then replaced", async () => {
+    const NEWER = "f".repeat(64);
+    // One confirmation deep, so the page still follows it.
+    serve(payment(confirmed), [], "975516");
+    const el = page(`/tx/${TXID}`);
+    await settle();
+    const ws = FakeSocket.last();
+    ws.hello({ network: "mainnet" });
+    await settle();
+    const asked = () =>
+      fetchMock.mock.calls.filter(([u]) => u === `/app/tx/${TXID}/replacements`).length;
+    // A reorg returns it to the mempool, and a new version replaces it there.
+    replies[api(`/tx/${TXID}/status`)] = { status: 200, body: { confirmed: false } };
+    ws.receive(mempoolMsg(0));
+    await settle();
+    const before = asked();
+    replies[`/app/tx/${TXID}/replacements`] = {
+      status: 200,
+      body: {
+        txid: TXID,
+        truncated: false,
+        replaced_by: [{ txid: TXID, by: NEWER, shared_inputs: 1 }],
+        replaces: [],
+        versions: [TXID, NEWER],
+      },
+    };
+    ws.receive(msg({ state: "replaced", truncated: false, chain: [{ txid: TXID, by: NEWER }] }));
+    await vi.waitFor(async () => {
+      await settle();
+      expect(asked()).toBe(before + 1);
+      expect(el.querySelector(".tx-chain__compare")).not.toBeNull();
+    });
+  });
+
   it("names what it replaced in the details", async () => {
     const OLD = "e".repeat(64);
     serve(payment({ confirmed: false }));

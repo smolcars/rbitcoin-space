@@ -1343,3 +1343,32 @@ fn children_and_what_they_replaced_cannot_crowd_out_an_earlier_version() {
     assert!(more);
     assert_eq!(txids(&back[..2]), vec![id(201), id(200)]);
 }
+
+#[test]
+fn a_line_longer_than_it_holds_keeps_its_own_and_the_newest_and_says_so() {
+    // 1 → 2 → … → 40: forty versions, more than a line holds.
+    let links: Vec<(u8, u8, Option<u32>)> = (1..40).map(|i| (i, i + 1, Some(1))).collect();
+    let r = record(&links);
+    let held = u8::try_from(MAX_LINKS).expect("small");
+    // From the oldest: itself, then the versions nearest the newest, the newest among them.
+    let (line, more) = r.versions(&id(1));
+    assert!(more, "it says versions were left out");
+    assert_eq!(line.len(), MAX_LINKS + 1);
+    assert_eq!(line.first(), Some(&id(1)));
+    assert_eq!(line.get(1), Some(&id(40 - held + 1)));
+    assert_eq!(line.last(), Some(&id(40)));
+    // From the newest: the nearest versions, and that there were more.
+    let (line, more) = r.versions(&id(40));
+    assert!(more);
+    assert_eq!(line.len(), MAX_LINKS + 1);
+    assert_eq!(line.last(), Some(&id(40)));
+    // Exactly as many as a line holds: all of them, and nothing left out.
+    let links: Vec<(u8, u8, Option<u32>)> = (1..=held).map(|i| (i, i + 1, Some(1))).collect();
+    let (line, more) = record(&links).versions(&id(1));
+    assert!(!more);
+    assert_eq!(line.len(), MAX_LINKS + 1);
+    assert_eq!(
+        (line.first(), line.last()),
+        (Some(&id(1)), Some(&id(held + 1)))
+    );
+}

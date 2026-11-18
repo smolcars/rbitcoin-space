@@ -43,6 +43,12 @@ const settled = async (check: () => void) => {
 };
 
 describe("Chain", () => {
+  it("compares a version with what replaced it, not with a sibling next in the line", async () => {
+    // C spends a coin of A's and one of B's, so it replaced both: the line is A, B, C.
+    mount(() => <Chain chain={[{ txid: A, by: C }]} truncated={false} versions={[A, B, C]} />);
+    await settled(() => expect(asked).toStrictEqual(["ac"]));
+  });
+
   it("keeps the links' buttons and the pickers on one pair", async () => {
     const el = mount(() => (
       <Chain

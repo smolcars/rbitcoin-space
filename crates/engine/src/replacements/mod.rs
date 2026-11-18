@@ -794,24 +794,29 @@ impl Replacements {
     /// `txid` has no other version.
     pub fn versions(&self, txid: &Txid) -> (Vec<Txid>, bool) {
         let newest = self.newest_version(txid);
-        // The path from `txid` to the newest is always kept, so the page's own is in the line.
+        // The path from `txid` to the newest, walked whole (the record bounds it, and a version
+        // link is followed once). `txid` and the newest are always in the line: of a path longer
+        // than the line holds, `txid` and the versions nearest the newest are kept, and the line
+        // says there were more.
         let mut depth: HashMap<Txid, usize> = HashMap::new();
         let mut path = vec![*txid];
+        let mut on_path = HashSet::from([*txid]);
         while let Some(last) = path.last().copied()
             && last != newest
-            && path.len() <= MAX_LINKS
         {
             match self.get(&last) {
-                Some(l) => path.push(l.by),
-                None => break,
+                Some(l) if on_path.insert(l.by) => path.push(l.by),
+                _ => break,
             }
         }
         let n = path.len();
+        let mut more = n > MAX_LINKS + 1;
         for (i, t) in path.iter().enumerate() {
-            depth.insert(*t, n - 1 - i);
+            if i == 0 || n - i <= MAX_LINKS {
+                depth.insert(*t, n - 1 - i);
+            }
         }
         // Then the rest, nearest the newest first, through version links only.
-        let mut more = false;
         let mut queue = VecDeque::from([newest]);
         let mut walked = HashSet::from([newest]);
         while let Some(by) = queue.pop_front() {

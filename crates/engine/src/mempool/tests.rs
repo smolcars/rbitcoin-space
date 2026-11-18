@@ -1879,3 +1879,25 @@ fn kept_outputs_memory() {
         m.kept_bytes() as f64 / n as f64,
     );
 }
+
+#[test]
+fn handles_on_released_records_are_dropped_and_their_list_shrinks() {
+    use super::tracker::{LEFT_SLACK, forget_released};
+    use std::sync::Arc;
+    // A whole mempool leaves at once: 50,000 records nothing holds, and one a subscriber does.
+    let held: Arc<[u64]> = Arc::from(vec![7u64; 4]);
+    let mut left: Vec<_> = (0..50_000)
+        .map(|_| (Arc::downgrade(&Arc::<[u64]>::from(vec![1u64; 4])), 32))
+        .collect();
+    left.push((Arc::downgrade(&held), 32));
+    forget_released(&mut left);
+    assert_eq!(left.len(), 1, "only the record still held is counted");
+    assert!(
+        left.capacity() <= LEFT_SLACK,
+        "the list gave its memory back"
+    );
+    // Released too, the last one goes, and a small list is left as it is.
+    drop(held);
+    forget_released(&mut left);
+    assert!(left.is_empty());
+}

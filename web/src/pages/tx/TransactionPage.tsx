@@ -330,16 +330,20 @@ function TransactionView(props: { txid: string }) {
     const l = live();
     if (l === "off") return false;
     const t = ready();
-    // Confirmed, it may be the newest version of something replaced, however long ago: asked
-    // once (one lookup in the server's memory, never the node). A settled transaction follows no
-    // topic, so this does not wait for one; a server without the mempool engine answers 503,
-    // read as nothing.
-    if (t?.status.confirmed === true) return "confirmed";
-    if (l === "connecting") return false;
     const s = shownNow();
     // Replaced while open: asked again, so the page learns whether this was a version or a child
     // that left with its parent before it offers a comparison. Again when the newest changes.
+    // Before anything else: a transaction that loaded confirmed can be sent back by a reorg and
+    // then replaced.
     if (s.kind === "replaced") return `replaced:${s.chain.at(-1)?.by ?? ""}`;
+    // Confirmed, it may be the newest version of something replaced, however long ago: asked
+    // once (one lookup in the server's memory, never the node). A settled transaction follows no
+    // topic, so this does not wait for one; a server without the mempool engine answers 503,
+    // read as nothing. By what the page shows now, not by how it loaded.
+    if (s.kind === "confirmed" || (s.kind === "loading" && t?.status.confirmed === true)) {
+      return "confirmed";
+    }
+    if (l === "connecting") return false;
     if (missing()) return "missing";
     if (s.kind === "gone") return "gone";
     return t ? "waiting" : false;

@@ -292,8 +292,11 @@ export function Chain(props: {
   const shown = (): [number, number] => {
     const p = pair();
     if (p && at(p[0]) >= 0 && at(p[1]) >= 0) return [at(p[0]), at(p[1])];
-    // What replaced it when that is a version; else, the newest of its line, the one before.
+    // What replaced it, by its own link: in a line that branches (one transaction replacing
+    // two), the next in the list can be a sibling, which nothing says replaced it.
     const i = at(here());
+    const by = at(props.chain[0]?.by ?? "");
+    if (i >= 0 && by >= 0 && !child()) return [i, by];
     return i >= 0 && i + 1 < versions().length ? [i, i + 1] : [i - 1, i];
   };
   const pick = (from: number, to: number) =>
