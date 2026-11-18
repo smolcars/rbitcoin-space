@@ -268,6 +268,28 @@ describe("TransactionPage", () => {
     expect(asked).toBe(2);
     expect(el.querySelector(".tx-verdict .note-figure")).toBeNull();
 
+    // Spends answered while another block held it at the same height (a reorg since) say nothing
+    // of this block either: the transaction's own answer names the block they belong to.
+    document.body.replaceChildren();
+    clearSummaries();
+    clearApiCache();
+    serve({ ...payment(confirmed), status: { ...confirmed, block_hash: "22".repeat(32) } });
+    replies[api(`/tx/${TXID}/status`)] = { status: 200, body: confirmed };
+    replies[summaryUrl] = { status: 200, body: summary };
+    replies[api(`/tx/${SPENDER}/status`)] = { status: 200, body: elsewhere };
+    asked = 0;
+    replies[spendsUrl] = () => {
+      asked += 1;
+      return { status: 200, body: [{ spent: false }] };
+    };
+    const moved = page(`/tx/${TXID}`);
+    await settle();
+    FakeSocket.last().hello({ network: "mainnet" });
+    FakeSocket.last().receive(msg({ state: "confirmed", height: 975_516, hash: BLOCK }));
+    await settle();
+    expect(asked).toBeGreaterThan(1);
+    expect(text(moved.querySelector(".tx-verdict") as Element)).toContain("8.3× the low end");
+
     // A parent's status from before the block proves nothing about where it was mined.
     document.body.replaceChildren();
     clearSummaries();

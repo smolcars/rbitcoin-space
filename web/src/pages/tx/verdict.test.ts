@@ -83,6 +83,16 @@ describe("feeVerdict", () => {
   });
 });
 
+describe("a multiple that prints as a tie", () => {
+  it("is a multiple, not 'at': 0.0249 against 0.0101 both print 0.02", () => {
+    const v = feeVerdict(5 / 201, 5 / 495, 1);
+    expect(v?.kind).toBe("above");
+    expect(v && verdictText(v)).toBe("2.4× the low end");
+    // Under twice the low end, a tie in print is "at".
+    expect(feeVerdict(0.0149, 0.0101, 1)?.kind).toBe("at");
+  });
+});
+
 describe("formatMultiple", () => {
   it("rounds down, one decimal under ten, whole and grouped above", () => {
     expect(formatMultiple(2)).toBe("2.0×");

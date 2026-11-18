@@ -754,12 +754,22 @@ function Body(props: {
   };
   // Its rate against its block's low end: only once mined, and only when nothing could make it
   // mislead (docs/FRONTEND.md "A confirmed transaction's fee verdict").
+  /** Whether a verdict may come: its line is kept from then on. */
+  const judged = () => {
+    const at = status();
+    return (
+      confirmed() &&
+      !coinbase() &&
+      rate() !== undefined &&
+      at?.block_hash !== undefined &&
+      at.block_height !== undefined
+    );
+  };
   const verdictKey = () => {
     const at = status();
-    if (!confirmed() || coinbase() || rate() === undefined) return false;
-    if (at?.block_hash === undefined || at.block_height === undefined) return false;
     // After the page's own spends, which are used when they are as of this block.
-    return props.spends() === undefined ? false : `${at.block_height}:${at.block_hash}`;
+    if (!judged() || props.spends() === undefined) return false;
+    return `${at?.block_height}:${at?.block_hash}`;
   };
   const [verdict] = createRequest(verdictKey, async (key, signal) => {
     const [h = "", block = ""] = key.split(":");
@@ -771,12 +781,14 @@ function Body(props: {
         height,
         parents: parentsOf(props.tx.vin ?? []),
         summary: async () => (await fetchSummaries(network(), [block], signal)).get(block),
-        // Spends answered before this block was known (asked as it arrived, or before a live
-        // confirmation) cannot show a child mined in it: they are asked again.
+        // Spends answered before this block was known (asked as it arrived, before a live
+        // confirmation, or while another block held it at this height) cannot show a child mined
+        // in it: they are asked again.
         spends: async () => {
           const value = props.spends();
           const tip = props.spendsTip();
-          return tip !== undefined && tip.height >= height
+          const sameLoad = props.tx.status.block_hash === block;
+          return sameLoad && tip !== undefined && tip.height >= height
             ? { value, tip }
             : fetchStamped<Outspend[]>(network(), `/tx/${props.tx.txid}/outspends`, {
                 signal,
@@ -968,9 +980,12 @@ function Body(props: {
             </Show>
             {/* Its line is kept from the moment a verdict may come, so one arriving moves nothing
                 where this cell has a row to itself (the narrowest phones). */}
-            <Show when={verdictKey() !== false}>
+            <Show when={judged()}>
               <span class="tx-answer__sub tx-verdict">
-                <Show when={verdict.state === "ready" && verdict()} fallback={"\u00A0"}>
+                <Show
+                  when={verdictKey() !== false && verdict.state === "ready" && verdict()}
+                  fallback={"\u00A0"}
+                >
                   {(said) => (
                     <Note focusable below title={verdictTitle(said())} figure={verdictText(said())}>
                       {verdictDetail(said())}
