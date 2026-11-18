@@ -55,10 +55,13 @@ pub async fn route(
             }
             v
         };
+        let (versions, more_versions) = r.versions(&txid);
         json!({
             "txid": txid,
             "replaced_by": later.iter().map(json).collect::<Vec<_>>(),
             "replaces": earlier.iter().map(json).collect::<Vec<_>>(),
+            "versions": versions,
+            "versions_truncated": more_versions,
             "truncated": more_later || more_earlier,
         })
     });

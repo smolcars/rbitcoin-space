@@ -119,10 +119,11 @@ async fn neighbours_and_any_two_versions_are_compared_from_memory() {
             .clone()
     };
     assert_eq!((shared_of(&a), shared_of(&child)), (json!(1), json!(0)));
-    let (status, body) = compare(&s, &child, &b).await;
-    assert_eq!(status, 200);
-    assert_eq!(body["shared_inputs"], 0);
-    assert_eq!(body["a"]["outputs"], json!({ "state": "not_recorded" }));
+    // It is no version of either, whichever way round.
+    for (x, y) in [(&child, &b), (&b, &child), (&child, &c), (&a, &child)] {
+        assert_eq!(compare(&s, x, y).await.0, 404, "{x} {y}");
+    }
+    assert_eq!(links["versions"], json!([a, b, c]));
 }
 
 #[tokio::test]
@@ -254,7 +255,7 @@ async fn compare_on(ctx: Arc<NetworkContext>, a: String, b: String) -> (u16, Val
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_replacement_mined_straight_from_a_block_is_read_once_and_its_children_are_named() {
+async fn a_replacement_mined_straight_from_a_block_is_read_once_and_its_children_are_no_versions() {
     use std::sync::atomic::Ordering;
     let (url, txs, hits) = stub().await;
     let mock = Mock::new();
@@ -298,21 +299,45 @@ async fn a_replacement_mined_straight_from_a_block_is_read_once_and_its_children
         (&body["a"]["vsize"], &body["b"]["vsize"]),
         (&json!(200), &json!(201))
     );
-    assert_eq!(body["child"], Value::Null);
     // The block's own spends tell the conflict from the child that left with it.
     assert_eq!(body["shared_inputs"], 1);
-    let (_, cb) = compare(&s, &child, &b).await;
-    assert_eq!(
-        (&cb["shared_inputs"], &cb["child"]),
-        (&json!(0), &json!("a"))
-    );
-    assert_eq!(cb["a"]["outputs"], json!({ "state": "not_recorded" }));
-    // Asked the other way round, the child is the second.
-    assert_eq!(compare(&s, &b, &child).await.1["child"], "b");
+    assert_eq!(compare(&s, &child, &b).await.0, 404);
+    assert_eq!(compare(&s, &b, &child).await.0, 404);
+}
+
+#[tokio::test]
+async fn a_bumped_child_stays_a_version_of_what_it_bumped_and_of_nothing_past_its_parent() {
+    let mock = Mock::new();
+    // P, and A spending from it; then B bumps A.
+    let p = mock.send(&[coin(1)], 1, 500, 200);
+    let s = Server::start(&mock, |_| {});
+    s.settle().await;
+    let a = mock.send(&[OutPoint::new(p, 0)], 2, 300, 100);
+    s.settle().await;
+    let b = mock.send(&[OutPoint::new(p, 0)], 1, 900, 100);
+    s.settle().await;
+    // Then Q replaces P, and B leaves with it.
+    let q = mock.send(&[coin(1)], 1, 2000, 200);
+    s.settle().await;
+    let (p, a, b, q) = (p.to_string(), a.to_string(), b.to_string(), q.to_string());
+    // A and B are versions, whichever way round, with the inputs they share.
+    for (x, y) in [(&a, &b), (&b, &a)] {
+        let (status, body) = compare(&s, x, y).await;
+        assert_eq!(
+            (status, &body["shared_inputs"]),
+            (200, &json!(1)),
+            "{x} {y}"
+        );
+    }
+    // Nothing joins A or B to Q but B's link as a child.
+    for (x, y) in [(&a, &q), (&q, &a), (&b, &q), (&q, &b), (&a, &p), (&p, &b)] {
+        assert_eq!(compare(&s, x, y).await.0, 404, "{x} {y}");
+    }
+    assert_eq!(compare(&s, &p, &q).await.0, 200);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_held_version_without_outputs_is_never_asked_of_the_node() {
+async fn the_node_is_asked_for_the_newest_version_and_never_for_a_replaced_one() {
     use crate::replacements::{Link, Mined};
     use bitcoin::hashes::Hash;
     use std::sync::atomic::Ordering;
@@ -351,21 +376,28 @@ async fn a_held_version_without_outputs_is_never_asked_of_the_node() {
         by_tx,
         mined: Mined::No,
     };
-    // A link stored before outputs were kept: both sides were held, neither has outputs.
+    // A link stored before outputs were kept: both sides were held, neither has outputs, and
+    // the newest (2) has since confirmed. The node still has 2; it forgot 1, which was replaced.
     s.ctx
         .track
         .restore_replacements(vec![link(1, 2, Some(facts)), link(3, 4, None)]);
-    let (status, body) = compare(&s, &id(1).to_string(), &id(2).to_string()).await;
-    assert_eq!(status, 200);
-    assert_eq!(body["b"]["outputs"], json!({ "state": "not_recorded" }));
+    for (x, y) in [(1, 2), (2, 1)] {
+        let (status, body) = compare(&s, &id(x).to_string(), &id(y).to_string()).await;
+        assert_eq!(status, 200);
+        let (old, new) = if x == 1 { ("a", "b") } else { ("b", "a") };
+        assert_eq!(body[old]["outputs"], json!({ "state": "not_recorded" }));
+        assert_eq!(body[new]["outputs"]["list"][0]["script"], "00");
+        // The record's figures stand: the node's are only for what the record lacks.
+        assert_eq!(body[new]["from"], "record");
+    }
     assert_eq!(
         hits.load(Ordering::SeqCst),
-        0,
-        "held, so the node has nothing new"
+        2,
+        "2 each time; 1, replaced, never"
     );
     // A replacement never held is asked, and its outputs are counted before any is read.
     let (_, body) = compare(&s, &id(3).to_string(), &id(4).to_string()).await;
-    assert_eq!(hits.load(Ordering::SeqCst), 1);
+    assert_eq!(hits.load(Ordering::SeqCst), 3);
     assert_eq!(
         body["b"]["outputs"],
         json!({ "state": "too_many", "count": 40 })

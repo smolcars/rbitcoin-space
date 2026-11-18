@@ -3,10 +3,9 @@
 //!
 //! Answered from memory: each version's figures, inputs and outputs as the replacement record
 //! kept them ([`engine::replacements::Replacements::version_of`]), or as the mempool tracker holds
-//! them for a version still waiting. Only a version the tracker never held (a replacement
-//! confirmed straight from a block) is asked of the node: one Esplora read each, coalesced with
-//! identical reads in flight, so at most two a request, and none for a txid the record does not
-//! know or held without outputs.
+//! them for a version still waiting. A version not itself replaced (the newest of its line) whose
+//! outputs neither has is asked of the node: one Esplora read, coalesced with identical reads in
+//! flight, so at most two a request; never one that was replaced, which the node has forgotten.
 //! The answer is bounded: two versions of at most `MAX_OUTPUTS` outputs each.
 
 use std::sync::Arc;
@@ -103,12 +102,6 @@ fn shared(r: &Replacements, a: &Txid, b: &Txid) -> Option<u32> {
     between(a, b).or_else(|| between(b, a))
 }
 
-/// Whether `t` left the mempool with a replaced parent rather than as an earlier version: it
-/// shares no input with its replacement.
-fn left_with_parent(r: &Replacements, t: &Txid) -> bool {
-    r.get(t).is_some() && r.sides(t).and_then(|s| s.shared) == Some(0)
-}
-
 pub async fn route(
     State(ctx): State<Arc<NetworkContext>>,
     Path((a, b)): Path<(String, String)>,
@@ -120,10 +113,10 @@ pub async fn route(
     if !ctx.track.mempool_enabled() {
         return Err(MEMPOOL_OFF);
     }
-    let (mut versions, shared, child) = ctx.track.with_replacements(|r| {
-        // Two txids in one history have the same newest end; two the record does not know are
-        // each their own, and differ.
-        if r.root(&a) != r.root(&b) {
+    let (mut versions, shared, replaced) = ctx.track.with_replacements(|r| {
+        // Only versions of one another, joined by links that are not a child's (docs/MEMPOOL.md,
+        // "Versions"): a child that left with its parent is no version, whichever way round.
+        if !r.are_versions(&a, &b) {
             return Err(NOT_VERSIONS);
         }
         let of = |t: &Txid| {
@@ -134,17 +127,11 @@ pub async fn route(
                 from: Some(From::Record),
             })
         };
-        // A child is never a version: say which side is one, whichever way round it was asked.
-        let child = if left_with_parent(r, &a) {
-            Some("a")
-        } else if left_with_parent(r, &b) {
-            Some("b")
-        } else {
-            None
-        };
-        Ok(([of(&a), of(&b)], shared(r, &a, &b), child))
+        // A version that was itself replaced is forgotten by the node.
+        let replaced = [r.get(&a).is_some(), r.get(&b).is_some()];
+        Ok(([of(&a), of(&b)], shared(r, &a, &b), replaced))
     })?;
-    for (txid, v) in [a, b].iter().zip(versions.iter_mut()) {
+    for ((txid, v), replaced) in [a, b].iter().zip(versions.iter_mut()).zip(replaced) {
         if v.outputs.is_some() && v.facts.is_some() {
             continue;
         }
@@ -162,10 +149,10 @@ pub async fn route(
             v.from = v.from.or(Some(From::Mempool));
             continue;
         }
-        // Only a version the tracker never held (a replacement confirmed straight from a block)
-        // is asked of the node. One it held and kept no outputs for (before outputs were kept,
-        // or past the budget) is said as not recorded: asking again would find nothing new.
-        if v.facts.is_none() {
+        // The node still has a version that was not itself replaced: the newest of its line,
+        // waiting or mined. It is asked for one with no outputs here (never held, stored before
+        // outputs were kept, or past the budget); a replaced one it has forgotten is not.
+        if !replaced && v.outputs.is_none() {
             from_node(&ctx, txid, v).await;
         }
     }
@@ -184,7 +171,6 @@ pub async fn route(
         "a": versions[0].json(&a, chain),
         "b": versions[1].json(&b, chain),
         "shared_inputs": shared,
-        "child": child,
         "vsize_basis": if by_weight { "weight" } else { "sigops" },
     });
     let mut res = (StatusCode::OK, Json(body)).into_response();
