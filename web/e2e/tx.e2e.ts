@@ -114,9 +114,17 @@ test.describe("transactions the node no longer has", () => {
     // The full steps, struck through and dashed, keep their numbers in the middle too.
     expect(await stepsOffCentre(page, "a replaced version")).toEqual([]);
 
+    // What changed: the one output paid 384 sats less, which went to the fee.
+    const changed = page.getByRole("region", { name: "What changed" });
+    await expect(changed.getByRole("listitem")).toHaveCount(1);
+    await expect(changed.getByRole("listitem")).toContainText("Changed");
+    await expect(changed).toContainText("+384 sats");
+
     // Opened later, the node no longer has it, and the server still says what happened.
     await page.reload();
     await expect(page.getByText("This version was replaced")).toBeVisible();
+    // The outputs too: the server kept them while it waited.
+    await expect(changed.getByRole("listitem")).toContainText("Changed");
   });
 });
 

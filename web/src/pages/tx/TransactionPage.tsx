@@ -29,7 +29,7 @@ import { type ReplacementLink, type TxMessage, txTopic } from "../../lib/track-t
 import { TxLightning } from "../lightning/TxLightning";
 import { versionLine } from "../../lib/compare";
 import { Code } from "./Code";
-import { Compare } from "./Compare";
+import { CompareLine } from "./Compare";
 import { Flow, type Selection } from "./Flow";
 import { Inspector } from "./Inspector";
 import { Chain, Follow, Group, LiveState, POLL_MS, Strip } from "./Live";
@@ -329,12 +329,21 @@ function TransactionView(props: { txid: string }) {
   // server does not follow this network's mempool (the route would refuse).
   const replacementsKey = () => {
     const l = live();
-    if (l === "off" || l === "connecting") return false;
+    if (l === "off") return false;
+    const t = ready();
+    // Confirmed, it may be the newest version of something replaced: asked only while its block
+    // is within the record's reach, so an older page asks nothing (one lookup in the server's
+    // memory, never the node). A settled transaction follows no topic, so this does not wait
+    // for one; a server without the mempool engine answers 503, read as nothing.
+    if (t?.status.confirmed === true) {
+      const c = confs();
+      return c !== undefined && c <= RECORD_REACH ? "confirmed" : false;
+    }
+    if (l === "connecting") return false;
     if (missing()) return "missing";
     const s = shownNow().kind;
     if (s === "gone") return "gone";
-    const t = ready();
-    return t && !t.status.confirmed ? "waiting" : false;
+    return t ? "waiting" : false;
   };
   // The page's own abort signal, not the request's: an answer a newer request replaced still
   // records what it learned in the model.
@@ -449,6 +458,7 @@ function TransactionView(props: { txid: string }) {
               reorged={reorged()}
               replaced={replaced()}
               earlier={replacements()?.replaces ?? []}
+              later={replacements()?.replacedBy ?? []}
               relatives={relatives() ?? undefined}
               liveness={live()}
             />
@@ -491,6 +501,7 @@ function Departed(props: { shown: Shown; replacements: Replacements | null | und
             chain={s.chain}
             truncated={s.truncated}
             earlier={props.replacements?.replaces}
+            later={props.replacements?.replacedBy}
           />
         )}
       </Match>
@@ -505,6 +516,13 @@ function Departed(props: { shown: Shown; replacements: Replacements | null | und
     </Switch>
   );
 }
+
+/**
+ * Confirmations within which a confirmed transaction may still be in the server's replacement
+ * record: about two days of blocks, what `REPLACEMENTS_KEPT` reaches back on mainnet
+ * (docs/MEMPOOL.md "Following a transaction").
+ */
+const RECORD_REACH = 288;
 
 /** Why a transaction leaves without a reason the node reports (docs/MEMPOOL.md). */
 const EVICTED =
@@ -526,6 +544,7 @@ function ReplacedNotice(props: {
   chain: ReplacementLink[];
   truncated: boolean;
   earlier?: ReplacementLink[] | undefined;
+  later?: ReplacementLink[] | undefined;
 }) {
   const first = () => props.chain[0];
   return (
@@ -547,7 +566,12 @@ function ReplacedNotice(props: {
           </p>
         )}
       </Show>
-      <Chain chain={props.chain} truncated={props.truncated} earlier={props.earlier ?? []} />
+      <Chain
+        chain={props.chain}
+        truncated={props.truncated}
+        earlier={props.earlier ?? []}
+        later={props.later ?? []}
+      />
     </Notice>
   );
 }
@@ -611,6 +635,8 @@ function Body(props: {
   replaced: ReplacementLink[];
   /** What it replaced and what those replaced, for the line of versions to compare. */
   earlier: ReplacementLink[];
+  /** What replaced it, from the same route: how many inputs each pair shares. */
+  later: ReplacementLink[];
   relatives: Relatives | undefined;
   liveness: Liveness;
 }) {
@@ -1005,7 +1031,12 @@ function Body(props: {
       <Switch>
         <Match when={props.shown.kind === "replaced" && props.shown} keyed>
           {(r) => (
-            <ReplacedNotice chain={r.chain} truncated={r.truncated} earlier={props.earlier} />
+            <ReplacedNotice
+              chain={r.chain}
+              truncated={r.truncated}
+              earlier={props.earlier}
+              later={props.later}
+            />
           )}
         </Match>
         <Match when={props.shown.kind === "evicted"}>
@@ -1030,12 +1061,7 @@ function Body(props: {
         {(line) => (
           <Show when={line().length > 1}>
             <div class="tx-versions">
-              <Compare
-                versions={line()}
-                from={line().length - 2}
-                to={line().length - 1}
-                here={props.tx.txid}
-              />
+              <CompareLine versions={line()} here={props.tx.txid} />
             </div>
           </Show>
         )}

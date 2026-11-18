@@ -28,17 +28,21 @@ function versionName(i: number, txid: string, here: string): string {
 }
 
 /**
- * The compare view for a line of versions, oldest first. Opens on `from` and `to` (indices into
- * `versions`); the reader can pick any two.
+ * The compare view for a line of versions, oldest first, showing `from` against `to` (indices into
+ * `versions`). The pair is the caller's, so its other controls (the chain's buttons) and the
+ * pickers here always show the same one: a pick calls `onPick`.
  */
-export function Compare(props: { versions: string[]; from: number; to: number; here: string }) {
+export function Compare(props: {
+  versions: string[];
+  from: number;
+  to: number;
+  here: string;
+  onPick: (from: number, to: number) => void;
+}) {
   const network = useNetwork();
-  // Picked once from the props: a pick of the reader's own is not undone by a new answer.
-  const [from, setFrom] = createSignal(props.from);
-  const [to, setTo] = createSignal(props.to);
   const ids = () => {
-    const a = props.versions[from()];
-    const b = props.versions[to()];
+    const a = props.versions[props.from];
+    const b = props.versions[props.to];
     return a && b && a !== b ? `${a}/${b}` : false;
   };
   const [answer, { refetch }] = createRequest(ids, async (pair, signal) => {
@@ -59,17 +63,17 @@ export function Compare(props: { versions: string[]; from: number; to: number; h
         <div class="tx-compare__pick">
           <Pick
             label="From"
-            value={from()}
+            value={props.from}
             versions={props.versions}
             here={props.here}
-            onPick={setFrom}
+            onPick={(i) => props.onPick(i, props.to)}
           />
           <Pick
             label="To"
-            value={to()}
+            value={props.to}
             versions={props.versions}
             here={props.here}
-            onPick={setTo}
+            onPick={(i) => props.onPick(props.from, i)}
           />
         </div>
       </Show>
@@ -135,17 +139,21 @@ function Answer(props: { c: Comparison; name: (txid: string) => string; busy: bo
   const b = () => props.c.b;
   const matched = () => matchOutputs(a().outputs, b().outputs);
   const inputs = () => inputChange(a(), b(), props.c.sharedInputs);
-  const child = () => props.c.sharedInputs === 0;
+  // Which side left with a replaced parent, whichever way round it was asked.
+  const child = () => (props.c.child === "a" ? a() : props.c.child === "b" ? b() : undefined);
+  const other = () => (props.c.child === "a" ? b() : a());
   return (
     <div class={["tx-compare__answer", { "is-busy": props.busy }]}>
-      <Show when={child()}>
-        <p class="tx-compare__note">
-          {props.name(a().txid)} spends none of the coins {props.name(b().txid)} spends: it left the
-          mempool because a transaction it spent from was replaced, so it is not an earlier version
-          of this payment and there is nothing to compare.
-        </p>
+      <Show when={child()} keyed>
+        {(c) => (
+          <p class="tx-compare__note">
+            {props.name(c.txid)} spends none of the coins {props.name(other().txid)} spends: it left
+            the mempool because a transaction it spent from was replaced, so it is not an earlier
+            version of this payment and there is nothing to compare.
+          </p>
+        )}
       </Show>
-      <Show when={!child()}>
+      <Show when={child() === undefined}>
         <div class="tx-compare__scroll">
           <table class="tx-compare__figures">
             <caption class="visually-hidden">
@@ -221,6 +229,12 @@ function Answer(props: { c: Comparison; name: (txid: string) => string; busy: bo
             </tbody>
           </table>
         </div>
+        <Show when={props.c.vsizeBasis === "weight"}>
+          <p class="tx-compare__note">
+            Sizes and rates here are weight over four for both versions: the node does not count
+            signature operations for a version this server never held, so neither side does.
+          </p>
+        </Show>
         <h4 class="tx-compare__subtitle">Outputs, matched by where they pay</h4>
         <Outputs matched={matched()} name={props.name} a={a().txid} b={b().txid} />
       </Show>
@@ -396,5 +410,28 @@ function OutputRow(props: { row: OutputChange }) {
         </Switch>
       </span>
     </li>
+  );
+}
+
+/**
+ * {@link Compare} with the pair held here: for a line no other control picks from (a version that
+ * replaced others compares itself with the one before).
+ */
+export function CompareLine(props: { versions: string[]; here: string }) {
+  const last = () => props.versions.length - 1;
+  const [pair, setPair] = createSignal<[string, string]>();
+  const at = (t: string) => props.versions.indexOf(t);
+  const shown = (): [number, number] => {
+    const p = pair();
+    return p && at(p[0]) >= 0 && at(p[1]) >= 0 ? [at(p[0]), at(p[1])] : [last() - 1, last()];
+  };
+  return (
+    <Compare
+      versions={props.versions}
+      from={shown()[0]}
+      to={shown()[1]}
+      here={props.here}
+      onPick={(f, t) => setPair([props.versions[f] ?? "", props.versions[t] ?? ""])}
+    />
   );
 }

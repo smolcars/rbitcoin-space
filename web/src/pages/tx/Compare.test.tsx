@@ -1,8 +1,23 @@
-import { flush } from "solid-js";
+import { createSignal, flush } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { clearApiCache } from "../../lib/api";
 import { mount } from "../../components/test-utils";
 import { Compare } from "./Compare";
+
+/** The view with its pair held here, as the chain holds it. */
+function Held(props: { versions: string[]; from: number; to: number; here: string }) {
+  // Picked once from the props, as a page opens on one pair.
+  const [pair, setPair] = createSignal<[number, number]>([props.from, props.to]);
+  return (
+    <Compare
+      versions={props.versions}
+      from={pair()[0]}
+      to={pair()[1]}
+      here={props.here}
+      onPick={(f, t) => setPair([f, t])}
+    />
+  );
+}
 
 const A = "a".repeat(64);
 const B = "b".repeat(64);
@@ -69,7 +84,7 @@ const text = (el: HTMLElement) => el.textContent?.replaceAll(/\s+/g, " ") ?? "";
 
 describe("Compare", () => {
   it("shows the figures side by side and each output's change in words", async () => {
-    const el = mount(() => <Compare versions={[A, B, C]} from={0} to={1} here={A} />);
+    const el = mount(() => <Held versions={[A, B, C]} from={0} to={1} here={A} />);
     await vi.waitFor(() => {
       flush();
       expect(el.querySelector(".tx-compare__outputs")).not.toBeNull();
@@ -95,7 +110,7 @@ describe("Compare", () => {
 
   it("says which inputs changed even when their number did not", async () => {
     answers[`${A}/${B}`] = { ...(answers[`${A}/${B}`] as object), shared_inputs: 1 };
-    const el = mount(() => <Compare versions={[A, B]} from={0} to={1} here={A} />);
+    const el = mount(() => <Held versions={[A, B]} from={0} to={1} here={A} />);
     await vi.waitFor(() => {
       flush();
       expect(text(el)).toContain("1 kept, 1 dropped, 1 new");
@@ -103,7 +118,7 @@ describe("Compare", () => {
   });
 
   it("compares any two, and says when outputs are missing or too many", async () => {
-    const el = mount(() => <Compare versions={[A, B, C]} from={0} to={1} here={A} />);
+    const el = mount(() => <Held versions={[A, B, C]} from={0} to={1} here={A} />);
     await vi.waitFor(() => {
       flush();
       expect(el.querySelector(".tx-compare__outputs")).not.toBeNull();
@@ -118,22 +133,34 @@ describe("Compare", () => {
     });
     expect(asked).toContain(`${A}/${C}`);
     expect(text(el)).toContain("Fee");
+    expect(text(el)).not.toContain("weight over four");
   });
 
-  it("names a child that left with its parent instead of comparing it", async () => {
-    answers[`${A}/${B}`] = { ...(answers[`${A}/${B}`] as object), shared_inputs: 0 };
-    const el = mount(() => <Compare versions={[A, B]} from={0} to={1} here={A} />);
+  it("says when both sizes are on weight because one side came from the node", async () => {
+    answers[`${A}/${B}`] = { ...(answers[`${A}/${B}`] as object), vsize_basis: "weight" };
+    const el = mount(() => <Held versions={[A, B]} from={0} to={1} here={A} />);
+    await vi.waitFor(() => {
+      flush();
+      expect(text(el)).toContain("weight over four for both versions");
+    });
+  });
+
+  it("names a child that left with its parent, whichever way round it was asked", async () => {
+    answers[`${A}/${B}`] = { ...(answers[`${A}/${B}`] as object), shared_inputs: 0, child: "b" };
+    const el = mount(() => <Held versions={[A, B]} from={0} to={1} here={A} />);
     await vi.waitFor(() => {
       flush();
       expect(text(el)).toContain("is not an earlier version");
     });
+    // The second is the child: it is the one said to spend none of the other's coins.
+    expect(text(el)).toContain("Version 2 spends none of the coins Version 1, this page spends");
     expect(el.querySelector("table")).toBeNull();
     // Two versions only: no pickers.
     expect(el.querySelector("select")).toBeNull();
   });
 
   it("offers to try again when the server cannot compare", async () => {
-    const el = mount(() => <Compare versions={[B, C]} from={0} to={1} here={B} />);
+    const el = mount(() => <Held versions={[B, C]} from={0} to={1} here={B} />);
     await vi.waitFor(() => {
       flush();
       expect(text(el)).toContain("could not compare");

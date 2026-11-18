@@ -1,0 +1,91 @@
+import { flush } from "solid-js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { clearApiCache } from "../../lib/api";
+import { FakeSocket } from "../../lib/fakes";
+import { mount } from "../../components/test-utils";
+import { Chain } from "./Live";
+
+const A = "a".repeat(64);
+const B = "b".repeat(64);
+const C = "c".repeat(64);
+const X = "d".repeat(64);
+const version = (txid: string) => ({
+  txid,
+  fee: 500,
+  vsize: 200,
+  value: 1000,
+  rate: 2500,
+  inputs: 1,
+  outputs: { state: "not_recorded" },
+});
+
+let asked: string[] = [];
+beforeEach(() => {
+  clearApiCache();
+  asked = [];
+  vi.stubGlobal("fetch", async (url: string) => {
+    const [a = "", b = ""] = (url.split("/app/tx/")[1] ?? "").split("/compare/");
+    asked.push(`${a.slice(0, 1)}${b.slice(0, 1)}`);
+    return Response.json({ a: version(a), b: version(b), shared_inputs: null });
+  });
+  // The newest version's live state is not this test's.
+  vi.stubGlobal("WebSocket", FakeSocket);
+});
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+const settled = async (check: () => void) => {
+  await vi.waitFor(() => {
+    flush();
+    check();
+  });
+};
+
+describe("Chain", () => {
+  it("keeps the links' buttons and the pickers on one pair", async () => {
+    const el = mount(() => (
+      <Chain
+        chain={[
+          { txid: A, by: B },
+          { txid: B, by: C },
+        ]}
+        truncated={false}
+      />
+    ));
+    await settled(() => expect(asked).toStrictEqual(["ab"]));
+    const [first, second] = [...el.querySelectorAll<HTMLButtonElement>(".tx-chain__compare")];
+    expect(first?.getAttribute("aria-pressed")).toBe("true");
+    // Pick C as the second version: the A → B button is no longer the pair shown.
+    const to = el.querySelectorAll("select")[1];
+    if (!(to instanceof HTMLSelectElement)) throw new TypeError("no picker");
+    to.value = "2";
+    to.dispatchEvent(new Event("change"));
+    await settled(() => expect(asked.at(-1)).toBe("ac"));
+    expect(first?.getAttribute("aria-pressed")).toBe("false");
+    expect(second?.getAttribute("aria-pressed")).toBe("false");
+    // Pressing it shows A → B again, and the picker follows.
+    first?.click();
+    await settled(() => expect(asked.at(-1)).toBe("ab"));
+    expect(first?.getAttribute("aria-pressed")).toBe("true");
+    expect((el.querySelectorAll("select")[1] as HTMLSelectElement).value).toBe("1");
+  });
+
+  it("offers no comparison on a child that left with its replaced parent", async () => {
+    // X left when B replaced its parent; then C replaced B. X is no version of B or C.
+    const el = mount(() => (
+      <Chain
+        chain={[
+          { txid: X, by: B },
+          { txid: B, by: C },
+        ]}
+        truncated={false}
+        later={[{ txid: X, by: B, shared: 0 }]}
+      />
+    ));
+    await settled(() => expect(el.textContent).toContain("not replaced by a new version"));
+    expect(el.querySelector(".tx-compare")).toBeNull();
+    expect(el.querySelector(".tx-chain__compare")).toBeNull();
+    expect(asked).toStrictEqual([]);
+  });
+});

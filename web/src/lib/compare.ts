@@ -34,8 +34,12 @@ export interface Version {
 export interface Comparison {
   a: Version;
   b: Version;
-  /** Inputs both spend, when one directly replaced the other; 0: `a` left with its parent. */
+  /** Inputs both spend, when one directly replaced the other. */
   sharedInputs?: number;
+  /** The side that left with a replaced parent: never a version, so nothing to compare. */
+  child?: "a" | "b";
+  /** The sizes' basis: `weight` when a side came from the node (weight over four, both sides). */
+  vsizeBasis: "sigops" | "weight";
 }
 
 const isCount = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) >= 0;
@@ -117,8 +121,12 @@ export function parseComparison(v: unknown): Comparison | undefined {
   const a = versionOf(r["a"]);
   const b = versionOf(r["b"]);
   if (!a || !b) return undefined;
+  const out: Comparison = { a, b, vsizeBasis: r["vsize_basis"] === "weight" ? "weight" : "sigops" };
   const shared = opt(r["shared_inputs"]);
-  return shared === undefined ? { a, b } : { a, b, sharedInputs: shared };
+  if (shared !== undefined) out.sharedInputs = shared;
+  const child = r["child"];
+  if (child === "a" || child === "b") out.child = child;
+  return out;
 }
 
 /** One output of the newer version against the older. */
@@ -251,8 +259,10 @@ export function versionLine(
     seen.add(l.txid);
   }
   const line = [...back, here];
+  // A child that left with its replaced parent is not a version of what replaced the parent.
   for (const l of later) {
     if (line.at(-1) !== l.txid || seen.has(l.by) || line.length >= MAX_LINE) break;
+    if (l.shared === 0) break;
     line.push(l.by);
     seen.add(l.by);
   }

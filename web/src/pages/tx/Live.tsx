@@ -274,23 +274,37 @@ export function Chain(props: {
   truncated: boolean;
   /** What this version replaced, from the replacements route: the line's older versions. */
   earlier?: ReplacementLink[];
+  /** What replaced it, from the replacements route, which says how many inputs each pair shares. */
+  later?: ReplacementLink[];
 }) {
   const last = () => props.chain.at(-1);
   const here = () => props.chain[0]?.txid ?? "";
-  const versions = () => versionLine(here(), props.earlier ?? [], props.chain);
+  // The topic's links say nothing of shared inputs; the route's do.
+  const sharedOf = (l: ReplacementLink) =>
+    l.shared ?? props.later?.find((k) => k.txid === l.txid && k.by === l.by)?.shared;
+  const forward = (): ReplacementLink[] =>
+    props.chain.map((l) => {
+      const shared = sharedOf(l);
+      return shared === undefined ? l : { ...l, shared };
+    });
+  const versions = () => versionLine(here(), props.earlier ?? [], forward());
   const at = (txid: string) => versions().indexOf(txid);
-  // The pair the compare view shows: this version and what replaced it, until a link is picked.
+  // It left with a replaced parent: it is not a version of what replaced that parent.
+  const child = () => {
+    const first = props.chain[0];
+    return first !== undefined && sharedOf(first) === 0;
+  };
+  // The one pair shown, by txid, whichever control picked it: this version and what replaced it
+  // until a link or a picker chooses another.
   const [pair, setPair] = createSignal<[string, string]>();
   const shown = (): [number, number] => {
     const p = pair();
-    const [a, b] = p ? [at(p[0]), at(p[1])] : [at(here()), at(here()) + 1];
-    return [a, b];
+    return p && at(p[0]) >= 0 && at(p[1]) >= 0
+      ? [at(p[0]), at(p[1])]
+      : [at(here()), at(here()) + 1];
   };
-  // A string, so an equal pair worked out again (each topic message) keeps the view as it is.
-  const pairKey = (): string | undefined => {
-    const [a, b] = shown();
-    return versions().length > 1 && a >= 0 && b >= 0 ? `${a}:${b}` : undefined;
-  };
+  const pick = (from: number, to: number) =>
+    setPair([versions()[from] ?? "", versions()[to] ?? ""]);
   return (
     <div class="tx-chain">
       <Show when={props.chain.length > 1}>
@@ -362,12 +376,20 @@ export function Chain(props: {
       <Show when={last()?.by} keyed>
         {(id) => <Newest txid={id} />}
       </Show>
-      {/* Made afresh for each pair a link picks: the view opens on that pair. */}
-      <Show when={pairKey()} keyed>
-        {(k) => {
-          const [from = 0, to = 1] = k.split(":").map(Number);
-          return <Compare versions={versions()} from={from} to={to} here={here()} />;
-        }}
+      <Show when={child()}>
+        <p class="tx-chain__lead">
+          It was not replaced by a new version of itself: it spent coins from a transaction that was
+          replaced, and left the mempool with it.
+        </p>
+      </Show>
+      <Show when={!child() && versions().length > 1 && shown()[0] >= 0 && shown()[1] >= 0}>
+        <Compare
+          versions={versions()}
+          from={shown()[0]}
+          to={shown()[1]}
+          here={here()}
+          onPick={pick}
+        />
       </Show>
     </div>
   );

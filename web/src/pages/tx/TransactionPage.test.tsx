@@ -792,6 +792,50 @@ describe("TransactionPage", () => {
     expect(rail.classList).not.toContain("tx-rail--open");
   });
 
+  it("compares a confirmed replacement opened fresh, and asks nothing of an older one", async () => {
+    const OLD = "e".repeat(64);
+    serve(payment(confirmed));
+    replies[`/app/tx/${TXID}/replacements`] = {
+      status: 200,
+      body: {
+        txid: TXID,
+        truncated: false,
+        replaced_by: [],
+        replaces: [{ txid: OLD, by: TXID, rate: 500, by_rate: 1000, shared_inputs: 1 }],
+      },
+    };
+    const v = (txid: string) => ({
+      txid,
+      fee: 141,
+      vsize: 141,
+      outputs: { state: "not_recorded" },
+    });
+    replies[`/app/tx/${OLD}/compare/${TXID}`] = {
+      status: 200,
+      body: { a: v(OLD), b: v(TXID), shared_inputs: 1 },
+    };
+    const el = page(`/tx/${TXID}`);
+    await settle();
+    FakeSocket.last().hello({ network: "mainnet" });
+    await vi.waitFor(async () => {
+      await settle();
+      expect(el.querySelector(".tx-versions .tx-compare__figures")).not.toBeNull();
+    });
+    expect(text(el.querySelector(".tx-versions") as Element)).toContain("Version 2, this page");
+
+    // Buried past the record's reach: the page asks nothing of the record.
+    for (const d of disposers.splice(0)) d();
+    clearApiCache();
+    fetchMock.mockClear();
+    serve(payment(confirmed), [], "976000");
+    const buried = page(`/tx/${TXID}`);
+    await settle();
+    FakeSocket.last().hello({ network: "mainnet" });
+    await settle();
+    expect(text(buried)).toContain("Confirmed");
+    expect(fetchMock.mock.calls.some(([u]) => u.startsWith("/app/tx/"))).toBe(false);
+  });
+
   it("names what it replaced in the details", async () => {
     const OLD = "e".repeat(64);
     serve(payment({ confirmed: false }));
