@@ -2,6 +2,9 @@ import { For, Show } from "solid-js";
 import { groupDigits } from "../../lib/format";
 import type { Lookalike } from "./lookalike";
 
+/** The id of a row's warning, which the page's notice takes the reader to. */
+export const lookalikeId = (txid: string) => `lookalike-${txid}`;
+
 /** Pairs shown under one row; a poisoning transaction can name hundreds of addresses. */
 export const SHOWN_PAIRS = 2;
 
@@ -9,7 +12,7 @@ export const SHOWN_PAIRS = 2;
  * An address cut where it agrees with the one it looks like: the type prefix, the agreeing head,
  * the middle that differs, the agreeing tail. Text only: the address is chain data.
  */
-function Marked(props: { address: string; prefix: number; head: number; tail: number }) {
+export function Marked(props: { address: string; prefix: number; head: number; tail: number }) {
   const a = () => props.address;
   const headEnd = () => Math.min(props.prefix + props.head, a().length - props.tail);
   return (
@@ -40,11 +43,18 @@ function Pair(props: { l: Lookalike }) {
 }
 
 /** The warning under a history row whose transaction names a lookalike address. */
-export function LookalikeWarning(props: { found: readonly Lookalike[] }) {
+export function LookalikeWarning(props: { txid: string; found: readonly Lookalike[] }) {
   const own = () => props.found.some((l) => l.own);
   const more = () => props.found.length - SHOWN_PAIRS;
   return (
-    <div class="lookalike" role="note" aria-label="Lookalike address">
+    // The page's notice moves focus here (`lookalikeId`), so it can be focused but is no tab stop.
+    <div
+      class="lookalike"
+      id={lookalikeId(props.txid)}
+      tabindex="-1"
+      role="note"
+      aria-label="Lookalike address"
+    >
       <svg class="lookalike__icon" viewBox="0 0 16 16" aria-hidden="true">
         <path d="M8 1.75 14.75 13.75H1.25Z" />
         <path d="M8 6.25v3.5M8 11.75v.25" />

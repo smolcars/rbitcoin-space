@@ -183,3 +183,42 @@ export function lookalikes(own: string, txs: readonly Transaction[]): Map<string
   }
   return out;
 }
+
+/** What the page's notice says of a loaded history's lookalikes. */
+export interface LookalikeSummary {
+  /** Transactions that name a lookalike, and those that name one of the page's own address. */
+  txs: number;
+  ownTxs: number;
+  /** The first such transaction in the list (the newest), where the notice takes the reader. */
+  first: string;
+  /** The first lookalike of the page's own address, and how many different ones there are. */
+  own: Lookalike | undefined;
+  ownAddresses: number;
+}
+
+/** The summary of `lookalikes`' answer, or undefined when it found none. In list order. */
+export function summarize(
+  found: ReadonlyMap<string, readonly Lookalike[]>,
+): LookalikeSummary | undefined {
+  let first: string | undefined;
+  let ownTxs = 0;
+  const own = new Map<string, Lookalike>();
+  for (const [txid, list] of found) {
+    first ??= txid;
+    let mine = false;
+    for (const l of list) {
+      if (!l.own) continue;
+      mine = true;
+      if (!own.has(l.here)) own.set(l.here, l);
+    }
+    if (mine) ownTxs++;
+  }
+  if (first === undefined) return undefined;
+  return {
+    txs: found.size,
+    ownTxs,
+    first,
+    own: own.values().next().value,
+    ownAddresses: own.size,
+  };
+}

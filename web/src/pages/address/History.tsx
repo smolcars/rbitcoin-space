@@ -1,5 +1,14 @@
 import { useSearchParams } from "@solidjs/router";
-import { createMemo, createSignal, For, Match, onCleanup, Show, Switch } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  Match,
+  onCleanup,
+  Show,
+  Switch,
+} from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { Amount } from "../../components/Amount";
 import "../../components/Button.css";
@@ -26,7 +35,7 @@ import {
   sortUtxos,
   txFeeRate,
 } from "./address";
-import { type Lookalike, lookalikes } from "./lookalike";
+import type { Lookalike } from "./lookalike";
 import { LookalikeWarning } from "./LookalikeWarning";
 import { Skeleton, settled, UnconfirmedMark } from "./parts";
 
@@ -77,6 +86,10 @@ export function History(props: {
    * listed apart.
    */
   kept?: boolean;
+  /** Lookalike addresses by txid, worked out by the page from what this section reports loaded. */
+  lookalike: ReadonlyMap<string, readonly Lookalike[]>;
+  /** Hands the page every transaction loaded, first page and later ones, whenever that changes. */
+  onShown: (txs: Transaction[] | undefined) => void;
 }) {
   const network = useNetwork();
   const path = `/address/${encodeURIComponent(props.address)}`;
@@ -162,10 +175,10 @@ export function History(props: {
     const f = first();
     return f ? mergePages(f, later()) : undefined;
   });
-  // Every loaded page at once, so a later page's lookalike also marks the earlier rows it imitates.
-  const lookalike = createMemo(() => {
-    const list = shown();
-    return list ? lookalikes(props.address, list) : new Map<string, Lookalike[]>();
+  // The page works out the lookalikes over every loaded page at once (its notice and these rows read
+  // the one answer), so a later page's lookalike also marks the earlier rows it imitates.
+  createEffect(shown, (list) => {
+    props.onShown(list);
   });
   const hasNext = () => (later().length === 0 ? pageIsFull(first() ?? [], PAGE) : after().full);
 
@@ -293,7 +306,7 @@ export function History(props: {
               shown={shown()}
               total={total()}
               rowClass={(tx) => (tx && fresh().has(tx.txid) ? "address-row--new" : undefined)}
-              lookalike={lookalike()}
+              lookalike={props.lookalike}
               more={
                 <Show when={shown()}>
                   <div class="address-more">
@@ -449,7 +462,12 @@ function Transactions(props: {
             rowClass={props.rowClass}
             rowNote={{
               when: (t) => t !== null && props.lookalike.has(t.txid),
-              render: (t) => <LookalikeWarning found={(t && props.lookalike.get(t.txid)) ?? []} />,
+              render: (t) => (
+                <LookalikeWarning
+                  txid={t?.txid ?? ""}
+                  found={(t && props.lookalike.get(t.txid)) ?? []}
+                />
+              ),
             }}
           />
           <Show when={props.shown === undefined}>

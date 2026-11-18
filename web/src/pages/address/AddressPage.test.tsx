@@ -1028,6 +1028,140 @@ describe("lookalike addresses", () => {
     expect(notes(el)).toHaveLength(0);
     expect(text(el)).not.toContain("poisoning");
   });
+
+  describe("the notice at the top", () => {
+    const poison = (el: Element) => el.querySelector(".address-poison");
+    const live = (el: Element) => text(el.querySelector(".address-announce") as Element);
+    const button = (el: Element, name: string) =>
+      [...el.querySelectorAll("button")].find((b) => text(b) === name);
+
+    it("says nothing, and announces nothing, for an ordinary history", async () => {
+      serve({
+        [`/address/${ME}`]: stats(part(2000, 0, 2)),
+        [`/address/${ME}/txs`]: [tx(1, [[OTHER, 1000]], [[ME, 546]])],
+      });
+      const el = open(`/address/${ME}`);
+      await until(() => expect(rows(el)).toHaveLength(1));
+      expect(poison(el)).toBeNull();
+      expect(live(el)).toBe("");
+    });
+
+    it("leads the page with a lookalike of its own address, shown whole, and says it once", async () => {
+      serve({
+        [`/address/${ME}`]: stats(part(2000, 0, 2)),
+        [`/address/${ME}/txs`]: [
+          tx(1, [[FAKE, 1000]], [[ME, 546]]),
+          tx(2, [[OTHER, 2000]], [[ME, 1454]]),
+        ],
+      });
+      const el = open(`/address/${ME}`);
+      await until(() => expect(poison(el)).not.toBeNull());
+      const notice = poison(el) as Element;
+      // Above the totals, outside the history's tabs.
+      expect(notice.nextElementSibling?.classList.contains("address-totals")).toBe(true);
+      expect(notice.closest(".address-history")).toBeNull();
+      expect(text(notice.querySelector("h2") as Element)).toBe(
+        "Someone may be imitating this address",
+      );
+      expect(text(notice)).toContain(
+        "1 of this address's 2 transactions names an address made to start and end like this one.",
+      );
+      expect(text(notice)).toContain(FAKE);
+      expect(text(notice)).toContain("Check every character, not just the ends");
+      // The whole history is loaded: it does not say older ones are unchecked.
+      expect(text(notice)).not.toContain("Older transactions");
+      const agree = [...notice.querySelectorAll(".lookalike__agree")].map((e) => text(e));
+      expect(agree).toStrictEqual(["w5", "f3t4", "w5", "f3t4"]);
+      expect(notice.querySelector("a, img, script")).toBeNull();
+      expect(button(el, "Go to the transaction")).toBeDefined();
+      expect(live(el)).toBe("Someone may be imitating this address");
+    });
+
+    it("counts only the pages loaded, and counts again as more load", async () => {
+      const first = Array.from({ length: 25 }, (_, i) =>
+        i === 3 ? tx(4, [[ME, 9000]], [[PAYEE, 8000]]) : tx(i + 1, [[OTHER, 2000]], [[ME, 1000]]),
+      );
+      first[0] = tx(1, [[FAKE, 1000]], [[ME, 546]]);
+      serve({
+        [`/address/${ME}`]: stats(part(30_000, 9000, 30)),
+        [`/address/${ME}/txs`]: first,
+        [`/address/${ME}/txs?after_txid=${txid(25)}`]: [
+          tx(26, [[FAKE_PAYEE, 1000]], [[ME, 546]]),
+          tx(27, [[OTHER, 1000]], [[ME, 546]]),
+        ],
+      });
+      const el = open(`/address/${ME}`);
+      await until(() => expect(poison(el)).not.toBeNull());
+      expect(text(poison(el) as Element)).toContain(
+        "1 of the 25 transactions loaded so far names an address made to start and end like this one.",
+      );
+      expect(text(poison(el) as Element)).toContain(
+        "Older transactions are checked as you load them.",
+      );
+      button(el, "Show 25 more")?.click();
+      await until(() =>
+        expect(text(poison(el) as Element)).toContain(
+          "3 of the 27 transactions loaded so far name an address made to start and end like this one, or like another address in this history.",
+        ),
+      );
+      expect(button(el, "Go to the first of them")).toBeDefined();
+      // Announced when it appeared, and not again for the new count.
+      expect(live(el)).toBe("Someone may be imitating this address");
+    });
+
+    it("names a lookalike of another address in the history without showing it", async () => {
+      serve({
+        [`/address/${ME}`]: stats(part(9000, 9000, 2)),
+        [`/address/${ME}/txs`]: [
+          tx(1, [[FAKE_PAYEE, 1000]], [[ME, 546]]),
+          tx(2, [[ME, 9000]], [[PAYEE, 8000]]),
+        ],
+      });
+      const el = open(`/address/${ME}`);
+      await until(() => expect(poison(el)).not.toBeNull());
+      const notice = poison(el) as Element;
+      expect(text(notice.querySelector("h2") as Element)).toBe(
+        "Lookalike addresses in this history",
+      );
+      expect(text(notice)).toContain(
+        "2 of this address's 2 transactions name addresses that look like one another: one of each pair may have been made to imitate the other.",
+      );
+      expect(text(notice)).not.toContain(PAYEE);
+      expect(notice.querySelector(".lookalike__pair")).toBeNull();
+    });
+
+    it("goes to the first marked row from the unspent outputs view, and focuses its warning", async () => {
+      serve({
+        [`/address/${ME}`]: stats(part(2000, 0, 2)),
+        [`/address/${ME}/txs`]: [
+          tx(1, [[OTHER, 2000]], [[ME, 1454]]),
+          tx(2, [[FAKE, 1000]], [[ME, 546]]),
+        ],
+        [`/address/${ME}/utxo`]: [],
+        "/blocks/tip/height": () => new Response("110"),
+      });
+      const scrolled: Element[] = [];
+      Element.prototype.scrollIntoView = function scrollIntoView(this: Element) {
+        scrolled.push(this);
+      };
+      vi.stubGlobal("matchMedia", () => ({ matches: true }));
+      try {
+        const el = open(`/address/${ME}?view=unspent`);
+        await until(() => expect(poison(el)).not.toBeNull());
+        expect(el.querySelector(".address-txs")).toBeNull();
+        button(el, "Go to the transaction")?.click();
+        await until(() => expect(el.querySelector(".address-txs")).not.toBeNull());
+        const tab = el.querySelector("#address-tab-transactions");
+        expect(tab?.getAttribute("aria-selected")).toBe("true");
+        const warning = document.activeElement as Element;
+        expect(warning.id).toBe(`lookalike-${txid(2)}`);
+        // The row above the warning is brought into view, not the warning alone.
+        expect(scrolled[0]?.textContent).toContain(txid(2).slice(0, 8));
+      } finally {
+        delete (Element.prototype as Partial<Element>).scrollIntoView;
+      }
+    });
+  });
 });
 
 describe("balance chart", () => {

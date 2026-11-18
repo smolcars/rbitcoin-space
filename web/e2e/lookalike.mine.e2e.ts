@@ -54,6 +54,13 @@ test("warns under a payment naming a lookalike, and nowhere else", async ({ page
   await expect(note).toContainText(VICTIM_LOOKALIKE);
   await expect(note).toContainText("Check every character");
   await expect(note.locator(".lookalike__agree")).toHaveText(["92tj", "mmx6", "92tj", "mmx6"]);
+  // And the notice at the top of the page, whose button lands on that warning.
+  const top = page.locator(".address-poison");
+  await expect(top).toContainText(
+    "This address's only transaction names an address made to start and end like this one.",
+  );
+  await top.getByRole("button", { name: "Go to the transaction" }).click();
+  await expect(note).toBeFocused();
 
   // A lookalike of an address another payment named: both rows carry it.
   await page.goto(`/regtest/address/${CUSTOMER}`);
@@ -62,9 +69,12 @@ test("warns under a payment naming a lookalike, and nowhere else", async ({ page
   await expect(notes(page).first()).toContainText(PAYEE);
   await expect(notes(page).first()).toContainText(PAYEE_LOOKALIKE);
   await expect(notes(page).first()).toContainText("looks like another in this history");
+  await expect(page.locator(".address-poison h2")).toHaveText(
+    "Lookalike addresses in this history",
+  );
 
   // An ordinary history.
   await page.goto(`/regtest/address/${chain.addresses.p2wpkh}`);
   await expect(rows(page).first()).toBeVisible();
-  await expect(page.locator(".lookalike")).toHaveCount(0);
+  await expect(page.locator(".lookalike, .address-poison")).toHaveCount(0);
 });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Transaction, Vout } from "../../lib/esplora";
-import { lookalikes, OWN_HEAD, PAIR_HEAD, TAIL } from "./lookalike";
+import { lookalikes, OWN_HEAD, PAIR_HEAD, summarize, TAIL } from "./lookalike";
 
 const BECH32 = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
 const BASE58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
@@ -268,5 +268,30 @@ describe("a huge history", () => {
     expect(found.get(dust.txid)).toHaveLength(50_000);
     expect(found.get(paid.txid)).toHaveLength(1);
     expect(ms).toBeLessThan(1000);
+  });
+});
+
+describe("the summary the page's notice reads", () => {
+  const own = "bc1qxyrkz6ug8wvn54fqq0uwh0wpr4nf5jt59s4rmc";
+  const fake = `bc1qxy${"q".repeat(32)}4rmc`;
+  const fake2 = `bc1qxy${"p".repeat(32)}4rmc`;
+
+  it("is nothing for a history without lookalikes", () => {
+    expect(summarize(lookalikes(own, [tx([own], [p2tr("w0s", "k9hx")])]))).toBeUndefined();
+  });
+
+  it("counts transactions, those of the own address, and different lookalikes of it", () => {
+    const payee = `bc1pdcl${"q".repeat(51)}4uu7`;
+    const paid = tx([own], [payee]);
+    const a = tx([fake], [own]);
+    const b = tx([fake, fake2], [own]);
+    const c = tx([`bc1pdcl${"p".repeat(51)}4uu7`], [own]);
+    const s = summarize(lookalikes(own, [paid, a, b, c]));
+    expect(s?.txs).toBe(4);
+    expect(s?.ownTxs).toBe(2);
+    expect(s?.ownAddresses).toBe(2);
+    expect(s?.own?.here).toBe(fake);
+    // The first in list order, newest first: where the notice takes the reader.
+    expect(s?.first).toBe(paid.txid);
   });
 });
