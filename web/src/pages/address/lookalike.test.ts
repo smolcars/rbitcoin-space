@@ -134,8 +134,9 @@ describe("lookalikes of the page's own address", () => {
     expect(lookalikes(short, [tx([long], [short])]).size).toBe(0);
     expect(lookalikes(short, [tx([`bc1zxy${"p".repeat(30)}4rmc`], [short])]).size).toBe(1);
     // Pay to anchor is one fixed address: nothing looks like it, and it like nothing.
+    // (The second has the form only: this rule reads forms, and its ends would agree.)
     const anchor = "bc1pfeessrawgf";
-    expect(lookalikes(anchor, [tx([anchor], [anchor])]).size).toBe(0);
+    expect(lookalikes(anchor, [tx(["bc1pfeesqqawgf"], [anchor])]).size).toBe(0);
   });
 
   it("covers the test networks' other base58 forms", () => {
@@ -202,14 +203,14 @@ describe("lookalikes between other addresses in the history", () => {
   });
 
   it("finds the one address elsewhere however a bucket's addresses are spread", () => {
-    // The bucket: A first met in the first transaction and named again in the second, S only in
-    // the second, B only in the first. Under the second row, A's lookalike elsewhere is B.
+    // The bucket: A met in the first transaction and named again in the second, S only in the
+    // second, B only in the third. Under the second row, A's lookalike elsewhere is B, though the
+    // bucket's first two addresses (A itself, and S of this same row) cannot stand for it.
     const a = `bc1pdcl${"q".repeat(51)}4uu7`;
     const s = `bc1pdcl${"p".repeat(51)}4uu7`;
     const b = `bc1pdcl${"r".repeat(51)}4uu7`;
-    const first = tx([own], [a, b]);
     const second = tx([own], [a, s]);
-    const pairs = lookalikes(own, [first, second])
+    const pairs = lookalikes(own, [tx([own], [a]), second, tx([own], [b])])
       .get(second.txid)
       ?.map((l) => [l.here, l.like]);
     expect(pairs).toStrictEqual([
