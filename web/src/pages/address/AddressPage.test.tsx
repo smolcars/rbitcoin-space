@@ -1130,6 +1130,9 @@ describe("lookalike addresses", () => {
       );
       expect(text(poison(el) as Element)).not.toContain("Older transactions");
       expect(button(el, "Show 25 more")).toBeUndefined();
+      // That answer came from the server, not the browser's cache: an old empty one would hide
+      // rows a reorg added.
+      expect(caching[calls.findIndex((c) => c.includes("after_txid"))]).toBe("no-cache");
     });
 
     it("names a lookalike of another address in the history without showing it", async () => {

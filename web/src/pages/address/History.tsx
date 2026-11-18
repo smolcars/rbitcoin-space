@@ -212,7 +212,9 @@ export function History(props: {
           props.kept === true
             ? `${path}/txs/chain/${encodeURIComponent(last.txid)}`
             : `${path}/txs?after_txid=${encodeURIComponent(last.txid)}`,
-          { signal: controller.signal },
+          // Past the browser's cache: an empty answer says the history has no more, so one kept
+          // from before a reorg must not say it for the chain that followed.
+          { signal: controller.signal, fresh: true },
         );
         // A refresh while this was in flight may have changed the history it continues (new
         // transactions, a reorg), so the reply could leave a gap or bring back stale rows: it is
