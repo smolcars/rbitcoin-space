@@ -26,6 +26,8 @@ import {
   sortUtxos,
   txFeeRate,
 } from "./address";
+import { type Lookalike, lookalikes } from "./lookalike";
+import { LookalikeWarning } from "./Lookalike";
 import { Skeleton, settled, UnconfirmedMark } from "./parts";
 
 /** Confirmed transactions per page of address history; the first page adds the unconfirmed ones. */
@@ -160,6 +162,11 @@ export function History(props: {
     const f = first();
     return f ? mergePages(f, later()) : undefined;
   });
+  // Every loaded page at once, so a later page's lookalike also marks the earlier rows it imitates.
+  const lookalike = createMemo(() => {
+    const list = shown();
+    return list ? lookalikes(props.address, list) : new Map<string, Lookalike[]>();
+  });
   const hasNext = () => (later().length === 0 ? pageIsFull(first() ?? [], PAGE) : after().full);
 
   const loadMore = async () => {
@@ -286,6 +293,7 @@ export function History(props: {
               shown={shown()}
               total={total()}
               rowClass={(tx) => (tx && fresh().has(tx.txid) ? "address-row--new" : undefined)}
+              lookalike={lookalike()}
               more={
                 <Show when={shown()}>
                   <div class="address-more">
@@ -357,6 +365,8 @@ function Transactions(props: {
   shown: Transaction[] | undefined;
   total: number | undefined;
   rowClass: (tx: Transaction | null) => string | undefined;
+  /** Lookalike addresses by txid (lookalike.ts); a row in it carries a warning. */
+  lookalike: ReadonlyMap<string, readonly Lookalike[]>;
   more: JSX.Element;
 }) {
   const network = useNetwork();
@@ -437,6 +447,10 @@ function Transactions(props: {
             rows={props.shown ?? placeholders(props.total)}
             rowHref={(t) => (t ? paths.tx(t.txid) : undefined)}
             rowClass={props.rowClass}
+            rowNote={{
+              when: (t) => t !== null && props.lookalike.has(t.txid),
+              render: (t) => <LookalikeWarning found={(t && props.lookalike.get(t.txid)) ?? []} />,
+            }}
           />
           <Show when={props.shown === undefined}>
             <span class="visually-hidden" role="status">

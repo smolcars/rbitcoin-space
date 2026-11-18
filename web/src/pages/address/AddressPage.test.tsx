@@ -957,6 +957,79 @@ describe("address page", () => {
   });
 });
 
+describe("lookalike addresses", () => {
+  // Agrees with ME on "w5" after "bc1q" and on the last four, "f3t4".
+  const FAKE = `bc1qw5${"q".repeat(32)}f3t4`;
+  const PAYEE = `bc1pdcl${"q".repeat(51)}4uu7`;
+  const FAKE_PAYEE = `bc1pdcl${"p".repeat(51)}4uu7`;
+  const rows = (el: Element) => el.querySelectorAll(".address-txs tbody tr:not(.table__note)");
+  const notes = (el: Element) => [...el.querySelectorAll(".address-txs .table__note")];
+
+  it("warns under a row that names a lookalike of the page's own address, as text", async () => {
+    serve({
+      [`/address/${ME}`]: stats(part(2000, 0, 2)),
+      [`/address/${ME}/txs`]: [
+        tx(1, [[FAKE, 1000]], [[ME, 546]]),
+        tx(2, [[OTHER, 2000]], [[ME, 1454]]),
+      ],
+    });
+    const el = open(`/address/${ME}`);
+    await until(() => expect(rows(el)).toHaveLength(2));
+    const [note] = notes(el);
+    expect(notes(el)).toHaveLength(1);
+    // Right under the row of the transaction that names it.
+    expect(note?.previousElementSibling?.textContent).toContain(txid(1).slice(0, 8));
+    expect(note?.querySelector("td")?.getAttribute("colspan")).toBe("4");
+    const warning = note?.querySelector('[role="note"]') as Element;
+    expect(text(warning)).toContain("An address here looks like this page's address");
+    expect(text(warning)).toContain(FAKE);
+    expect(text(warning)).toContain(ME);
+    expect(text(warning)).toContain("Check every character");
+    expect(text(warning)).toContain("may be address poisoning");
+    expect(text(warning)).toContain("agree on the first 2 and last 4 characters after bc1q");
+    const agree = [...warning.querySelectorAll(".lookalike__agree")].map((e) => text(e));
+    expect(agree).toStrictEqual(["w5", "f3t4", "w5", "f3t4"]);
+    // Nothing in it is a link or markup: the addresses are chain data.
+    expect(warning.querySelector("a, img, script")).toBeNull();
+  });
+
+  it("marks an earlier row once a later page brings a lookalike of its payee", async () => {
+    const first = Array.from({ length: 25 }, (_, i) =>
+      i === 3 ? tx(4, [[ME, 9000]], [[PAYEE, 8000]]) : tx(i + 1, [[OTHER, 2000]], [[ME, 1000]]),
+    );
+    serve({
+      [`/address/${ME}`]: stats(part(26_000, 9000, 26)),
+      [`/address/${ME}/txs`]: first,
+      [`/address/${ME}/txs?after_txid=${txid(25)}`]: [tx(26, [[FAKE_PAYEE, 1000]], [[ME, 546]])],
+    });
+    const el = open(`/address/${ME}`);
+    await until(() => expect(rows(el)).toHaveLength(25));
+    expect(el.querySelector(".lookalike")).toBeNull();
+    [...el.querySelectorAll("button")].find((b) => text(b) === "Show 25 more")?.click();
+    await until(() => expect(notes(el)).toHaveLength(2));
+    const [paid, poison] = notes(el);
+    expect(paid?.previousElementSibling?.textContent).toContain(txid(4).slice(0, 8));
+    expect(text(paid as Element)).toContain("looks like another in this history");
+    expect(text(paid as Element)).toContain(FAKE_PAYEE);
+    expect(text(poison as Element)).toContain(PAYEE);
+    expect(text(poison as Element)).toContain("Elsewhere in this history");
+  });
+
+  it("adds nothing to an ordinary history", async () => {
+    serve({
+      [`/address/${ME}`]: stats(part(2000, 0, 2)),
+      [`/address/${ME}/txs`]: [
+        tx(1, [[OTHER, 1000]], [[ME, 546]]),
+        tx(2, [[ME, 546]], [[OTHER, 300]]),
+      ],
+    });
+    const el = open(`/address/${ME}`);
+    await until(() => expect(rows(el)).toHaveLength(2));
+    expect(notes(el)).toHaveLength(0);
+    expect(text(el)).not.toContain("poisoning");
+  });
+});
+
 describe("balance chart", () => {
   const T = 1_794_000_000;
   const TIP = "e".repeat(64);
