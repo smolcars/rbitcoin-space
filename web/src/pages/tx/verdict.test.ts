@@ -98,7 +98,7 @@ describe("the words", () => {
   it("says the multiple beside the rate and in full in its note", () => {
     const v = feeVerdict(1, 0.013, 976_475);
     if (!v) throw new Error("no verdict");
-    expect(verdictText(v)).toBe("76× its block's low end");
+    expect(verdictText(v)).toBe("76× the low end");
     expect(verdictTitle(v)).toBe("76 times its block's low end");
     expect(verdictDetail(v)).toBe(
       "The cheapest tenth of block 976 475, by size, paid 0.01 sat/vB or less. Compared with this transaction's own rate.",
@@ -109,15 +109,15 @@ describe("the words", () => {
     const at = feeVerdict(0.1, 0.12, 1);
     const near = feeVerdict(0.2, 0.12, 1);
     if (!at || !near) throw new Error("no verdict");
-    expect(verdictText(at)).toBe("At its block's low end");
-    expect(verdictText(near)).toBe("Near its block's low end");
+    expect(verdictText(at)).toBe("At the low end");
+    expect(verdictText(near)).toBe("Near the low end");
     expect(verdictTitle(near)).toBe("Less than 2 times its block's low end");
   });
 
   it("formats large rates and low ends as the site prints them", () => {
     const v = feeVerdict(1007.46, 3.006, 1);
     if (!v) throw new Error("no verdict");
-    expect(verdictText(v)).toBe("335× its block's low end");
+    expect(verdictText(v)).toBe("335× the low end");
   });
 });
 
@@ -128,13 +128,19 @@ describe("childInBlock", () => {
     expect(childInBlock([], BLOCK)).toBe(false);
   });
 
-  it("cannot tell from a list it does not have, or a spend not known to be mined", () => {
+  it("counts a spender still in the mempool as not in the block", () => {
+    expect(childInBlock([{ spent: true, txid: P2, status: { confirmed: false } }], BLOCK)).toBe(
+      false,
+    );
+  });
+
+  it("cannot tell from a list it does not have, or a spend without a status", () => {
     expect(childInBlock(undefined, BLOCK)).toBeUndefined();
     expect(childInBlock(null, BLOCK)).toBeUndefined();
-    expect(
-      childInBlock([{ spent: true, txid: P2, status: { confirmed: false } }], BLOCK),
-    ).toBeUndefined();
     expect(childInBlock([{ spent: true, txid: P2 }], BLOCK)).toBeUndefined();
+    expect(
+      childInBlock([{ spent: true, txid: P2, status: { confirmed: true } }], BLOCK),
+    ).toBeUndefined();
   });
 });
 

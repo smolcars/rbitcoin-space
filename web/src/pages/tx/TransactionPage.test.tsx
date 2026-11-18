@@ -207,17 +207,17 @@ describe("TransactionPage", () => {
 
     // 1.00 sat/vB against a low end of 0.12: rounded down, and its note says what the figure is.
     const above = await show(0.12, OTHER);
-    expect(text(above as Element)).toContain("8.3× its block's low end");
+    expect(text(above as Element)).toContain("8.3× the low end");
     const button = above?.querySelector("button.note-figure");
     const said = document.getElementById(button?.getAttribute("aria-describedby") ?? "");
     expect(text(said as Element)).toBe(
       "8.3 times its block's low end. The cheapest tenth of block 975 516, by size, paid 0.12 sat/vB or less. Compared with this transaction's own rate.",
     );
-    expect(text((await show(0.6, OTHER)) as Element)).toContain("Near its block's low end");
+    expect(text((await show(0.6, OTHER)) as Element)).toContain("Near the low end");
     // Its parent mined in the same block: it may have paid for it, so no verdict.
     await expect(show(0.12, BLOCK)).resolves.toBeNull();
     // At the low end holds whatever the parent: a package's rate would be lower still.
-    expect(text((await show(1, BLOCK)) as Element)).toContain("At its block's low end");
+    expect(text((await show(1, BLOCK)) as Element)).toContain("At the low end");
     // A block without rates, or whose cheapest tenth paid nothing.
     await expect(show(null, OTHER)).resolves.toBeNull();
     await expect(show(0, OTHER)).resolves.toBeNull();

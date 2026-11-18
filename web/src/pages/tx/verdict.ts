@@ -51,11 +51,11 @@ export function formatMultiple(ratio: number): string {
   return `${groupDigits(Math.floor(ratio))}×`;
 }
 
-/** The verdict in a few words, for beside the rate. */
+/** The verdict in a few words, for under the rate: short enough for one line on a phone. */
 export function verdictText(v: FeeVerdict): string {
-  if (v.kind === "at") return "At its block's low end";
-  if (v.kind === "near") return "Near its block's low end";
-  return `${formatMultiple(v.ratio)} its block's low end`;
+  if (v.kind === "at") return "At the low end";
+  if (v.kind === "near") return "Near the low end";
+  return `${formatMultiple(v.ratio)} the low end`;
 }
 
 /** The note's first line: the verdict said in full. */
@@ -72,8 +72,9 @@ export function verdictDetail(v: FeeVerdict): string {
 
 /**
  * Whether any output was spent in `block` itself: a child mined with it, which may have paid for
- * it. `undefined` when the answer cannot be trusted: no list, or a spend whose confirmation is not
- * known (an answer from before it was mined).
+ * it. A spender still unconfirmed is not, as long as the list was answered after `block` held this
+ * transaction (the caller's to ensure). `undefined` when it cannot tell: no list, or a spend
+ * without a status.
  */
 export function childInBlock(
   spends: readonly Outspend[] | null | undefined,
@@ -83,7 +84,9 @@ export function childInBlock(
   let found = false;
   for (const s of spends) {
     if (!s.spent) continue;
-    if (s.status?.confirmed !== true || s.status.block_hash === undefined) return undefined;
+    if (s.status === undefined) return undefined;
+    if (!s.status.confirmed) continue;
+    if (s.status.block_hash === undefined) return undefined;
     if (s.status.block_hash === block) found = true;
   }
   return found;
