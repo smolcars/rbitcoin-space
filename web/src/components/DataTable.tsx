@@ -51,6 +51,11 @@ export interface DataTableProps<T> {
   rowHref?: (row: T) => string | undefined;
   /** Makes the headers of columns with a `sort` key buttons that sort the list. */
   sort?: TableSort;
+  /**
+   * A note under a row, across every column, such as a warning about it: drawn where `when` holds.
+   * It is not part of the row's link.
+   */
+  rowNote?: { when: (row: T) => boolean; render: (row: T) => JSX.Element };
 }
 
 /** A table with units in headers, right-aligned numbers and row rules. */
@@ -182,29 +187,38 @@ export function DataTable<T>(props: DataTableProps<T>) {
           <tbody>
             <For each={props.rows}>
               {(row, i) => (
-                <tr class={props.rowClass?.(row)}>
-                  <For each={props.columns}>
-                    {(c, k) => (
-                      <td
-                        class={cellClass(c)}
-                        data-label={c.hidden === true ? undefined : c.header}
-                      >
-                        {c.cell(row, i())}
-                        {/* In a column that is never dropped: a dropped one's link takes no room. */}
-                        <Show when={k() === linkColumn() && props.rowHref?.(row)}>
-                          {(href) => (
-                            <Link
-                              class="table__rowlink"
-                              href={href()}
-                              tabindex="-1"
-                              aria-hidden="true"
-                            />
-                          )}
-                        </Show>
-                      </td>
+                <>
+                  <tr class={props.rowClass?.(row)}>
+                    <For each={props.columns}>
+                      {(c, k) => (
+                        <td
+                          class={cellClass(c)}
+                          data-label={c.hidden === true ? undefined : c.header}
+                        >
+                          {c.cell(row, i())}
+                          {/* In a column that is never dropped: a dropped one's link takes no room. */}
+                          <Show when={k() === linkColumn() && props.rowHref?.(row)}>
+                            {(href) => (
+                              <Link
+                                class="table__rowlink"
+                                href={href()}
+                                tabindex="-1"
+                                aria-hidden="true"
+                              />
+                            )}
+                          </Show>
+                        </td>
+                      )}
+                    </For>
+                  </tr>
+                  <Show when={props.rowNote?.when(row) === true && props.rowNote}>
+                    {(note) => (
+                      <tr class="table__note">
+                        <td colspan={props.columns.length}>{note().render(row)}</td>
+                      </tr>
                     )}
-                  </For>
-                </tr>
+                  </Show>
+                </>
               )}
             </For>
           </tbody>
