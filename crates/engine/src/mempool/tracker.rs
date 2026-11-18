@@ -245,6 +245,8 @@ struct Shared {
     found: std::sync::Mutex<Option<(ChainTip, Instant)>>,
     /// The node's last `getmempoolinfo` answer.
     info: std::sync::Mutex<Option<MempoolInfo>>,
+    /// Kept-output bytes of fetched records not yet published, for tests of the budget.
+    staged: std::sync::atomic::AtomicU64,
 }
 
 /// A handle on a running tracker. Cheap to clone.
@@ -281,12 +283,16 @@ impl Tracker {
             wake: Notify::new(),
             found: std::sync::Mutex::new(None),
             info: std::sync::Mutex::new(None),
+            staged: std::sync::atomic::AtomicU64::new(0),
         });
         let poller = Poller {
             source: Arc::new(source),
             shared: shared.clone(),
             config,
             pending: HashMap::new(),
+            left: VecDeque::new(),
+            left_bytes: 0,
+            unkept: 0,
             blocks: Vec::new(),
             probe: None,
             wanted: None,
@@ -296,6 +302,14 @@ impl Tracker {
             totals: (0, 0),
         };
         (Self { shared }, tokio::spawn(poller.run()))
+    }
+
+    /// Kept-output bytes of records fetched and waiting to be published.
+    #[cfg(test)]
+    pub(crate) fn staged_bytes(&self) -> u64 {
+        self.shared
+            .staged
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Runs `f` on the current state and subscribes in the same instant: the first delta
@@ -371,6 +385,13 @@ struct Poller<S> {
     config: Config,
     /// Details fetched for listed txids but not yet published, kept across a failed cycle.
     pending: HashMap<Txid, TxInfo>,
+    /// Kept-output bytes of transactions that left the map, by the delta that removed them: the
+    /// subscribers' channel can still hold that delta, or the one that added them, for
+    /// [`Config::subscriber_queue`] deltas. Counted against the budget until then.
+    left: VecDeque<(u64, u64)>,
+    left_bytes: u64,
+    /// Arrivals held without their outputs since the last cycle, past the budget.
+    unkept: usize,
     /// Recent active-chain blocks, tip first.
     blocks: Vec<Arc<BlockSpends>>,
     /// `getmempoolinfo` and `/mempool/recent` before the last complete cycle.
@@ -547,11 +568,9 @@ impl<S: Source> Poller<S> {
                 Removal::Evicted => stats.evicted += 1,
             }
         }
-        let mut state = self
-            .shared
-            .state
-            .write()
-            .unwrap_or_else(PoisonError::into_inner);
+        // A handle of its own, so the lock does not borrow `self`, which charges what leaves.
+        let shared = Arc::clone(&self.shared);
+        let mut state = shared.state.write().unwrap_or_else(PoisonError::into_inner);
         if !removed.is_empty() || state.tip() != Some(tip) {
             let replaced = removed
                 .iter()
@@ -567,6 +586,7 @@ impl<S: Source> Poller<S> {
                 replaced,
                 blocks: self.blocks.clone(),
             };
+            self.left(&state, &delta);
             state.apply(&delta);
             stats.seq = Some(delta.seq);
             // Sent under the write lock, so a subscriber's snapshot and its first delta meet.
@@ -657,6 +677,7 @@ impl<S: Source> Poller<S> {
         let (calls, vanished) = self.fetch(&keys, need).await?;
         stats.calls += calls;
         stats.vanished = vanished;
+        stats.unkept = std::mem::take(&mut self.unkept);
 
         let mut added: Vec<(Txid, TxInfo)> = diff
             .added
@@ -682,30 +703,14 @@ impl<S: Source> Poller<S> {
                 Removal::Evicted => stats.evicted += 1,
             }
         }
-        // Outputs are kept while the budget lasts; what leaves in this delta frees its share next.
-        let mut room = self
-            .config
-            .kept_outputs
-            .saturating_sub(self.read(Mempool::kept_bytes));
-        for (_, info) in &mut added {
-            let b = info.kept_bytes();
-            if b > room {
-                info.drop_outputs();
-                stats.unkept += 1;
-            } else {
-                room -= b;
-            }
-        }
         stats.listed = listing.txids.len();
         stats.added = added.len();
         stats.mempool_sequence = listing.mempool_sequence;
         stats.tip = Some(tip);
 
-        let mut state = self
-            .shared
-            .state
-            .write()
-            .unwrap_or_else(PoisonError::into_inner);
+        // A handle of its own, so the lock does not borrow `self`, which charges what leaves.
+        let shared = Arc::clone(&self.shared);
+        let mut state = shared.state.write().unwrap_or_else(PoisonError::into_inner);
         if !added.is_empty() || !removed.is_empty() || state.tip() != Some(tip) {
             let replaced = removed
                 .iter()
@@ -721,6 +726,7 @@ impl<S: Source> Poller<S> {
                 replaced,
                 blocks: self.blocks.clone(),
             };
+            self.left(&state, &delta);
             state.apply(&delta);
             stats.seq = Some(delta.seq);
             // Sent under the write lock, so a subscriber's snapshot and its first delta meet.
@@ -790,6 +796,15 @@ impl<S: Source> Poller<S> {
         need: Vec<Txid>,
     ) -> Result<(u32, usize), SourceError> {
         let batch = self.config.batch.clamp(1, rpc::MAX_BATCH);
+        // The budget bounds every record alive: the map, what waits here, and what left the map
+        // but a delta still in the channel may hold. Outputs past it are never stored.
+        let staged: u64 = self.pending.values().map(TxInfo::kept_bytes).sum();
+        let mut room = self
+            .config
+            .kept_outputs
+            .saturating_sub(self.read(Mempool::kept_bytes))
+            .saturating_sub(self.left_bytes)
+            .saturating_sub(staged);
         let mut queue: VecDeque<Vec<Txid>> = need.chunks(batch).map(<[Txid]>::to_vec).collect();
         let mut set = JoinSet::new();
         let (mut calls, mut vanished, mut failed) = (0, 0, None);
@@ -813,7 +828,11 @@ impl<S: Source> Poller<S> {
                     for (txid, row) in chunk.iter().zip(rows) {
                         match row {
                             Some((entry, tx)) => {
-                                self.pending.insert(*txid, keys.record(&entry, &tx));
+                                let info = keys.record_within(&entry, &tx, &mut room);
+                                if info.kept_outputs().is_none() {
+                                    self.unkept += 1;
+                                }
+                                self.pending.insert(*txid, info);
                             }
                             None => vanished += 1,
                         }
@@ -831,6 +850,32 @@ impl<S: Source> Poller<S> {
                 Err(e) => failed = failed.or(Some(SourceError::Failed(e.to_string()))),
             }
         }
+        let staged: u64 = self.pending.values().map(TxInfo::kept_bytes).sum();
+        self.shared
+            .staged
+            .store(staged, std::sync::atomic::Ordering::Relaxed);
         failed.map_or(Ok((calls, vanished)), Err)
+    }
+
+    /// Charges what `delta` removes from the map to the budget for as long as the channel can
+    /// hold it, and lets go of what older deltas charged.
+    fn left(&mut self, state: &Mempool, delta: &Delta) {
+        let bytes: u64 = delta
+            .removed
+            .iter()
+            .filter_map(|(t, _)| state.get(t))
+            .map(TxInfo::kept_bytes)
+            .sum();
+        if bytes > 0 {
+            self.left.push_back((delta.seq, bytes));
+            self.left_bytes += bytes;
+        }
+        let window = self.config.subscriber_queue as u64;
+        while let Some(&(seq, b)) = self.left.front()
+            && seq.saturating_add(window) < delta.seq
+        {
+            self.left.pop_front();
+            self.left_bytes = self.left_bytes.saturating_sub(b);
+        }
     }
 }

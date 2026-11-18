@@ -38,8 +38,9 @@ pub struct TxInfo {
     pub(crate) outputs: u32,
     /// Keyed 64-bit fingerprints of the outpoints it spends, to find what replaced it; then its
     /// outputs as kept, packed little-endian into the last `kept` words, so a replacement can say
-    /// what changed after the node has forgotten this version.
-    words: Box<[u64]>,
+    /// what changed after the node has forgotten this version. Shared, not copied: the map and
+    /// the delta that added it hold one allocation (same 16-byte pointer as a `Box`).
+    words: Arc<[u64]>,
 }
 
 impl TxInfo {
@@ -57,7 +58,7 @@ impl TxInfo {
             kept: 0,
             flags: 0,
             outputs: 0,
-            words: Box::new([]),
+            words: Arc::from([]),
         }
     }
 
@@ -95,15 +96,22 @@ impl TxInfo {
         u32::try_from(n).unwrap_or(u32::MAX)
     }
 
+    /// Whether `other` holds this record's own allocation rather than a copy of it.
+    #[cfg(test)]
+    pub(crate) fn shares_with(&self, other: &TxInfo) -> bool {
+        Arc::ptr_eq(&self.words, &other.words)
+    }
+
     /// Heap bytes its kept outputs take.
-    pub(crate) fn kept_bytes(&self) -> u64 {
+    pub fn kept_bytes(&self) -> u64 {
         u64::from(self.kept) * 8
     }
 
-    /// Forgets its outputs, keeping its inputs: past the tracker's budget.
+    /// Forgets its outputs, keeping its inputs, as a record made past the budget has none.
+    #[cfg(test)]
     pub(crate) fn drop_outputs(&mut self) {
         if self.kept > 0 {
-            self.words = self.spends().into();
+            self.words = Arc::from(self.spends());
             self.kept = 0;
         }
     }
@@ -184,8 +192,21 @@ impl Keys {
         self.0.hash_one(o)
     }
 
-    /// The record for a transaction from its mempool entry and its bytes.
+    /// The record for a transaction from its mempool entry and its bytes, its outputs kept.
+    #[cfg(test)]
     pub(crate) fn record(&self, entry: &MempoolEntry, tx: &Transaction) -> TxInfo {
+        let mut room = u64::MAX;
+        self.record_within(entry, tx, &mut room)
+    }
+
+    /// The record for a transaction, keeping its outputs only if they fit in `room` bytes (taken
+    /// from it): past that, the encoding is dropped at once and never stored.
+    pub(crate) fn record_within(
+        &self,
+        entry: &MempoolEntry,
+        tx: &Transaction,
+        room: &mut u64,
+    ) -> TxInfo {
         let sat = |v: u64| u32::try_from(v).unwrap_or(u32::MAX);
         let value = tx.output.iter().fold(Amount::ZERO, |sum, o| {
             sum.checked_add(o.value).unwrap_or(Amount::MAX)
@@ -193,8 +214,10 @@ impl Keys {
         // At most `MAX_KEPT_BYTES` / 8 words, so `kept` always holds the count.
         let kept = outputs::encode_tx(&tx.output)
             .filter(|k| k.len().div_ceil(8) <= usize::from(u16::MAX))
+            .filter(|k| (k.len().div_ceil(8) as u64) * 8 <= *room)
             .unwrap_or_default();
         let kept_words = kept.len().div_ceil(8);
+        *room -= kept_words as u64 * 8;
         let mut words = Vec::with_capacity(tx.input.len() + kept_words);
         words.extend(tx.input.iter().map(|i| self.key(&i.previous_output)));
         words.extend(kept.chunks(8).map(|c| {
@@ -215,7 +238,7 @@ impl Keys {
             kept: u16::try_from(kept_words).unwrap_or(0),
             flags: crate::flags::of(tx),
             outputs: sat(tx.output.len() as u64),
-            words: words.into_boxed_slice(),
+            words: words.into(),
         }
     }
 
@@ -261,6 +284,17 @@ pub struct BlockSpends {
 impl BlockSpends {
     pub fn contains(&self, txid: &Txid) -> bool {
         self.txids.contains(txid)
+    }
+
+    /// How many of the outpoints `tx` spends this block's transaction `by` spends too. Exact but
+    /// for a collision of the keyed 64-bit fingerprints.
+    pub fn shared_inputs(&self, tx: &TxInfo, by: &Txid) -> u32 {
+        let n = tx
+            .spends()
+            .iter()
+            .filter(|k| self.spends.get(k) == Some(by))
+            .count();
+        u32::try_from(n).unwrap_or(u32::MAX)
     }
 
     pub fn txids(&self) -> impl Iterator<Item = &Txid> {

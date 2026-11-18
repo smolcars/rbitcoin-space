@@ -238,6 +238,28 @@ fn shared_inputs_are_counted_from_the_fingerprints() {
 }
 
 #[test]
+fn a_block_tells_a_conflict_from_a_child_when_its_replacement_was_never_held() {
+    use crate::replacements::Sides;
+    let m = Mempool::default();
+    let a = tx(&[coin(0)], 2, 1);
+    let child = tx(&[out(&a, 0)], 1, 2);
+    let b = tx(&[coin(0)], 1, 3);
+    let blk = m.keys().block(1, &block(1, BlockHash::all_zeros(), &[&b]));
+    let by = b.compute_txid();
+    let rec = |t: &Transaction| m.keys().record(&entry(t), t);
+    assert_eq!(blk.shared_inputs(&rec(&a), &by), 1);
+    assert_eq!(blk.shared_inputs(&rec(&child), &by), 0);
+    let conflict = Sides::of(&rec(&a), None, Some((&blk, &by)));
+    assert_eq!(conflict.shared, Some(1));
+    assert!(conflict.outputs.is_some());
+    let left_with_parent = Sides::of(&rec(&child), None, Some((&blk, &by)));
+    assert_eq!(
+        (left_with_parent.shared, left_with_parent.outputs),
+        (Some(0), None)
+    );
+}
+
+#[test]
 fn diff_finds_added_and_removed_in_txid_order() {
     let (a, b, c, d) = (
         tx(&[coin(0)], 1, 1),
@@ -835,6 +857,7 @@ async fn outputs_are_kept_while_the_budget_lasts() {
         mock.clone(),
         Config {
             kept_outputs: 16,
+            subscriber_queue: 2,
             ..config()
         },
     );
@@ -847,21 +870,71 @@ async fn outputs_are_kept_while_the_budget_lasts() {
             .count()
     });
     assert_eq!(kept, 2);
-    // What leaves frees its share for what comes next.
+    // What leaves still counts while a delta in the channel can hold it: two deltas here.
     mock.mine(&[&txs[0], &txs[1]]);
     tracker.tip_changed();
     cycle(next_cycle(&mut ev).await);
     let late = tx(&[coin(9)], 2, 9);
     mock.send(&late);
     let s = cycle(next_cycle(&mut ev).await);
+    assert_eq!(s.unkept, 1, "what left is still in the channel");
+    for i in 0..3 {
+        mock.send(&tx(&[coin(20 + i)], 1, 20 + i));
+        cycle(next_cycle(&mut ev).await);
+    }
+    let freed = tx(&[coin(30)], 2, 30);
+    mock.send(&freed);
+    let s = cycle(next_cycle(&mut ev).await);
     assert_eq!(s.unkept, 0);
     assert!(tracker.read(|m| {
-        m.get(&late.compute_txid())
+        m.get(&freed.compute_txid())
             .unwrap()
             .kept_outputs()
             .is_some()
     }));
     assert_eq!(tracker.read(Mempool::kept_bytes), s.kept_bytes);
+    task.abort();
+}
+
+#[tokio::test(start_paused = true)]
+async fn outputs_staged_for_a_retry_stay_within_the_budget() {
+    let mock = Mock::new();
+    for i in 0..6 {
+        mock.send(&tx(&[coin(i)], 2, i));
+    }
+    // Batches of 2, one at a time: the third fails after four records are staged. One word each,
+    // and room for three.
+    mock.with(|n| n.detail_failures = VecDeque::from(vec![None, None, Some(SourceError::Busy)]));
+    let mut cfg = Config {
+        kept_outputs: 24,
+        ..config()
+    };
+    cfg.in_flight = 1;
+    let (tracker, task) = Tracker::start(mock.clone(), cfg);
+    let mut ev = tracker.events();
+    let Event::PollFailed { .. } = next_cycle(&mut ev).await else {
+        panic!()
+    };
+    assert_eq!(
+        tracker.staged_bytes(),
+        24,
+        "four staged, three of them with outputs"
+    );
+    let s = cycle(next_cycle(&mut ev).await);
+    assert_eq!((s.added, s.unkept, s.kept_bytes), (6, 3, 24));
+    task.abort();
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_map_and_the_delta_share_one_allocation() {
+    let mock = Mock::new();
+    let t = tx(&[coin(0)], 2, 0);
+    mock.send(&t);
+    let (tracker, task) = Tracker::start(mock.clone(), config());
+    let (_, mut sub) = tracker.subscribe(|_| ());
+    let d = sub.recv().await.unwrap();
+    let held = tracker.read(|m| m.get(&t.compute_txid()).unwrap().clone());
+    assert!(d.added[0].1.shares_with(&held));
     task.abort();
 }
 

@@ -1205,3 +1205,36 @@ async fn rows_from_before_the_outputs_read_back_without_them() {
     assert_eq!(loaded[1].1.by_outputs, sides(3, 4).by_outputs);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_later_link_without_outputs_does_not_hide_an_earlier_ones() {
+    // A → B kept B's outputs; B came back past the budget and C replaced it, so B → C has none.
+    let mut r = Replacements::new(10);
+    r.insert_with(link(1, 2), sides(1, 2));
+    let bare = Sides {
+        shared: Some(1),
+        ..Sides::default()
+    };
+    r.insert_with(link(2, 3), bare);
+    let b = r.version_of(&id(2)).unwrap();
+    assert_eq!(b.facts, link(2, 3).tx, "its own figures first");
+    assert_eq!((b.outputs, b.inputs), (Some(outs(2, 4000)), Some(3)));
+}
+
+#[test]
+fn earlier_versions_come_before_children_in_the_cut() {
+    // 200 replaced its one direct conflict, 250, and evicted 33 children of it that sort first.
+    let child = Sides {
+        shared: Some(0),
+        ..Sides::default()
+    };
+    let mut r = Replacements::new(100);
+    for c in 1..=33 {
+        r.insert_with(link(c, 200), child.clone());
+    }
+    r.insert_with(link(250, 200), sides(250, 200));
+    let (back, more) = r.earlier(&id(200));
+    assert!(more);
+    assert_eq!(back.len(), MAX_LINKS);
+    assert_eq!(back[0].txid, id(250));
+}

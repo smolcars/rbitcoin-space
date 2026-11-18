@@ -68,6 +68,10 @@ fn get_varint(bytes: &[u8], at: &mut usize) -> Option<u64> {
     for shift in (0..64).step_by(7) {
         let b = *bytes.get(*at)?;
         *at += 1;
+        // The tenth byte has room for one bit: more would be lost by the shift, not refused.
+        if shift == 63 && b & 0x7f > 1 {
+            return None;
+        }
         v |= u64::from(b & 0x7f).checked_shl(shift)?;
         if b & 0x80 == 0 {
             return Some(v);
@@ -160,6 +164,10 @@ pub fn decode(bytes: &[u8]) -> Option<Vec<Output>> {
     Some(out)
 }
 
+/// The longest stored form read back: the kind byte and the largest kept encoding. A longer
+/// blob is refused before it is copied out of the store.
+pub const MAX_BLOB_BYTES: usize = 1 + MAX_KEPT_BYTES;
+
 /// Stored form's first byte: what follows.
 const BLOB_KEPT: u8 = 1;
 const BLOB_TOO_MANY: u8 = 2;
@@ -209,6 +217,9 @@ impl Outputs {
     /// The stored form read back. `None` when it is not one: the reader then says the outputs
     /// were not recorded, rather than trust it.
     pub fn from_blob(blob: &[u8]) -> Option<Self> {
+        if blob.len() > MAX_BLOB_BYTES {
+            return None;
+        }
         let (kind, rest) = blob.split_first()?;
         match *kind {
             BLOB_KEPT => decode(rest).map(|_| Self::Kept(rest.into())),
@@ -360,6 +371,40 @@ mod tests {
             many.extend_from_slice(&[1, 0]);
         }
         assert_eq!(Outputs::from_blob(&many), None);
+    }
+
+    #[test]
+    fn a_varint_that_overflows_in_its_last_byte_is_refused() {
+        let mut at = 0;
+        let max = [0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01];
+        assert_eq!(get_varint(&max, &mut at), Some(u64::MAX));
+        // Nine continuation bytes, then a payload of 2: bit 64, which a u64 does not have.
+        let over = [0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x02];
+        assert_eq!(get_varint(&over, &mut 0), None);
+        let mut blob = vec![BLOB_KEPT];
+        blob.extend_from_slice(&over);
+        blob.push(0);
+        assert_eq!(
+            Outputs::from_blob(&blob),
+            None,
+            "a corrupt amount reads as missing"
+        );
+    }
+
+    #[test]
+    fn a_blob_longer_than_any_kept_form_is_refused() {
+        // 32 outputs whose numbers carry redundant continuation bytes: each one decodes, but
+        // together they are longer than anything `encode` writes.
+        let mut blob = vec![BLOB_KEPT];
+        for _ in 0..MAX_OUTPUTS {
+            blob.extend_from_slice(&[0x81, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00]);
+            // Tag 68: a 34-byte script kept whole.
+            blob.extend_from_slice(&[0xc4, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00]);
+            blob.extend_from_slice(&[0x40; 34]);
+        }
+        assert!(blob.len() > MAX_BLOB_BYTES);
+        assert!(decode(&blob[1..]).is_some(), "each part reads");
+        assert_eq!(Outputs::from_blob(&blob), None);
     }
 
     #[test]

@@ -5,7 +5,7 @@ use bitcoin::hashes::Hash;
 use bitcoin::{BlockHash, Txid};
 
 use super::{Change, Facts, Link, Mined, Sides};
-use crate::outputs::Outputs;
+use crate::outputs::{MAX_BLOB_BYTES, Outputs};
 use crate::store::{Error, Read, Sql, SqlError, Store, params};
 
 const INSERT: &str = "INSERT OR REPLACE INTO replacements (txid, by, seen, fee, vsize, weight, \
@@ -178,9 +178,14 @@ fn read(r: &rusqlite::Row) -> Result<Link, SqlError> {
 /// What a row keeps beside its link. Outputs that do not read back are left out, as if never
 /// recorded, rather than trusted.
 fn read_sides(r: &rusqlite::Row) -> Result<Sides, SqlError> {
+    // Read in place: a blob longer than any kept form is not copied out at all.
     let outputs = |i: usize| -> Result<Option<Outputs>, SqlError> {
-        Ok(r.get::<_, Option<Vec<u8>>>(i)?
-            .and_then(|b| Outputs::from_blob(&b)))
+        Ok(match r.get_ref(i)? {
+            rusqlite::types::ValueRef::Blob(b) if b.len() <= MAX_BLOB_BYTES => {
+                Outputs::from_blob(b)
+            }
+            _ => None,
+        })
     };
     let count = |i: usize| -> Result<Option<u32>, SqlError> {
         Ok(r.get::<_, Option<i64>>(i)?

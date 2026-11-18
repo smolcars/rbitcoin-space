@@ -242,7 +242,7 @@ A `projected-txs:0` delta reached its last reader within 7 ms at 100 sockets and
 
 On mainnet the engine read 103 to 230 MB a minute from the node (25 to 54 tracker cycles a minute), more at times than the 150 MB [`CONFIG.md`](CONFIG.md#the-live-mempool) states for a 54,000-transaction mempool; the initial sync read 258 to 263 MB in 11 to 15 s for 61,000 to 64,000 transactions. Memory did not grow over the 33 minutes beyond the mempool's own size. The node's upgrade restarted it during the second run (14:03 to 14:04 UTC); the server reported it unreachable, recovered on its own and went on, so the footprint covers both node versions.
 
-The mainnet runs above predate keeping each mempool transaction's outputs for the compare view, which adds 31 to 60 bytes a transaction in a synthetic 300,000-transaction mempool (1.7 to 3.3 MB at 55,000), capped at 32 MiB per network ([`MEMPOOL.md`](MEMPOOL.md#outputs-kept-for-the-compare-view)); not yet measured on mainnet.
+The mainnet runs above predate keeping each mempool transaction's outputs for the compare view, which adds 45 to 68 bytes a transaction in a synthetic 300,000-transaction mempool (2.5 to 3.7 MB at 55,000), capped at 32 MiB per network ([`MEMPOOL.md`](MEMPOOL.md#outputs-kept-for-the-compare-view)); not yet measured on mainnet.
 
 ### The new block on mainnet
 

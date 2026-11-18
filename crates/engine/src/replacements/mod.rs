@@ -156,11 +156,15 @@ pub struct Sides {
 }
 
 impl Sides {
-    /// From the tracker's records of both sides: `by` is `None` when it never held the replacement.
-    /// A transaction that shares no input with its replacement left with a replaced parent: it is
-    /// not an earlier version, so there is nothing to compare and no outputs are kept for it.
-    pub fn of(tx: &TxInfo, by: Option<&TxInfo>) -> Self {
-        let shared = by.map(|b| tx.shared_inputs(b));
+    /// From the tracker's records of both sides: `by` is `None` when it never held the replacement,
+    /// and then `block` is the block that holds it, if the tracker's window has it: its own map
+    /// of who spends what says which inputs the two share. A transaction that shares no input
+    /// with its replacement left with a replaced parent: it is not an earlier version, so there is
+    /// nothing to compare and no outputs are kept for it.
+    pub fn of(tx: &TxInfo, by: Option<&TxInfo>, block: Option<(&BlockSpends, &Txid)>) -> Self {
+        let shared = by
+            .map(|b| tx.shared_inputs(b))
+            .or_else(|| block.map(|(b, by)| b.shared_inputs(tx, by)));
         let compared = shared != Some(0);
         Self {
             outputs: tx.kept_outputs().filter(|_| compared),
@@ -676,23 +680,23 @@ impl Replacements {
     /// replaced transaction, or as the replacement of one. Its outputs and inputs come from
     /// whichever of its links kept them.
     pub fn version_of(&self, txid: &Txid) -> Option<Version> {
-        if let Some(l) = self.get(txid) {
-            let s = self.sides(txid);
-            return Some(Version {
-                facts: l.tx,
-                outputs: s.and_then(|s| s.outputs.clone()),
-                inputs: s.and_then(|s| s.inputs),
-            });
-        }
+        let own = self.get(txid).map(|l| (l.tx, self.sides(txid)));
         let links = self.replaced_by(txid);
-        let facts = links
-            .iter()
-            .find_map(|t| self.get(t).and_then(|l| l.by_tx))?;
-        let sides = || links.iter().filter_map(|t| self.sides(t));
+        let as_by = || links.iter().filter_map(|t| self.sides(t));
+        // Each field from whichever link kept it: a later link can lack what an earlier one has
+        // (it came back past the tracker's budget for outputs, say).
+        let facts = own
+            .map(|(f, _)| f)
+            .or_else(|| links.iter().find_map(|t| self.get(t).and_then(|l| l.by_tx)))?;
+        let own = own.and_then(|(_, s)| s);
         Some(Version {
             facts,
-            outputs: sides().find_map(|s| s.by_outputs.clone()),
-            inputs: sides().find_map(|s| s.by_inputs),
+            outputs: own
+                .and_then(|s| s.outputs.clone())
+                .or_else(|| as_by().find_map(|s| s.by_outputs.clone())),
+            inputs: own
+                .and_then(|s| s.inputs)
+                .or_else(|| as_by().find_map(|s| s.by_inputs)),
         })
     }
 
@@ -718,7 +722,9 @@ impl Replacements {
     /// What `txid` replaced, and what those replaced, newest first: at most [`MAX_LINKS`], and
     /// `true` if there were more.
     pub fn earlier(&self, txid: &Txid) -> (Vec<Link>, bool) {
-        let mut out = Vec::new();
+        // Earlier versions first, then children that left with a replaced parent, so children
+        // cannot crowd a version out of the cut.
+        let (mut versions, mut children) = (Vec::new(), Vec::new());
         let mut seen = HashSet::from([*txid]);
         let mut queue = VecDeque::from([*txid]);
         while let Some(by) = queue.pop_front() {
@@ -726,16 +732,25 @@ impl Replacements {
                 if !seen.insert(*t) {
                     continue;
                 }
-                if out.len() == MAX_LINKS {
-                    return (out, true);
+                if versions.len() == MAX_LINKS {
+                    return (versions, true);
                 }
                 if let Some(l) = self.get(t) {
-                    out.push(*l);
+                    if self.sides(t).and_then(|s| s.shared) == Some(0) {
+                        if children.len() <= MAX_LINKS {
+                            children.push(*l);
+                        }
+                    } else {
+                        versions.push(*l);
+                    }
                 }
                 queue.push_back(*t);
             }
         }
-        (out, false)
+        let more = versions.len() + children.len() > MAX_LINKS;
+        versions.extend(children);
+        versions.truncate(MAX_LINKS);
+        (versions, more)
     }
 
     /// What `txid` itself replaced, oldest first.

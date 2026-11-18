@@ -616,11 +616,8 @@ impl Tracking {
                 .or_else(|| tracker.read(|m| m.get(by).cloned()));
             // The tracker names as a replacement only what entered the mempool in this cycle or
             // sits in one of the window's blocks.
-            let mined = d
-                .blocks
-                .iter()
-                .find(|b| b.contains(by))
-                .map_or(Mined::No, |b| Mined::In(Some((b.height, b.hash))));
+            let block = d.blocks.iter().find(|b| b.contains(by));
+            let mined = block.map_or(Mined::No, |b| Mined::In(Some((b.height, b.hash))));
             let link = Link {
                 txid: *txid,
                 by: *by,
@@ -629,8 +626,10 @@ impl Tracking {
                 by_tx: by_info.as_ref().map(Facts::of),
                 mined,
             };
-            st.replacements
-                .insert_with(link, Sides::of(info, by_info.as_ref()));
+            st.replacements.insert_with(
+                link,
+                Sides::of(info, by_info.as_ref(), block.map(|b| (&**b, by))),
+            );
         }
         for (txid, reason) in &d.removed {
             if let Removal::Confirmed { height, block } = reason {
