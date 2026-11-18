@@ -3,7 +3,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::future::Future;
-use std::sync::{Arc, PoisonError, RwLock};
+use std::sync::{Arc, PoisonError, RwLock, Weak};
 use std::time::Duration;
 
 use bitcoin::{BlockHash, Transaction, Txid};
@@ -290,9 +290,7 @@ impl Tracker {
             shared: shared.clone(),
             config,
             pending: HashMap::new(),
-            left: VecDeque::new(),
-            left_bytes: 0,
-            unkept: 0,
+            left: Vec::new(),
             blocks: Vec::new(),
             probe: None,
             wanted: None,
@@ -385,13 +383,10 @@ struct Poller<S> {
     config: Config,
     /// Details fetched for listed txids but not yet published, kept across a failed cycle.
     pending: HashMap<Txid, TxInfo>,
-    /// Kept-output bytes of transactions that left the map, by the delta that removed them: the
-    /// subscribers' channel can still hold that delta, or the one that added them, for
-    /// [`Config::subscriber_queue`] deltas. Counted against the budget until then.
-    left: VecDeque<(u64, u64)>,
-    left_bytes: u64,
-    /// Arrivals held without their outputs since the last cycle, past the budget.
-    unkept: usize,
+    /// The allocations of records with kept outputs that left the map, and their kept bytes:
+    /// counted against the budget for as long as anything still holds one (a delta in the
+    /// subscribers' channel, a batch a subscriber is working through), checked at each fetch.
+    left: Vec<(Weak<[u64]>, u64)>,
     /// Recent active-chain blocks, tip first.
     blocks: Vec<Arc<BlockSpends>>,
     /// `getmempoolinfo` and `/mempool/recent` before the last complete cycle.
@@ -677,7 +672,6 @@ impl<S: Source> Poller<S> {
         let (calls, vanished) = self.fetch(&keys, need).await?;
         stats.calls += calls;
         stats.vanished = vanished;
-        stats.unkept = std::mem::take(&mut self.unkept);
 
         let mut added: Vec<(Txid, TxInfo)> = diff
             .added
@@ -705,6 +699,7 @@ impl<S: Source> Poller<S> {
         }
         stats.listed = listing.txids.len();
         stats.added = added.len();
+        stats.unkept = added.iter().filter(|(_, i)| i.outputs_unkept()).count();
         stats.mempool_sequence = listing.mempool_sequence;
         stats.tip = Some(tip);
 
@@ -797,13 +792,15 @@ impl<S: Source> Poller<S> {
     ) -> Result<(u32, usize), SourceError> {
         let batch = self.config.batch.clamp(1, rpc::MAX_BATCH);
         // The budget bounds every record alive: the map, what waits here, and what left the map
-        // but a delta still in the channel may hold. Outputs past it are never stored.
+        // but something still holds. Outputs past it are never stored.
         let staged: u64 = self.pending.values().map(TxInfo::kept_bytes).sum();
+        self.left.retain(|(w, _)| w.strong_count() > 0);
+        let held: u64 = self.left.iter().map(|(_, b)| b).sum();
         let mut room = self
             .config
             .kept_outputs
             .saturating_sub(self.read(Mempool::kept_bytes))
-            .saturating_sub(self.left_bytes)
+            .saturating_sub(held)
             .saturating_sub(staged);
         let mut queue: VecDeque<Vec<Txid>> = need.chunks(batch).map(<[Txid]>::to_vec).collect();
         let mut set = JoinSet::new();
@@ -829,9 +826,6 @@ impl<S: Source> Poller<S> {
                         match row {
                             Some((entry, tx)) => {
                                 let info = keys.record_within(&entry, &tx, &mut room);
-                                if info.kept_outputs().is_none() {
-                                    self.unkept += 1;
-                                }
                                 self.pending.insert(*txid, info);
                             }
                             None => vanished += 1,
@@ -857,25 +851,14 @@ impl<S: Source> Poller<S> {
         failed.map_or(Ok((calls, vanished)), Err)
     }
 
-    /// Charges what `delta` removes from the map to the budget for as long as the channel can
-    /// hold it, and lets go of what older deltas charged.
+    /// Keeps counting what `delta` removes from the map for as long as anything holds it.
     fn left(&mut self, state: &Mempool, delta: &Delta) {
-        let bytes: u64 = delta
-            .removed
-            .iter()
-            .filter_map(|(t, _)| state.get(t))
-            .map(TxInfo::kept_bytes)
-            .sum();
-        if bytes > 0 {
-            self.left.push_back((delta.seq, bytes));
-            self.left_bytes += bytes;
-        }
-        let window = self.config.subscriber_queue as u64;
-        while let Some(&(seq, b)) = self.left.front()
-            && seq.saturating_add(window) < delta.seq
-        {
-            self.left.pop_front();
-            self.left_bytes = self.left_bytes.saturating_sub(b);
+        for (t, _) in &delta.removed {
+            if let Some(info) = state.get(t)
+                && info.kept_bytes() > 0
+            {
+                self.left.push((info.allocation(), info.kept_bytes()));
+            }
         }
     }
 }

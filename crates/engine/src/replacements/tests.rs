@@ -1238,3 +1238,108 @@ fn earlier_versions_come_before_children_in_the_cut() {
     assert_eq!(back.len(), MAX_LINKS);
     assert_eq!(back[0].txid, id(250));
 }
+
+// Versions of one another: joined by version links only (`docs/MEMPOOL.md`, "Versions").
+
+/// A record from `(replaced, replacement, shared inputs)`, in that order; `None` is a link stored
+/// before shared inputs were counted.
+fn record(links: &[(u8, u8, Option<u32>)]) -> Replacements {
+    let mut r = Replacements::new(1000);
+    for (a, b, shared) in links {
+        let sides = Sides {
+            shared: *shared,
+            ..Sides::default()
+        };
+        r.insert_with(link(*a, *b), sides);
+    }
+    r
+}
+
+/// Asks `are_versions` both ways round, and that each one's line holds the other exactly then.
+fn versions_both_ways(r: &Replacements, a: u8, b: u8) -> bool {
+    let (x, y) = (
+        r.are_versions(&id(a), &id(b)),
+        r.are_versions(&id(b), &id(a)),
+    );
+    assert_eq!(x, y, "{a} and {b} asked both ways");
+    assert_eq!(
+        r.versions(&id(a)).0.contains(&id(b)),
+        x,
+        "{a}'s line and {b}"
+    );
+    assert_eq!(
+        r.versions(&id(b)).0.contains(&id(a)),
+        x,
+        "{b}'s line and {a}"
+    );
+    x
+}
+
+fn line(r: &Replacements, t: u8) -> Vec<Txid> {
+    r.versions(&id(t)).0
+}
+
+#[test]
+fn a_chain_of_bumps_is_one_line() {
+    let r = record(&[(1, 2, Some(1)), (2, 3, Some(1))]);
+    assert!(versions_both_ways(&r, 1, 2) && versions_both_ways(&r, 1, 3));
+    assert_eq!(line(&r, 1), vec![id(1), id(2), id(3)]);
+    assert_eq!(line(&r, 3), line(&r, 2));
+    // A count not recorded (before migration 0021) counts as a version link.
+    let old = record(&[(1, 2, None)]);
+    assert!(versions_both_ways(&old, 1, 2));
+}
+
+#[test]
+fn a_child_that_left_with_its_parent_is_no_version() {
+    // P (10) replaced by Q (11); X (12) spent from P and left with it.
+    let r = record(&[(10, 11, Some(1)), (12, 11, Some(0))]);
+    assert!(versions_both_ways(&r, 10, 11));
+    assert!(!versions_both_ways(&r, 12, 11));
+    assert!(!versions_both_ways(&r, 12, 10));
+    assert_eq!(line(&r, 12), Vec::<Txid>::new());
+    assert_eq!(line(&r, 11), vec![id(10), id(11)]);
+}
+
+#[test]
+fn a_bumped_child_stays_a_version_of_what_it_bumped() {
+    // A (1) bumped to B (2), which spends from P (10); then Q (11) replaced P and removed B.
+    let r = record(&[(1, 2, Some(1)), (10, 11, Some(1)), (2, 11, Some(0))]);
+    assert!(
+        versions_both_ways(&r, 1, 2),
+        "a real bump, whatever happened to B after"
+    );
+    assert!(
+        !versions_both_ways(&r, 1, 11),
+        "the path to Q crosses a child's link"
+    );
+    assert!(!versions_both_ways(&r, 2, 11));
+    assert!(!versions_both_ways(&r, 1, 10));
+    assert_eq!(line(&r, 1), vec![id(1), id(2)]);
+    assert_eq!(line(&r, 2), vec![id(1), id(2)]);
+    assert_eq!(line(&r, 11), vec![id(10), id(11)]);
+}
+
+#[test]
+fn children_and_what_they_replaced_cannot_crowd_out_an_earlier_version() {
+    // R (200) → P (201) → Q (202); Q also removed 31 children of P (1..=31), each of which had
+    // replaced something (101..=131). The children are recorded first, so they sort first.
+    let mut links: Vec<(u8, u8, Option<u32>)> = Vec::new();
+    for c in 1..=31 {
+        links.push((c + 100, c, Some(1)));
+        links.push((c, 202, Some(0)));
+    }
+    links.extend([(200, 201, Some(1)), (201, 202, Some(1))]);
+    let r = record(&links);
+    assert_eq!(line(&r, 202), vec![id(200), id(201), id(202)]);
+    assert!(!r.versions(&id(202)).1);
+    assert!(versions_both_ways(&r, 200, 202));
+    assert!(!versions_both_ways(&r, 101, 202));
+    assert!(!versions_both_ways(&r, 1, 202));
+    // A child's own earlier version is its line, not Q's.
+    assert!(versions_both_ways(&r, 101, 1));
+    // The links listed back from Q: both versions before any child or what a child replaced.
+    let (back, more) = r.earlier(&id(202));
+    assert!(more);
+    assert_eq!(txids(&back[..2]), vec![id(201), id(200)]);
+}

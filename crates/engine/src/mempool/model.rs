@@ -102,6 +102,17 @@ impl TxInfo {
         Arc::ptr_eq(&self.words, &other.words)
     }
 
+    /// Whether its outputs could have been kept but were not: the tracker's budget was spent.
+    /// Reads only the counts, never the outputs.
+    pub(crate) fn outputs_unkept(&self) -> bool {
+        self.kept == 0 && self.outputs > 0 && self.outputs as usize <= outputs::MAX_OUTPUTS
+    }
+
+    /// A handle on its allocation that does not keep it alive: whether anything still holds it.
+    pub(crate) fn allocation(&self) -> std::sync::Weak<[u64]> {
+        Arc::downgrade(&self.words)
+    }
+
     /// Heap bytes its kept outputs take.
     pub fn kept_bytes(&self) -> u64 {
         u64::from(self.kept) * 8

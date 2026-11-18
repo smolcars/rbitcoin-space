@@ -720,37 +720,122 @@ impl Replacements {
     }
 
     /// What `txid` replaced, and what those replaced, newest first: at most [`MAX_LINKS`], and
-    /// `true` if there were more.
+    /// `true` if there were more. Every link reached through version links comes first, so a
+    /// child that left with a replaced parent, or anything reached through one, cannot crowd an
+    /// earlier version out of the cut.
     pub fn earlier(&self, txid: &Txid) -> (Vec<Link>, bool) {
-        // Earlier versions first, then children that left with a replaced parent, so children
-        // cannot crowd a version out of the cut.
-        let (mut versions, mut children) = (Vec::new(), Vec::new());
+        let mut out = Vec::new();
         let mut seen = HashSet::from([*txid]);
+        // Version links first; each child link found is walked only once they are exhausted.
         let mut queue = VecDeque::from([*txid]);
-        while let Some(by) = queue.pop_front() {
-            for t in self.replaced.get(&by).into_iter().flatten() {
+        let mut deferred = VecDeque::new();
+        let mut through_child = false;
+        loop {
+            let Some(by) = queue.pop_front() else {
+                if through_child || deferred.is_empty() {
+                    break;
+                }
+                through_child = true;
+                queue = std::mem::take(&mut deferred);
+                continue;
+            };
+            for t in self.replaced_by(&by) {
+                let Some(l) = self.get(t) else { continue };
+                // In the first pass a child link waits; after it, every link is followed.
+                if !through_child && !self.is_version_link(t) {
+                    if !deferred.contains(&by) {
+                        deferred.push_back(by);
+                    }
+                    continue;
+                }
                 if !seen.insert(*t) {
                     continue;
                 }
-                if versions.len() == MAX_LINKS {
-                    return (versions, true);
+                if out.len() == MAX_LINKS {
+                    return (out, true);
                 }
-                if let Some(l) = self.get(t) {
-                    if self.sides(t).and_then(|s| s.shared) == Some(0) {
-                        if children.len() <= MAX_LINKS {
-                            children.push(*l);
-                        }
-                    } else {
-                        versions.push(*l);
+                out.push(*l);
+                queue.push_back(*t);
+            }
+        }
+        (out, false)
+    }
+
+    /// Whether `txid`'s own link, to what replaced it, is a version link: it is unless it is
+    /// known to be a child's, one that shares no input with its replacement (`docs/MEMPOOL.md`,
+    /// "Versions"). A link whose count was not recorded counts as one.
+    pub fn is_version_link(&self, txid: &Txid) -> bool {
+        self.get(txid).is_some() && self.sides(txid).and_then(|s| s.shared) != Some(0)
+    }
+
+    /// The newest version of `txid`: its replacement, and that one's, while each link is a
+    /// version link. `txid` itself when nothing replaced it, or only as a child.
+    pub fn newest_version(&self, txid: &Txid) -> Txid {
+        let mut at = *txid;
+        let mut walked = HashSet::new();
+        while self.is_version_link(&at) && walked.insert(at) {
+            match self.get(&at) {
+                Some(l) => at = l.by,
+                None => break,
+            }
+        }
+        at
+    }
+
+    /// Whether `a` and `b` are versions of one another: joined by version links only. Each
+    /// transaction has at most one link of its own, so they are joined exactly when following
+    /// version links from each ends at the same transaction.
+    pub fn are_versions(&self, a: &Txid, b: &Txid) -> bool {
+        a != b && self.newest_version(a) == self.newest_version(b)
+    }
+
+    /// Every version of `txid`, oldest first (the farthest from the newest first, then by txid),
+    /// `txid` among them: at most [`MAX_LINKS`] + 1, and `true` if there were more. Empty when
+    /// `txid` has no other version.
+    pub fn versions(&self, txid: &Txid) -> (Vec<Txid>, bool) {
+        let newest = self.newest_version(txid);
+        // The path from `txid` to the newest is always kept, so the page's own is in the line.
+        let mut depth: HashMap<Txid, usize> = HashMap::new();
+        let mut path = vec![*txid];
+        while let Some(last) = path.last().copied()
+            && last != newest
+            && path.len() <= MAX_LINKS
+        {
+            match self.get(&last) {
+                Some(l) => path.push(l.by),
+                None => break,
+            }
+        }
+        let n = path.len();
+        for (i, t) in path.iter().enumerate() {
+            depth.insert(*t, n - 1 - i);
+        }
+        // Then the rest, nearest the newest first, through version links only.
+        let mut more = false;
+        let mut queue = VecDeque::from([newest]);
+        let mut walked = HashSet::from([newest]);
+        while let Some(by) = queue.pop_front() {
+            let d = depth.get(&by).copied().unwrap_or(0);
+            for t in self.replaced_by(&by) {
+                if !self.is_version_link(t) || !walked.insert(*t) {
+                    continue;
+                }
+                if !depth.contains_key(t) {
+                    if depth.len() > MAX_LINKS {
+                        more = true;
+                        continue;
                     }
+                    depth.insert(*t, d + 1);
                 }
                 queue.push_back(*t);
             }
         }
-        let more = versions.len() + children.len() > MAX_LINKS;
-        versions.extend(children);
-        versions.truncate(MAX_LINKS);
-        (versions, more)
+        if depth.len() < 2 {
+            return (Vec::new(), false);
+        }
+        let mut out: Vec<(usize, Txid)> = depth.into_iter().map(|(t, d)| (d, t)).collect();
+        out.sort_unstable_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+        (out.into_iter().map(|(_, t)| t).collect(), more)
     }
 
     /// What `txid` itself replaced, oldest first.

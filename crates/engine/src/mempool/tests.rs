@@ -870,18 +870,11 @@ async fn outputs_are_kept_while_the_budget_lasts() {
             .count()
     });
     assert_eq!(kept, 2);
-    // What leaves still counts while a delta in the channel can hold it: two deltas here.
+    // What leaves frees its share once nothing holds it: no subscriber here, so at once.
+    // (`outputs_count_while_any_delta_still_holds_them` holds the other case.)
     mock.mine(&[&txs[0], &txs[1]]);
     tracker.tip_changed();
     cycle(next_cycle(&mut ev).await);
-    let late = tx(&[coin(9)], 2, 9);
-    mock.send(&late);
-    let s = cycle(next_cycle(&mut ev).await);
-    assert_eq!(s.unkept, 1, "what left is still in the channel");
-    for i in 0..3 {
-        mock.send(&tx(&[coin(20 + i)], 1, 20 + i));
-        cycle(next_cycle(&mut ev).await);
-    }
     let freed = tx(&[coin(30)], 2, 30);
     mock.send(&freed);
     let s = cycle(next_cycle(&mut ev).await);
@@ -893,6 +886,94 @@ async fn outputs_are_kept_while_the_budget_lasts() {
             .is_some()
     }));
     assert_eq!(tracker.read(Mempool::kept_bytes), s.kept_bytes);
+    task.abort();
+}
+
+/// An empty block on the mock, and the cycle that follows it.
+async fn empty_block(
+    mock: &Mock,
+    tracker: &Tracker,
+    ev: &mut tokio::sync::broadcast::Receiver<Event>,
+) -> super::tracker::CycleStats {
+    mock.mine(&[]);
+    tracker.tip_changed();
+    cycle(next_cycle(ev).await)
+}
+
+#[tokio::test(start_paused = true)]
+async fn outputs_count_while_any_delta_still_holds_them() {
+    let mock = Mock::new();
+    let txs: Vec<Transaction> = (0..2).map(|i| tx(&[coin(i)], 2, i)).collect();
+    for t in &txs {
+        mock.send(t);
+    }
+    // Five asked for, eight given: the channel rounds its capacity up to a power of two.
+    let (tracker, task) = Tracker::start(
+        mock.clone(),
+        Config {
+            kept_outputs: 16,
+            subscriber_queue: 5,
+            ..config()
+        },
+    );
+    // A subscriber that never reads: the channel keeps every delta until it is overwritten.
+    let (_, _idle) = tracker.subscribe(|_| ());
+    let mut ev = tracker.events();
+    let s = cycle(next_cycle(&mut ev).await);
+    assert_eq!((s.seq, s.kept_bytes), (Some(1), 16));
+    // Both leave in delta 2; delta 1, which added them, still holds their records.
+    mock.mine(&[&txs[0], &txs[1]]);
+    tracker.tip_changed();
+    cycle(next_cycle(&mut ev).await);
+    for _ in 3..=8 {
+        empty_block(&mock, &tracker, &mut ev).await;
+    }
+    // Delta 9: the channel's eight slots hold deltas 1 to 8, so delta 1's outputs still count,
+    // though more than five deltas have passed.
+    let late = tx(&[coin(9)], 2, 9);
+    mock.send(&late);
+    let s = cycle(next_cycle(&mut ev).await);
+    assert_eq!((s.seq, s.unkept), (Some(9), 1));
+    // Delta 9 overwrote delta 1: nothing holds them, and the next arrival keeps its outputs.
+    let later = tx(&[coin(10)], 2, 10);
+    mock.send(&later);
+    let s = cycle(next_cycle(&mut ev).await);
+    assert_eq!((s.seq, s.unkept), (Some(10), 0));
+    task.abort();
+}
+
+#[tokio::test(start_paused = true)]
+async fn outputs_count_while_a_subscriber_keeps_a_delta_past_the_channel() {
+    let mock = Mock::new();
+    let txs: Vec<Transaction> = (0..2).map(|i| tx(&[coin(i)], 2, i)).collect();
+    for t in &txs {
+        mock.send(t);
+    }
+    let (tracker, task) = Tracker::start(
+        mock.clone(),
+        Config {
+            kept_outputs: 16,
+            subscriber_queue: 1,
+            ..config()
+        },
+    );
+    // A subscriber takes delta 1 and keeps it, as a batch being worked through is kept.
+    let (_, mut sub) = tracker.subscribe(|_| ());
+    let mut ev = tracker.events();
+    cycle(next_cycle(&mut ev).await);
+    let kept = sub.recv().await.unwrap();
+    mock.mine(&[&txs[0], &txs[1]]);
+    tracker.tip_changed();
+    cycle(next_cycle(&mut ev).await);
+    for _ in 0..4 {
+        empty_block(&mock, &tracker, &mut ev).await;
+    }
+    // The channel has long moved on; the delta it handed out still holds them.
+    mock.send(&tx(&[coin(9)], 2, 9));
+    assert_eq!(cycle(next_cycle(&mut ev).await).unkept, 1);
+    drop(kept);
+    mock.send(&tx(&[coin(10)], 2, 10));
+    assert_eq!(cycle(next_cycle(&mut ev).await).unkept, 0);
     task.abort();
 }
 
@@ -922,6 +1003,37 @@ async fn outputs_staged_for_a_retry_stay_within_the_budget() {
     );
     let s = cycle(next_cycle(&mut ev).await);
     assert_eq!((s.added, s.unkept, s.kept_bytes), (6, 3, 24));
+    task.abort();
+}
+
+#[tokio::test(start_paused = true)]
+async fn only_published_arrivals_count_as_held_without_outputs() {
+    let mock = Mock::new();
+    let txs: Vec<Transaction> = (0..4).map(|i| tx(&[coin(i)], 2, i)).collect();
+    for t in &txs {
+        mock.send(t);
+    }
+    // Room for one record's outputs. Batches of two, in txid order: the first keeps one record's
+    // outputs and stages the other without; the second batch fails.
+    mock.with(|n| n.detail_failures = VecDeque::from(vec![None, Some(SourceError::Busy)]));
+    let mut cfg = Config {
+        kept_outputs: 8,
+        ..config()
+    };
+    cfg.in_flight = 1;
+    let (tracker, task) = Tracker::start(mock.clone(), cfg);
+    let mut ev = tracker.events();
+    let Event::PollFailed { .. } = next_cycle(&mut ev).await else {
+        panic!()
+    };
+    // The staged one without outputs leaves the node's mempool before the retry.
+    let mut ids: Vec<Txid> = txs.iter().map(Transaction::compute_txid).collect();
+    ids.sort_unstable();
+    let gone = ids[1];
+    mock.with(|n| n.pool.retain(|t| t.compute_txid() != gone));
+    let s = cycle(next_cycle(&mut ev).await);
+    // Three published: one with outputs, two past the budget. The one that left is not counted.
+    assert_eq!((s.added, s.unkept), (3, 2));
     task.abort();
 }
 
