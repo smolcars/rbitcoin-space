@@ -1350,12 +1350,19 @@ fn a_line_longer_than_it_holds_keeps_its_own_and_the_newest_and_says_so() {
     let links: Vec<(u8, u8, Option<u32>)> = (1..40).map(|i| (i, i + 1, Some(1))).collect();
     let r = record(&links);
     let held = u8::try_from(MAX_LINKS).unwrap_or(u8::MAX);
-    // From the oldest: itself, then the versions nearest the newest, the newest among them.
+    // From the oldest: itself, what replaced it (the pair its page compares first), then the
+    // versions nearest the newest, the newest among them.
     let (line, more) = r.versions(&id(1));
     assert!(more, "it says versions were left out");
     assert_eq!(line.len(), MAX_LINKS + 1);
     assert_eq!(line.first(), Some(&id(1)));
-    assert_eq!(line.get(1), Some(&id(40 - held + 1)));
+    assert_eq!(line.get(1), Some(&id(2)));
+    assert_eq!(line.get(2), Some(&id(40 - held + 2)));
+    assert_eq!(line.last(), Some(&id(40)));
+    // From the middle, the same three: itself, its replacement, the newest.
+    let (line, _) = r.versions(&id(3));
+    assert_eq!(line.first(), Some(&id(3)));
+    assert_eq!(line.get(1), Some(&id(4)));
     assert_eq!(line.last(), Some(&id(40)));
     // From the newest: the nearest versions, and that there were more.
     let (line, more) = r.versions(&id(40));
