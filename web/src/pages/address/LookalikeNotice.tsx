@@ -10,29 +10,43 @@ export const noticeTitle = (s: LookalikeSummary) =>
     ? "Lookalike addresses in this history"
     : "Someone may be imitating this address";
 
+/** What the notice needs to know of the list it counts in. */
+export interface Checked {
+  /** Transactions loaded. */
+  loaded: number;
+  /** Whether the history could load more: it says so itself. */
+  more: boolean;
+  /** A kept address's history lists confirmed transactions only; the unconfirmed are apart. */
+  confirmedOnly: boolean;
+}
+
 /**
  * How many of the transactions checked name a lookalike, honest about how many were checked: the
- * pages loaded so far, unless they are the whole history.
+ * pages loaded so far, unless the history has no more to load. It says what the addresses do
+ * (start and end alike), never why: a chance match looks the same.
  */
-export function noticeCount(s: LookalikeSummary, loaded: number, total: number | undefined) {
+export function noticeCount(s: LookalikeSummary, c: Checked) {
   const verb = s.txs === 1 ? "names" : "name";
   // Between two other addresses neither is known to be the copy, and both rows are counted.
   if (s.own === undefined) {
-    return `${which(s, loaded, total)} ${verb} addresses that look like one another: one of each pair may have been made to imitate the other.`;
+    return `${which(s, c)} ${verb} addresses that look like one another: one of each pair may have been made to imitate the other.`;
   }
   const like =
     s.ownTxs === s.txs
-      ? "made to start and end like this one"
-      : "made to start and end like this one, or like another address in this history";
-  return `${which(s, loaded, total)} ${verb} an address ${like}.`;
+      ? "that starts and ends like this one"
+      : "that starts and ends like this one, or like another address in this history";
+  return `${which(s, c)} ${verb} an address ${like}.`;
 }
 
-/** Which transactions: those loaded so far, unless they are the whole history. */
-function which(s: LookalikeSummary, loaded: number, total: number | undefined) {
-  const whole = total !== undefined && loaded >= total;
-  if (whole && total === 1) return "This address's only transaction";
-  if (whole) return `${groupDigits(s.txs)} of this address's ${groupDigits(total)} transactions`;
-  return `${groupDigits(s.txs)} of the ${groupDigits(loaded)} transactions loaded so far`;
+/**
+ * Which transactions: those loaded so far, or, once the history has no more to load, those it
+ * lists. Said of the list, not of the address: its totals are another answer.
+ */
+function which(s: LookalikeSummary, c: Checked) {
+  const kind = c.confirmedOnly ? "confirmed transaction" : "transaction";
+  if (c.more) return `${groupDigits(s.txs)} of the ${groupDigits(c.loaded)} ${kind}s loaded so far`;
+  if (c.loaded === 1) return `The only ${kind} listed below`;
+  return `${groupDigits(s.txs)} of the ${groupDigits(c.loaded)} ${kind}s listed below`;
 }
 
 /**
@@ -42,12 +56,12 @@ function which(s: LookalikeSummary, loaded: number, total: number | undefined) {
 export function LookalikeNotice(props: {
   summary: LookalikeSummary;
   loaded: number;
-  total: number | undefined;
+  more: boolean;
+  confirmedOnly: boolean;
   address: string;
   /** Takes the reader to the first transaction that names one. */
   onJump: () => void;
 }) {
-  const whole = () => props.total !== undefined && props.loaded >= props.total;
   return (
     <section class="address-poison" aria-labelledby="address-poison-title">
       <svg class="lookalike__icon" viewBox="0 0 16 16" aria-hidden="true">
@@ -58,7 +72,7 @@ export function LookalikeNotice(props: {
         <h2 class="address-poison__title" id="address-poison-title">
           {noticeTitle(props.summary)}
         </h2>
-        <p>{noticeCount(props.summary, props.loaded, props.total)}</p>
+        <p>{noticeCount(props.summary, props)}</p>
         {/* Whole, never shortened: a short form shows exactly the ends that agree. */}
         <Show when={props.summary.own}>
           {(l) => (
@@ -78,7 +92,7 @@ export function LookalikeNotice(props: {
         <p class="address-poison__text">
           It may be address poisoning. Check every character, not just the ends, before you copy an
           address from this history.
-          <Show when={!whole()}> Older transactions are checked as you load them.</Show>
+          <Show when={props.more}> Older transactions are checked as you load them.</Show>
         </p>
         <div>
           <button class="btn" type="button" onClick={() => props.onJump()}>

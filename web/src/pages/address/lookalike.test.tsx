@@ -1,6 +1,8 @@
+import { render } from "@solidjs/web";
 import { describe, expect, it } from "vitest";
 import type { Transaction, Vout } from "../../lib/esplora";
 import { lookalikes, OWN_HEAD, PAIR_HEAD, summarize, TAIL } from "./lookalike";
+import { KEPT_WHOLE, Marked } from "./LookalikeWarning";
 
 const BECH32 = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
 const BASE58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
@@ -293,5 +295,23 @@ describe("the summary the page's notice reads", () => {
     expect(s?.own?.here).toBe(fake);
     // The first in list order, newest first: where the notice takes the reader.
     expect(s?.first).toBe(paid.txid);
+  });
+});
+
+describe("an agreeing end too long for one line", () => {
+  it("is marked so it may break, and a short one is not", () => {
+    const el = document.createElement("div");
+    const dispose = render(
+      () => <Marked address={`bc1q${"q".repeat(58)}`} prefix={4} head={45} tail={4} />,
+      el,
+    );
+    const agree = [...el.querySelectorAll(".lookalike__agree")];
+    expect(agree.map((e) => e.textContent?.length)).toStrictEqual([45, 4]);
+    expect(agree.map((e) => e.classList.contains("lookalike__agree--long"))).toStrictEqual([
+      true,
+      false,
+    ]);
+    expect(KEPT_WHOLE).toBe(12);
+    dispose();
   });
 });

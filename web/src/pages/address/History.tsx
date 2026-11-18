@@ -88,8 +88,11 @@ export function History(props: {
   kept?: boolean;
   /** Lookalike addresses by txid, worked out by the page from what this section reports loaded. */
   lookalike: ReadonlyMap<string, readonly Lookalike[]>;
-  /** Hands the page every transaction loaded, first page and later ones, whenever that changes. */
-  onShown: (txs: Transaction[] | undefined) => void;
+  /**
+   * Hands the page every transaction loaded, first page and later ones, and whether more could be
+   * loaded, whenever either changes; and nothing once this section is gone.
+   */
+  onShown: (txs: Transaction[] | undefined, more: boolean) => void;
 }) {
   const network = useNetwork();
   const path = `/address/${encodeURIComponent(props.address)}`;
@@ -177,10 +180,15 @@ export function History(props: {
   });
   // The page works out the lookalikes over every loaded page at once (its notice and these rows read
   // the one answer), so a later page's lookalike also marks the earlier rows it imitates.
-  createEffect(shown, (list) => {
-    props.onShown(list);
-  });
   const hasNext = () => (later().length === 0 ? pageIsFull(first() ?? [], PAGE) : after().full);
+  createEffect(
+    () => [shown(), hasNext()] as const,
+    ([list, more]) => {
+      props.onShown(list, more);
+    },
+  );
+  // A notice must not outlive the rows it points at (a kept history the server dropped, say).
+  onCleanup(() => props.onShown(undefined, false));
 
   const loadMore = async () => {
     if (!shown()?.at(-1) || loadingMore()) return;

@@ -203,15 +203,17 @@ function AddressBody(props: { address: string; found: Recognised | null }) {
   // Lookalike addresses in every history page loaded (lookalike.ts), worked out once here for the
   // notice at the top and the rows' notes alike; History reports what it has loaded.
   const [shownTxs, setShownTxs] = createSignal<Transaction[]>();
+  // Whether the history could load more: what it says of itself, never the totals, which are
+  // another answer and can be older or newer than the list.
+  const [moreTxs, setMoreTxs] = createSignal(false);
+  const onShown = (txs: Transaction[] | undefined, more: boolean) => {
+    setShownTxs(txs);
+    setMoreTxs(more);
+  };
   const lookalike = createMemo(() => {
     const list = shownTxs();
     return list ? lookalikes(address, list) : new Map<string, Lookalike[]>();
   });
-  const historyTotal = () => {
-    const s = settled(stats);
-    if (!s) return undefined;
-    return whole() ? s.chain_stats.tx_count : s.chain_stats.tx_count + s.mempool_stats.tx_count;
-  };
   const poison = createMemo(() => summarize(lookalike()));
   // Said once to screen readers, when the notice first appears: not again as pages load or refresh.
   const [announced, setAnnounced] = createSignal("");
@@ -241,7 +243,8 @@ function AddressBody(props: { address: string; found: Recognised | null }) {
         <LookalikeNotice
           summary={p()}
           loaded={shownTxs()?.length ?? 0}
-          total={historyTotal()}
+          more={moreTxs()}
+          confirmedOnly={whole()}
           address={address}
           onJump={jump}
         />
@@ -373,7 +376,7 @@ function AddressBody(props: { address: string; found: Recognised | null }) {
                     }}
                     kept
                     lookalike={lookalike()}
-                    onShown={setShownTxs}
+                    onShown={onShown}
                   />
                 }
               />
@@ -419,7 +422,7 @@ function AddressBody(props: { address: string; found: Recognised | null }) {
               refreshHistory = fn;
             }}
             lookalike={lookalike()}
-            onShown={setShownTxs}
+            onShown={onShown}
           />
         </Match>
       </Switch>

@@ -5,6 +5,9 @@ import type { Lookalike } from "./lookalike";
 /** The id of a row's warning, which the page's notice takes the reader to. */
 export const lookalikeId = (txid: string) => `lookalike-${txid}`;
 
+/** The longest agreeing end kept on one line: more would not fit a 320 px screen. */
+export const KEPT_WHOLE = 12;
+
 /** Pairs shown under one row; a poisoning transaction can name hundreds of addresses. */
 export const SHOWN_PAIRS = 2;
 
@@ -15,12 +18,20 @@ export const SHOWN_PAIRS = 2;
 export function Marked(props: { address: string; prefix: number; head: number; tail: number }) {
   const a = () => props.address;
   const headEnd = () => Math.min(props.prefix + props.head, a().length - props.tail);
+  // A short agreeing end stays on one line; one too long for a narrow screen may break.
+  const agree = (text: string) => (
+    <span
+      class={`lookalike__same lookalike__agree${text.length > KEPT_WHOLE ? " lookalike__agree--long" : ""}`}
+    >
+      {text}
+    </span>
+  );
   return (
     <span class="lookalike__address">
       <span class="lookalike__same">{a().slice(0, props.prefix)}</span>
-      <span class="lookalike__same lookalike__agree">{a().slice(props.prefix, headEnd())}</span>
+      {agree(a().slice(props.prefix, headEnd()))}
       <span class="lookalike__differ">{a().slice(headEnd(), a().length - props.tail)}</span>
-      <span class="lookalike__same lookalike__agree">{a().slice(a().length - props.tail)}</span>
+      {agree(a().slice(a().length - props.tail))}
     </span>
   );
 }

@@ -614,6 +614,10 @@
     text-decoration: underline 2px var(--color-caution);
     text-underline-offset: 3px;
   }
+  /* But one longer than a narrow screen is wide breaks where it must. */
+  .lookalike__agree--long {
+    white-space: normal;
+  }
   .lookalike__differ {
     color: var(--color-text-muted);
   }

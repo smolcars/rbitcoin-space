@@ -1064,7 +1064,7 @@ describe("lookalike addresses", () => {
         "Someone may be imitating this address",
       );
       expect(text(notice)).toContain(
-        "1 of this address's 2 transactions names an address made to start and end like this one.",
+        "1 of the 2 transactions listed below names an address that starts and ends like this one.",
       );
       expect(text(notice)).toContain(FAKE);
       expect(text(notice)).toContain("Check every character, not just the ends");
@@ -1093,7 +1093,7 @@ describe("lookalike addresses", () => {
       const el = open(`/address/${ME}`);
       await until(() => expect(poison(el)).not.toBeNull());
       expect(text(poison(el) as Element)).toContain(
-        "1 of the 25 transactions loaded so far names an address made to start and end like this one.",
+        "1 of the 25 transactions loaded so far names an address that starts and ends like this one.",
       );
       expect(text(poison(el) as Element)).toContain(
         "Older transactions are checked as you load them.",
@@ -1101,9 +1101,12 @@ describe("lookalike addresses", () => {
       button(el, "Show 25 more")?.click();
       await until(() =>
         expect(text(poison(el) as Element)).toContain(
-          "3 of the 27 transactions loaded so far name an address made to start and end like this one, or like another address in this history.",
+          "3 of the 27 transactions listed below name an address that starts and ends like this one, or like another address in this history.",
         ),
       );
+      // The second page was short, so the history has no more: said of the list, whatever the
+      // totals (30 here) say, and without the line about older transactions.
+      expect(text(poison(el) as Element)).not.toContain("Older transactions");
       expect(button(el, "Go to the first of them")).toBeDefined();
       // Announced when it appeared, and not again for the new count.
       expect(live(el)).toBe("Someone may be imitating this address");
@@ -1124,7 +1127,7 @@ describe("lookalike addresses", () => {
         "Lookalike addresses in this history",
       );
       expect(text(notice)).toContain(
-        "2 of this address's 2 transactions name addresses that look like one another: one of each pair may have been made to imitate the other.",
+        "2 of the 2 transactions listed below name addresses that look like one another: one of each pair may have been made to imitate the other.",
       );
       expect(text(notice)).not.toContain(PAYEE);
       expect(notice.querySelector(".lookalike__pair")).toBeNull();
@@ -1398,6 +1401,29 @@ describe("balance chart", () => {
       await until(() => expect(el.querySelectorAll(".address-txs tbody tr")).toHaveLength(25));
       expect(el.querySelector("#address-history-title")?.textContent).toBe("Transactions");
       expect(text(el)).not.toContain("is getting this address's whole history");
+    });
+
+    it("counts a kept history's lookalikes as confirmed, and drops its notice with the history", async () => {
+      const fake = `bc1qw5${"q".repeat(32)}f3t4`;
+      let history = "whole";
+      serve({
+        [`/app/address/${ME}/ledger`]: () => Response.json(keptLedger(history)),
+        [`/address/${ME}`]: stats(part(150_000_000, 50_000_000, 1)),
+        [`/address/${ME}/txs/chain`]: [tx(1, [[fake, 1000]], [[ME, 546]])],
+        // One more waits, listed apart: the notice's count is of the confirmed list alone.
+        [`/address/${ME}/txs/mempool`]: [tx(2, [[OTHER, 6000]], [[ME, 5000]])],
+      });
+      const el = open(`/address/${ME}`);
+      await until(() => expect(el.querySelector(".address-poison")).not.toBeNull());
+      expect(text(el.querySelector(".address-poison") as Element)).toContain(
+        "The only confirmed transaction listed below names an address that starts and ends like this one.",
+      );
+      // The server drops the history: its rows go, and the notice that pointed at them with them.
+      history = "dropped";
+      heard({ state: "ledger", height: 900_001 });
+      await until(() => expect(text(el)).toContain("and is getting it again"));
+      expect(el.querySelector(".lookalike")).toBeNull();
+      expect(el.querySelector(".address-poison")).toBeNull();
     });
 
     it("says truthfully why it lists only the newest transactions", async () => {
