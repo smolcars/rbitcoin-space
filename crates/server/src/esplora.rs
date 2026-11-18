@@ -82,7 +82,7 @@ pub const HEAVY_CEILING: Duration = Duration::from_secs(60);
 /// Per-network state of the pass-through, held in [`NetworkContext`].
 #[derive(Debug)]
 pub struct Api {
-    flights: Flights,
+    pub(crate) flights: Flights,
     /// `None` when broadcast is switched off (`BROADCAST_ENABLED=false`).
     broadcast: Option<Arc<Clients>>,
     heavy: Heavy,

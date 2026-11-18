@@ -746,11 +746,7 @@ async fn report(
                         (f.confirmed, f.replaced) = (b.confirmed, b.replaced);
                         (f.node_calls, f.node_bytes) = (b.calls, b.bytes);
                     }
-                    summary.confirmed += b.confirmed as u64;
-                    summary.replaced += b.replaced as u64;
-                    summary.evicted += b.evicted as u64;
-                    summary.node_calls += u64::from(b.calls);
-                    summary.node_bytes += b.bytes;
+                    count_block(&mut summary, &b);
                 }
                 Ok(mempool::Event::Cycle(c)) => {
                     if let (Some(f), Some(tip)) = (clock(&found).as_mut(), c.tip)
@@ -891,6 +887,17 @@ fn lag(network: &'static str, source: &'static str, missed: u64, total: &mut u64
             total: *total,
         });
     }
+}
+
+/// A block applied from its own list, folded into the minute's summary. What the outputs take
+/// is the state now, so a block that confirmed some is said at once, not after the next listing.
+fn count_block(summary: &mut MempoolSummary, b: &mempool::CycleStats) {
+    summary.confirmed += b.confirmed as u64;
+    summary.replaced += b.replaced as u64;
+    summary.evicted += b.evicted as u64;
+    summary.node_calls += u64::from(b.calls);
+    summary.node_bytes += b.bytes;
+    summary.outputs_kept_bytes = b.kept_bytes;
 }
 
 fn summary_line(network: &'static str) -> MempoolSummary {

@@ -816,7 +816,7 @@ Differences: the reference wrote `"scriptpubkey_address": ""` for an output with
 
 #### Cost and comparison
 
-Every route but `prevouts` asks the node nothing: a request is a parse and a few hash-map lookups under the engines' read locks (`cpfp` over at most 64 transactions, `transaction-times` over at most 100). The two tree lists are built once per change of the replacement record and kept, so a request between changes copies bytes. The record holds at most `REPLACEMENTS_KEPT` replacements, about 0.3 KB each in memory (3 MB at the default bound); the store holds the same rows at 205 bytes each (2.1 MB, [`STORE.md`](STORE.md#replacements)).
+Every route but `prevouts` asks the node nothing: a request is a parse and a few hash-map lookups under the engines' read locks (`cpfp` over at most 64 transactions, `transaction-times` over at most 100). The two tree lists are built once per change of the replacement record and kept, so a request between changes copies bytes. The record holds at most `REPLACEMENTS_KEPT` replacements, about 0.4 KB each in memory (4 MB at the default bound) with two-output payments on both sides, at most about 3.2 KB with the most outputs kept; the store holds the same rows at 321 bytes each (3.2 MB), at most 4.2 KB ([`STORE.md`](STORE.md#replacements)).
 
 **Against the node and the reference,** mainnet, 2026-11-12, 12:43 to 13:30 UTC: one release build with the engine on (59,000 to 63,000 transactions, read-only, blocks 975,555 and 975,556), then a restart on the final build. Server times are from a client on the same machine; the node is on the LAN.
 

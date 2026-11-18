@@ -196,3 +196,178 @@ fn outputs_name_their_address_and_long_scripts_only_their_hash() {
         json!({ "state": "not_recorded" })
     );
 }
+
+type Txs = Arc<std::sync::Mutex<Vec<(String, Value)>>>;
+
+/// An Esplora that answers `/tx/:txid` from `txs`, slowly, and counts what it was asked.
+async fn stub() -> (String, Txs, Arc<std::sync::atomic::AtomicUsize>) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let hits = Arc::new(AtomicUsize::new(0));
+    let txs: Txs = Arc::default();
+    let (counted, held) = (Arc::clone(&hits), Arc::clone(&txs));
+    let app = axum::Router::new().route(
+        "/tx/{txid}",
+        axum::routing::get(move |Path(t): Path<String>| {
+            let (hits, txs) = (Arc::clone(&counted), Arc::clone(&held));
+            async move {
+                hits.fetch_add(1, Ordering::SeqCst);
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                let found = txs.lock().unwrap().iter().find(|(id, _)| *id == t).cloned();
+                match found {
+                    Some((_, v)) => Json(v).into_response(),
+                    None => (StatusCode::NOT_FOUND, "Transaction not found").into_response(),
+                }
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move { axum::serve(listener, app).await });
+    (url, txs, hits)
+}
+
+/// Esplora's answer for a transaction whose outputs pay 1,000 sats each to `scripts`.
+fn esplora_tx(txid: &str, weight: u64, fee: u64, scripts: &[&str], pruned: bool) -> Value {
+    json!({
+        "txid": txid, "version": 2, "locktime": 0, "size": weight / 4, "weight": weight,
+        "fee": fee, "vin": [], "pruned": pruned,
+        "status": { "confirmed": true, "block_height": 2 },
+        "vout": scripts.iter().map(|s| json!({
+            "scriptpubkey": s, "scriptpubkey_asm": "", "scriptpubkey_type": "unknown", "value": 1000,
+        })).collect::<Vec<_>>(),
+    })
+}
+
+/// [`compare`] on a context of its own, so several can run at once.
+async fn compare_on(ctx: Arc<NetworkContext>, a: String, b: String) -> (u16, Value) {
+    let r = route(State(ctx), Path((a, b)))
+        .await
+        .unwrap_or_else(IntoResponse::into_response);
+    let status = r.status().as_u16();
+    let bytes = axum::body::to_bytes(r.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    (
+        status,
+        serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+    )
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_replacement_mined_straight_from_a_block_is_read_once_and_its_children_are_named() {
+    use std::sync::atomic::Ordering;
+    let (url, txs, hits) = stub().await;
+    let mock = Mock::new();
+    let a = mock.send(&[coin(1)], 2, 500, 200);
+    let child = mock.send(&[OutPoint::new(a, 0)], 1, 300, 100);
+    let s = Server::on(
+        crate::ws::track::tests::context_at("127.0.0.1:1", &url, true, |_| {}),
+        &mock,
+    );
+    s.settle().await;
+    // A miner confirms B, which conflicts with A and which we never saw waiting.
+    let b = mock.send(&[coin(1)], 1, 900, 200);
+    mock.evict(b);
+    mock.mine_replaced(&[b]);
+    s.settle().await;
+    let p2wpkh = format!("0014{}", "07".repeat(20));
+    txs.lock().unwrap().push((
+        b.to_string(),
+        esplora_tx(&b.to_string(), 804, 900, &[&p2wpkh], true),
+    ));
+    let (a, b, child) = (a.to_string(), b.to_string(), child.to_string());
+
+    // Eight at once ask the node once.
+    let asks: Vec<_> = (0..8)
+        .map(|_| tokio::spawn(compare_on(Arc::clone(&s.ctx), a.clone(), b.clone())))
+        .collect();
+    let mut answers = Vec::new();
+    for h in asks {
+        answers.push(h.await.unwrap());
+    }
+    assert_eq!(hits.load(Ordering::SeqCst), 1);
+    let (status, body) = &answers[0];
+    assert_eq!(*status, 200, "{body}");
+    assert_eq!(body["b"]["from"], "node");
+    assert_eq!(body["b"]["outputs"]["list"][0]["script"], p2wpkh);
+    // A pruned reply lists only some inputs: its count is unknown, not 0.
+    assert_eq!(body["b"]["inputs"], Value::Null);
+    // One size basis: the node's is weight over four, so A's figure is put on it too.
+    assert_eq!(body["vsize_basis"], "weight");
+    assert_eq!(
+        (&body["a"]["vsize"], &body["b"]["vsize"]),
+        (&json!(200), &json!(201))
+    );
+    assert_eq!(body["child"], Value::Null);
+    // The block's own spends tell the conflict from the child that left with it.
+    assert_eq!(body["shared_inputs"], 1);
+    let (_, cb) = compare(&s, &child, &b).await;
+    assert_eq!(
+        (&cb["shared_inputs"], &cb["child"]),
+        (&json!(0), &json!("a"))
+    );
+    assert_eq!(cb["a"]["outputs"], json!({ "state": "not_recorded" }));
+    // Asked the other way round, the child is the second.
+    assert_eq!(compare(&s, &b, &child).await.1["child"], "b");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_held_version_without_outputs_is_never_asked_of_the_node() {
+    use crate::replacements::{Link, Mined};
+    use bitcoin::hashes::Hash;
+    use std::sync::atomic::Ordering;
+    let id = |n: u8| Txid::from_byte_array([n; 32]);
+    let (url, txs, hits) = stub().await;
+    // Forty outputs whose scripts are not even hex: counted, never read.
+    let many = vec!["zz"; 40];
+    txs.lock().unwrap().extend([
+        (
+            id(2).to_string(),
+            esplora_tx(&id(2).to_string(), 800, 900, &["00"], false),
+        ),
+        (
+            id(4).to_string(),
+            esplora_tx(&id(4).to_string(), 800, 900, &many, false),
+        ),
+    ]);
+    let s = Server::on(
+        crate::ws::track::tests::context_at("127.0.0.1:1", &url, true, |_| {}),
+        &Mock::new(),
+    );
+    s.settle().await;
+    let facts = Facts {
+        fee: 500,
+        vsize: 200,
+        weight: 800,
+        value: 1000,
+        time: 1,
+        rbf: true,
+    };
+    let link = |a: u8, b: u8, by_tx: Option<Facts>| Link {
+        txid: id(a),
+        by: id(b),
+        seen: 1,
+        tx: facts,
+        by_tx,
+        mined: Mined::No,
+    };
+    // A link stored before outputs were kept: both sides were held, neither has outputs.
+    s.ctx
+        .track
+        .restore_replacements(vec![link(1, 2, Some(facts)), link(3, 4, None)]);
+    let (status, body) = compare(&s, &id(1).to_string(), &id(2).to_string()).await;
+    assert_eq!(status, 200);
+    assert_eq!(body["b"]["outputs"], json!({ "state": "not_recorded" }));
+    assert_eq!(
+        hits.load(Ordering::SeqCst),
+        0,
+        "held, so the node has nothing new"
+    );
+    // A replacement never held is asked, and its outputs are counted before any is read.
+    let (_, body) = compare(&s, &id(3).to_string(), &id(4).to_string()).await;
+    assert_eq!(hits.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        body["b"]["outputs"],
+        json!({ "state": "too_many", "count": 40 })
+    );
+}

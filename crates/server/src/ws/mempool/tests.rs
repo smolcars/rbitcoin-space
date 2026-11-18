@@ -1778,3 +1778,16 @@ async fn the_fee_score_asks_the_node_nothing_and_survives_a_restart() {
     fees.abort();
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_block_says_what_the_kept_outputs_take_now() {
+    let mut summary = summary_line("regtest");
+    summary.outputs_kept_bytes = 4096;
+    let block = mempool::CycleStats {
+        confirmed: 3,
+        kept_bytes: 1024,
+        ..mempool::CycleStats::default()
+    };
+    count_block(&mut summary, &block);
+    assert_eq!((summary.confirmed, summary.outputs_kept_bytes), (3, 1024));
+}

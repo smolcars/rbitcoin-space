@@ -3,12 +3,14 @@
 //!
 //! Answered from memory: each version's figures, inputs and outputs as the replacement record
 //! kept them ([`engine::replacements::Replacements::version_of`]), or as the mempool tracker holds
-//! them for a version still waiting. Only a version the record names whose outputs neither has
-//! (a replacement the tracker never held, confirmed straight from a block) is asked of the node:
-//! one Esplora read each, so at most two a request, and none for a txid the record does not know.
+//! them for a version still waiting. Only a version the tracker never held (a replacement
+//! confirmed straight from a block) is asked of the node: one Esplora read each, coalesced with
+//! identical reads in flight, so at most two a request, and none for a txid the record does not
+//! know or held without outputs.
 //! The answer is bounded: two versions of at most `MAX_OUTPUTS` outputs each.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::Json;
 use axum::extract::{Path, State};
@@ -16,8 +18,9 @@ use axum::http::header::CACHE_CONTROL;
 use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use bitcoin::{ScriptBuf, Txid};
-use engine::outputs::{Outputs, Script};
+use engine::outputs::{MAX_OUTPUTS, Outputs, Script};
 use engine::replacements::{Facts, Replacements};
+use node::esplora::Route;
 use serde_json::{Value, json};
 
 use crate::ws::track::MEMPOOL_OFF;
@@ -100,6 +103,12 @@ fn shared(r: &Replacements, a: &Txid, b: &Txid) -> Option<u32> {
     between(a, b).or_else(|| between(b, a))
 }
 
+/// Whether `t` left the mempool with a replaced parent rather than as an earlier version: it
+/// shares no input with its replacement.
+fn left_with_parent(r: &Replacements, t: &Txid) -> bool {
+    r.get(t).is_some() && r.sides(t).and_then(|s| s.shared) == Some(0)
+}
+
 pub async fn route(
     State(ctx): State<Arc<NetworkContext>>,
     Path((a, b)): Path<(String, String)>,
@@ -111,7 +120,7 @@ pub async fn route(
     if !ctx.track.mempool_enabled() {
         return Err(MEMPOOL_OFF);
     }
-    let (mut versions, shared) = ctx.track.with_replacements(|r| {
+    let (mut versions, shared, child) = ctx.track.with_replacements(|r| {
         // Two txids in one history have the same newest end; two the record does not know are
         // each their own, and differ.
         if r.root(&a) != r.root(&b) {
@@ -125,7 +134,15 @@ pub async fn route(
                 from: Some(From::Record),
             })
         };
-        Ok(([of(&a), of(&b)], shared(r, &a, &b)))
+        // A child is never a version: say which side is one, whichever way round it was asked.
+        let child = if left_with_parent(r, &a) {
+            Some("a")
+        } else if left_with_parent(r, &b) {
+            Some("b")
+        } else {
+            None
+        };
+        Ok(([of(&a), of(&b)], shared(r, &a, &b), child))
     })?;
     for (txid, v) in [a, b].iter().zip(versions.iter_mut()) {
         if v.outputs.is_some() && v.facts.is_some() {
@@ -145,8 +162,21 @@ pub async fn route(
             v.from = v.from.or(Some(From::Mempool));
             continue;
         }
-        if v.outputs.is_none() {
+        // Only a version the tracker never held (a replacement confirmed straight from a block)
+        // is asked of the node. One it held and kept no outputs for (before outputs were kept,
+        // or past the budget) is said as not recorded: asking again would find nothing new.
+        if v.facts.is_none() {
             from_node(&ctx, txid, v).await;
+        }
+    }
+    // One size basis for both sides: the node's is weight over four, the tracker's adjusted for
+    // signature operations, so a side from the node puts both on weight.
+    let by_weight = versions.iter().any(|v| v.from == Some(From::Node));
+    if by_weight {
+        for v in &mut versions {
+            if let Some(f) = &mut v.facts {
+                f.vsize = f.weight.div_ceil(4);
+            }
         }
     }
     let chain = crate::difficulty::chain(ctx.config.network);
@@ -154,6 +184,8 @@ pub async fn route(
         "a": versions[0].json(&a, chain),
         "b": versions[1].json(&b, chain),
         "shared_inputs": shared,
+        "child": child,
+        "vsize_basis": if by_weight { "weight" } else { "sigops" },
     });
     let mut res = (StatusCode::OK, Json(body)).into_response();
     res.headers_mut()
@@ -161,27 +193,50 @@ pub async fn route(
     Ok(res)
 }
 
-/// Fills in what the node knows of `txid`: one read. A version it has forgotten stays as it was.
+/// The node's answer for `txid`, shared with every identical read in flight, the public
+/// transaction route's included (rule 8).
+async fn node_tx(ctx: &NetworkContext, txid: &Txid) -> Option<node::esplora::model::Tx> {
+    let route = Route::Tx(*txid);
+    let mut key = String::with_capacity(80);
+    route.write_path(&mut key);
+    let (answer, _) = ctx
+        .api
+        .flights
+        .run(key, Duration::ZERO, ctx.esplora.raw(&route))
+        .await;
+    let raw = answer.ok()?;
+    if !raw.status.is_success() {
+        return None;
+    }
+    serde_json::from_slice(&raw.body).ok()
+}
+
+/// Fills in what the node knows of `txid`: one read, coalesced. A version it has forgotten stays
+/// as it was.
 async fn from_node(ctx: &NetworkContext, txid: &Txid, v: &mut Version) {
-    let Ok(tx) = ctx.esplora.tx(*txid).await else {
+    let Some(tx) = node_tx(ctx, txid).await else {
         return;
     };
-    let tx = tx.value;
-    let scripts: Option<Vec<(u64, ScriptBuf)>> = tx
+    let value = tx
         .vout
         .iter()
-        .map(|o| Some((o.value, ScriptBuf::from_hex(&o.scriptpubkey).ok()?)))
-        .collect();
-    let Some(scripts) = scripts else {
-        return;
+        .fold(0u64, |sum, o| sum.saturating_add(o.value));
+    // Counted before any script is read: past the cap only the count is kept.
+    let outputs = if tx.vout.len() > MAX_OUTPUTS {
+        Some(Outputs::TooMany(
+            u32::try_from(tx.vout.len()).unwrap_or(u32::MAX),
+        ))
+    } else {
+        let scripts: Option<Vec<(u64, ScriptBuf)>> = tx
+            .vout
+            .iter()
+            .map(|o| Some((o.value, ScriptBuf::from_hex(&o.scriptpubkey).ok()?)))
+            .collect();
+        scripts.and_then(|s| {
+            engine::outputs::encode(s.iter().map(|(v, s)| (*v, s.as_bytes())))
+                .map(|b| Outputs::Kept(b.into()))
+        })
     };
-    let outputs = match engine::outputs::encode(scripts.iter().map(|(v, s)| (*v, s.as_bytes()))) {
-        Some(b) => Outputs::Kept(b.into()),
-        None => Outputs::TooMany(u32::try_from(scripts.len()).unwrap_or(u32::MAX)),
-    };
-    let value = scripts
-        .iter()
-        .fold(0u64, |sum, (v, _)| sum.saturating_add(*v));
     let sat = |x: u64| u32::try_from(x).unwrap_or(u32::MAX);
     v.facts = v.facts.or_else(|| {
         let weight = tx.weight?;
@@ -194,8 +249,11 @@ async fn from_node(ctx: &NetworkContext, txid: &Txid, v: &mut Version) {
             rbf: false,
         })
     });
-    v.inputs = v.inputs.or(u32::try_from(tx.vin.len()).ok());
-    v.outputs = Some(outputs);
+    // A pruned reply lists only some inputs: their count says nothing.
+    if !tx.pruned {
+        v.inputs = v.inputs.or(u32::try_from(tx.vin.len()).ok());
+    }
+    v.outputs = v.outputs.take().or(outputs);
     v.from = v.from.or(Some(From::Node));
 }
 
