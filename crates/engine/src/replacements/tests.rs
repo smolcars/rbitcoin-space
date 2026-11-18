@@ -1349,7 +1349,7 @@ fn a_line_longer_than_it_holds_keeps_its_own_and_the_newest_and_says_so() {
     // 1 → 2 → … → 40: forty versions, more than a line holds.
     let links: Vec<(u8, u8, Option<u32>)> = (1..40).map(|i| (i, i + 1, Some(1))).collect();
     let r = record(&links);
-    let held = u8::try_from(MAX_LINKS).expect("small");
+    let held = u8::try_from(MAX_LINKS).unwrap_or(u8::MAX);
     // From the oldest: itself, then the versions nearest the newest, the newest among them.
     let (line, more) = r.versions(&id(1));
     assert!(more, "it says versions were left out");
