@@ -26,6 +26,8 @@ export interface ReplacementLink {
   byFee?: number;
   byVsize?: number;
   byRate?: number;
+  /** Inputs both spend (the replacements route only); 0: a child that left with its parent. */
+  shared?: number;
 }
 
 export type TxState =
@@ -86,6 +88,7 @@ export function linkOf(v: unknown): ReplacementLink | undefined {
     byFee: opt(l["by_fee"]),
     byVsize: opt(l["by_vsize"]),
     byRate: rate(l["by_rate"]),
+    shared: opt(l["shared_inputs"]),
   };
   for (const [k, value] of Object.entries(fields)) {
     if (value !== undefined) (link as unknown as Record<string, number>)[k] = value;

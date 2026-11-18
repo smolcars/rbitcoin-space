@@ -1,0 +1,251 @@
+@layer pages {
+  /* ---- What changed between two versions ---- */
+  .tx-compare {
+    display: grid;
+    gap: var(--space-3);
+    min-width: 0;
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--color-line);
+  }
+  .tx-compare__title {
+    font-size: var(--text-md);
+    font-weight: var(--weight-bold);
+  }
+  .tx-compare__subtitle {
+    font-size: var(--text-sm);
+    font-weight: var(--weight-bold);
+  }
+  .tx-compare__note {
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+    max-width: 68ch;
+  }
+  .tx-compare__muted {
+    color: var(--color-text-muted);
+  }
+  .tx-compare__answer {
+    display: grid;
+    gap: var(--space-3);
+    min-width: 0;
+    transition: opacity var(--dur-quick) var(--ease-out);
+  }
+  /* The last answer stays, dimmed, while the next pair loads. */
+  .tx-compare__answer.is-busy {
+    opacity: 0.55;
+  }
+
+  /* Any two versions: two pickers on one line, wrapping on a phone. */
+  .tx-compare__pick {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-4);
+  }
+  .tx-compare__picker {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+  .tx-compare__select {
+    min-width: 0;
+    max-width: 100%;
+    min-height: 32px;
+    padding: var(--space-1) var(--space-2);
+    border: 1px solid var(--color-line-strong);
+    border-radius: var(--radius-m);
+    background: var(--color-surface-sunken);
+    color: var(--color-text);
+    font: inherit;
+    font-size: var(--text-sm);
+  }
+  @media (pointer: coarse) {
+    .tx-compare__select {
+      min-height: var(--touch);
+    }
+  }
+
+  /* ---- The figures, side by side ---- */
+  .tx-compare__scroll {
+    min-width: 0;
+    overflow-x: auto;
+  }
+  .tx-compare__figures {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--text-sm);
+  }
+  .tx-compare__figures th,
+  .tx-compare__figures td {
+    padding: var(--space-2) var(--space-3);
+    border-bottom: 1px solid var(--color-line);
+    text-align: right;
+    vertical-align: top;
+    white-space: nowrap;
+  }
+  .tx-compare__figures :is(th, td):first-child {
+    padding-left: 0;
+    text-align: left;
+  }
+  .tx-compare__figures :is(th, td):last-child {
+    padding-right: 0;
+  }
+  .tx-compare__figures thead th {
+    font-weight: var(--weight-regular);
+    vertical-align: bottom;
+  }
+  .tx-compare__figures thead th > * {
+    display: block;
+  }
+  .tx-compare__figures tbody th {
+    font-weight: var(--weight-regular);
+    color: var(--color-text-muted);
+  }
+  .tx-compare__version {
+    color: var(--color-text-muted);
+    font-size: var(--text-xs);
+  }
+  .tx-compare__change {
+    font-weight: var(--weight-medium);
+  }
+
+  /* ---- The outputs, matched ---- */
+  .tx-compare__outputs {
+    display: grid;
+    border-top: 1px solid var(--color-line);
+    font-size: var(--text-sm);
+  }
+  .tx-compare__out {
+    display: grid;
+    grid-template-columns: 7.5em minmax(0, 1fr) auto;
+    align-items: baseline;
+    gap: var(--space-1) var(--space-3);
+    padding-block: var(--space-2);
+    border-bottom: 1px solid var(--color-line);
+  }
+  .tx-compare__kind {
+    display: inline-flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    font-weight: var(--weight-medium);
+  }
+  /* The kind's mark: a word always beside it, so it is never the only sign. */
+  .tx-compare__glyph {
+    display: inline-grid;
+    place-items: center;
+    width: 1.35em;
+    height: 1.35em;
+    border: 1.5px solid currentColor;
+    border-radius: var(--radius-s);
+    font-size: var(--text-xs);
+    line-height: 1;
+    transform: translateY(-0.05em);
+  }
+  .tx-compare__to {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .tx-compare__script {
+    color: var(--color-text-muted);
+  }
+  .tx-compare__amounts {
+    display: grid;
+    justify-items: end;
+    text-align: right;
+  }
+  .tx-compare__was {
+    color: var(--color-text-muted);
+    font-size: var(--text-xs);
+  }
+  /* Unchanged outputs step back; what moved stays in the text colour. */
+  .tx-compare__out--kept {
+    color: var(--color-text-muted);
+  }
+  .tx-compare__out--kept .tx-compare__glyph {
+    border-color: var(--color-line-strong);
+  }
+  .tx-compare__out--removed .tx-compare__glyph {
+    border-style: dashed;
+  }
+  .tx-compare__out--removed .tx-compare__to {
+    color: var(--color-text-muted);
+  }
+  .tx-compare__struck {
+    text-decoration: line-through;
+    text-decoration-thickness: 1.5px;
+  }
+
+  /* The panel on a version that replaced others: under the summary, like the notices. */
+  .tx-versions {
+    padding: var(--space-4);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-m);
+    background: var(--color-surface);
+  }
+  .tx-versions .tx-compare {
+    padding-top: 0;
+    border-top: 0;
+  }
+
+  .tx-chain__compare {
+    justify-self: start;
+    margin-top: var(--space-1);
+  }
+
+  @media (max-width: 40em) {
+    /* On a phone each output is two lines: what and where, then the amounts. */
+    .tx-compare__out {
+      grid-template-columns: auto minmax(0, 1fr);
+    }
+    .tx-compare__amounts {
+      grid-column: 1 / -1;
+      justify-items: start;
+      text-align: left;
+    }
+    /* Four columns do not fit: each figure is its label, the two values side by side under it,
+       then the change. The versions head the two value columns once, at the top. */
+    .tx-compare__figures,
+    .tx-compare__figures :is(thead, tbody) {
+      display: block;
+    }
+    .tx-compare__figures tr {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0 var(--space-3);
+      padding-block: var(--space-2);
+      border-bottom: 1px solid var(--color-line);
+    }
+    .tx-compare__figures :is(th, td) {
+      padding: 0;
+      border: 0;
+      text-align: left;
+      white-space: normal;
+    }
+    .tx-compare__figures :is(th, td):first-child,
+    .tx-compare__figures :is(th, td):last-child {
+      padding: 0;
+    }
+    .tx-compare__figures thead th:first-child,
+    .tx-compare__figures thead th:last-child {
+      display: none;
+    }
+    .tx-compare__figures tbody th,
+    .tx-compare__figures tbody .tx-compare__change {
+      grid-column: 1 / -1;
+    }
+    .tx-compare__figures tbody .tx-compare__change::before {
+      content: "Change: ";
+      color: var(--color-text-muted);
+      font-weight: var(--weight-regular);
+    }
+    .tx-versions {
+      padding: var(--space-3);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .tx-compare__answer {
+      transition: none;
+    }
+  }
+}

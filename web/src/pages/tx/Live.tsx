@@ -17,6 +17,8 @@ import {
   type TxState,
   txTopic,
 } from "../../lib/track-topics";
+import { versionLine } from "../../lib/compare";
+import { Compare } from "./Compare";
 import { type Liveness, place, type Relatives, group, ratesDiffer, type StripPlace } from "./state";
 
 /** Follows a topic while mounted. `again` gets the function that subscribes afresh. */
@@ -267,8 +269,28 @@ function TxList(props: { txids: string[]; label: string }) {
  * What replaced it, link by link to the newest replacement, whose own state is followed live (one
  * topic, however long the chain).
  */
-export function Chain(props: { chain: ReplacementLink[]; truncated: boolean }) {
+export function Chain(props: {
+  chain: ReplacementLink[];
+  truncated: boolean;
+  /** What this version replaced, from the replacements route: the line's older versions. */
+  earlier?: ReplacementLink[];
+}) {
   const last = () => props.chain.at(-1);
+  const here = () => props.chain[0]?.txid ?? "";
+  const versions = () => versionLine(here(), props.earlier ?? [], props.chain);
+  const at = (txid: string) => versions().indexOf(txid);
+  // The pair the compare view shows: this version and what replaced it, until a link is picked.
+  const [pair, setPair] = createSignal<[string, string]>();
+  const shown = (): [number, number] => {
+    const p = pair();
+    const [a, b] = p ? [at(p[0]), at(p[1])] : [at(here()), at(here()) + 1];
+    return [a, b];
+  };
+  // A string, so an equal pair worked out again (each topic message) keeps the view as it is.
+  const pairKey = (): string | undefined => {
+    const [a, b] = shown();
+    return versions().length > 1 && a >= 0 && b >= 0 ? `${a}:${b}` : undefined;
+  };
   return (
     <div class="tx-chain">
       <Show when={props.chain.length > 1}>
@@ -315,6 +337,23 @@ export function Chain(props: { chain: ReplacementLink[]; truncated: boolean }) {
                     </span>
                   )}
                 </Show>
+                <Show when={at(l.txid) >= 0 && at(l.by) >= 0}>
+                  <button
+                    class="btn tx-chain__compare"
+                    type="button"
+                    aria-controls="tx-compare"
+                    aria-pressed={
+                      shown()[0] === at(l.txid) && shown()[1] === at(l.by) ? "true" : "false"
+                    }
+                    onClick={() => setPair([l.txid, l.by])}
+                  >
+                    What changed
+                    <span class="visually-hidden">
+                      {" "}
+                      from version {at(l.txid) + 1} to version {at(l.by) + 1}
+                    </span>
+                  </button>
+                </Show>
               </span>
             </li>
           )}
@@ -322,6 +361,13 @@ export function Chain(props: { chain: ReplacementLink[]; truncated: boolean }) {
       </ol>
       <Show when={last()?.by} keyed>
         {(id) => <Newest txid={id} />}
+      </Show>
+      {/* Made afresh for each pair a link picks: the view opens on that pair. */}
+      <Show when={pairKey()} keyed>
+        {(k) => {
+          const [from = 0, to = 1] = k.split(":").map(Number);
+          return <Compare versions={versions()} from={from} to={to} here={here()} />;
+        }}
       </Show>
     </div>
   );

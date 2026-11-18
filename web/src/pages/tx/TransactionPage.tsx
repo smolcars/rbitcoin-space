@@ -27,7 +27,9 @@ import { useLiveStatus } from "../../lib/live";
 import { useNetwork, usePageTitle } from "../../lib/page";
 import { type ReplacementLink, type TxMessage, txTopic } from "../../lib/track-topics";
 import { TxLightning } from "../lightning/TxLightning";
+import { versionLine } from "../../lib/compare";
 import { Code } from "./Code";
+import { Compare } from "./Compare";
 import { Flow, type Selection } from "./Flow";
 import { Inspector } from "./Inspector";
 import { Chain, Follow, Group, LiveState, POLL_MS, Strip } from "./Live";
@@ -446,6 +448,7 @@ function TransactionView(props: { txid: string }) {
               justConfirmed={justConfirmed()}
               reorged={reorged()}
               replaced={replaced()}
+              earlier={replacements()?.replaces ?? []}
               relatives={relatives() ?? undefined}
               liveness={live()}
             />
@@ -483,7 +486,13 @@ function Departed(props: { shown: Shown; replacements: Replacements | null | und
       }
     >
       <Match when={props.shown.kind === "replaced" && props.shown} keyed>
-        {(s) => <ReplacedNotice chain={s.chain} truncated={s.truncated} />}
+        {(s) => (
+          <ReplacedNotice
+            chain={s.chain}
+            truncated={s.truncated}
+            earlier={props.replacements?.replaces}
+          />
+        )}
       </Match>
       <Match when={props.shown.kind === "evicted"}>
         <Notice tone="negative" title="Dropped from the mempool without being mined">
@@ -513,7 +522,11 @@ function Notice(props: { tone: "negative" | "caution"; title: string; children: 
   );
 }
 
-function ReplacedNotice(props: { chain: ReplacementLink[]; truncated: boolean }) {
+function ReplacedNotice(props: {
+  chain: ReplacementLink[];
+  truncated: boolean;
+  earlier?: ReplacementLink[] | undefined;
+}) {
   const first = () => props.chain[0];
   return (
     <Notice tone="negative" title="This version was replaced">
@@ -534,7 +547,7 @@ function ReplacedNotice(props: { chain: ReplacementLink[]; truncated: boolean })
           </p>
         )}
       </Show>
-      <Chain chain={props.chain} truncated={props.truncated} />
+      <Chain chain={props.chain} truncated={props.truncated} earlier={props.earlier ?? []} />
     </Notice>
   );
 }
@@ -596,6 +609,8 @@ function Body(props: {
   reorged: number | undefined;
   /** What it replaced, as far as the server remembers. */
   replaced: ReplacementLink[];
+  /** What it replaced and what those replaced, for the line of versions to compare. */
+  earlier: ReplacementLink[];
   relatives: Relatives | undefined;
   liveness: Liveness;
 }) {
@@ -989,7 +1004,9 @@ function Body(props: {
       </Switch>
       <Switch>
         <Match when={props.shown.kind === "replaced" && props.shown} keyed>
-          {(r) => <ReplacedNotice chain={r.chain} truncated={r.truncated} />}
+          {(r) => (
+            <ReplacedNotice chain={r.chain} truncated={r.truncated} earlier={props.earlier} />
+          )}
         </Match>
         <Match when={props.shown.kind === "evicted"}>
           <Notice tone="negative" title="Dropped from the mempool without being mined">
@@ -1008,6 +1025,21 @@ function Body(props: {
           )}
         </Match>
       </Switch>
+      {/* A version that replaced others, and stands: what changed from the one before. */}
+      <Show when={props.shown.kind !== "replaced" && versionLine(props.tx.txid, props.earlier, [])}>
+        {(line) => (
+          <Show when={line().length > 1}>
+            <div class="tx-versions">
+              <Compare
+                versions={line()}
+                from={line().length - 2}
+                to={line().length - 1}
+                here={props.tx.txid}
+              />
+            </div>
+          </Show>
+        )}
+      </Show>
       <Show when={!settled()}>
         <ol class="tx-timeline" aria-label="Status">
           {/* By position: each change of status updates the three steps in place, never remakes them. */}
