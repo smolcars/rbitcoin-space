@@ -16,7 +16,10 @@ export interface Checked {
   loaded: number;
   /** Whether the history could load more: it says so itself. */
   more: boolean;
-  /** A kept address's history lists confirmed transactions only; the unconfirmed are apart. */
+  /**
+   * Every transaction counted is confirmed, in a history that lists only those (a kept address's;
+   * its unconfirmed ones are apart).
+   */
   confirmedOnly: boolean;
 }
 
@@ -39,14 +42,15 @@ export function noticeCount(s: LookalikeSummary, c: Checked) {
 }
 
 /**
- * Which transactions: those loaded so far, or, once the history has no more to load, those it
- * lists. Said of the list, not of the address: its totals are another answer.
+ * Which transactions: those loaded so far, or, once the history has no more to load, those in it.
+ * Said of the history, whichever of its views is showing, not of the address: its totals are
+ * another answer.
  */
 function which(s: LookalikeSummary, c: Checked) {
   const kind = c.confirmedOnly ? "confirmed transaction" : "transaction";
   if (c.more) return `${groupDigits(s.txs)} of the ${groupDigits(c.loaded)} ${kind}s loaded so far`;
-  if (c.loaded === 1) return `The only ${kind} listed below`;
-  return `${groupDigits(s.txs)} of the ${groupDigits(c.loaded)} ${kind}s listed below`;
+  if (c.loaded === 1) return `The only ${kind} in the history`;
+  return `${groupDigits(s.txs)} of the ${groupDigits(c.loaded)} ${kind}s in the history`;
 }
 
 /**

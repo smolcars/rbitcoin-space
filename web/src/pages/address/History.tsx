@@ -62,13 +62,18 @@ const plural = (n: number, one: string, many: string) =>
  * the URL (`?view=unspent`), so a link or a reload opens the same one. Loaded pages survive a
  * switch between views.
  */
-/** The pages after the first, whether the last of them was full, and which rows are new. */
+/**
+ * The pages after the first, whether the last of them was full, whether one has answered since
+ * the first page last changed (an empty answer adds no rows, and still says there are no more),
+ * and which rows are new.
+ */
 interface Later {
   txs: Transaction[];
   full: boolean;
+  answered: boolean;
   fresh: ReadonlySet<string>;
 }
-const NOTHING_LATER: Later = { txs: [], full: true, fresh: new Set() };
+const NOTHING_LATER: Later = { txs: [], full: true, answered: false, fresh: new Set() };
 
 export function History(props: {
   address: string;
@@ -166,6 +171,8 @@ export function History(props: {
     const next: Later = {
       txs: old ? keptAfterRefresh(f, mergePages(old, prev.txs), PAGE) : prev.txs,
       full: old && prev.txs.length === 0 ? pageIsFull(old, PAGE) : prev.full,
+      // A changed first page may have more after it again.
+      answered: false,
       fresh: new Set(old ? [...ids].filter((id) => !known.has(id)) : []),
     };
     known = new Set([...known, ...ids]);
@@ -180,7 +187,8 @@ export function History(props: {
   });
   // The page works out the lookalikes over every loaded page at once (its notice and these rows read
   // the one answer), so a later page's lookalike also marks the earlier rows it imitates.
-  const hasNext = () => (later().length === 0 ? pageIsFull(first() ?? [], PAGE) : after().full);
+  const hasNext = () =>
+    later().length === 0 && !after().answered ? pageIsFull(first() ?? [], PAGE) : after().full;
   createEffect(
     () => [shown(), hasNext()] as const,
     ([list, more]) => {
@@ -210,7 +218,12 @@ export function History(props: {
         // transactions, a reorg), so the reply could leave a gap or bring back stale rows: it is
         // dropped, and the next page is asked for after the rows the refresh left.
         if (generation === asked) {
-          setAfter((a) => ({ ...a, txs: [...a.txs, ...page], full: pageIsFull(page, PAGE) }));
+          setAfter((a) => ({
+            ...a,
+            txs: [...a.txs, ...page],
+            full: pageIsFull(page, PAGE),
+            answered: true,
+          }));
           break;
         }
       }

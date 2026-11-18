@@ -57,7 +57,7 @@ test("warns under a payment naming a lookalike, and nowhere else", async ({ page
   // And the notice at the top of the page, whose button lands on that warning.
   const top = page.locator(".address-poison");
   await expect(top).toContainText(
-    "The only transaction listed below names an address that starts and ends like this one.",
+    "The only transaction in the history names an address that starts and ends like this one.",
   );
   await top.getByRole("button", { name: "Go to the transaction" }).click();
   await expect(note).toBeFocused();

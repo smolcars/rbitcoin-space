@@ -244,7 +244,9 @@ function AddressBody(props: { address: string; found: Recognised | null }) {
           summary={p()}
           loaded={shownTxs()?.length ?? 0}
           more={moreTxs()}
-          confirmedOnly={whole()}
+          // By the rows themselves too: as an address becomes a kept one, the mixed list it
+          // had is still showing until the kept list answers.
+          confirmedOnly={whole() && (shownTxs() ?? []).every((t) => t.status.confirmed)}
           address={address}
           onJump={jump}
         />
