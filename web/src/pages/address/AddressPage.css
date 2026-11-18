@@ -556,7 +556,7 @@
     }
   }
 
-  /* ---- A history row's lookalike address (Lookalike.tsx) ---- */
+  /* ---- A history row's lookalike address (LookalikeWarning.tsx) ---- */
   /* The page's caution notice, under its row: icon, words and a rule, never the colour alone. */
   .lookalike {
     display: flex;
