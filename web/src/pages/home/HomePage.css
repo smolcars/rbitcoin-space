@@ -321,10 +321,15 @@
     font-size: var(--text-xs);
     color: var(--color-text-muted);
   }
+  /* Clipped sideways at the tile's inner edge, as the tile once clipped it, so a wide font's count
+     and age stay inside; not up and down, where the note's focus ring reaches. */
   .home-tile__foot {
     display: flex;
     justify-content: space-between;
     gap: var(--space-1);
+    margin-inline: calc(-1 * var(--space-3));
+    padding-inline: var(--space-3);
+    overflow-x: clip;
     font-size: var(--text-xs);
     color: var(--color-text-muted);
     white-space: nowrap;

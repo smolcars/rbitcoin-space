@@ -442,7 +442,8 @@ export function BlockStrip(props: {
         // The box's right face shows them as the last one drops (BlockBox.css).
         const core = el.querySelector(".block-box__core");
         if (core)
-          play(core, [{ opacity: 0 }], {
+          // Offset 0: a lone keyframe is otherwise the end, not the start.
+          play(core, [{ opacity: 0, offset: 0 }], {
             pseudoElement: "::after",
             duration: m.slow,
             easing: m.easeOut,
