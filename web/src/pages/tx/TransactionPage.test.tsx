@@ -49,6 +49,9 @@ const payment = (status: TxStatus): Transaction => ({
 
 type Reply = { status: number; body: unknown } | (() => { status: number; body: unknown });
 let replies: Record<string, Reply>;
+/** The chain tip height each reply is stamped with, per URL; the rest say {@link TIP}. */
+let tips: Record<string, number> = {};
+const TIP = 975_518;
 const fetchMock = vi.fn<(url: string) => Promise<Response>>(async (url) => {
   const r = replies[url];
   const reply =
@@ -56,7 +59,11 @@ const fetchMock = vi.fn<(url: string) => Promise<Response>>(async (url) => {
   const text = typeof reply.body === "string" ? reply.body : JSON.stringify(reply.body);
   return new Response(text, {
     status: reply.status,
-    headers: { "cache-control": "public, max-age=1" },
+    headers: {
+      "cache-control": "public, max-age=1",
+      "x-bitcoin-chain-tip": "00".repeat(32),
+      "x-bitcoin-chain-tip-height": String(tips[url] ?? TIP),
+    },
   });
 });
 
@@ -64,6 +71,7 @@ const disposers: (() => void)[] = [];
 beforeEach(() => {
   clearApiCache();
   clearSummaries();
+  tips = {};
   fetchMock.mockClear();
   vi.stubGlobal("fetch", fetchMock);
   FakeSocket.all = [];
@@ -202,13 +210,13 @@ describe("TransactionPage", () => {
       };
       const el = page(`/tx/${TXID}`);
       await settle();
-      return el.querySelector(".tx-answer__cell--fee .tx-verdict");
+      return el.querySelector(".tx-answer__cell--fee .tx-verdict .note-figure");
     };
 
     // 1.00 sat/vB against a low end of 0.12: rounded down, and its note says what the figure is.
     const above = await show(0.12, OTHER);
     expect(text(above as Element)).toContain("8.3× the low end");
-    const button = above?.querySelector("button.note-figure");
+    const button = above;
     const said = document.getElementById(button?.getAttribute("aria-describedby") ?? "");
     expect(text(said as Element)).toBe(
       "8.3 times its block's low end. The cheapest tenth of block 975 516, by size, paid 0.12 sat/vB or less. Compared with this transaction's own rate.",
@@ -221,6 +229,58 @@ describe("TransactionPage", () => {
     // A block without rates, or whose cheapest tenth paid nothing.
     await expect(show(null, OTHER)).resolves.toBeNull();
     await expect(show(0, OTHER)).resolves.toBeNull();
+  });
+
+  it("asks the spends again when they were answered before its block, and trusts no older answer", async () => {
+    const summaryUrl = `/app/blocks/summary?hashes=${BLOCK}`;
+    const spendsUrl = api(`/tx/${TXID}/outspends`);
+    const summary = [
+      {
+        id: BLOCK,
+        height: 975_516,
+        tx_count: 3,
+        fees: 500,
+        vsize: 400,
+        weight: 1600,
+        fee_rate: { min: 0, p10: 0.12, p25: 0.2, median: 1, p75: 2, p90: 3, max: 9 },
+        fee_bands: Array.from({ length: 12 }, () => 0),
+      },
+    ];
+    const elsewhere = { ...confirmed, block_hash: "11".repeat(32), block_height: 975_000 };
+    // The spends were answered a block before its own; asked again, a child mined beside it shows.
+    serve(payment(confirmed));
+    replies[summaryUrl] = { status: 200, body: summary };
+    replies[api(`/tx/${SPENDER}/status`)] = { status: 200, body: elsewhere };
+    let asked = 0;
+    replies[spendsUrl] = () => {
+      asked += 1;
+      tips[spendsUrl] = asked === 1 ? 975_515 : TIP;
+      return {
+        status: 200,
+        body:
+          asked === 1
+            ? [{ spent: false }]
+            : [{ spent: true, txid: SPENDER, vin: 0, status: confirmed }],
+      };
+    };
+    const el = page(`/tx/${TXID}`);
+    await settle();
+    expect(asked).toBe(2);
+    expect(el.querySelector(".tx-verdict .note-figure")).toBeNull();
+
+    // A parent's status from before the block proves nothing about where it was mined.
+    document.body.replaceChildren();
+    clearSummaries();
+    clearApiCache();
+    serve(payment(confirmed), [{ spent: false }]);
+    replies[summaryUrl] = { status: 200, body: summary };
+    replies[api(`/tx/${SPENDER}/status`)] = { status: 200, body: elsewhere };
+    tips[api(`/tx/${SPENDER}/status`)] = 975_515;
+    const old = page(`/tx/${TXID}`);
+    await settle();
+    expect(old.querySelector(".tx-verdict .note-figure")).toBeNull();
+    // Its line is kept all the same, so a verdict arriving would move nothing.
+    expect(old.querySelector(".tx-verdict")).not.toBeNull();
   });
 
   it("asks for no block summary for a coinbase or an unconfirmed transaction", async () => {

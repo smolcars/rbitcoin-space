@@ -1,7 +1,8 @@
 // How a confirmed transaction's fee rate compares with the low end of its block (docs/FRONTEND.md
 // "A confirmed transaction's fee verdict"). Pure, but for `judgeFee`, which takes its fetchers.
+import type { Stamped } from "../../lib/api";
 import type { Outspend, TxStatus } from "../../lib/esplora";
-import { formatFeeRate, groupDigits } from "../../lib/format";
+import { formatFeeRate, formatFeeRateUp, groupDigits } from "../../lib/format";
 import type { BlockSummary } from "../../lib/summary";
 
 /** Below this many times the block's low end a rate is "near" it, and no multiple is printed. */
@@ -19,8 +20,8 @@ export interface FeeVerdict {
   height: number;
 }
 
-/** A rate as {@link formatFeeRate} prints it, read back as a number. */
-const printed = (rate: number): number => Number(formatFeeRate(rate).replaceAll(/[^\d.]/g, ""));
+/** A printed rate read back as a number. */
+const read = (printed: string): number => Number(printed.replaceAll(/[^\d.]/g, ""));
 
 const usable = (n: number | undefined): n is number => n !== undefined && Number.isFinite(n);
 
@@ -36,8 +37,10 @@ export function feeVerdict(
 ): FeeVerdict | undefined {
   if (!usable(rate) || !usable(low) || rate < 0 || low <= 0) return undefined;
   const ratio = rate / low;
-  // "At" by the printed figures, so it never contradicts the two numbers a reader sees.
-  const kind = printed(rate) <= printed(low) ? "at" : ratio < NEAR ? "near" : "above";
+  // "At" by the printed figures, so it never contradicts the two numbers a reader sees. The low
+  // end is printed rounded up, as the note's "or less" needs.
+  const at = read(formatFeeRate(rate)) <= read(formatFeeRateUp(low));
+  const kind = at ? "at" : ratio < NEAR ? "near" : "above";
   return { kind, ratio, low, height };
 }
 
@@ -65,9 +68,12 @@ export function verdictTitle(v: FeeVerdict): string {
   return `${formatMultiple(v.ratio).replace("×", "")} times its block's low end`;
 }
 
-/** The note's second line: what the low end is, in words that are true of the figure. */
+/**
+ * The note's second line: what the low end is, in words that are true of the figure. Rounded up,
+ * so "or less" holds of the figure printed.
+ */
 export function verdictDetail(v: FeeVerdict): string {
-  return `The cheapest tenth of block ${groupDigits(v.height)}, by size, paid ${formatFeeRate(v.low)} sat/vB or less. Compared with this transaction's own rate.`;
+  return `The cheapest tenth of block ${groupDigits(v.height)}, by size, paid ${formatFeeRateUp(v.low)} sat/vB or less. Compared with this transaction's own rate.`;
 }
 
 /**
@@ -100,10 +106,12 @@ export function parentsOf(vin: readonly { txid: string; is_coinbase: boolean }[]
 export interface JudgeInput {
   rate: number | undefined;
   block: string;
+  /** The block's height: what each answer about a relative must be at least as new as. */
+  height: number;
   parents: readonly string[];
   summary: () => Promise<BlockSummary | undefined>;
-  spends: () => Promise<readonly Outspend[] | null | undefined>;
-  status: (txid: string) => Promise<TxStatus>;
+  spends: () => Promise<Stamped<readonly Outspend[] | null | undefined>>;
+  status: (txid: string) => Promise<Stamped<TxStatus>>;
 }
 
 /**
@@ -111,18 +119,26 @@ export interface JudgeInput {
  * compared, as the block's figures are own rates too; but a transaction mined with a relative in
  * the same block may have been mined for a package's rate, which the page does not know. A child
  * there (it may have paid for this one) hides every verdict; a parent there (this one may have paid
- * for it) hides all but "at", which a package's lower rate would still be. Asks the summary first,
- * then the spends, then the parents, and stops at the first reason to show nothing.
+ * for it) hides all but "at", which a package's lower rate would still be. An answer about a
+ * relative counts only when its chain tip is at or above the block's height: one from before the
+ * block (asked beside the transaction as the block arrived, or kept by a cache across a reorg) says
+ * nothing about who was mined in it. Asks the summary first, then the spends, then the parents, and
+ * stops at the first reason to show nothing.
  */
 export async function judgeFee(input: JudgeInput): Promise<FeeVerdict | undefined> {
   const summary = await input.summary();
   if (!summary || summary.id !== input.block) return undefined;
   const verdict = feeVerdict(input.rate, summary.fee_rate?.p10, summary.height);
   if (!verdict) return undefined;
-  if (childInBlock(await input.spends(), input.block) !== false) return undefined;
+  const covers = (r: Stamped<unknown>) => r.tip !== undefined && r.tip.height >= input.height;
+  const spends = await input.spends();
+  if (!covers(spends) || childInBlock(spends.value, input.block) !== false) return undefined;
+  // The cap bounds the parents asked; "at" asks none, so it stands whatever their number.
   if (verdict.kind === "at") return verdict;
   if (input.parents.length > PARENT_CHECKS) return undefined;
   const statuses = await Promise.all(input.parents.map((p) => input.status(p)));
-  const together = statuses.some((s) => !s.confirmed || s.block_hash === input.block);
+  const together = statuses.some(
+    (s) => !covers(s) || !s.value.confirmed || s.value.block_hash === input.block,
+  );
   return together ? undefined : verdict;
 }

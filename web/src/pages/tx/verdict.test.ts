@@ -5,6 +5,7 @@ import {
   childInBlock,
   feeVerdict,
   formatMultiple,
+  type JudgeInput,
   judgeFee,
   PARENT_CHECKS,
   parentsOf,
@@ -101,7 +102,7 @@ describe("the words", () => {
     expect(verdictText(v)).toBe("76× the low end");
     expect(verdictTitle(v)).toBe("76 times its block's low end");
     expect(verdictDetail(v)).toBe(
-      "The cheapest tenth of block 976 475, by size, paid 0.01 sat/vB or less. Compared with this transaction's own rate.",
+      "The cheapest tenth of block 976 475, by size, paid 0.02 sat/vB or less. Compared with this transaction's own rate.",
     );
   });
 
@@ -158,12 +159,18 @@ describe("parentsOf", () => {
 });
 
 describe("judgeFee", () => {
+  const HEIGHT = 975_511;
+  const tipAt = (height: number | null) =>
+    height === null ? undefined : { height, hash: "00".repeat(32) };
   const judge = (over: {
     rate?: number;
     summary?: BlockSummary | undefined;
     spends?: Outspend[] | null;
     parents?: string[];
     status?: (txid: string) => Promise<TxStatus>;
+    /** The chain tip height the spends, and the parents' statuses, are as of; null for unstamped. */
+    spendsAt?: number | null;
+    statusAt?: number | null;
   }) => {
     const status = vi.fn<(txid: string) => Promise<TxStatus>>(
       over.status ?? (async () => mined(OTHER)),
@@ -172,9 +179,16 @@ describe("judgeFee", () => {
       rate: over.rate ?? 1,
       block: BLOCK,
       parents: over.parents ?? [P1],
+      height: HEIGHT,
       summary: async () => ("summary" in over ? over.summary : summary()),
-      spends: async () => ("spends" in over ? over.spends : [{ spent: false }]),
-      status,
+      spends: async () => ({
+        value: "spends" in over ? over.spends : [{ spent: false }],
+        tip: tipAt(over.spendsAt === undefined ? HEIGHT : over.spendsAt),
+      }),
+      status: async (txid) => ({
+        value: await status(txid),
+        tip: tipAt(over.statusAt === undefined ? HEIGHT : over.statusAt),
+      }),
     });
     return { result, status };
   };
@@ -208,6 +222,17 @@ describe("judgeFee", () => {
     expect(status).not.toHaveBeenCalled();
   });
 
+  it("trusts no answer about a relative from before the block, or without a tip", async () => {
+    await expect(judge({ spendsAt: HEIGHT - 1 }).result).resolves.toBeUndefined();
+    await expect(judge({ spendsAt: null }).result).resolves.toBeUndefined();
+    await expect(judge({ rate: 0.1, spendsAt: HEIGHT - 1 }).result).resolves.toBeUndefined();
+    await expect(judge({ statusAt: HEIGHT - 1 }).result).resolves.toBeUndefined();
+    await expect(judge({ statusAt: null }).result).resolves.toBeUndefined();
+    expect((await judge({ spendsAt: HEIGHT + 3, statusAt: HEIGHT + 3 }).result)?.kind).toBe(
+      "above",
+    );
+  });
+
   it("asks no more than its cap of parents, and shows nothing past it", async () => {
     const many = Array.from({ length: PARENT_CHECKS + 1 }, (_, i) =>
       i.toString(16).padStart(64, "0"),
@@ -215,14 +240,20 @@ describe("judgeFee", () => {
     const { result, status } = judge({ parents: many });
     await expect(result).resolves.toBeUndefined();
     expect(status).not.toHaveBeenCalled();
+    // "At" asks no parent, so their number does not matter to it.
+    expect((await judge({ rate: 0.1, parents: many }).result)?.kind).toBe("at");
   });
 
   it("asks nothing more once the summary rules a verdict out", async () => {
-    const spends = vi.fn<() => Promise<Outspend[]>>(async () => []);
-    const status = vi.fn<(txid: string) => Promise<TxStatus>>(async () => mined(OTHER));
+    const spends = vi.fn<JudgeInput["spends"]>(async () => ({ value: [], tip: tipAt(HEIGHT) }));
+    const status = vi.fn<JudgeInput["status"]>(async () => ({
+      value: mined(OTHER),
+      tip: tipAt(HEIGHT),
+    }));
     const v = judgeFee({
       rate: 1,
       block: BLOCK,
+      height: HEIGHT,
       parents: [P1],
       summary: async () => summary(null),
       spends,

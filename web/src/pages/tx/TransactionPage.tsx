@@ -19,8 +19,15 @@ import { More } from "../../components/More";
 import { SectionHeader } from "../../components/SectionHeader";
 import { Empty, ErrorState } from "../../components/States";
 import { TimeAgo, TimeUtc } from "../../components/Time";
-import { createApi, createRequest, fetchApi, fetchApp, isNotFound } from "../../lib/api";
-import { type BlocksMessage, blocksTopic } from "../../lib/blocks-topic";
+import {
+  createApi,
+  createRequest,
+  fetchApi,
+  fetchApp,
+  fetchStamped,
+  isNotFound,
+} from "../../lib/api";
+import { type BlocksMessage, blocksTopic, type ChainTip } from "../../lib/blocks-topic";
 import type { Outspend, Transaction, TxStatus } from "../../lib/esplora";
 import { feeColor, formatSize, groupDigits, MISSING, truncateMiddle } from "../../lib/format";
 import { NETWORK_NAMES, paths } from "../../lib/network";
@@ -117,6 +124,7 @@ function TransactionView(props: { txid: string }) {
   // Fetched alongside the transaction rather than after it, so neither waits on the other.
   const [outspends, { refetch: refetchSpends }] = createApi<Outspend[]>(
     () => `/tx/${props.txid}/outspends`,
+    { stamped: true },
   );
   const [tipText, { refetch: refetchTip }] = createApi<string>(() => "/blocks/tip/height", {
     as: "text",
@@ -136,7 +144,13 @@ function TransactionView(props: { txid: string }) {
   const missing = () => tx.state === "errored" && isNotFound(tx.error);
   // undefined while loading; null when it failed, so the page can say so instead of waiting.
   const spends = () =>
-    outspends.state === "ready" ? outspends() : outspends.state === "errored" ? null : undefined;
+    outspends.state === "ready"
+      ? outspends()?.value
+      : outspends.state === "errored"
+        ? null
+        : undefined;
+  /** The chain tip the spends are as of: what the fee verdict checks before trusting them. */
+  const spendsTip = () => (outspends.state === "ready" ? outspends()?.tip : undefined);
 
   const [model, setModel] = createSignal<Model>(EMPTY);
   const socket = useLiveStatus();
@@ -446,6 +460,7 @@ function TransactionView(props: { txid: string }) {
               tip={tip()}
               confs={confs()}
               spends={spends}
+              spendsTip={spendsTip}
               justConfirmed={justConfirmed()}
               reorged={reorged()}
               replaced={replaced()}
@@ -594,6 +609,7 @@ function Body(props: {
   tip: number | undefined;
   confs: number | undefined;
   spends: () => Outspend[] | null | undefined;
+  spendsTip: () => ChainTip | undefined;
   justConfirmed: boolean;
   /** The height of the block that held it, when a reorganisation sent it back to the mempool. */
   reorged: number | undefined;
@@ -739,29 +755,36 @@ function Body(props: {
   // Its rate against its block's low end: only once mined, and only when nothing could make it
   // mislead (docs/FRONTEND.md "A confirmed transaction's fee verdict").
   const verdictKey = () => {
-    const block = status()?.block_hash;
-    if (!confirmed() || coinbase() || rate() === undefined || block === undefined) return false;
-    // Spends answered with it already in this block show any child mined beside it; otherwise
-    // they are asked again.
-    if (props.tx.status.block_hash !== block) return `again:${block}`;
-    return props.spends() === undefined ? false : block;
+    const at = status();
+    if (!confirmed() || coinbase() || rate() === undefined) return false;
+    if (at?.block_hash === undefined || at.block_height === undefined) return false;
+    // After the page's own spends, which are used when they are as of this block.
+    return props.spends() === undefined ? false : `${at.block_height}:${at.block_hash}`;
   };
   const [verdict] = createRequest(verdictKey, async (key, signal) => {
-    const block = key.replace("again:", "");
+    const [h = "", block = ""] = key.split(":");
+    const height = Number(h);
     try {
       return await judgeFee({
         rate: rate(),
         block,
+        height,
         parents: parentsOf(props.tx.vin ?? []),
         summary: async () => (await fetchSummaries(network(), [block], signal)).get(block),
-        spends: () =>
-          key === block
-            ? Promise.resolve(props.spends())
-            : fetchApi<Outspend[]>(network(), `/tx/${props.tx.txid}/outspends`, {
+        // Spends answered before this block was known (asked as it arrived, or before a live
+        // confirmation) cannot show a child mined in it: they are asked again.
+        spends: async () => {
+          const value = props.spends();
+          const tip = props.spendsTip();
+          return tip !== undefined && tip.height >= height
+            ? { value, tip }
+            : fetchStamped<Outspend[]>(network(), `/tx/${props.tx.txid}/outspends`, {
                 signal,
                 fresh: true,
-              }),
-        status: (txid) => fetchApi<TxStatus>(network(), `/tx/${txid}/status`, { signal }),
+              });
+        },
+        status: (txid) =>
+          fetchStamped<TxStatus>(network(), `/tx/${txid}/status`, { signal, fresh: true }),
       });
     } catch {
       return undefined;
@@ -943,14 +966,18 @@ function Body(props: {
                 </span>
               )}
             </Show>
-            <Show when={verdictKey() !== false && verdict.state === "ready" && verdict()}>
-              {(said) => (
-                <span class="tx-answer__sub tx-verdict">
-                  <Note focusable below title={verdictTitle(said())} figure={verdictText(said())}>
-                    {verdictDetail(said())}
-                  </Note>
-                </span>
-              )}
+            {/* Its line is kept from the moment a verdict may come, so one arriving moves nothing
+                where this cell has a row to itself (the narrowest phones). */}
+            <Show when={verdictKey() !== false}>
+              <span class="tx-answer__sub tx-verdict">
+                <Show when={verdict.state === "ready" && verdict()} fallback={"\u00A0"}>
+                  {(said) => (
+                    <Note focusable below title={verdictTitle(said())} figure={verdictText(said())}>
+                      {verdictDetail(said())}
+                    </Note>
+                  )}
+                </Show>
+              </span>
             </Show>
           </dd>
         </div>
