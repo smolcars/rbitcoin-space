@@ -39,7 +39,7 @@ export function feeVerdict(
   const ratio = rate / low;
   // "At" by the printed figures, so it does not contradict the two numbers a reader sees (the low
   // end is printed rounded up, as the note's "or less" needs), but never for a rate that is a
-  // multiple of the low end: far below a hundredth of a sat/vB, figures a multiple apart print alike.
+  // multiple of the low end: rounding can make two very low rates a multiple apart print alike.
   const at = ratio < NEAR && read(formatFeeRate(rate)) <= read(formatFeeRateUp(low));
   const kind = at ? "at" : ratio < NEAR ? "near" : "above";
   return { kind, ratio, low, height };
