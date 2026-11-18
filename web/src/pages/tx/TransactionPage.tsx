@@ -12,6 +12,7 @@ import {
 import type { JSX } from "@solidjs/web";
 import { Amount, Sats } from "../../components/Amount";
 import { FeeRate } from "../../components/FeeRate";
+import { Note } from "../../components/Note";
 import { Hash, HashFull } from "../../components/Hash";
 import { Link } from "../../components/Link";
 import { More } from "../../components/More";
@@ -25,6 +26,7 @@ import { feeColor, formatSize, groupDigits, MISSING, truncateMiddle } from "../.
 import { NETWORK_NAMES, paths } from "../../lib/network";
 import { useLiveStatus } from "../../lib/live";
 import { useNetwork, usePageTitle } from "../../lib/page";
+import { fetchSummaries } from "../../lib/summary";
 import { type ReplacementLink, type TxMessage, txTopic } from "../../lib/track-topics";
 import { TxLightning } from "../lightning/TxLightning";
 import { Code } from "./Code";
@@ -54,6 +56,7 @@ import {
   stripPlace,
 } from "./state";
 import { confirmations, features, isCoinbase, isTxid, lockTimeMeaning, vsize } from "./tx";
+import { judgeFee, parentsOf, verdictDetail, verdictText, verdictTitle } from "./verdict";
 import "./TransactionPage.css";
 
 export { POLL_MS } from "./Live";
@@ -733,6 +736,37 @@ function Body(props: {
     const own = rate();
     return eff !== undefined && own !== undefined && ratesDiffer(eff, own) ? eff : undefined;
   };
+  // Its rate against its block's low end: only once mined, and only when nothing could make it
+  // mislead (docs/FRONTEND.md "A confirmed transaction's fee verdict").
+  const verdictKey = () => {
+    const block = status()?.block_hash;
+    if (!confirmed() || coinbase() || rate() === undefined || block === undefined) return false;
+    // Spends answered with it already in this block show any child mined beside it; otherwise
+    // they are asked again.
+    if (props.tx.status.block_hash !== block) return `again:${block}`;
+    return props.spends() === undefined ? false : block;
+  };
+  const [verdict] = createRequest(verdictKey, async (key, signal) => {
+    const block = key.replace("again:", "");
+    try {
+      return await judgeFee({
+        rate: rate(),
+        block,
+        parents: parentsOf(props.tx.vin ?? []),
+        summary: async () => (await fetchSummaries(network(), [block], signal)).get(block),
+        spends: () =>
+          key === block
+            ? Promise.resolve(props.spends())
+            : fetchApi<Outspend[]>(network(), `/tx/${props.tx.txid}/outspends`, {
+                signal,
+                fresh: true,
+              }),
+        status: (txid) => fetchApi<TxStatus>(network(), `/tx/${txid}/status`, { signal }),
+      });
+    } catch {
+      return undefined;
+    }
+  });
   const lock = () => lockTimeMeaning(props.tx.locktime, props.tx.vin);
   const [raw, setRaw] = createSignal<{ hex?: string; error?: unknown; loading?: boolean }>({});
   const [rawShown, setRawShown] = createSignal(false);
@@ -906,6 +940,15 @@ function Body(props: {
               {(eff) => (
                 <span class="tx-answer__sub">
                   Effective <FeeRate rate={eff()} />
+                </span>
+              )}
+            </Show>
+            <Show when={verdictKey() !== false && verdict.state === "ready" && verdict()}>
+              {(said) => (
+                <span class="tx-answer__sub tx-verdict">
+                  <Note focusable below title={verdictTitle(said())} figure={verdictText(said())}>
+                    {verdictDetail(said())}
+                  </Note>
                 </span>
               )}
             </Show>

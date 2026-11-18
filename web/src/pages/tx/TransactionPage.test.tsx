@@ -2,6 +2,7 @@ import { createRouter, memoryHistory } from "@solidjs/router";
 import { render } from "@solidjs/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { clearApiCache } from "../../lib/api";
+import { clearSummaries } from "../../lib/summary";
 import type { Outspend, Transaction, TxStatus } from "../../lib/esplora";
 import { fakeBlock, FakeSocket } from "../../lib/fakes";
 import TransactionPage, { POLL_MS } from "./TransactionPage";
@@ -62,6 +63,7 @@ const fetchMock = vi.fn<(url: string) => Promise<Response>>(async (url) => {
 const disposers: (() => void)[] = [];
 beforeEach(() => {
   clearApiCache();
+  clearSummaries();
   fetchMock.mockClear();
   vi.stubGlobal("fetch", fetchMock);
   FakeSocket.all = [];
@@ -170,6 +172,70 @@ describe("TransactionPage", () => {
     expect(outs[0]?.querySelector("a.tx-flow__spent")?.getAttribute("href")).toBe(`/tx/${SPENDER}`);
     expect(text(outs[1] as Element)).toContain("Unspent");
     expect(el.querySelector('.tx-flow__col--out a[href="/address/bc1qpay"]')).not.toBeNull();
+  });
+
+  it("says how a mined rate compares with its block's low end, and nothing when it cannot", async () => {
+    const OTHER = "00000000000000000000e13ad5e424f6ba7208b0c1a9a687e9ccc4d62b3b094c";
+    const summaryUrl = `/app/blocks/summary?hashes=${BLOCK}`;
+    const blockSummary = (p10: number | null) => [
+      {
+        id: BLOCK,
+        height: 975_516,
+        tx_count: 3,
+        fees: 500,
+        vsize: 400,
+        weight: 1600,
+        fee_rate:
+          p10 === null ? null : { min: 0, p10, p25: 0.2, median: 1, p75: 2, p90: 3, max: 9 },
+        fee_bands: Array.from({ length: 12 }, () => 0),
+      },
+    ];
+    const show = async (p10: number | null, parentIn: string) => {
+      document.body.replaceChildren();
+      clearSummaries();
+      clearApiCache();
+      serve(payment(confirmed), [{ spent: false }, { spent: false }]);
+      replies[summaryUrl] = { status: 200, body: blockSummary(p10) };
+      replies[api(`/tx/${SPENDER}/status`)] = {
+        status: 200,
+        body: { ...confirmed, block_hash: parentIn },
+      };
+      const el = page(`/tx/${TXID}`);
+      await settle();
+      return el.querySelector(".tx-answer__cell--fee .tx-verdict");
+    };
+
+    // 1.00 sat/vB against a low end of 0.12: rounded down, and its note says what the figure is.
+    const above = await show(0.12, OTHER);
+    expect(text(above as Element)).toContain("8.3× its block's low end");
+    const button = above?.querySelector("button.note-figure");
+    const said = document.getElementById(button?.getAttribute("aria-describedby") ?? "");
+    expect(text(said as Element)).toBe(
+      "8.3 times its block's low end. The cheapest tenth of block 975 516, by size, paid 0.12 sat/vB or less. Compared with this transaction's own rate.",
+    );
+    expect(text((await show(0.6, OTHER)) as Element)).toContain("Near its block's low end");
+    // Its parent mined in the same block: it may have paid for it, so no verdict.
+    await expect(show(0.12, BLOCK)).resolves.toBeNull();
+    // At the low end holds whatever the parent: a package's rate would be lower still.
+    expect(text((await show(1, BLOCK)) as Element)).toContain("At its block's low end");
+    // A block without rates, or whose cheapest tenth paid nothing.
+    await expect(show(null, OTHER)).resolves.toBeNull();
+    await expect(show(0, OTHER)).resolves.toBeNull();
+  });
+
+  it("asks for no block summary for a coinbase or an unconfirmed transaction", async () => {
+    const coinbase: Transaction = {
+      ...payment(confirmed),
+      vin: [{ txid: "00".repeat(32), vout: 0xffffffff, is_coinbase: true, scriptsig: "03" }],
+    };
+    serve(coinbase, [{ spent: false }]);
+    page(`/tx/${TXID}`);
+    await settle();
+    serve(payment({ confirmed: false }), [{ spent: false }]);
+    page(`/tx/${TXID}`);
+    await settle();
+    expect(fetchMock.mock.calls.some(([url]) => url.includes("/summary"))).toBe(false);
+    expect(document.querySelector(".tx-verdict")).toBeNull();
   });
 
   it("names a coinbase as what it is", async () => {
