@@ -751,3 +751,239 @@ test("every width from 320 to 1,600 px has a way in: the hint, or Go to under th
   }
   expect(none).toStrictEqual([]);
 });
+
+// Round three: the first open after a failed download asks for every file again and opens only
+// with the palette's stylesheet applied (src/palette/loader.ts).
+test.describe("an open after the palette's files failed to download", () => {
+  test.use({
+    consoleErrorsAllowed: [
+      /ERR_INTERNET_DISCONNECTED|status of 503|preload CSS|dynamically imported module/i,
+    ],
+  });
+
+  /** Whether the panel has Palette.css's look: its rounded glass, not a browser's plain dialog. */
+  const styledPanel = (page: Page) =>
+    palette(page)
+      .locator(".palette__panel")
+      .evaluate((el) => getComputedStyle(el).borderTopLeftRadius);
+
+  test("offline, then online: the next press opens it styled", async ({ page, context }) => {
+    await page.goto("/regtest/blocks");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Blocks");
+    await context.setOffline(true);
+    await shortcut(page);
+    await page.waitForTimeout(1000);
+    await expect(palette(page)).toHaveCount(0);
+    await context.setOffline(false);
+    await shortcut(page);
+    await expect(palette(page)).toBeVisible();
+    expect(await styledPanel(page)).toBe("16px");
+    await expect(field(page)).toBeFocused();
+  });
+
+  test("a warm-up from hovering the hint that fails leaves the press a fresh load", async ({
+    page,
+  }) => {
+    let refused = 0;
+    await page.route(/\/assets\/Palette-[^/]+\.css$/, (route) =>
+      refused++ === 0 ? route.fulfill({ status: 503, body: "" }) : route.continue(),
+    );
+    await page.goto("/regtest/blocks");
+    const hint = page.getByRole("button", { name: "Go to", exact: true });
+    test.skip(!(await hint.isVisible()), "the hint shows only where there is room for it");
+    await hint.hover();
+    await expect.poll(() => refused).toBe(1);
+    await page.waitForTimeout(500);
+    await expect(palette(page)).toHaveCount(0);
+    await hint.click();
+    await expect(palette(page)).toBeVisible();
+    expect(await styledPanel(page)).toBe("16px");
+  });
+
+  test("a stylesheet refused once is asked for again, and the palette opens styled", async ({
+    page,
+  }) => {
+    let refused = 0;
+    await page.route(/\/assets\/Palette-[^/]+\.css$/, (route) =>
+      refused++ === 0 ? route.fulfill({ status: 503, body: "" }) : route.continue(),
+    );
+    await page.goto("/regtest/blocks");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Blocks");
+    await shortcut(page);
+    await page.waitForTimeout(1000);
+    await expect(palette(page)).toHaveCount(0);
+    await shortcut(page);
+    await expect(palette(page)).toBeVisible();
+    expect(await styledPanel(page)).toBe("16px");
+    expect(refused).toBe(2);
+  });
+});
+
+// Round three: "Go to" hangs from the header's bottom edge, over the page only, never over a
+// header control (src/palette/PaletteKey.css).
+
+/** Header controls (links, buttons, fields) under any part of "Go to", found by hit-testing. */
+const covered = (page: Page) =>
+  page.evaluate(() => {
+    const go = document.querySelector(".palette-go");
+    const header = document.querySelector("header");
+    if (!(go instanceof HTMLElement) || !header || getComputedStyle(go).display === "none") {
+      return ["Go to is not shown"];
+    }
+    const box = go.getBoundingClientRect();
+    const hits = new Set<string>();
+    for (let y = box.top + 1; y < box.bottom; y += 4) {
+      for (let x = box.left + 1; x < box.right; x += 6) {
+        for (const el of document.elementsFromPoint(x, y)) {
+          if (el === go || go.contains(el) || !header.contains(el)) continue;
+          const control: Element | null = el.closest(
+            "a, button, input, select, textarea, [tabindex]",
+          );
+          if (control && control !== go) {
+            hits.add(`${control.tagName.toLowerCase()} ${control.textContent?.trim() ?? ""}`);
+          }
+        }
+      }
+    }
+    return [...hits];
+  });
+
+/** Lightning and Ark on, so the header has every section it can have. */
+async function everySection(page: Page) {
+  await page.route(/\/app\/config$/, async (route) => {
+    const response = await route.fetch();
+    const config = (await response.json()) as Record<string, unknown>;
+    await route.fulfill({
+      response,
+      json: { ...config, lightning: ["regtest"], ark: { regtest: ["bark"] } },
+    });
+  });
+}
+
+test.describe("Go to under the search", () => {
+  test("lies over no header control at any width from 320 to 1,600 px", async ({ page }) => {
+    await everySection(page);
+    await page.goto("/regtest/blocks");
+    await expect(page.getByRole("navigation", { name: "Main" }).getByRole("link")).toHaveCount(5);
+    const hint = page.getByRole("button", { name: "Go to", exact: true });
+    const search = page.getByRole("combobox", { name: "Search" });
+    const faults: string[] = [];
+    for (let width = 320; width <= 1600; width += 20) {
+      await page.setViewportSize({ width, height: 800 });
+      if (await hint.isVisible()) continue;
+      await search.focus();
+      for (const hit of await covered(page)) faults.push(`${width} px: ${hit}`);
+      await search.blur();
+    }
+    expect(faults).toStrictEqual([]);
+  });
+
+  test("lies over no header control scrolled down or at a large text size", async ({
+    page,
+    browserName,
+  }) => {
+    await everySection(page);
+    await page.setViewportSize({ width: 360, height: 640 });
+    await page.goto("/regtest/blocks");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Blocks");
+    const search = page.getByRole("combobox", { name: "Search" });
+    await page.mouse.wheel(0, 600);
+    await page.waitForTimeout(200);
+    await search.focus();
+    expect(await covered(page)).toStrictEqual([]);
+    await search.blur();
+    // Only Chromium lets a test set the browser's text size.
+    if (browserName !== "chromium") return;
+    const cdp = await page.context().newCDPSession(page);
+    for (const text of [24, 32]) {
+      await cdp.send("Page.setFontSizes", {
+        fontSizes: { standard: text, fixed: Math.round((text * 13) / 16) },
+      });
+      await page.goto("/regtest/blocks");
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Blocks");
+      await search.focus();
+      expect({ text, hits: await covered(page) }).toStrictEqual({ text, hits: [] });
+      await search.blur();
+    }
+  });
+
+  test("steps aside while the search's own list or answer is shown", async ({ page }) => {
+    await serve(page, mainnet());
+    await page.setViewportSize({ width: 360, height: 640 });
+    await page.goto("/regtest/");
+    const search = page.getByRole("combobox", { name: "Search" });
+    const go = page.getByRole("button", { name: "Go to a page, pool or date" });
+    await search.click();
+    await expect(go).toBeVisible();
+    await search.fill("acinq");
+    await expect(page.getByRole("listbox", { name: "Lightning nodes" })).toBeVisible();
+    await expect(go).toBeHidden();
+    await search.fill("zz");
+    await search.press("Enter");
+    await expect(page.getByText("Nothing matches", { exact: true })).toBeVisible();
+    await expect(go).toBeHidden();
+  });
+});
+
+test("Go to stays out of the network menu's way when the search takes focus under it", async ({
+  page,
+}) => {
+  await page.route(/\/app\/config$/, async (route) => {
+    const response = await route.fetch();
+    const config = (await response.json()) as Record<string, unknown>;
+    await route.fulfill({ response, json: { ...config, networks: ["regtest", "signet"] } });
+  });
+  const go = page.getByRole("button", { name: "Go to a page, pool or date" });
+  const menu = page.locator("#network-menu");
+  // A phone (its search hides the network switch), and two widths where the switch stays beside
+  // a focused search and the hint has no room.
+  for (const width of [360, 680, 1100]) {
+    await page.setViewportSize({ width, height: 640 });
+    await page.goto("/regtest/blocks");
+    await page.getByRole("button", { name: /^Network: Regtest/ }).click();
+    await expect(menu).toBeVisible();
+    // "/" takes focus to the search without a press outside, so the menu stays open.
+    await page.keyboard.press("/");
+    await expect(page.getByRole("banner").getByRole("combobox", { name: "Search" })).toBeFocused();
+    const a = await menu.boundingBox();
+    const b = (await go.isVisible()) ? await go.boundingBox() : null;
+    const overlap =
+      a !== null &&
+      b !== null &&
+      a.width > 0 &&
+      a.x < b.x + b.width &&
+      b.x < a.x + a.width &&
+      a.y < b.y + b.height &&
+      b.y < a.y + a.height;
+    expect({ width, overlap }).toStrictEqual({ width, overlap: false });
+  }
+});
+
+test.describe("on a touch screen at 360 px", () => {
+  test.use({ hasTouch: true });
+  test("a tap on each section while the search has focus follows it", async ({ page }) => {
+    await everySection(page);
+    await page.setViewportSize({ width: 360, height: 640 });
+    await page.goto("/regtest/blocks");
+    const links = page.getByRole("navigation", { name: "Main" }).getByRole("link");
+    await expect(links).toHaveCount(5);
+    const hrefs = await links.evaluateAll((all) =>
+      all.map((a) => new URL((a as HTMLAnchorElement).href).pathname),
+    );
+    const search = page.getByRole("banner").getByRole("combobox", { name: "Search" });
+    const go = page.getByRole("button", { name: "Go to a page, pool or date" });
+    // Each round starts on the light not-found page: five loads of a list page would meet the
+    // server's per-client limit.
+    for (const [i, href] of hrefs.entries()) {
+      await page.goto("/regtest/no/such/page");
+      await expect(links).toHaveCount(5);
+      await search.tap();
+      await expect(go).toBeVisible();
+      const box = await links.nth(i).boundingBox();
+      if (!box) throw new Error(`no box for ${href}`);
+      await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+      await expect(page).toHaveURL(href);
+      await expect(palette(page)).toHaveCount(0);
+    }
+  });
+});
