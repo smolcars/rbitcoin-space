@@ -580,6 +580,26 @@ test("Escape closes the network menu, an exact amount and the search's answer", 
   await expect(search).toBeFocused();
 });
 
+// The command palette is a modal dialog over the page: its field, list and hints, with results of
+// several kinds, empty and typed, in both themes.
+test("the command palette has no checker finding, empty and with results, in either theme", async ({
+  page,
+}) => {
+  await page.goto("/regtest/blocks");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Blocks");
+  await page.keyboard.press("Control+k");
+  const dialog = page.getByRole("dialog", { name: "Go to" });
+  await expect(dialog.getByRole("option").first()).toBeVisible();
+  expect.soft(await axe(page), "axe-core, the palette empty").toEqual([]);
+  await dialog.getByRole("combobox").fill("2024-04-20");
+  await expect(dialog.getByRole("group", { name: "Go to a date" })).toBeVisible();
+  await dialog.getByRole("combobox").fill("106");
+  await expect(dialog.getByRole("option").first()).toContainText("Block 106");
+  expect.soft(await axe(page), "axe-core, the palette with results").toEqual([]);
+  await page.emulateMedia({ colorScheme: "dark" });
+  expect.soft(await axe(page, ["color-contrast"]), "contrast, dark").toEqual([]);
+});
+
 /** Content wider than the screen outside anything that scrolls, with every disclosure open. */
 const overflow = (page: Page) =>
   page.evaluate(() => {
