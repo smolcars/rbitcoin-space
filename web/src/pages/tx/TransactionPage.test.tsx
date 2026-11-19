@@ -1204,6 +1204,62 @@ describe("a lookalike handed over from an address page", () => {
     expect(other.querySelector('button[title="Copy address"]')).not.toBeNull();
   });
 
+  it("announces what the entry shows: cleared when its notice goes, said again when it returns", async () => {
+    serve(poisoning());
+    // A history that keeps each entry's state, as the browser's does, and goes back through it.
+    const entries: { value: string; state?: unknown }[] = [
+      { value: `/tx/${TXID}`, state: handed() },
+    ];
+    let at = 0;
+    const listeners: ((e: { value: string; state?: unknown }) => void)[] = [];
+    const history = {
+      get: () => entries[at] ?? { value: "/" },
+      set: ({ value, state }: { value: string; state?: unknown }) => {
+        entries.splice(++at, entries.length, { value, state });
+      },
+      go: (n: number) => {
+        at = Math.max(0, Math.min(at + n, entries.length - 1));
+        for (const l of listeners) l(entries[at] ?? { value: "/" });
+      },
+      back: () => history.go(-1),
+      forward: () => history.go(1),
+      listen: (l: (e: { value: string; state?: unknown }) => void) => {
+        listeners.push(l);
+        return () => listeners.splice(listeners.indexOf(l), 1);
+      },
+      init: (l: (e: { value: string; state?: unknown }) => void) => history.listen(l),
+      utils: { go: (n: number) => history.go(n) },
+    };
+    const Router = createRouter({
+      routes: [{ path: "/tx/:txid", component: TransactionPage }],
+      history,
+    });
+    const el = document.createElement("div");
+    document.body.append(el);
+    disposers.push(render(() => <Router>{(route) => route.children}</Router>, el));
+    await settle();
+    const said = () => text(el.querySelectorAll("p[aria-live=polite]")[1] as Element);
+    const TITLE = "Someone may be imitating the address you came from";
+    expect(el.querySelector("section.tx-lookalike")).not.toBeNull();
+    expect(said()).toBe(TITLE);
+
+    // The same URL through the router, with no state: the notice goes, and so does what is said.
+    const link = document.createElement("a");
+    link.href = `/tx/${TXID}`;
+    el.append(link);
+    link.click();
+    await settle();
+    expect(entries).toHaveLength(2);
+    expect(el.querySelector("section.tx-lookalike")).toBeNull();
+    expect(said()).toBe("");
+
+    // Back to the entry that carried it: the notice returns, and is said again.
+    history.back();
+    await settle();
+    expect(el.querySelector("section.tx-lookalike")).not.toBeNull();
+    expect(said()).toBe(TITLE);
+  });
+
   it("says nothing for the same transaction opened any other way", async () => {
     serve(poisoning());
     const el = page(`/tx/${TXID}`);

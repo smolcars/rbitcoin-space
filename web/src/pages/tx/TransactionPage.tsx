@@ -146,14 +146,12 @@ function TransactionView(props: { txid: string }) {
     const t = ready();
     return t ? readHandover(location.state, t, network()) : undefined;
   });
-  // Said once, politely, when the notice first shows; never again as the transaction refreshes.
-  const [lookalikeSaid, setLookalikeSaid] = createSignal("");
-  createEffect(
-    () => handed(),
-    (h) => {
-      if (h) setLookalikeSaid((said) => said || lookalikeTitle(h));
-    },
-  );
+  // Said politely when the notice shows, cleared when it goes. A memo of the words, so a refresh
+  // that hands back the same findings writes nothing and is not said again.
+  const lookalikeSaid = createMemo(() => {
+    const h = handed();
+    return h ? lookalikeTitle(h) : "";
+  });
   /** The model's clock when the transaction was last asked for. */
   let txAsked = 0;
   /** Numbers the page's HTTP questions about the status, the first load being 0. */
