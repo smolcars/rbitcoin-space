@@ -10,6 +10,17 @@ export const QUIET = 4;
  * 4 px a module; 0.4 read every one tried (docs/FRONTEND.md, "QR codes").
  */
 const R = 0.4;
+/**
+ * The card's width on a narrow phone, in px, with room to spare: a 320 px phone gives 302. The logo
+ * is drawn only where it leaves the code `LOGO_MIN_PX` px a module or more on a card this wide.
+ */
+const NARROWEST_CARD = 296;
+/**
+ * On 296 px, version 10 codes (4.55 px a module) with the logo read in ZBar, ZXing and OpenCV for
+ * every mask and string tried, as they did from 284 to 320 px; version 12 (4.05 px) with the logo
+ * lost OpenCV 28 of 48 reads it made without, and version 11 (4.29 px) lost 9 of 48 at 318 px.
+ */
+const LOGO_MIN_PX = 4.5;
 /** At most this share of what a block can correct may be lost under the logo; the rest is margin. */
 const DAMAGE_BUDGET = 0.5;
 /** The clear square's side at most, as a share of the code's: beyond it the logo crowds the code. */
@@ -54,12 +65,14 @@ function middleAlignment(code: QrCode): boolean {
 
 /**
  * Room for the logo that no block pays more than half of what it can correct for, so half is left
- * for the camera; null when there is none (a code too long, or one with alignment patterns around
- * its middle, versions 14 and up, which these pages never reach).
+ * for the camera; null when there is none: a code too dense for the narrowest card (version 11 and
+ * up), or one whose blocks cannot spare the room.
  */
 export function markFor(code: QrCode): Mark | null {
   // From 14 the middle has no pattern of its own (14 to 20) or the room crosses others (21 and up).
   if (code.version >= 14) return null;
+  // Too dense to spare the room on the narrowest card: from version 11.
+  if (NARROWEST_CARD / (code.size + 2 * QUIET) < LOGO_MIN_PX) return null;
   const m = (code.size - 1) / 2;
   if (code.version <= 6) {
     const max = Math.floor(code.size * MAX_CLEAR);

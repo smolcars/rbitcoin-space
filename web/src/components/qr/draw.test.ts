@@ -24,8 +24,6 @@ describe("markFor", () => {
     // Version 7 by length, made 8 for the crab's room.
     ["a connect string with an IPv4 host", IPV4, 8, "crab"],
     ["a connect string with a v3 onion", ONION, 10, "crab"],
-    // The longest the node page shows: an address cut at 128 characters.
-    ["the longest connect string", `${PUB}@${"a".repeat(128)}`, 12, "crab"],
   ])("leaves room for the logo in %s", (_, text, version, kind) => {
     const code = codeFor(text);
     expect(code?.version).toBe(version);
@@ -33,6 +31,22 @@ describe("markFor", () => {
     expect(mark?.kind).toBe(kind);
     // No block pays more than half of what it can correct for.
     expect(code && mark ? damage(code, mark.hidden) : 1).toBeLessThanOrEqual(0.5);
+  });
+
+  it("draws the logo only where the narrowest card gives it 4.5 px a module or more", () => {
+    // Version 10 (65 modules with the quiet zone) is 4.55 px on 296 px; 11 is 4.29.
+    for (const v of [8, 9, 10]) {
+      const code = encodeQr("x", "Q", { minVersion: v });
+      expect(code && markFor(code), `version ${v}`).not.toBeNull();
+    }
+    for (const v of [11, 12, 13]) {
+      const code = encodeQr("x", "Q", { minVersion: v });
+      expect(code && markFor(code), `version ${v}`).toBeNull();
+    }
+    // The longest connect string the node page shows (195 bytes) is version 12: no logo.
+    const longest = codeFor(`${PUB}@${"a".repeat(128)}`);
+    expect(longest?.version).toBe(12);
+    expect(longest && markFor(longest)).toBeNull();
   });
 
   it("keeps the middle alignment pattern, which the crab lifts", () => {
