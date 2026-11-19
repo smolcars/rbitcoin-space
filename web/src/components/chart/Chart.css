@@ -266,6 +266,18 @@
       min-height: var(--touch);
     }
   }
+  /* A thumb's target on a touch screen wider than a phone, drawn nowhere and moving nothing: it
+     takes the gap above the line and the rest below it, so it never reaches over the plot. */
+  @media (pointer: coarse) and (min-width: 40.0625em) {
+    .chart__csv {
+      position: relative;
+    }
+    .chart__csv::before {
+      content: "";
+      position: absolute;
+      inset: calc(-1 * var(--space-2)) 0 calc(1lh + var(--space-2) - var(--touch));
+    }
+  }
   .chart__figures[open] > summary {
     margin-bottom: var(--space-3);
   }

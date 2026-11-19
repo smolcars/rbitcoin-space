@@ -908,7 +908,7 @@ export default function Chart(props: ChartProps) {
         <Show when={props.x.length > 0}>
           <button
             type="button"
-            class="chart__csv tap"
+            class="chart__csv"
             aria-label={`Download CSV: ${props.label}`}
             onClick={download}
           >
