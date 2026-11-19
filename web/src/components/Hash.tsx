@@ -86,14 +86,15 @@ export function Hash(props: HashProps) {
   );
 }
 
-/** A hash shown whole as a page subject, in groups of eight, with a copy button. */
-export function HashFull(props: { value: string; copyLabel?: string }) {
+/** A hash shown whole as a page subject, in groups of eight, with a copy button and `children` after it. */
+export function HashFull(props: { value: string; copyLabel?: string; children?: JSX.Element }) {
   return (
     <span class="hash hash--full">
       <span class="hash__text">
         <For each={hashGroups(props.value)}>{(g) => <span class="hash__group">{g}</span>}</For>
       </span>
       <CopyButton value={props.value} {...(props.copyLabel ? { label: props.copyLabel } : {})} />
+      {props.children}
     </span>
   );
 }

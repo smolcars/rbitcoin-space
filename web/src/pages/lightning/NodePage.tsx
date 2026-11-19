@@ -6,6 +6,7 @@ import { createEffect, createSignal, For, Match, Show, Switch, untrack } from "s
 import { Amount } from "../../components/Amount";
 import { formatDay } from "../../components/chart/scale";
 import { CopyButton } from "../../components/CopyButton";
+import { QrButton } from "../../components/qr/QrButton";
 import { HashFull } from "../../components/Hash";
 import { Link } from "../../components/Link";
 import { More } from "../../components/More";
@@ -375,6 +376,7 @@ function Identity(props: { node: NodeDetail }) {
                 <span class="ln-node-connect">
                   <span class="mono ln-node-connect__text">{s()}</span>
                   <CopyButton value={s()} label="Copy the connect string" />
+                  <QrButton value={s()} what="connect string" colour={colour()} />
                 </span>
               )}
             </Show>

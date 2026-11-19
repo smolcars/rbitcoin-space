@@ -12,6 +12,7 @@ import {
   untrack,
 } from "solid-js";
 import { HashFull } from "../../components/Hash";
+import { QrButton } from "../../components/qr/QrButton";
 import { busyRetrying, createApi, createRequest, fetchApp } from "../../lib/api";
 import { fetchConfig } from "../../lib/config";
 import { type LiveStatus, useLiveStatus, useTopic } from "../../lib/live";
@@ -94,7 +95,11 @@ export default function AddressPage() {
           </Show>
         </div>
         <Show when={found()} fallback={<p class="address-head__raw">{input()}</p>}>
-          {(f) => <HashFull value={f().address} copyLabel="Copy address" />}
+          {(f) => (
+            <HashFull value={f().address} copyLabel="Copy address">
+              <QrButton value={f().address} what="address" />
+            </HashFull>
+          )}
         </Show>
       </header>
       <Switch>
