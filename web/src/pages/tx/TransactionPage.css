@@ -543,10 +543,7 @@
   .tx-lookalike__quiet {
     color: var(--color-text-muted);
   }
-  /* Its card: the caution rule on the left and a word with the triangle, never the colour alone. */
-  .tx-flow__item--lookalike {
-    border-left: 3px solid var(--color-caution);
-  }
+  /* Its card's caution rule is with the cards (".tx-flow__item"), after their border. */
   .tx-lookalike-tag {
     display: inline-flex;
     align-items: center;
@@ -905,6 +902,11 @@
   .tx-flow__item.is-selected {
     border-color: var(--color-accent);
     box-shadow: 0 0 0 1px var(--color-accent);
+  }
+  /* A handed-over lookalike's card (Lookalike.tsx): the caution rule on the left, after the card's
+     border and the selection's colour, beside a word with the triangle, never the colour alone. */
+  .tx-flow__item.tx-flow__item--lookalike {
+    border-left: 3px solid var(--color-caution);
   }
   .tx-flow__who {
     grid-area: who;

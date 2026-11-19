@@ -1,7 +1,7 @@
 // Address poisoning on the run's chain: a payment that names a lookalike of the page's own address,
 // and one that names a lookalike of an address another transaction paid (docs/FRONTEND.md
 // "Lookalike addresses"). It mines, so it runs after every other test (the `mines` project).
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import { chain, expect, test } from "./fixtures";
 import { block, coinbase, MINER_SCRIPT, type Rpc, spending } from "./regtest";
 
@@ -31,6 +31,18 @@ async function payAll(rpc: Rpc, addresses: string[]): Promise<string> {
   outputs.push([MINER_SCRIPT, coin.sats - 600n * BigInt(addresses.length) - 10_000n]);
   return rpc<string>("sendrawtransaction", [spending(coin.txid, outputs)]);
 }
+
+/** A card's computed left border: its width, and whether its colour is the caution token's. */
+const cautionRule = (card: Locator) =>
+  card.evaluate((el) => {
+    const probe = document.createElement("span");
+    probe.style.color = "var(--color-caution)";
+    document.body.append(probe);
+    const caution = getComputedStyle(probe).color;
+    probe.remove();
+    const s = getComputedStyle(el);
+    return { width: s.borderLeftWidth, caution: s.borderLeftColor === caution };
+  });
 
 const notes = (page: Page) => page.locator(".address-txs .table__note");
 const rows = (page: Page) => page.locator(".address-txs tbody tr:not(.table__note)");
@@ -75,6 +87,8 @@ test("warns under a payment naming a lookalike, and nowhere else", async ({ page
   await expect(card).toHaveCount(1);
   await expect(card).toContainText("Lookalike");
   await expect(card.locator(`a[href="/regtest/address/${VICTIM_LOOKALIKE}"]`)).toHaveCount(1);
+  // Its caution rule is drawn, not only its word: the computed left border, against the token.
+  expect(await cautionRule(card)).toStrictEqual({ width: "3px", caution: true });
   // A reload keeps it, as the browser keeps the entry's state (so does going to the same URL).
   await page.reload();
   await expect(caution).toBeVisible();
