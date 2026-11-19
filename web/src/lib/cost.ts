@@ -8,7 +8,9 @@ declare const process: { cpuUsage: () => { user: number; system: number } };
  * A run's answer and the processor time it took, in milliseconds, not the time that passed: beside
  * other builds a run waits its turn for many times as long as it works (a 170 ms read took 2,434 ms
  * with every core taken four times over), and waiting is no cost of the code. It counts the whole
- * process, which is the test alone: Vitest runs each test file in a process of its own.
+ * process: no other test, as Vitest runs each test file in a process of its own, but Node's own
+ * background threads with it (garbage collection), so leave a limit room. `run` must do all its
+ * work before it returns: time spent after an `await` is not counted.
  */
 export function cost<T>(run: () => T): { value: T; ms: number } {
   const used = () => {
