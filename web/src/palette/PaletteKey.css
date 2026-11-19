@@ -1,0 +1,73 @@
+/* The header's ways into the palette. In the shell's first load, so kept small. */
+@layer components {
+  /* The search and its hint share the search's cell: the field takes what the hint leaves. */
+  .site-header__search {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  .site-header__search > .search {
+    flex: 1;
+    min-width: 0;
+  }
+
+  /* Key caps, as the search's "/" is drawn, in a 44 px target. */
+  .palette-hint {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    gap: 3px;
+    min-height: var(--touch);
+    padding: 0 var(--space-1);
+    border: 0;
+    background: none;
+    color: var(--color-text-muted);
+    cursor: pointer;
+  }
+  .palette-hint kbd {
+    display: inline-grid;
+    place-items: center;
+    min-width: 22px;
+    height: 22px;
+    padding: 0 5px;
+    border: 1px solid var(--color-line-strong);
+    border-bottom-width: 2px;
+    border-radius: var(--radius-s);
+    background: var(--color-surface);
+    font: inherit;
+    font-size: var(--text-xs);
+    line-height: 1;
+    transition: transform var(--dur-instant) var(--ease-out);
+  }
+  @media (hover: hover) {
+    .palette-hint:hover {
+      color: var(--color-text);
+    }
+    .palette-hint:hover kbd {
+      border-color: var(--color-text-muted);
+    }
+  }
+  .palette-hint:active kbd {
+    transform: translateY(1px);
+  }
+
+  .palette-phone {
+    display: none;
+    flex: none;
+  }
+
+  /* A phone has no room for the hint at rest. While its search has the row, "Go to" sits at the
+     row's end, so what was typed can go on to the palette. */
+  @media (max-width: 40em) {
+    .palette-hint {
+      display: none;
+    }
+    .site-header__inner:is(
+        :has(.site-header__search:focus-within),
+        :has(.site-header__search .search__panel)
+      )
+      .palette-phone {
+      display: inline-flex;
+    }
+  }
+}

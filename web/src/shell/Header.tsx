@@ -8,6 +8,7 @@ import { NetworkSwitch } from "./NetworkSwitch";
 import { ThemeToggle } from "./ThemeToggle";
 import "./Header.css";
 import { dragScroll } from "../components/dragScroll";
+import { PaletteKey } from "../palette/PaletteKey";
 
 const NAV = [
   { href: "/blocks", label: "Blocks", match: (p: string) => /^\/blocks?(\/|$)/.test(p) },
@@ -110,6 +111,11 @@ export function Header(props: {
         <NetworkSwitch networks={props.networks} />
         <div class="site-header__search">
           <SearchField ref={(el) => (search = el)} />
+          <PaletteKey
+            typed={() =>
+              search !== undefined && document.activeElement === search ? search.value : ""
+            }
+          />
         </div>
         <nav class="nav" aria-label="Main" ref={(el) => dragScroll(el)}>
           {nav().map((item) => (
