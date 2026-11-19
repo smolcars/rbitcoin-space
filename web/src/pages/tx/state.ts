@@ -168,7 +168,14 @@ export const polls = (l: Liveness): boolean => l !== "live" && l !== "connecting
 /** The newest transaction of a replacement chain: the one to follow. */
 export const newest = (chain: readonly ReplacementLink[]): string | undefined => chain.at(-1)?.by;
 
-/** The sentence to announce once when the shown state changes, or undefined. */
+/** Said of a child once the server says it left with a transaction it depended on. */
+export const LEFT_WITH_PARENT =
+  "Not replaced itself: it left the mempool with a transaction it depended on, which was replaced.";
+
+/**
+ * The sentence to announce once when the shown state changes, or undefined. `child`: the page
+ * already knows its own link is a child's (docs/MEMPOOL.md, "Versions").
+ */
 export function announcement(before: Shown, after: Shown, child = false): string | undefined {
   if (before.kind === "loading") return undefined;
   if (after.kind === "mempool") {
@@ -192,15 +199,17 @@ export function announcement(before: Shown, after: Shown, child = false): string
       before.kind === "replaced" &&
       newest(after.chain) !== newest(before.chain)
     ) {
-      // A child left with a transaction it depended on: what was replaced again is not its own.
+      // A child left with a transaction it depended on: the line it is shown in can go on by a
+      // new version or by another removal, and only its newest end is known to have changed.
       return child
-        ? "What replaced the transaction it depended on was replaced too."
+        ? "The newest transaction in its line changed."
         : "Its replacement was replaced too.";
     }
     return undefined;
   }
   if (after.kind === "confirmed") return `Confirmed in block ${groupDigits(after.height)}.`;
   if (after.kind === "replaced") {
+    if (child) return LEFT_WITH_PARENT;
     const rate = after.chain.at(-1)?.byRate;
     return rate === undefined
       ? "Replaced by another transaction spending the same coins."

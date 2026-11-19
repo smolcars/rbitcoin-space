@@ -1035,11 +1035,18 @@ describe("TransactionPage", () => {
     );
     expect(whole).not.toContain("no longer exist");
     expect(whole).toContain("No: it was removed with its parent");
+    // Nowhere does it promise what a miner may still undo.
+    expect(whole).toContain("Not expected to confirm");
+    expect(whole).not.toContain("Will not confirm");
+    // The topic spoke first and said "replaced": the route's word is announced after it.
+    expect(text(el.querySelector("p[aria-live=polite]") as Element)).toBe(
+      "Not replaced itself: it left the mempool with a transaction it depended on, which was replaced.",
+    );
     expect(whole).not.toContain("the version that replaced it");
     expect(whole).not.toContain("No: it was replaced");
 
     // What replaced its parent is replaced in turn, and the ask that follows fails: the page
-    // keeps what the route last said, so it still reads as removed, never as replaced twice.
+    // keeps that its own link is a child's, so it still reads as removed, never as replaced twice.
     const NEWER = "9".repeat(64);
     replies[`/app/tx/${TXID}/replacements`] = { status: 500, body: { error: "down" } };
     ws.receive(
@@ -1067,7 +1074,7 @@ describe("TransactionPage", () => {
     // The second link is not known to be a child's: it reads as a replacement.
     expect(later).toContain("ffffffff…ffffffffreplaced by 99999999…99999999");
     expect(text(el.querySelector("p[aria-live=polite]") as Element)).toBe(
-      "What replaced the transaction it depended on was replaced too.",
+      "The newest transaction in its line changed.",
     );
   });
 

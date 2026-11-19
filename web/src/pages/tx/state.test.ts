@@ -471,3 +471,33 @@ describe("the summary's block strip", () => {
     });
   });
 });
+
+describe("what is announced of a child that left with its parent", () => {
+  const A = "a".repeat(64);
+  const B = "b".repeat(64);
+  const C = "c".repeat(64);
+  const waiting = { kind: "mempool", position: null, time: 1, rate: null, live: true } as const;
+  const left = (by: string[]) =>
+    ({
+      kind: "replaced",
+      chain: by.map((b, i) => ({ txid: i === 0 ? A : (by[i - 1] ?? A), by: b })),
+      truncated: false,
+    }) as const;
+
+  it("is that it left with a transaction it depended on, once the page knows", () => {
+    // Not known yet: only the topic's word.
+    expect(announcement(waiting, left([B]))).toBe(
+      "Replaced by another transaction spending the same coins.",
+    );
+    expect(announcement(waiting, left([B]), true)).toBe(
+      "Not replaced itself: it left the mempool with a transaction it depended on, which was replaced.",
+    );
+  });
+
+  it("claims nothing of how its line went on, only that its newest end changed", () => {
+    expect(announcement(left([B]), left([B, C]), true)).toBe(
+      "The newest transaction in its line changed.",
+    );
+    expect(announcement(left([B]), left([B, C]))).toBe("Its replacement was replaced too.");
+  });
+});

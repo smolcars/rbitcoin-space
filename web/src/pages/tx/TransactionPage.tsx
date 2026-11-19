@@ -43,6 +43,7 @@ import { Inspector } from "./Inspector";
 import { Chain, Follow, Group, leftWithParent, LiveState, POLL_MS, Strip } from "./Live";
 import {
   announcement as sayChange,
+  LEFT_WITH_PARENT,
   answered,
   EMPTY,
   heard,
@@ -367,10 +368,6 @@ function TransactionView(props: { txid: string }) {
   };
   // The page's own abort signal, not the request's: an answer a newer request replaced still
   // records what it learned in the model.
-  // What the route last said: kept when a later ask fails, so a page that knows a transaction
-  // left with its parent does not go back to calling it replaced. What it says is matched to
-  // the link shown (`leftWithParent`), so an old answer speaks only for the link it was about.
-  let lastSaid: Replacements | null = null;
   const [replacements] = createRequest(replacementsKey, async () => {
     try {
       const r = parseReplacements(
@@ -379,17 +376,31 @@ function TransactionView(props: { txid: string }) {
         }),
       );
       if (r) setModel((m) => recorded(m, r.replacedBy, r.truncated));
-      lastSaid = r ?? null;
-      return lastSaid;
+      return r ?? null;
     } catch {
-      return lastSaid;
+      return null;
     }
+  });
+  // The links the route said are a child's, kept for the page's life: two transactions that share
+  // no input never come to share one, so what was said of a link stays true of it. Taken only
+  // from answers the page took up (one a newer ask replaced is never read here), and nothing
+  // else of an old answer is kept: when a later ask fails, the page still knows a transaction
+  // left with its parent and does not go back to calling it replaced, and shows no comparison
+  // it cannot vouch for.
+  const childLinks = new Map<string, ReplacementLink>();
+  const later = createMemo((): ReplacementLink[] => {
+    const said = replacements()?.replacedBy;
+    for (const l of said ?? []) {
+      if (l.shared === 0)
+        childLinks.set(`${l.txid}>${l.by}`, { txid: l.txid, by: l.by, shared: 0 });
+    }
+    return said ?? [...childLinks.values()];
   });
   const replaced = () => replacements()?.replaces.filter((l) => l.by === props.txid) ?? [];
   // Shown as replaced, but by nothing of its own: it left with a transaction it depended on.
   const childNow = () => {
     const s = shownNow();
-    return s.kind === "replaced" && leftWithParent(s.chain[0], replacements()?.replacedBy);
+    return s.kind === "replaced" && leftWithParent(s.chain[0], later());
   };
 
   // Who it is mined with: asked again when its group's rate changes.
@@ -413,6 +424,11 @@ function TransactionView(props: { txid: string }) {
 
   // Each change of state is said once, in words; a position that only moves is not.
   const [announcement, setAnnouncement] = createSignal("");
+  // The topic's word comes first and says only "replaced": once the route says it left with a
+  // transaction it depended on, that is said, so the announcement does not stand uncorrected.
+  createEffect(childNow, (is, was) => {
+    if (is && was !== true) setAnnouncement(LEFT_WITH_PARENT);
+  });
   const [justConfirmed, setJustConfirmed] = createSignal(false);
   const [reorged, setReorged] = createSignal<number>();
   createEffect(shownNow, (after, before) => {
@@ -470,7 +486,7 @@ function TransactionView(props: { txid: string }) {
       </p>
       <Switch fallback={<Skeleton />}>
         <Match when={missing() && shownNow()} keyed>
-          {(s) => <Departed shown={s} replacements={replacements()} />}
+          {(s) => <Departed shown={s} replacements={replacements()} later={later()} />}
         </Match>
         <Match when={tx.error}>
           <ErrorState title="Could not load this transaction" error={tx.error} retry={retry} />
@@ -489,7 +505,7 @@ function TransactionView(props: { txid: string }) {
               reorged={reorged()}
               replaced={replaced()}
               versions={replacements()?.versions}
-              later={replacements()?.replacedBy ?? []}
+              later={later()}
               relatives={relatives() ?? undefined}
               liveness={live()}
             />
@@ -504,7 +520,12 @@ function TransactionView(props: { txid: string }) {
  * A transaction the node does not have: what this server knows of it, and no more. Replaced or
  * dropped while someone followed it, replaced while the server remembered, or simply not found.
  */
-function Departed(props: { shown: Shown; replacements: Replacements | null | undefined }) {
+function Departed(props: {
+  shown: Shown;
+  replacements: Replacements | null | undefined;
+  /** What replaced it, as the route said, or the child's links it said before an ask failed. */
+  later: ReplacementLink[];
+}) {
   const network = useNetwork();
   return (
     <Switch
@@ -532,7 +553,7 @@ function Departed(props: { shown: Shown; replacements: Replacements | null | und
             chain={s.chain}
             truncated={s.truncated}
             versions={props.replacements?.versions}
-            later={props.replacements?.replacedBy}
+            later={props.later}
           />
         )}
       </Match>
@@ -725,7 +746,7 @@ function Body(props: {
     const third: Step =
       props.shown.kind === "replaced"
         ? {
-            title: "Will not confirm",
+            title: child() ? "Not expected to confirm" : "Will not confirm",
             detail: child()
               ? "Unless the transaction it depended on is mined after all, in place of what replaced it."
               : "Its coins are spent by the version that replaced it.",
@@ -967,7 +988,9 @@ function Body(props: {
                 <dt>Block</dt>
                 <dd>
                   <span class="tx-answer__value">{MISSING}</span>
-                  <span class="tx-answer__sub">Will not confirm</span>
+                  <span class="tx-answer__sub">
+                    {child() ? "Not expected to confirm" : "Will not confirm"}
+                  </span>
                 </dd>
               </>
             }
