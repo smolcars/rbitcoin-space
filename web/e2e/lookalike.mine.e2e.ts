@@ -62,6 +62,24 @@ test("warns under a payment naming a lookalike, and nowhere else", async ({ page
   await top.getByRole("button", { name: "Go to the transaction" }).click();
   await expect(note).toBeFocused();
 
+  // Opened from that row, the transaction page says so and marks the lookalike where it appears.
+  const flagged = `/regtest/tx/${txids[1]}`;
+  await rows(page).first().locator("a.hash__text").click();
+  await expect(page).toHaveURL(flagged);
+  const caution = page.locator("section.tx-lookalike");
+  await expect(caution.getByRole("heading")).toHaveText(
+    "Someone may be imitating the address you came from",
+  );
+  await expect(caution.locator(".lookalike__agree")).toHaveText(["92tj", "mmx6", "92tj", "mmx6"]);
+  const card = page.locator(".tx-flow__item--lookalike");
+  await expect(card).toHaveCount(1);
+  await expect(card).toContainText("Lookalike");
+  await expect(card.locator(`a[href="/regtest/address/${VICTIM_LOOKALIKE}"]`)).toHaveCount(1);
+  // The same transaction opened any other way says nothing.
+  await page.goto(flagged);
+  await expect(page.locator(".tx-flow__item").first()).toBeVisible();
+  await expect(page.locator(".tx-lookalike, .tx-flow__item--lookalike")).toHaveCount(0);
+
   // A lookalike of an address another payment named: both rows carry it.
   await page.goto(`/regtest/address/${CUSTOMER}`);
   await expect(rows(page)).toHaveCount(2);
@@ -72,6 +90,11 @@ test("warns under a payment naming a lookalike, and nowhere else", async ({ page
   await expect(page.locator(".address-poison h2")).toHaveText(
     "Lookalike addresses in this history",
   );
+  await rows(page).first().locator("a.hash__text").click();
+  await expect(page.locator("section.tx-lookalike h2")).toHaveText(
+    "This transaction names a lookalike address",
+  );
+  await expect(page.locator(".tx-flow__item--lookalike")).toHaveCount(1);
 
   // An ordinary history.
   await page.goto(`/regtest/address/${chain.addresses.p2wpkh}`);

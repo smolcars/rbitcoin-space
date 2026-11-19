@@ -5,6 +5,7 @@ import { clearApiCache } from "../../lib/api";
 import { clearSummaries } from "../../lib/summary";
 import type { Outspend, Transaction, TxStatus } from "../../lib/esplora";
 import { fakeBlock, FakeSocket } from "../../lib/fakes";
+import { handoverState, type Lookalike } from "../../lib/lookalike";
 import TransactionPage, { POLL_MS } from "./TransactionPage";
 
 const TXID = "d1d7cf2b9189a07521354c5d5012c3147d9825596b6ec6cc3100904f0785fcfe";
@@ -84,8 +85,16 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function page(path: string): HTMLElement {
-  const history = memoryHistory(path);
+/** The page at `path`, its history entry carrying `state` as a link's navigation would. */
+function page(path: string, state?: unknown): HTMLElement {
+  const memory = memoryHistory(path);
+  const history =
+    state === undefined
+      ? memory
+      : {
+          ...memory,
+          get: () => ({ value: memory.get(), state: memory.get() === path ? state : undefined }),
+        };
   const Router = createRouter({
     routes: [{ path: ["/tx/:txid", "/regtest/tx/:txid"], component: TransactionPage }],
     history,
@@ -1123,5 +1132,103 @@ describe("TransactionPage", () => {
       '<img src=x onerror="alert(1)">\\u{202e}',
     );
     expect(el.querySelector("img")).toBeNull();
+  });
+});
+
+describe("a lookalike handed over from an address page", () => {
+  // The regtest browser test's addresses (e2e/lookalike.mine.e2e.ts): real checksums.
+  const VICTIM = "bcrt1q92tjde2x93754htnwfj50zh9g2dmx39f5kmmx6";
+  const LOOKALIKE = "bcrt1q92tjvp70h8qk3ma6v7u4cnyqkffq94gvfsmmx6";
+  const found: Lookalike = {
+    here: LOOKALIKE,
+    like: VICTIM,
+    own: true,
+    head: 4,
+    tail: 4,
+    prefix: 6,
+  };
+  const poisoning = (): Transaction => ({
+    ...payment(confirmed),
+    vout: [out(600, P2WPKH, VICTIM), out(600, P2WPKH, LOOKALIKE)],
+  });
+  const handed = (f: Lookalike[] = [found]) => JSON.parse(handoverState(VICTIM, f)) as unknown;
+  const marked = (el: Element) => el.querySelectorAll(".tx-flow__item--lookalike");
+
+  it("warns at the top, marks the address on its card and in the inspector, and says it once", async () => {
+    serve(poisoning());
+    const el = page(`/tx/${TXID}`, handed());
+    await settle();
+    const notice = el.querySelector("section.tx-lookalike") as Element;
+    expect(text(notice.querySelector("h2") as Element)).toBe(
+      "Someone may be imitating the address you came from",
+    );
+    expect(text(notice)).toContain(
+      "This transaction names an address that starts and ends like the address you came from.",
+    );
+    expect(text(notice)).toContain("Check every character, not just the ends");
+    expect(text(notice)).toContain("may be address poisoning");
+    expect(text(notice)).toContain("this page does not look for lookalikes itself");
+    // Both whole, their agreeing ends marked, and where they agree said aloud.
+    const agree = [...notice.querySelectorAll(".lookalike__agree")].map((e) => text(e));
+    expect(agree).toStrictEqual(["92tj", "mmx6", "92tj", "mmx6"]);
+    expect(text(notice)).toContain(LOOKALIKE);
+    expect(text(notice)).toContain(VICTIM);
+    expect(text(notice)).toContain("agree on the first 4 and last 4 characters after bcrt1q");
+    // Screen readers hear the heading once, from its own polite region.
+    const regions = [...el.querySelectorAll("p[aria-live=polite]")].map((p) => text(p));
+    expect(regions).toContain("Someone may be imitating the address you came from");
+
+    // On the card that names it, in words, and on no other.
+    const cards = el.querySelectorAll(".tx-flow__col--out .tx-flow__item");
+    expect(marked(el)).toHaveLength(1);
+    expect(marked(el)[0]).toBe(cards[1]);
+    expect(text(cards[1] as Element)).toContain("Lookalike address: check every character");
+    expect(text(cards[0] as Element)).not.toContain("Lookalike");
+
+    // Its inspector shows it whole, marked, and its copy button says what it copies.
+    cards[1]?.querySelector<HTMLButtonElement>(".tx-flow__open")?.click();
+    await settle();
+    const inspector = el.querySelector("#tx-inspector") as Element;
+    expect(inspector.querySelector(".tx-lookalike-addr a")?.getAttribute("href")).toBe(
+      `/address/${LOOKALIKE}`,
+    );
+    expect(inspector.querySelector('button[title="Copy lookalike address"]')).not.toBeNull();
+    expect(text(inspector)).toContain("it starts and ends like the address you came from");
+    expect(text(inspector)).toContain(VICTIM);
+    // The other output's address is as it always was.
+    cards[0]?.querySelector<HTMLButtonElement>(".tx-flow__open")?.click();
+    await settle();
+    const other = el.querySelector("#tx-inspector") as Element;
+    expect(other.querySelector(".tx-lookalike-addr, .tx-lookalike-note")).toBeNull();
+    expect(other.querySelector('button[title="Copy address"]')).not.toBeNull();
+  });
+
+  it("says nothing for the same transaction opened any other way", async () => {
+    serve(poisoning());
+    const el = page(`/tx/${TXID}`);
+    await settle();
+    expect(el.querySelector(".tx-flow__item")).not.toBeNull();
+    expect(el.querySelector(".tx-lookalike, .tx-lookalike-tag, .lookalike__address")).toBeNull();
+    expect(marked(el)).toHaveLength(0);
+    const regions = [...el.querySelectorAll("p[aria-live=polite]")].map((p) => text(p));
+    expect(regions.join("")).not.toContain("imitating");
+  });
+
+  it("says nothing when what it was handed is not of this transaction, or malformed", async () => {
+    for (const state of [
+      // A lookalike this transaction does not name.
+      handed([{ ...found, here: "bcrt1q92tjqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqmmx6" }]),
+      { lookalike: { from: VICTIM, found: "everything", count: 1 } },
+      { lookalike: "<b>hi</b>" },
+    ]) {
+      serve(poisoning());
+      const el = page(`/tx/${TXID}`, state);
+      await settle();
+      expect(el.querySelector(".tx-flow__item")).not.toBeNull();
+      expect(el.querySelector(".tx-lookalike, .tx-lookalike-tag")).toBeNull();
+      for (const d of disposers.splice(0)) d();
+      document.body.replaceChildren();
+      clearApiCache();
+    }
   });
 });

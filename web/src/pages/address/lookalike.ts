@@ -3,6 +3,9 @@
 // its thresholds and their arithmetic are in docs/FRONTEND.md ("Lookalike addresses").
 import { recognise } from "../../lib/address";
 import type { Transaction } from "../../lib/esplora";
+import { addressesOf, type Lookalike } from "../../lib/lookalike";
+
+export type { Lookalike } from "../../lib/lookalike";
 
 /** Characters after the type prefix that must agree with the page's own address. */
 export const OWN_HEAD = 2;
@@ -10,21 +13,6 @@ export const OWN_HEAD = 2;
 export const PAIR_HEAD = 3;
 /** Last characters that must agree, for either. Every short form on the site keeps the last eight. */
 export const TAIL = 4;
-
-/** One address in a transaction that looks like another. */
-export interface Lookalike {
-  /** The address in this transaction. */
-  here: string;
-  /** The address it looks like: the page's own, or one elsewhere in the loaded history. */
-  like: string;
-  /** `like` is the page's own address. */
-  own: boolean;
-  /** How many characters after the type prefix agree, and how many at the end. */
-  head: number;
-  tail: number;
-  /** The type prefix both share (`bc1q`, `1`), shown apart from the agreeing characters. */
-  prefix: number;
-}
 
 /** Keys start with the kind: type, network prefix and, for bech32, length. Only one kind compares. */
 interface Form {
@@ -66,20 +54,6 @@ function agreeTail(a: string, b: string): number {
   let n = 0;
   while (n < a.length && n < b.length && a[a.length - 1 - n] === b[b.length - 1 - n]) n++;
   return n;
-}
-
-/** Every address a transaction names, its inputs' previous outputs and its outputs, once each. */
-function addressesOf(tx: Transaction): Set<string> {
-  const seen = new Set<string>();
-  for (const i of tx.vin ?? []) {
-    const a = i.prevout?.scriptpubkey_address;
-    if (a) seen.add(a);
-  }
-  for (const o of tx.vout ?? []) {
-    const a = o.scriptpubkey_address;
-    if (a) seen.add(a);
-  }
-  return seen;
 }
 
 /**

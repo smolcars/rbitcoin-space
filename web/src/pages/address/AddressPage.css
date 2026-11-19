@@ -570,17 +570,6 @@
     font-size: var(--text-sm);
     line-height: 1.45;
   }
-  .lookalike__icon {
-    width: 16px;
-    height: 16px;
-    flex: none;
-    margin-top: 2px;
-    fill: none;
-    stroke: var(--color-caution);
-    stroke-width: 1.6;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-  }
   .lookalike__body {
     display: grid;
     gap: var(--space-2);
@@ -590,37 +579,6 @@
   .lookalike__title {
     font-weight: var(--weight-bold);
   }
-  /* The two addresses one above the other, so the eye runs down from one to the other. */
-  .lookalike__pair {
-    display: grid;
-    grid-template-columns: max-content minmax(0, 1fr);
-    gap: 2px var(--space-3);
-    align-items: baseline;
-  }
-  .lookalike__label {
-    color: var(--color-text-muted);
-  }
-  .lookalike__address {
-    font-family: var(--font-mono);
-    font-size: 0.92em;
-    font-variant-numeric: slashed-zero;
-    word-break: break-all;
-  }
-  /* Where the two agree: bold and underlined. Where they differ: quieter. */
-  .lookalike__agree {
-    /* An agreeing end is read as one piece: the line breaks before it, never inside it. */
-    white-space: nowrap;
-    font-weight: var(--weight-bold);
-    text-decoration: underline 2px var(--color-caution);
-    text-underline-offset: 3px;
-  }
-  /* But one longer than a narrow screen is wide breaks where it must. */
-  .lookalike__agree--long {
-    white-space: normal;
-  }
-  .lookalike__differ {
-    color: var(--color-text-muted);
-  }
   .lookalike__text,
   .lookalike__more {
     color: var(--color-text-muted);
@@ -628,13 +586,6 @@
   @media (max-width: 40em) {
     .lookalike {
       padding: var(--space-3);
-    }
-    /* Labels over their addresses: a whole address needs the width. */
-    .lookalike__pair {
-      grid-template-columns: minmax(0, 1fr);
-    }
-    .lookalike__pair .lookalike__label:not(:first-child) {
-      margin-top: var(--space-1);
     }
   }
 

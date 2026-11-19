@@ -49,6 +49,8 @@ export interface DataTableProps<T> {
    * own link in the cells stays the one keyboard stop, as the row link is hidden from both.
    */
   rowHref?: (row: T) => string | undefined;
+  /** History state for the row's link, as JSON (the router's `state`); never the URL. */
+  rowState?: (row: T) => string | undefined;
   /** Makes the headers of columns with a `sort` key buttons that sort the list. */
   sort?: TableSort;
   /**
@@ -202,6 +204,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
                               <Link
                                 class="table__rowlink"
                                 href={href()}
+                                state={props.rowState?.(row)}
                                 tabindex="-1"
                                 aria-hidden="true"
                               />

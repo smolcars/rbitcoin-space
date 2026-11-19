@@ -9,6 +9,8 @@ export interface HashProps {
   value: string;
   /** Network-free page path (from `paths`) to link to. */
   href?: string;
+  /** History state the link's navigation carries, as JSON (the router's `state`); never the URL. */
+  linkState?: string | undefined;
   /**
    * Characters kept at each end: 8 and 8 in lists, 7 and 5 for addresses in the flow diagram. Where
    * the room is narrower still, the head gives way to its ellipsis; the tail is always whole.
@@ -67,7 +69,12 @@ export function Hash(props: HashProps) {
         }
       >
         {(href) => (
-          <Link class="hash__text tap-line" href={href()} title={props.value}>
+          <Link
+            class="hash__text tap-line"
+            href={href()}
+            title={props.value}
+            state={props.linkState}
+          >
             {short()}
           </Link>
         )}

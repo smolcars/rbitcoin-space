@@ -2,7 +2,7 @@ import { render } from "@solidjs/web";
 import { describe, expect, it } from "vitest";
 import type { Transaction, Vout } from "../../lib/esplora";
 import { lookalikes, OWN_HEAD, PAIR_HEAD, summarize, TAIL } from "./lookalike";
-import { KEPT_WHOLE, Marked } from "./LookalikeWarning";
+import { KEPT_WHOLE, Marked } from "../../components/Lookalike";
 
 const BECH32 = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
 const BASE58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";

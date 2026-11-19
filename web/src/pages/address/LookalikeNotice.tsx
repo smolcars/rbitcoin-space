@@ -2,7 +2,7 @@ import { Show } from "solid-js";
 import "../../components/Button.css";
 import { groupDigits } from "../../lib/format";
 import type { LookalikeSummary } from "./lookalike";
-import { Marked } from "./LookalikeWarning";
+import { CautionIcon, Marked } from "../../components/Lookalike";
 
 /** The notice's heading, which is also what screen readers hear once when it first appears. */
 export const noticeTitle = (s: LookalikeSummary) =>
@@ -68,10 +68,7 @@ export function LookalikeNotice(props: {
 }) {
   return (
     <section class="address-poison" aria-labelledby="address-poison-title">
-      <svg class="lookalike__icon" viewBox="0 0 16 16" aria-hidden="true">
-        <path d="M8 1.75 14.75 13.75H1.25Z" />
-        <path d="M8 6.25v3.5M8 11.75v.25" />
-      </svg>
+      <CautionIcon />
       <div class="address-poison__body">
         <h2 class="address-poison__title" id="address-poison-title">
           {noticeTitle(props.summary)}

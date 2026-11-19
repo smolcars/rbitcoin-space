@@ -6,6 +6,7 @@ import { clearApiCache } from "../../lib/api";
 import type { AddressStats, Transaction, Utxo } from "../../lib/esplora";
 import { FakeSocket } from "../../lib/fakes";
 import { NNBSP } from "../../lib/format";
+import { readHandover } from "../../lib/lookalike";
 import AddressPage from "./AddressPage";
 
 const ME = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4";
@@ -991,6 +992,33 @@ describe("lookalike addresses", () => {
     expect(agree).toStrictEqual(["w5", "f3t4", "w5", "f3t4"]);
     // Nothing in it is a link or markup: the addresses are chain data.
     expect(warning.querySelector("a, img, script")).toBeNull();
+  });
+
+  it("hands a flagged row's findings to its transaction page in history state, not the URL", async () => {
+    const one = tx(1, [[FAKE, 1000]], [[ME, 546]]);
+    serve({
+      [`/address/${ME}`]: stats(part(2000, 0, 2)),
+      [`/address/${ME}/txs`]: [one, tx(2, [[OTHER, 2000]], [[ME, 1454]])],
+    });
+    const el = open(`/address/${ME}`);
+    await until(() => expect(rows(el)).toHaveLength(2));
+    const [flagged, plain] = [...rows(el)];
+    // The txid's link and the whole row's link both carry it.
+    const links = [...(flagged?.querySelectorAll("a") ?? [])];
+    expect(links).toHaveLength(2);
+    for (const a of links) {
+      expect(a.getAttribute("href")).toBe(`/tx/${txid(1)}`);
+      const h = readHandover(JSON.parse(a.getAttribute("state") ?? "null"), one);
+      expect(h?.from).toBe(ME);
+      expect(h?.found.map((l) => [l.here, l.like, l.own, l.head, l.tail])).toStrictEqual([
+        [FAKE, ME, true, 2, 4],
+      ]);
+    }
+    // A row without a lookalike carries nothing, and no link anywhere names the address in its URL.
+    expect(plain?.querySelector("a[state]")).toBeNull();
+    for (const a of el.querySelectorAll(".address-txs a")) {
+      expect(a.getAttribute("href")).not.toContain(ME);
+    }
   });
 
   it("marks an earlier row once a later page brings a lookalike of its payee", async () => {

@@ -35,6 +35,7 @@ import {
   sortUtxos,
   txFeeRate,
 } from "./address";
+import { handoverState } from "../../lib/lookalike";
 import type { Lookalike } from "./lookalike";
 import { LookalikeWarning } from "./LookalikeWarning";
 import { Skeleton, settled, UnconfirmedMark } from "./parts";
@@ -406,6 +407,11 @@ function Transactions(props: {
   more: JSX.Element;
 }) {
   const network = useNetwork();
+  // A row that names a lookalike hands its findings to the transaction page in history state.
+  const handover = (tx: Transaction | null) => {
+    const found = tx && props.lookalike.get(tx.txid);
+    return found ? handoverState(props.address, found) : undefined;
+  };
   const columns: Column<Transaction | null>[] = [
     {
       header: "Time",
@@ -417,7 +423,13 @@ function Transactions(props: {
       cell: (tx) =>
         tx ? (
           <span class="address-txcell">
-            <Hash value={tx.txid} href={paths.tx(tx.txid)} copyLabel="Copy transaction ID" fit />
+            <Hash
+              value={tx.txid}
+              href={paths.tx(tx.txid)}
+              linkState={handover(tx)}
+              copyLabel="Copy transaction ID"
+              fit
+            />
             {/* Phones drop the time column, so the time moves under the txid. */}
             <span class="address-txcell__when">
               <When tx={tx} />
@@ -482,6 +494,7 @@ function Transactions(props: {
             columns={columns}
             rows={props.shown ?? placeholders(props.total)}
             rowHref={(t) => (t ? paths.tx(t.txid) : undefined)}
+            rowState={handover}
             rowClass={props.rowClass}
             rowNote={{
               when: (t) => t !== null && props.lookalike.has(t.txid),

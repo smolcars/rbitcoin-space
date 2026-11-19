@@ -6,9 +6,11 @@ import { Hash } from "../../components/Hash";
 import { Link } from "../../components/Link";
 import type { Outspend, Transaction, Vout } from "../../lib/esplora";
 import { feeColor, groupDigits } from "../../lib/format";
+import type { Lookalike } from "../../lib/lookalike";
 import { paths } from "../../lib/network";
 import type { TagPart } from "../block/chain";
 import { type ChainText, coinbaseText, inputText, outputText } from "./chaintext";
+import { LookalikeTag } from "./Lookalike";
 import { classify } from "./script";
 import {
   cssMs,
@@ -105,6 +107,8 @@ export function Flow(props: {
   outspends: () => Outspend[] | null | undefined;
   selected: Selection | null;
   onSelect: (s: Selection) => void;
+  /** Lookalike addresses handed over from an address page, by address: marked on their cards. */
+  lookalike?: ReadonlyMap<string, Lookalike> | undefined;
 }) {
   const [inPresses, setInPresses] = createSignal(0);
   const [outPresses, setOutPresses] = createSignal(0);
@@ -243,6 +247,11 @@ export function Flow(props: {
     { defer: true },
   );
 
+  const marked = (out: Vout | null | undefined) => {
+    const a = out?.scriptpubkey_address;
+    return a !== undefined && props.lookalike?.has(a) === true;
+  };
+
   const isSel = (side: Side, index: number) =>
     props.selected?.side === side && props.selected.index === index;
 
@@ -317,7 +326,13 @@ export function Flow(props: {
           <For each={vin().slice(0, inShown())}>
             {(input, i) => (
               <li
-                class={["tx-flow__item", { "is-selected": isSel("in", i()) }]}
+                class={[
+                  "tx-flow__item",
+                  {
+                    "is-selected": isSel("in", i()),
+                    "tx-flow__item--lookalike": marked(input.prevout),
+                  },
+                ]}
                 data-value={input.prevout?.value ?? 0}
                 data-key={i()}
               >
@@ -328,6 +343,9 @@ export function Flow(props: {
                   </Show>
                 </span>
                 <span class="tx-flow__meta">
+                  <Show when={marked(input.prevout)}>
+                    <LookalikeTag />
+                  </Show>
                   {input.prevout?.scriptpubkey_address
                     ? classify(input.prevout.scriptpubkey).label
                     : ""}
@@ -372,7 +390,10 @@ export function Flow(props: {
         <For each={props.tx.vout.slice(0, outShown())}>
           {(out, i) => (
             <li
-              class={["tx-flow__item", { "is-selected": isSel("out", i()) }]}
+              class={[
+                "tx-flow__item",
+                { "is-selected": isSel("out", i()), "tx-flow__item--lookalike": marked(out) },
+              ]}
               data-value={out.value}
               data-key={i()}
             >
@@ -381,6 +402,9 @@ export function Flow(props: {
                 <Amount sats={out.value} unit={false} fit />
               </span>
               <span class="tx-flow__meta">
+                <Show when={marked(out)}>
+                  <LookalikeTag />
+                </Show>
                 <Show when={out.scriptpubkey_address}>
                   <span>{classify(out.scriptpubkey).label}</span>
                 </Show>
