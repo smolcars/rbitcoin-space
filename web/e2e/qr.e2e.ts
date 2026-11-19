@@ -134,3 +134,81 @@ test("at 320 px with motion on, the pop-up opens inside the window and stays the
   const card = await page.locator(".qr__card").evaluate((c) => c.getBoundingClientRect().width);
   expect(card).toBeGreaterThanOrEqual(296);
 });
+
+test.describe("when the QR code's files fail", () => {
+  test.use({ consoleErrorsAllowed: [/status of 503/] });
+
+  test("the page stays, the button says so, and a second press loads it", async ({ page }) => {
+    await page.route(/\/assets\/QrPop-[^/]+\.js$/, (route) =>
+      route.fulfill({ status: 503, body: "" }),
+    );
+    await page.goto(`/regtest/address/${chain.addresses.p2tr}`);
+    const button = page.getByRole("button", { name: "Show the address as a QR code" });
+    await button.click();
+    const failed = page.getByRole("button", { name: /The QR code could not be loaded/ });
+    await expect(failed).toBeVisible();
+    await expect(page.getByText("Not loaded")).toBeVisible();
+    // Nothing else on the page went: no "Loading this page", the copy button still there.
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Address");
+    await expect(page.getByRole("button", { name: "Copy address" })).toBeVisible();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+
+    await page.unrouteAll();
+    await failed.click();
+    await expect(page.getByRole("dialog", { name: "Scan the address" })).toBeVisible();
+    await expect(button).toHaveAttribute("aria-expanded", "true");
+  });
+});
+
+test.describe("when the QR code's files are slow", () => {
+  /** Holds the pop-up's script back until the returned function lets it through. */
+  async function hold(page: Page): Promise<() => void> {
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await page.route(/\/assets\/QrPop-[^/]+\.js$/, async (route) => {
+      await gate;
+      await route.continue();
+    });
+    return () => release?.();
+  }
+
+  test("Escape gives up waiting, and the late file opens nothing", async ({ page }) => {
+    const release = await hold(page);
+    await page.goto(`/regtest/address/${chain.addresses.p2tr}`);
+    const button = page.getByRole("button", { name: "Show the address as a QR code" });
+    const arrived = page.waitForResponse(/\/assets\/QrPop-[^/]+\.js$/);
+    await button.click();
+    await expect(button).toHaveAttribute("aria-busy", "true");
+    await page.keyboard.press("Escape");
+    await expect(button).toHaveAttribute("aria-busy", "false");
+    release();
+    await arrived;
+    // Two frames for anything the arrival would have drawn.
+    await twoFrames(page);
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(button).toBeFocused();
+    // It is there for the next press.
+    await button.click();
+    await expect(page.getByRole("dialog", { name: "Scan the address" })).toBeVisible();
+  });
+
+  test("a reader who tabs away keeps their place when the file arrives", async ({ page }) => {
+    const release = await hold(page);
+    await page.goto(`/regtest/address/${chain.addresses.p2tr}`);
+    const button = page.getByRole("button", { name: "Show the address as a QR code" });
+    const arrived = page.waitForResponse(/\/assets\/QrPop-[^/]+\.js$/);
+    await button.focus();
+    await page.keyboard.press("Enter");
+    await expect(button).toHaveAttribute("aria-busy", "true");
+    await page.keyboard.press("Tab");
+    const moved = await page.evaluate(() => document.activeElement?.outerHTML.slice(0, 80));
+    release();
+    await arrived;
+    await twoFrames(page);
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    expect(await page.evaluate(() => document.activeElement?.outerHTML.slice(0, 80))).toBe(moved);
+    await expect(button).toHaveAttribute("aria-busy", "false");
+  });
+});
