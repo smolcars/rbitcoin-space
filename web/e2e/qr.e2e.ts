@@ -244,6 +244,27 @@ test("a phone turned while the code is open keeps it open, in view and drawn for
   }
 });
 
+test("a phone turned with the button near the top keeps the whole pop-up on screen", async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.setViewportSize({ width: 320, height: 740 });
+  const node = recorded("node-acinq") as { addresses: string[] };
+  await serve(page, { ...mainnet(), [`nodes/${ACINQ}`]: { ...node, addresses: [ONION_HOST] } });
+  await page.goto(`/regtest/lightning/node/${ACINQ}`);
+  const button = page.getByRole("button", { name: "Show the connect string as a QR code" });
+  // The button 115 px from the top: turned, the page's new layout carries it above the window.
+  await button.evaluate((el) => {
+    window.scrollBy(0, el.getBoundingClientRect().top - 115);
+  });
+  await button.click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await page.setViewportSize({ width: 740, height: 360 });
+  await twoFrames(page);
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await inWindow(page);
+});
+
 test("a scroll that carries the button away closes the code and gives focus back", async ({
   page,
 }) => {

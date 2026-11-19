@@ -47,7 +47,9 @@ export default function QrPop(props: {
     const header = sticky ? site.getBoundingClientRect().bottom : 0;
     const top = Math.max(EDGE, header + GAP);
     const x = Math.max(EDGE, Math.min(b.right - pw, width - pw - EDGE));
-    let y = b.bottom + GAP;
+    // Never above the window: a button the page's new layout carried off the top (a phone turned)
+    // would take the pop-up with it.
+    let y = Math.max(top, b.bottom + GAP);
     if (y + ph > height - EDGE) {
       const above = b.top - GAP - ph;
       y = above >= top ? above : top;
