@@ -74,6 +74,7 @@ Neutral grounds with a faint cool cast. In light, a near-white page with white p
 | `--color-caution` | `#8a5a00` | `#f0b43c` | Unconfirmed, waiting, node not answering |
 | `--color-negative` | `#b42318` | `#ff8a7a` | Replaced, dropped, missing from an audit, errors |
 | `--color-live` | `#1f6f9c` | `#6cb0dc` | The breathing dot of a page that updates itself: about the page, not the data |
+| `--color-glass` | white at 88% | `#252a2f` at 88% | The command palette's frosted panel, only over a blurred page (below) |
 
 All text tokens reach 4.5:1 and `--color-line-strong` reaches 3:1 against `bg`, `surface`, `surface-raised` and `surface-sunken` in both themes. If you add a surface, measure again.
 
@@ -367,7 +368,16 @@ Decided while building it, where the rest of this document left it open. The pag
 | Timeline | Numbered steps: first seen, replaced or replacing, waiting. Only after a replacement, a drop or a reorganisation, when the badge and the summary alone would not say how it came to this; horizontal on wide screens and vertical on phones. A version that can no longer confirm is struck through with a dashed marker |
 | Notice | Bordered strip for important state, such as "This version was replaced" with a link to the replacement |
 | Tooltip | Raised surface, title line and muted detail lines. Opens on hover and keyboard focus |
+| Command palette | Go anywhere from one field: ⌘K or Ctrl K, the header's key-cap hint, or a phone's "Go to" beside its search ([below](#command-palette)) |
 | Buttons | Default (outlined) and accent (filled). Toggles use `aria-pressed` and show a dot when on. 44 px tall on touch screens |
+
+### Command palette
+
+The one glass surface on the site: a panel in the upper third of the screen over the page dimmed by `--color-scrim`. It is `--color-glass` with the page behind blurred (28 px) and its colours lifted a little, a fine border in `--color-line-strong` at 45%, a lit top edge and a deep soft shadow, at a 14 px radius, a step rounder than a panel because it floats above them. Text on it keeps 4.5:1 over any page: `contrast.test.ts` takes the darkest and the lightest page pixel, dims it with the scrim, lays the glass over it and measures the text, muted and accent tokens on what results. Without `backdrop-filter`, or under `prefers-reduced-transparency`, the panel is the solid `--color-surface-raised`: unblurred glass would let a page's text read through.
+
+- **Inside:** one field at `--text-xl`, then rows in named groups, each a drawn mark in a small well, its name, a muted line under it where there is one, and its kind in words at the end, so the mark never carries the kind alone. The selected row is `--color-accent-soft` with its mark outlined in the accent. A foot of key caps (↑ ↓ to move, ↵ to open, esc to close, drawn as the search's `/` is) and the network it works on.
+- **Motion:** opening, the pane settles down 8 px from 98.5% over `--dur-base` as the page dims over `--dur-quick`; closing, a quicker fade upwards. None under reduced motion.
+- **Phones:** a sheet from the top, 8 px from each edge, as tall as the room the on-screen keyboard leaves; the key hints give way to the network alone.
 
 ## Page layouts
 
