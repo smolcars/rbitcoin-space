@@ -142,7 +142,7 @@ describe("Chain", () => {
     expect(rows[0]).toContain("This transaction");
     expect(rows[0]).toContain("replaced a transaction it depended on");
     expect(rows[1]).toContain("replaced a transaction it depended on");
-    expect(el.textContent).not.toContain("replaced by");
+    expect(rows.join(" ")).not.toContain("replaced by");
     expect(el.textContent).not.toContain("It was replaced 2 times");
     expect(el.textContent).not.toContain("the newest version");
   });
