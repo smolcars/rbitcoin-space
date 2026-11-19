@@ -181,9 +181,24 @@ export function History(props: {
   });
   const later = () => after().txs;
   const fresh = () => after().fresh;
+  // The same object for the same transaction in the same block from one answer to the next. The
+  // table keeps a row's elements for as long as it is given the same object, so a refresh that
+  // changed nothing rebuilds nothing: the reader keeps their focus, the row under their finger and
+  // a note they were sent to. A transaction is its txid's for good, and its status only moves
+  // with its block, so one that matches on both is the one already held.
+  let held = new Map<string, Transaction>();
   const shown = createMemo(() => {
     const f = first();
-    return f ? mergePages(f, later()) : undefined;
+    if (!f) return undefined;
+    const next = new Map<string, Transaction>();
+    const list = mergePages(f, later()).map((t) => {
+      const key = `${t.txid}:${t.status.block_hash ?? ""}`;
+      const same = held.get(key) ?? t;
+      next.set(key, same);
+      return same;
+    });
+    held = next;
+    return list;
   });
   // The page works out the lookalikes over every loaded page at once (its notice and these rows read
   // the one answer), so a later page's lookalike also marks the earlier rows it imitates.

@@ -281,6 +281,39 @@ describe("address page", () => {
     expect(FakeSocket.last().closedWith).toBe(1000);
   });
 
+  it("keeps an unchanged row's elements, and the focus in it, when its history is asked again", async () => {
+    let page = [tx(1, [[OTHER, 2000]], [[ME, 1000]])];
+    serve({
+      [`/address/${ME}`]: () => Response.json(stats()),
+      // Each answer is parsed anew: the same transactions, never the same objects.
+      [`/address/${ME}/txs`]: () => Response.json(page),
+    });
+    const el = open(`/address/${ME}`);
+    await until(() => expect(el.querySelectorAll("tbody tr .hash")).toHaveLength(1));
+    await until(() => expect(text(el.querySelector(".address-live") as Element)).toBe("Live"));
+    const asked = () => calls.filter((c) => c.endsWith("/txs")).length;
+    const row = el.querySelector("tbody tr");
+    const link = row?.querySelector<HTMLAnchorElement>(".hash a");
+    link?.focus();
+    expect(document.activeElement).toBe(link);
+    // Asked again, and the answer is the same history: nothing is rebuilt. The very elements, not
+    // ones like them, so a reader's focus, or a test's hold on a row, is not lost.
+    const before = asked();
+    status("s2");
+    await until(() => expect(asked()).toBe(before + 1));
+    await new Promise((resolve) => {
+      setTimeout(resolve, 20);
+    });
+    expect([...el.querySelectorAll("tbody tr")]).toStrictEqual([row]);
+    expect(row?.isConnected).toBe(true);
+    expect(document.activeElement).toBe(link);
+    // A payment arrives above it: its row is the same element still, moved down one.
+    page = [tx(2, [[OTHER, 9000]], [[ME, 8000]], false), ...page];
+    status("s3");
+    await until(() => expect(el.querySelectorAll("tbody tr .hash")).toHaveLength(2));
+    expect(el.querySelectorAll("tbody tr")[1]).toBe(row);
+  });
+
   it("asks again for a change heard while the last one is still being fetched", async () => {
     let page = [tx(1, [[OTHER, 2000]], [[ME, 1000]])];
     let release: (() => void) | undefined;

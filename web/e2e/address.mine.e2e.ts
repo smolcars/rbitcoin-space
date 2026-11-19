@@ -46,12 +46,16 @@ test("an address page shows a new payment without a reload", async ({ page, rpc,
   const rows = page.getByRole("table").locator("tbody tr");
   await expect(rows.first()).toContainText("Unconfirmed");
   const before = await rows.count();
+  // The row a reader may be on, or a test may hold, when the history is asked again.
+  const held = await rows.first().elementHandle();
   // `mine` waits for the server to catch up; the block itself is one whose coinbase pays the
   // address, holding nothing from the mempool, so the payment is the only change.
   await mine(0);
   await rpc("generateblock", [chain.addresses.p2wpkh, []]);
   await expect(rows).toHaveCount(before + 1);
   await expect(page.locator("tbody tr.address-row--new")).toHaveCount(1);
+  // The rows already there are the same elements, moved down: nothing was rebuilt around them.
+  expect(await held?.evaluate((tr) => tr.isConnected)).toBe(true);
 });
 
 test("the balance chart steps with each block and follows a new payment", async ({
