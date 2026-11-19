@@ -75,7 +75,11 @@ test("warns under a payment naming a lookalike, and nowhere else", async ({ page
   await expect(card).toHaveCount(1);
   await expect(card).toContainText("Lookalike");
   await expect(card.locator(`a[href="/regtest/address/${VICTIM_LOOKALIKE}"]`)).toHaveCount(1);
-  // The same transaction opened any other way says nothing.
+  // A reload keeps it, as the browser keeps the entry's state (so does going to the same URL).
+  await page.reload();
+  await expect(caution).toBeVisible();
+  // The same transaction reached any other way says nothing.
+  await page.goto(`/regtest/address/${VICTIM}`);
   await page.goto(flagged);
   await expect(page.locator(".tx-flow__item").first()).toBeVisible();
   await expect(page.locator(".tx-lookalike, .tx-flow__item--lookalike")).toHaveCount(0);
