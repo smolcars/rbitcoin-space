@@ -1143,6 +1143,85 @@ describe("TransactionPage", () => {
     });
   });
 
+  it("says a change again when it is worded like the one before it", async () => {
+    const [A, B, C] = ["a".repeat(64), "b".repeat(64), "c".repeat(64)];
+    serve(payment({ confirmed: false }));
+    const el = page(`/tx/${TXID}`);
+    await settle();
+    const ws = FakeSocket.last();
+    ws.hello({ network: "mainnet" });
+    ws.receive(mempoolMsg(0));
+    await settle();
+    const region = () => el.querySelector("p[aria-live=polite]")?.textContent;
+    const chain = (...by: string[]) =>
+      msg({
+        state: "replaced",
+        truncated: false,
+        chain: by.map((b, i) => ({ txid: i === 0 ? TXID : (by[i - 1] ?? TXID), by: b })),
+      });
+    ws.receive(chain(A));
+    await settle();
+    ws.receive(chain(A, B));
+    await settle();
+    expect(region()).toBe("Its replacement was replaced too.");
+    // The same sentence for the next one: the region's text changes all the same, by a space no
+    // screen reader reads, so it is said a second time.
+    ws.receive(chain(A, B, C));
+    await settle();
+    expect(region()).toBe("Its replacement was replaced too.\u00A0");
+  });
+
+  it("never forgets that the link it shows is a child's, however many others it learns", async () => {
+    const PARENT_REPLACEMENT = "f".repeat(64);
+    const others = (from: number) =>
+      Array.from({ length: 32 }, (_, i) => ({
+        txid: (from + i).toString(16).padStart(64, "0"),
+        by: (from + i + 1000).toString(16).padStart(64, "0"),
+        shared_inputs: 0,
+      }));
+    const answer = (links: object[]) => ({
+      status: 200,
+      body: { txid: TXID, truncated: false, replaced_by: links, replaces: [], versions: [] },
+    });
+    serve(payment({ confirmed: false }));
+    const el = page(`/tx/${TXID}`);
+    await settle();
+    const ws = FakeSocket.last();
+    ws.hello({ network: "mainnet" });
+    ws.receive(mempoolMsg(0));
+    await settle();
+    const own = { txid: TXID, by: PARENT_REPLACEMENT };
+    const leaves = (...more: { txid: string; by: string }[]) =>
+      ws.receive(msg({ state: "replaced", truncated: false, chain: [own, ...more] }));
+    const badge = () => el.querySelector(".tx-status")?.textContent;
+    // The route says its own link is a child's, among others.
+    replies[`/app/tx/${TXID}/replacements`] = answer([
+      { ...own, shared_inputs: 0 },
+      ...others(1).slice(1),
+    ]);
+    leaves();
+    await vi.waitFor(async () => {
+      await settle();
+      expect(badge()).toBe("Removed");
+    });
+    // Its line goes on, and the route now lists thirty-two other child links and not this one.
+    replies[`/app/tx/${TXID}/replacements`] = answer(others(100));
+    leaves({ txid: PARENT_REPLACEMENT, by: "9".repeat(64) });
+    await vi.waitFor(async () => {
+      await settle();
+      expect(text(el)).toContain("99999999…99999999");
+    });
+    expect(badge()).toBe("Removed");
+    // And then the route fails: the page has only what it remembers, the shown link among it.
+    replies[`/app/tx/${TXID}/replacements`] = { status: 500, body: { error: "down" } };
+    leaves({ txid: PARENT_REPLACEMENT, by: "8".repeat(64) });
+    await vi.waitFor(async () => {
+      await settle();
+      expect(text(el)).toContain("88888888…88888888");
+    });
+    expect(badge()).toBe("Removed");
+  });
+
   it("names what it replaced in the details", async () => {
     const OLD = "e".repeat(64);
     serve(payment({ confirmed: false }));

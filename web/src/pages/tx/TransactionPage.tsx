@@ -397,14 +397,20 @@ function TransactionView(props: { txid: string }) {
     for (const l of said ?? []) {
       if (l.shared !== 0) continue;
       const k = `${l.txid}>${l.by}`;
-      // Newest last, and no more than one answer can list: a transaction that keeps coming back
-      // and leaving again, on a page left open, forgets the oldest.
+      // Newest last.
       childLinks.delete(k);
       childLinks.set(k, { txid: l.txid, by: l.by, shared: 0 });
-      const oldest = childLinks.keys().next();
-      if (childLinks.size > CHILD_LINKS_KEPT && oldest.done !== true) {
-        childLinks.delete(oldest.value);
-      }
+    }
+    // No more than one answer can list, on a page left open through many: the oldest is
+    // forgotten, but never a link the page is showing, which is the one it must not misname.
+    const now = shownNow();
+    const showing = new Set(
+      now.kind === "replaced" ? now.chain.map((l) => `${l.txid}>${l.by}`) : [],
+    );
+    while (childLinks.size > CHILD_LINKS_KEPT) {
+      const oldest = [...childLinks.keys()].find((k) => !showing.has(k));
+      if (oldest === undefined) break;
+      childLinks.delete(oldest);
     }
     if (!said) return [...childLinks.values()];
     const spoken = new Set(said.map((l) => `${l.txid}>${l.by}`));
@@ -439,17 +445,21 @@ function TransactionView(props: { txid: string }) {
 
   // Each change of state is said once, in words; a position that only moves is not.
   const [announcement, setAnnouncement] = createSignal("");
+  // The same words twice in a row are still said twice. A live region speaks only when its text
+  // changes, so a repeat carries a trailing no-break space, which is not read out: no change of
+  // state goes unannounced for being worded like the one before it.
+  const say = (text: string) => setAnnouncement((now) => (now === text ? `${text}\u00A0` : text));
   // The topic's word comes first and says only "replaced": once the route says it left with a
   // transaction it depended on, that is said, so the announcement does not stand uncorrected.
   createEffect(childNow, (is, was) => {
-    if (is && was !== true) setAnnouncement(LEFT_WITH_PARENT);
+    if (is && was !== true) say(LEFT_WITH_PARENT);
   });
   const [justConfirmed, setJustConfirmed] = createSignal(false);
   const [reorged, setReorged] = createSignal<number>();
   createEffect(shownNow, (after, before) => {
     if (!before) return;
     const said = sayChange(before, after, childNow());
-    if (said !== undefined) setAnnouncement(said);
+    if (said !== undefined) say(said);
     if (after.kind === "confirmed") {
       // Once, when it confirms; the block's time arriving a moment later changes nothing.
       if (before.kind !== "confirmed") setJustConfirmed(before.kind === "mempool");
