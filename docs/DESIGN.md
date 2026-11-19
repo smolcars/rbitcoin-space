@@ -370,7 +370,7 @@ Decided while building it, where the rest of this document left it open. The pag
 | Timeline | Numbered steps: first seen, replaced or replacing, waiting. Only after a replacement, a drop or a reorganisation, when the badge and the summary alone would not say how it came to this; horizontal on wide screens and vertical on phones. A version that can no longer confirm is struck through with a dashed marker |
 | Notice | Bordered strip for important state, such as "This version was replaced" with a link to the replacement |
 | Tooltip | Raised surface, title line and muted detail lines. Opens on hover and keyboard focus |
-| Command palette | Go anywhere from one field: ⌘K or Ctrl K, the header's key-cap hint, or, on a phone, "Go to a page, pool or date" in the sections' row while its search has focus ([below](#command-palette)) |
+| Command palette | Go anywhere from one field: ⌘K or Ctrl K, the header's key-cap hint, or, wherever the hint has no room, "Go to a page, pool or date" hanging under the search while it has focus ([below](#command-palette)) |
 | Buttons | Default (outlined) and accent (filled). Toggles use `aria-pressed` and show a dot when on. 44 px tall on touch screens |
 
 ### Command palette
