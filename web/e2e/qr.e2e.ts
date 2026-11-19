@@ -392,4 +392,50 @@ test.describe("when the QR code's files are slow", () => {
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Blocks");
     expect(await listeners()).toBe(baseline);
   });
+
+  test("a retry of a failed stylesheet, cancelled and joined, never opens it unstyled", async ({
+    page,
+  }) => {
+    // The first request for the stylesheet fails; the second (the retry) is held, then fails too;
+    // the network then recovers.
+    const asked: string[] = [];
+    let release: (() => void) | undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await page.route(/\/assets\/QrPop-[^/]+\.css$/, async (route) => {
+      asked.push(route.request().url());
+      if (asked.length === 1) return route.fulfill({ status: 503, body: "" });
+      if (asked.length === 2) {
+        await held;
+        return route.fulfill({ status: 503, body: "" });
+      }
+      return route.continue();
+    });
+    await page.goto(`/regtest/address/${chain.addresses.p2tr}`);
+    const button = page.locator(".qr-button");
+    await button.click();
+    await expect(button).toHaveAttribute("data-state", "failed");
+    // The retry starts and is held; Escape withdraws this press's wish, not the load.
+    await button.click();
+    await expect.poll(() => asked.length).toBe(2);
+    await page.keyboard.press("Escape");
+    await expect(button).toHaveAttribute("data-state", "closed");
+    // Another press joins the load in flight: no third request, and nothing opens meanwhile.
+    await button.click();
+    await expect(button).toHaveAttribute("data-state", "loading");
+    await twoFrames(page);
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    expect(asked).toHaveLength(2);
+    // The retry fails: the button says so.
+    release?.();
+    await expect(button).toHaveAttribute("data-state", "failed");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    // Recovered: the next press asks for the stylesheet again and opens the pop-up styled.
+    await button.click();
+    const dialog = page.getByRole("dialog", { name: "Scan the address" });
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toHaveCSS("position", "fixed");
+    expect(asked).toHaveLength(3);
+  });
 });

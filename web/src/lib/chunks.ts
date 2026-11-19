@@ -21,6 +21,14 @@ export function watchFiles(): void {
 }
 
 /**
+ * Notes a stylesheet as failed though no error was seen for it, so `retryFiles` asks for it again:
+ * one whose rules a page found missing (the QR pop-up checks its own, components/qr/load.ts).
+ */
+export function noteFailedStyle(link: HTMLLinkElement): void {
+  failedStyles.add(link);
+}
+
+/**
  * Asks again for every file that failed: each stylesheet through a fresh `<link>` in place of the
  * old, each script with a request that skips the cache, which only proves it downloads now (the
  * page's `import()` loads it). Waits for every one to settle. Resolves when all have loaded, with

@@ -1,33 +1,42 @@
 import { createSignal, createUniqueId, lazy, Loading, onCleanup, Show } from "solid-js";
-import { retryFiles } from "../../lib/chunks";
+import { noteFailedStyle, retryFiles } from "../../lib/chunks";
+import { createLoader, wish } from "./load";
 import type QrPopView from "./QrPop";
 import "./QrButton.css";
 
 // The pop-up, the encoder and the drawing load on first use: no page's first load carries them.
 // The button loads them itself, so a failed download is its own to report and the page is left as
-// it is; `lazy` is handed only a module that has already arrived.
+// it is. One load at a time for the whole page, which every press joins (load.ts); `lazy` is
+// handed only a module whose load has succeeded, stylesheet included.
 interface PopModule {
   default: typeof QrPopView;
 }
-let pending: Promise<PopModule> | undefined;
-let loaded: PopModule | undefined;
-const QrPop = lazy(async () => loaded ?? (await loadPop()));
+const loader = createLoader<PopModule>({
+  retryFailed: retryFiles,
+  importCode: async () => import("./QrPop"),
+  styled: stylesheetApplied,
+});
+const QrPop = lazy(async () => loader.loaded() ?? loader.load());
 
 /**
- * Loads the pop-up's module, once for the page. After a failure, asks again for every file that
- * failed first (a failed stylesheet is never asked for again by itself, docs/FRONTEND.md, "When a
- * page's files fail to load"), then for the module.
+ * Whether the pop-up's stylesheet applies: a hidden probe with its class is fixed in place. When it
+ * is not, its link is noted as failed, so the next load asks for it again.
  */
-async function loadPop(): Promise<PopModule> {
-  if (loaded) return loaded;
-  pending ??= import("./QrPop");
-  try {
-    loaded = await pending;
-    return loaded;
-  } catch (e) {
-    pending = undefined;
-    throw e;
-  }
+function stylesheetApplied(): boolean {
+  const box = document.createElement("div");
+  box.hidden = true;
+  const probe = document.createElement("div");
+  probe.className = "qr-pop";
+  box.append(probe);
+  document.body.append(box);
+  const applied = getComputedStyle(probe).position === "fixed";
+  box.remove();
+  if (!applied)
+    for (const link of document.querySelectorAll<HTMLLinkElement>(
+      'link[rel="stylesheet"][href*="/QrPop-"]',
+    ))
+      noteFailedStyle(link);
+  return applied;
 }
 
 /**
@@ -47,9 +56,10 @@ export function QrButton(props: { value: string; what: string; colour?: string |
   let stopWaiting: (() => void) | undefined;
   onCleanup(() => stopWaiting?.());
 
-  const start = async () => {
+  const start = () => {
     stopWaiting?.();
-    let waiting = true;
+    // This press's wish to open; the load it waits for is the page's, and goes on without it.
+    const want = wish(loader);
     const giveUp = () => {
       stop();
       setState("closed");
@@ -66,7 +76,7 @@ export function QrButton(props: { value: string; what: string; colour?: string |
       if (e.target !== button) giveUp();
     };
     const stop = () => {
-      waiting = false;
+      want.cancel();
       document.removeEventListener("keydown", key);
       document.removeEventListener("pointerdown", pointer, true);
       document.removeEventListener("focusin", focus);
@@ -77,19 +87,11 @@ export function QrButton(props: { value: string; what: string; colour?: string |
     document.addEventListener("focusin", focus);
     stopWaiting = stop;
     setState("loading");
-    try {
-      // Every press that has not loaded the pop-up asks again for whatever failed, however the
-      // last attempt ended: a cancelled one can leave a failed stylesheet that Vite never retries.
-      if (!loaded) await retryFiles();
-      await loadPop();
-      if (!waiting) return;
+    void want.settled.then((outcome) => {
+      if (outcome === "cancelled" || stopWaiting !== stop) return;
       stop();
-      setState("open");
-    } catch {
-      if (!waiting) return;
-      stop();
-      setState("failed");
-    }
+      setState(outcome);
+    });
   };
 
   const press = () => {
@@ -98,7 +100,7 @@ export function QrButton(props: { value: string; what: string; colour?: string |
     else if (now === "loading") {
       stopWaiting?.();
       setState("closed");
-    } else void start();
+    } else start();
   };
 
   const label = () =>
