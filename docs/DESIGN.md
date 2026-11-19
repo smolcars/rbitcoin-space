@@ -74,7 +74,9 @@ Neutral grounds with a faint cool cast. In light, a near-white page with white p
 | `--color-caution` | `#8a5a00` | `#f0b43c` | Unconfirmed, waiting, node not answering |
 | `--color-negative` | `#b42318` | `#ff8a7a` | Replaced, dropped, missing from an audit, errors |
 | `--color-live` | `#1f6f9c` | `#6cb0dc` | The breathing dot of a page that updates itself: about the page, not the data |
-| `--color-glass` | white at 88% | `#252a2f` at 88% | The command palette's frosted panel, only over a blurred page (below) |
+| `--color-veil` | `#e2e7ea` at 60% | `#050607` at 72% | Over the page under the command palette: frosted in light, dimmed in dark (below) |
+| `--color-glass` | white at 70% | `#24292e` at 60% | The command palette's pane, only over a blurred page |
+| `--color-glass-lit` | `#f8e1ed` at 75% | `#3b2230` at 75% | Its selected row |
 
 All text tokens reach 4.5:1 and `--color-line-strong` reaches 3:1 against `bg`, `surface`, `surface-raised` and `surface-sunken` in both themes. If you add a surface, measure again.
 
@@ -373,10 +375,12 @@ Decided while building it, where the rest of this document left it open. The pag
 
 ### Command palette
 
-The one glass surface on the site: a panel in the upper third of the screen over the page dimmed by `--color-scrim`. It is `--color-glass` with the page behind blurred (28 px) and its colours lifted a little, a fine border in `--color-line-strong` at 45%, a lit top edge and a deep soft shadow, at a 14 px radius, a step rounder than a panel because it floats above them. Text on it keeps 4.5:1 over any page: `contrast.test.ts` takes the darkest and the lightest page pixel, dims it with the scrim, lays the glass over it and measures the text, muted and accent tokens on what results. Without `backdrop-filter`, or under `prefers-reduced-transparency`, the panel is the solid `--color-surface-raised`: unblurred glass would let a page's text read through.
+The one glass surface on the site: a pane in the upper third of the screen over the page under `--color-veil`, which frosts it pale in light and dims it in dark. The pane is `--color-glass` over the page blurred (40 px) and its colours lifted (saturation 1.8), with a bright hairline edge (white at 70% in light, 14% in dark) and a darker rim outside it so it holds on a pale page, light caught along its top edge, and a wide soft shadow, at a 16 px radius, a step rounder than a panel because it floats above them. The selected row is lit glass: `--color-glass-lit`, light along its top and a faint accent rim.
 
-- **Inside:** one field at `--text-xl`, then rows in named groups, each a drawn mark in a small well, its name, a muted line under it where there is one, and its kind in words at the end, so the mark never carries the kind alone. The selected row is `--color-accent-soft` with its mark outlined in the accent. A foot of key caps (↑ ↓ to move, ↵ to open, esc to close, drawn as the search's `/` is) and the network it works on.
-- **Motion:** opening, the pane settles down 8 px from 98.5% over `--dur-base` as the page dims over `--dur-quick`; closing, a quicker fade upwards. None under reduced motion.
+Text keeps 4.5:1 over any page: `contrast.test.ts` takes the darkest and the lightest page pixel, lays the veil, the glass and the selected row's tint over it, and measures the text, muted and accent tokens on each result. The worst cases: muted text 4.62:1 (light) and 4.73:1 (dark) on the pane over a black or white page, the accent 5.07:1 and 4.72:1, body text 12.65:1 and 9.92:1; on the selected row muted text 4.99:1 and 5.46:1. Thinner glass is held up by the veil, not by a weaker bar. Without `backdrop-filter`, or under `prefers-reduced-transparency`, the pane is the solid `--color-surface-raised` and the selected row `--color-accent-soft`: unblurred glass would let a page's text read through.
+
+- **Inside:** one field at `--text-xl`, then rows in named groups, each a drawn mark in a small well, its name, a muted line under it where there is one, and its kind in words at the end, so the mark never carries the kind alone. The selected row's mark is outlined in the accent. A foot of key caps (↑ ↓ to move, ↵ to open, esc to close, drawn as the search's `/` is) and the network it works on.
+- **Motion:** opening, the pane settles down 8 px from 98.5% over `--dur-base` as the veil comes over `--dur-quick`; closing, a quicker fade upwards. None under reduced motion.
 - **Phones:** a sheet from the top, 8 px from each edge, as tall as the room the on-screen keyboard leaves; the key hints give way to the network alone.
 
 ## Page layouts
