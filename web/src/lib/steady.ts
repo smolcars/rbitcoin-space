@@ -5,36 +5,41 @@
 // rebuilds every row each time it asks again: a reader loses the focus in a row, and a note they
 // were sent to is replaced under them (docs/FRONTEND.md, "Following live data").
 
-/** A fingerprint of a value's whole content: its JSON's length and a 32-bit FNV-1a hash of it. */
-export function fingerprint(value: unknown): string {
-  const json = JSON.stringify(value) ?? "";
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < json.length; i++) {
-    // Each UTF-16 unit, not each character: every unit counts, and none is skipped.
-    // oxlint-disable-next-line unicorn/prefer-code-point -- a hash over code units, by index
-    hash ^= json.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193);
+/**
+ * Whether two values parsed from JSON are the same in every field, however deep. Exact, never a
+ * digest: an answer that changed in one field is never taken for the one held.
+ */
+export function sameContent(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    return a.every((item, i) => sameContent(item, b[i]));
   }
-  return `${json.length}:${hash >>> 0}`;
+  const left = a as Record<string, unknown>;
+  const right = b as Record<string, unknown>;
+  const keys = Object.keys(left);
+  if (keys.length !== Object.keys(right).length) return false;
+  return keys.every((k) => Object.hasOwn(right, k) && sameContent(left[k], right[k]));
 }
 
 /**
  * Makes a function that maps each answer's items to the objects already held for them: an item is
  * the one held when it has the same `key` and the same content, every field of it, so nothing a
- * later answer changed is ever hidden behind an old object. It holds only the last answer's
- * items.
+ * later answer changed is ever hidden behind an old object. An item that is the very object held
+ * (a page loaded before and not asked again) is taken as it is, with nothing compared. It holds
+ * only the last answer's items.
  */
 export function steady<T>(key: (item: T) => string): (items: readonly T[]) => T[] {
-  let held = new Map<string, { item: T; print: string }>();
+  let held = new Map<string, T>();
   return (items) => {
-    const next = new Map<string, { item: T; print: string }>();
+    const next = new Map<string, T>();
     const out = items.map((item) => {
       const k = key(item);
-      const print = fingerprint(item);
       const old = held.get(k);
-      const kept = old !== undefined && old.print === print ? old : { item, print };
+      const kept = old !== undefined && (old === item || sameContent(old, item)) ? old : item;
       next.set(k, kept);
-      return kept.item;
+      return kept;
     });
     held = next;
     return out;

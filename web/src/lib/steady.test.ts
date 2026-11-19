@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fingerprint, steady } from "./steady";
+import { sameContent, steady } from "./steady";
 
 interface Row {
   id: string;
@@ -41,10 +41,52 @@ describe("steady", () => {
   });
 });
 
-describe("fingerprint", () => {
-  it("is the same for the same content and differs with any of it", () => {
-    expect(fingerprint(row("a"))).toBe(fingerprint(row("a")));
-    expect(fingerprint(row("a"))).not.toBe(fingerprint(row("a", { fee: 0 })));
-    expect(fingerprint(undefined)).toBe(fingerprint(undefined));
+describe("sameContent", () => {
+  it("is exact: the same in every field, or not the same", () => {
+    expect(sameContent(row("a"), row("a"))).toBe(true);
+    expect(sameContent(row("a"), row("a", { fee: 0 }))).toBe(false);
+    expect(sameContent(row("a", { fee: 0 }), row("a"))).toBe(false);
+    expect(sameContent({ a: [1, { b: null }] }, { a: [1, { b: null }] })).toBe(true);
+    expect(sameContent({ a: [1, { b: null }] }, { a: [1, { b: 0 }] })).toBe(false);
+    expect(sameContent([1, 2], [1, 2, 3])).toBe(false);
+    expect(sameContent([], {})).toBe(false);
+    expect(sameContent(null, {})).toBe(false);
+    // The order a server wrote an object's fields in is not content.
+    expect(sameContent({ a: 1, b: 2 }, { b: 2, a: 1 })).toBe(true);
+  });
+
+  it("tells apart two answers a short digest took for one another", () => {
+    // Found in review: an output reconfirmed one block later, whose two answers shared a length
+    // and a 32-bit hash.
+    const at = (height: number, hash: string, time: number) => ({
+      txid: "ab".repeat(32),
+      vout: 0,
+      value: 5000,
+      status: { confirmed: true, block_height: height, block_hash: hash, block_time: time },
+    });
+    const keep = steady<ReturnType<typeof at>>((u) => `${u.txid}:${u.vout}`);
+    const [first] = keep([at(900_100, "11".repeat(32), 1_700_000_000)]);
+    const [second] = keep([at(900_101, "22".repeat(32), 1_700_000_600)]);
+    expect(second).not.toBe(first);
+    expect(second?.status.block_height).toBe(900_101);
+  });
+});
+
+describe("steady, on pages already held", () => {
+  it("takes the very object it holds without comparing it", () => {
+    const keep = steady<Row>((r) => r.id);
+    const old = row("a");
+    keep([old]);
+    // A getter that would throw if the content were read again.
+    let reads = 0;
+    Object.defineProperty(old, "fee", {
+      enumerable: true,
+      get: () => {
+        reads += 1;
+        return 1;
+      },
+    });
+    expect(keep([old])[0]).toBe(old);
+    expect(reads).toBe(0);
   });
 });
