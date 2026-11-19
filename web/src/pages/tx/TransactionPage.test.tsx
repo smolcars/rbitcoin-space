@@ -1151,7 +1151,8 @@ describe("a lookalike handed over from an address page", () => {
     ...payment(confirmed),
     vout: [out(600, P2WPKH, VICTIM), out(600, P2WPKH, LOOKALIKE)],
   });
-  const handed = (f: Lookalike[] = [found]) => JSON.parse(handoverState(VICTIM, f)) as unknown;
+  const handed = (f: Lookalike[] = [found]) =>
+    JSON.parse(handoverState(VICTIM, f, TXID, "mainnet")) as unknown;
   const marked = (el: Element) => el.querySelectorAll(".tx-flow__item--lookalike");
 
   it("warns at the top, marks the address on its card and in the inspector, and says it once", async () => {

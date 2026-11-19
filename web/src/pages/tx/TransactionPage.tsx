@@ -144,7 +144,7 @@ function TransactionView(props: { txid: string }) {
   const location = useLocation();
   const handed = createMemo(() => {
     const t = ready();
-    return t ? readHandover(location.state, t) : undefined;
+    return t ? readHandover(location.state, t, network()) : undefined;
   });
   // Said once, politely, when the notice first shows; never again as the transaction refreshes.
   const [lookalikeSaid, setLookalikeSaid] = createSignal("");

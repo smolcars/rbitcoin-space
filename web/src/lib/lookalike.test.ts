@@ -52,16 +52,22 @@ const poisoning = tx([CUSTOMER], [VICTIM, VICTIM_LOOKALIKE, PAYEE_LOOKALIKE]);
 
 /** The state as the router hands it back: parsed, with its own key beside ours. */
 const state = (from: string, found: readonly Lookalike[]) => ({
-  ...(JSON.parse(handoverState(from, found)) as object),
+  ...(JSON.parse(handoverState(from, found, poisoning.txid, "regtest")) as object),
   _depth: 3,
 });
-/** A handover built by hand, for what the writer would never write. */
-const raw = (h: unknown) => ({ lookalike: h });
+/** A handover built by hand, for what the writer would never write, made for `poisoning`. */
+const raw = (h: unknown) => ({
+  lookalike: isRecord(h) ? { txid: poisoning.txid, network: "regtest", ...h } : h,
+});
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
+/** Read as the regtest transaction page reads it. */
+const read = (s: unknown, t: Transaction) => readHandover(s, t, "regtest");
 const valid = { from: VICTIM, found: [own], count: 1 };
 
 describe("readHandover", () => {
   it("reads back what a row wrote, beside the router's own keys", () => {
-    expect(readHandover(state(VICTIM, [own, pair]), poisoning)).toStrictEqual({
+    expect(read(state(VICTIM, [own, pair]), poisoning)).toStrictEqual({
       from: VICTIM,
       found: [own, pair],
       more: false,
@@ -69,20 +75,22 @@ describe("readHandover", () => {
   });
 
   it("puts the reader's own address's lookalikes first", () => {
-    expect(readHandover(state(VICTIM, [pair, own]), poisoning)?.found).toStrictEqual([own, pair]);
+    expect(read(state(VICTIM, [pair, own]), poisoning)?.found).toStrictEqual([own, pair]);
   });
 
   it("finds an address among the inputs' previous outputs too", () => {
     const spent = tx([VICTIM_LOOKALIKE], [CUSTOMER]);
-    expect(readHandover(state(VICTIM, [own]), spent)?.found).toStrictEqual([own]);
+    expect(read(state(VICTIM, [own]), spent)?.found).toStrictEqual([own]);
   });
 
   it("caps what a row writes, and says there were more", () => {
     const many = Array.from({ length: HANDOVER_MAX + 36 }, () => own);
-    const written = JSON.parse(handoverState(VICTIM, many)) as { lookalike: { found: unknown[] } };
+    const written = JSON.parse(handoverState(VICTIM, many, poisoning.txid, "regtest")) as {
+      lookalike: { found: unknown[] };
+    };
     expect(written.lookalike.found).toHaveLength(HANDOVER_MAX);
     // One distinct address, said once.
-    expect(readHandover(written, poisoning)).toStrictEqual({
+    expect(read(written, poisoning)).toStrictEqual({
       from: VICTIM,
       found: [own],
       more: true,
@@ -91,17 +99,15 @@ describe("readHandover", () => {
 
   it("ignores an oversized list whole", () => {
     const found = Array.from({ length: HANDOVER_MAX + 1 }, () => own);
-    expect(
-      readHandover(raw({ from: VICTIM, found, count: found.length }), poisoning),
-    ).toBeUndefined();
+    expect(read(raw({ from: VICTIM, found, count: found.length }), poisoning)).toBeUndefined();
   });
 
   it("ignores an address this transaction does not name", () => {
     const elsewhere = tx([CUSTOMER], [VICTIM, PAYEE]);
-    expect(readHandover(state(VICTIM, [own, pair]), elsewhere)).toBeUndefined();
+    expect(read(state(VICTIM, [own, pair]), elsewhere)).toBeUndefined();
     // And keeps those it does name.
     const some = tx([CUSTOMER], [PAYEE_LOOKALIKE]);
-    expect(readHandover(state(VICTIM, [own, pair]), some)?.found).toStrictEqual([pair]);
+    expect(read(state(VICTIM, [own, pair]), some)?.found).toStrictEqual([pair]);
   });
 
   it("ignores anything malformed", () => {
@@ -124,7 +130,7 @@ describe("readHandover", () => {
       raw({ ...valid, from: "not an address" }),
       raw({ ...valid, from: `bc1q${"q".repeat(200)}` }),
     ]) {
-      expect(readHandover(s, poisoning)).toBeUndefined();
+      expect(read(s, poisoning)).toBeUndefined();
     }
   });
 
@@ -141,7 +147,7 @@ describe("readHandover", () => {
       { ...own, like: ["x"] },
       { ...own, here: `<b>${VICTIM_LOOKALIKE}</b>` },
     ]) {
-      expect(readHandover(raw({ ...valid, found: [bad] }), poisoning)).toBeUndefined();
+      expect(read(raw({ ...valid, found: [bad] }), poisoning)).toBeUndefined();
     }
   });
 
@@ -159,7 +165,51 @@ describe("readHandover", () => {
       { ...own, here: VICTIM, like: VICTIM_LOOKALIKE },
       { ...own, like: VICTIM_LOOKALIKE },
     ]) {
-      expect(readHandover(raw({ ...valid, found: [bad] }), poisoning)).toBeUndefined();
+      expect(read(raw({ ...valid, found: [bad] }), poisoning)).toBeUndefined();
     }
+  });
+});
+
+describe("readHandover holds a finding to the rule and to what it was made for", () => {
+  const TXID = "aa".repeat(32);
+  /** State as a row writes it, for a transaction and network. */
+  const made = (found: readonly Lookalike[], txid = TXID, network = "regtest") =>
+    JSON.parse(handoverState(VICTIM, found, txid, network)) as unknown;
+
+  it("never takes an address for a lookalike of itself in another case", () => {
+    // The same bech32 address upper-cased is the same address, not one that differs in the middle.
+    const same = VICTIM_LOOKALIKE.toUpperCase();
+    const self = { here: VICTIM_LOOKALIKE, like: same, own: true, head: 38, tail: 38, prefix: 6 };
+    const handed = raw({ from: same, found: [self], count: 1, txid: TXID, network: "regtest" });
+    expect(readHandover(handed, poisoning, "regtest")).toBeUndefined();
+  });
+
+  it("refuses a pair that agrees below the rule's thresholds", () => {
+    // Agrees with PAYEE_LOOKALIKE on one character after "bcrt1p" and one at the end.
+    const like = `bcrt1pd${"q".repeat(PAYEE_LOOKALIKE.length - 8)}7`;
+    const weak = { here: PAYEE_LOOKALIKE, like, own: false, head: 1, tail: 1, prefix: 6 };
+    expect(readHandover(made([weak]), poisoning, "regtest")).toBeUndefined();
+    // And one that claims less agreement than its addresses have.
+    expect(readHandover(made([{ ...own, head: 2 }]), poisoning, "regtest")).toBeUndefined();
+  });
+
+  it("refuses findings made for another transaction or network", () => {
+    expect(readHandover(made([own]), poisoning, "regtest")?.found).toStrictEqual([own]);
+    // Another transaction that names the same address.
+    expect(readHandover(made([own], "cc".repeat(32)), poisoning, "regtest")).toBeUndefined();
+    expect(readHandover(made([own]), poisoning, "mainnet")).toBeUndefined();
+    // A state without them is not ours.
+    expect(readHandover({ lookalike: valid }, poisoning, "regtest")).toBeUndefined();
+  });
+
+  it("says there were more only when the list is full", () => {
+    const handed = raw({
+      from: VICTIM,
+      found: [own],
+      count: 1_000_000,
+      txid: TXID,
+      network: "regtest",
+    });
+    expect(readHandover(handed, poisoning, "regtest")).toBeUndefined();
   });
 });

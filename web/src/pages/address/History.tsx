@@ -410,7 +410,7 @@ function Transactions(props: {
   // A row that names a lookalike hands its findings to the transaction page in history state.
   const handover = (tx: Transaction | null) => {
     const found = tx && props.lookalike.get(tx.txid);
-    return found ? handoverState(props.address, found) : undefined;
+    return found ? handoverState(props.address, found, tx.txid, network()) : undefined;
   };
   const columns: Column<Transaction | null>[] = [
     {

@@ -1008,7 +1008,7 @@ describe("lookalike addresses", () => {
     expect(links).toHaveLength(2);
     for (const a of links) {
       expect(a.getAttribute("href")).toBe(`/tx/${txid(1)}`);
-      const h = readHandover(JSON.parse(a.getAttribute("state") ?? "null"), one);
+      const h = readHandover(JSON.parse(a.getAttribute("state") ?? "null"), one, "mainnet");
       expect(h?.from).toBe(ME);
       expect(h?.found.map((l) => [l.here, l.like, l.own, l.head, l.tail])).toStrictEqual([
         [FAKE, ME, true, 2, 4],
