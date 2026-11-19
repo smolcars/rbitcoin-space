@@ -332,8 +332,9 @@ export function fitVersion(length: number, level: Level, minVersion = 1): number
 }
 
 /**
- * Encodes text as UTF-8 in byte mode, in the smallest version from `minVersion` that holds it.
- * Null when it is too long for any version. `mask` forces one of the eight masks; otherwise the
+ * Encodes text in byte mode as its UTF-8 bytes, with no ECI header to declare that character set
+ * (readers that assume ISO 8859-1 show anything past ASCII wrongly; the pages pass ASCII only), in
+ * the smallest version from `minVersion` that holds it. Null when it is too long for any version. `mask` forces one of the eight masks; otherwise the
  * one with the least penalty is chosen.
  */
 export function encodeQr(
