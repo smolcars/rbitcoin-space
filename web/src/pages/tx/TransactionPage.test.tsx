@@ -1017,22 +1017,58 @@ describe("TransactionPage", () => {
     expect(el.querySelector(".tx-status")?.textContent).toBe("Removed");
     const said = text(el.querySelector(".tx-notice") as Element);
     expect(said).toContain(
-      "It spent coins from a transaction that ffffffff…ffffffff replaced, so it left the mempool with it. No new version of this transaction took its place, and it can no longer confirm.",
+      "It left the mempool when ffffffff…ffffffff replaced a transaction it depended on. No new version of this transaction took its place. It can still confirm only if the replaced transaction is mined after all.",
     );
     expect(said).toContain(
-      "This transactionremoved when ffffffff…ffffffff replaced a transaction it spent from",
+      "This transactionremoved when ffffffff…ffffffff replaced a transaction it depended on",
     );
-    expect(said).toContain("the newest version of the transaction it spent from.");
+    expect(said).toContain("Follow ffffffff…ffffffff, the newest in this line.");
+    expect(said).not.toContain("the newest version");
     expect(said).not.toContain("This version");
     expect(said).not.toContain("spending the same coins took its place");
     // Said once: the notice's own words, not the line's again.
     expect(said).not.toContain("not replaced by a new version of itself");
     const whole = text(el);
     expect(whole).toContain("Removed with its parentWhen ffffffff…ffffffff replaced");
-    expect(whole).toContain("so the coins it spent no longer exist.");
+    expect(whole).toContain(
+      "Unless the transaction it depended on is mined after all, in place of what replaced it.",
+    );
+    expect(whole).not.toContain("no longer exist");
     expect(whole).toContain("No: it was removed with its parent");
     expect(whole).not.toContain("the version that replaced it");
     expect(whole).not.toContain("No: it was replaced");
+
+    // What replaced its parent is replaced in turn, and the ask that follows fails: the page
+    // keeps what the route last said, so it still reads as removed, never as replaced twice.
+    const NEWER = "9".repeat(64);
+    replies[`/app/tx/${TXID}/replacements`] = { status: 500, body: { error: "down" } };
+    ws.receive(
+      msg({
+        state: "replaced",
+        truncated: false,
+        chain: [
+          { txid: TXID, by: PARENT_REPLACEMENT },
+          { txid: PARENT_REPLACEMENT, by: NEWER },
+        ],
+      }),
+    );
+    await vi.waitFor(async () => {
+      await settle();
+      expect(asked()).toBe(before + 2);
+      expect(text(el)).toContain("99999999…99999999");
+    });
+    expect(el.querySelector(".tx-status")?.textContent).toBe("Removed");
+    const later = text(el.querySelector(".tx-notice") as Element);
+    expect(later).toContain("Removed with a replaced transaction");
+    // A line with a child's link in it is not a line of versions.
+    expect(later).not.toContain("It was replaced 2 times");
+    expect(later).not.toContain("Each version spends the same coins");
+    expect(later).toContain("Follow 99999999…99999999, the newest in this line.");
+    // The second link is not known to be a child's: it reads as a replacement.
+    expect(later).toContain("ffffffff…ffffffffreplaced by 99999999…99999999");
+    expect(text(el.querySelector("p[aria-live=polite]") as Element)).toBe(
+      "What replaced the transaction it depended on was replaced too.",
+    );
   });
 
   it("asks again when a reorg sends a confirmed transaction back and it is then replaced", async () => {

@@ -169,7 +169,7 @@ export const polls = (l: Liveness): boolean => l !== "live" && l !== "connecting
 export const newest = (chain: readonly ReplacementLink[]): string | undefined => chain.at(-1)?.by;
 
 /** The sentence to announce once when the shown state changes, or undefined. */
-export function announcement(before: Shown, after: Shown): string | undefined {
+export function announcement(before: Shown, after: Shown, child = false): string | undefined {
   if (before.kind === "loading") return undefined;
   if (after.kind === "mempool") {
     if (before.kind === "confirmed") {
@@ -192,7 +192,10 @@ export function announcement(before: Shown, after: Shown): string | undefined {
       before.kind === "replaced" &&
       newest(after.chain) !== newest(before.chain)
     ) {
-      return "Its replacement was replaced too.";
+      // A child left with a transaction it depended on: what was replaced again is not its own.
+      return child
+        ? "What replaced the transaction it depended on was replaced too."
+        : "Its replacement was replaced too.";
     }
     return undefined;
   }

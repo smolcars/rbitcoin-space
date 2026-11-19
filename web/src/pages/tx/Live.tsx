@@ -265,13 +265,20 @@ function TxList(props: { txids: string[]; label: string }) {
 }
 
 /**
- * Whether `txid`'s own link is a child's: it shares no input with what the link names, so it left
- * the mempool because a transaction it spent from was replaced, and is no earlier version of
- * anything (docs/MEMPOOL.md, "Versions"). Only the replacements route says so, in `later`; until
- * it has answered, nothing is known and this is false.
+ * Whether the link from `txid` to `by` is a child's: the two share no input, so `txid` left the
+ * mempool because a transaction it depended on (one it spent from, or one further back) was
+ * replaced by `by`, and is no earlier version of it (docs/MEMPOOL.md, "Versions"). Only the
+ * replacements route says so, in `later`, and of that very link: an answer about another link of
+ * the same transaction (it came back and was replaced again) says nothing of this one. Until the
+ * route has answered, nothing is known and this is false.
  */
-export function leftWithParent(txid: string, later: readonly ReplacementLink[] | undefined) {
-  return later?.find((k) => k.txid === txid)?.shared === 0;
+export function leftWithParent(
+  link: { txid: string; by: string } | undefined,
+  later: readonly ReplacementLink[] | undefined,
+) {
+  return (
+    link !== undefined && later?.find((k) => k.txid === link.txid && k.by === link.by)?.shared === 0
+  );
 }
 
 /**
@@ -297,7 +304,10 @@ export function Chain(props: {
   const at = (txid: string) => versions().indexOf(txid);
   // Its own link is a child's: it left with a replaced parent, and is no version of what
   // replaced that parent. Only the route says so; the topic's links do not.
-  const child = () => leftWithParent(here(), props.later);
+  const childLink = (l: ReplacementLink) => leftWithParent(l, props.later);
+  const child = () => leftWithParent(props.chain[0], props.later);
+  // A line with a child's link in it is not a line of versions: nothing is said of it as one.
+  const versionsOnly = () => !props.chain.some(childLink);
   // The one pair shown, by txid, whichever control picked it: this version and what replaced it
   // until a link or a picker chooses another.
   const [pair, setPair] = createSignal<[string, string]>();
@@ -315,7 +325,7 @@ export function Chain(props: {
     setPair([versions()[from] ?? "", versions()[to] ?? ""]);
   return (
     <div class="tx-chain">
-      <Show when={props.chain.length > 1}>
+      <Show when={props.chain.length > 1 && versionsOnly()}>
         <p class="tx-chain__lead">
           It was replaced {groupDigits(props.chain.length)} times
           {props.truncated ? " or more" : ""}. Each version spends the same coins, so only the last
@@ -348,9 +358,9 @@ export function Chain(props: {
                   </Show>
                 </span>
                 <span class="tx-chain__line">
-                  {/* A child's own link: what it names replaced a transaction it spent from. */}
+                  {/* A child's link: what it names replaced a transaction this one depended on. */}
                   <Show
-                    when={i() === 0 && child()}
+                    when={childLink(l)}
                     fallback={
                       <>
                         replaced by <Hash value={l.by} href={paths.tx(l.by)} copy={false} />
@@ -364,7 +374,7 @@ export function Chain(props: {
                     }
                   >
                     removed when <Hash value={l.by} href={paths.tx(l.by)} copy={false} /> replaced a
-                    transaction it spent from
+                    transaction it depended on
                   </Show>
                 </span>
                 <Show when={l.seen}>
@@ -397,12 +407,12 @@ export function Chain(props: {
         </For>
       </ol>
       <Show when={last()?.by} keyed>
-        {(id) => <Newest txid={id} of={child() ? "parent" : "this"} />}
+        {(id) => <Newest txid={id} versions={versionsOnly()} />}
       </Show>
       <Show when={child() && props.explained !== true}>
         <p class="tx-chain__lead">
-          It was not replaced by a new version of itself: it spent coins from a transaction that was
-          replaced, and left the mempool with it.
+          It was not replaced by a new version of itself: a transaction it depended on was replaced,
+          and it left the mempool with it.
         </p>
       </Show>
       <Show when={versions().length > 1 && shown()[0] >= 0 && shown()[1] >= 0}>
@@ -419,7 +429,7 @@ export function Chain(props: {
 }
 
 /** The newest replacement's own state, from its topic: where it is, or that it confirmed. */
-function Newest(props: { txid: string; of?: "this" | "parent" }) {
+function Newest(props: { txid: string; versions?: boolean }) {
   const network = useNetwork();
   const socket = useLiveStatus();
   const [heardState, setSaid] = createSignal<TxState>();
@@ -430,9 +440,7 @@ function Newest(props: { txid: string; of?: "this" | "parent" }) {
     <p class="tx-chain__newest">
       <span>
         Follow <Hash value={props.txid} href={paths.tx(props.txid)} copy={false} />,{" "}
-        {props.of === "parent"
-          ? "the newest version of the transaction it spent from."
-          : "the newest version."}
+        {props.versions === false ? "the newest in this line." : "the newest version."}
       </span>{" "}
       <Switch>
         <Match when={said()?.state === "confirmed" && (said() as TxState & { state: "confirmed" })}>

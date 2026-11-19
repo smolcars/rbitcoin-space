@@ -367,6 +367,10 @@ function TransactionView(props: { txid: string }) {
   };
   // The page's own abort signal, not the request's: an answer a newer request replaced still
   // records what it learned in the model.
+  // What the route last said: kept when a later ask fails, so a page that knows a transaction
+  // left with its parent does not go back to calling it replaced. What it says is matched to
+  // the link shown (`leftWithParent`), so an old answer speaks only for the link it was about.
+  let lastSaid: Replacements | null = null;
   const [replacements] = createRequest(replacementsKey, async () => {
     try {
       const r = parseReplacements(
@@ -375,15 +379,18 @@ function TransactionView(props: { txid: string }) {
         }),
       );
       if (r) setModel((m) => recorded(m, r.replacedBy, r.truncated));
-      return r ?? null;
+      lastSaid = r ?? null;
+      return lastSaid;
     } catch {
-      return null;
+      return lastSaid;
     }
   });
   const replaced = () => replacements()?.replaces.filter((l) => l.by === props.txid) ?? [];
-  // Shown as replaced, but by nothing of its own: it left with a transaction it spent from.
-  const childNow = () =>
-    shownNow().kind === "replaced" && leftWithParent(props.txid, replacements()?.replacedBy);
+  // Shown as replaced, but by nothing of its own: it left with a transaction it depended on.
+  const childNow = () => {
+    const s = shownNow();
+    return s.kind === "replaced" && leftWithParent(s.chain[0], replacements()?.replacedBy);
+  };
 
   // Who it is mined with: asked again when its group's rate changes.
   const relativesKey = () => {
@@ -410,7 +417,7 @@ function TransactionView(props: { txid: string }) {
   const [reorged, setReorged] = createSignal<number>();
   createEffect(shownNow, (after, before) => {
     if (!before) return;
-    const said = sayChange(before, after);
+    const said = sayChange(before, after, childNow());
     if (said !== undefined) setAnnouncement(said);
     if (after.kind === "confirmed") {
       // Once, when it confirms; the block's time arriving a moment later changes nothing.
@@ -564,7 +571,7 @@ function ReplacedNotice(props: {
   later?: ReplacementLink[] | undefined;
 }) {
   const first = () => props.chain[0];
-  const child = () => leftWithParent(first()?.txid ?? "", props.later);
+  const child = () => leftWithParent(first(), props.later);
   return (
     <Notice
       tone="negative"
@@ -573,10 +580,9 @@ function ReplacedNotice(props: {
       <Show when={child() && first()}>
         {(l) => (
           <p>
-            It spent coins from a transaction that{" "}
-            <Hash value={l().by} href={paths.tx(l().by)} copy={false} /> replaced, so it left the
-            mempool with it. No new version of this transaction took its place, and it can no longer
-            confirm.
+            It left the mempool when <Hash value={l().by} href={paths.tx(l().by)} copy={false} />{" "}
+            replaced a transaction it depended on. No new version of this transaction took its
+            place. It can still confirm only if the replaced transaction is mined after all.
           </p>
         )}
       </Show>
@@ -710,10 +716,9 @@ function Body(props: {
     });
   };
 
-  // Shown as replaced, but by nothing of its own: it left with a transaction it spent from.
+  // Shown as replaced, but by nothing of its own: it left with a transaction it depended on.
   const child = () =>
-    props.shown.kind === "replaced" &&
-    leftWithParent(props.shown.chain[0]?.txid ?? "", props.later);
+    props.shown.kind === "replaced" && leftWithParent(props.shown.chain[0], props.later);
   // The full sequence, for a transaction that left the mempool unconfirmed or came back to it.
   const steps = (): Step[] => {
     const title = coinbase() ? "Spendable" : "Six confirmations";
@@ -722,7 +727,7 @@ function Body(props: {
         ? {
             title: "Will not confirm",
             detail: child()
-              ? "The transaction it spent from was replaced, so the coins it spent no longer exist."
+              ? "Unless the transaction it depended on is mined after all, in place of what replaced it."
               : "Its coins are spent by the version that replaced it.",
             state: "dead",
           }
@@ -747,7 +752,7 @@ function Body(props: {
       const now = props.shown;
       if (now.kind === "replaced") {
         const l = now.chain[0];
-        // A child's own link: it left with a transaction it spent from, replaced by what it names.
+        // A child's own link: it left with a transaction it depended on, replaced by what it names.
         if (l && child()) {
           return {
             title: "Removed with its parent",
@@ -755,7 +760,7 @@ function Body(props: {
               <>
                 <span>
                   When <Hash value={l.by} href={paths.tx(l.by)} copy={false} /> replaced a
-                  transaction it spent from
+                  transaction it depended on
                 </span>
                 <Show when={l.seen}>{(t) => <TimeUtc time={t()} />}</Show>
               </>
