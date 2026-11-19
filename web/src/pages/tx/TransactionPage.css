@@ -557,10 +557,12 @@
     margin-top: 0;
   }
   /* The inspector's address, whole and marked, its copy button beside it. */
+  /* The copy button's target reaches 8 px past its box (CopyButton.css), so the gap is 8 px, as in
+     ".hash": a tap on the address's last character opens it, never copies it. */
   .tx-lookalike-addr {
     display: flex;
     align-items: flex-start;
-    gap: var(--space-1);
+    gap: var(--space-2);
     min-width: 0;
   }
   .tx-lookalike-addr .tap-line {

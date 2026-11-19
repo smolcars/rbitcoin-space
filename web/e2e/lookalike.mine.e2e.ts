@@ -89,6 +89,21 @@ test("warns under a payment naming a lookalike, and nowhere else", async ({ page
   await expect(card.locator(`a[href="/regtest/address/${VICTIM_LOOKALIKE}"]`)).toHaveCount(1);
   // Its caution rule is drawn, not only its word: the computed left border, against the token.
   expect(await cautionRule(card)).toStrictEqual({ width: "3px", caution: true });
+  // On a phone its inspector's address is whole, and a tap anywhere on it, its last character
+  // included, opens it rather than copying it: the copy button's target stops at its edge.
+  await page.setViewportSize({ width: 320, height: 800 });
+  await card.locator(".tx-flow__open").click();
+  const missed = await page.locator("#tx-inspector .tx-lookalike-addr a").evaluate((a) => {
+    a.scrollIntoView({ block: "center" });
+    return [...a.getClientRects()].flatMap((r) => {
+      const y = r.top + r.height / 2;
+      return [r.left + 1, r.right - 1].flatMap((x) =>
+        document.elementFromPoint(x, y)?.closest("a, button") === a ? [] : [`${x},${y}`],
+      );
+    });
+  });
+  expect(missed).toStrictEqual([]);
+  await page.setViewportSize({ width: 1280, height: 720 });
   // A reload keeps it, as the browser keeps the entry's state (so does going to the same URL).
   await page.reload();
   await expect(caution).toBeVisible();
