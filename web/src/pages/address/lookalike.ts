@@ -1,6 +1,7 @@
 // Address poisoning: someone grinds an address whose ends agree with one the reader uses, then puts
 // it into the reader's history with a small payment, hoping it is copied from there later. The rule,
 // its thresholds and their arithmetic are in docs/FRONTEND.md ("Lookalike addresses").
+import { keyScript } from "../../lib/address";
 import type { Transaction } from "../../lib/esplora";
 import {
   addressesOf,
@@ -23,6 +24,9 @@ export { OWN_HEAD, PAIR_HEAD, TAIL } from "../../lib/lookalike";
  * one another inside one transaction (seen on mainnet) says nothing about the reader's addresses.
  */
 export function lookalikes(own: string, txs: readonly Transaction[]): Map<string, Lookalike[]> {
+  // A public key's page has no address of its own for another to imitate, and the transaction
+  // page takes findings only from an address's page: none are made, so none are lost on the way.
+  if (keyScript(own) !== undefined) return new Map();
   const ownForm = form(own);
   const ownKey = ownForm?.ownKey;
   const forms = new Map<string, Form | undefined>();

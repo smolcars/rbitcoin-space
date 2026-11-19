@@ -1462,7 +1462,10 @@ pub fn tracked_answer(
     }
     let (key, name) = match script_ref {
         ScriptRef::Address(a) => ("address", a.to_string()),
-        ScriptRef::ScriptHash(h) => ("scripthash", h.to_string()),
+        // As the node names it: a key is asked, and answered, by its script's hash.
+        ScriptRef::ScriptHash(_) | ScriptRef::Key(_) => {
+            ("scripthash", script_ref.script_hash().to_string())
+        }
     };
     let body = json!({
         key: name,

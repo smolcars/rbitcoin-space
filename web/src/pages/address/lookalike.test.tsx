@@ -170,6 +170,13 @@ describe("lookalikes between other addresses in the history", () => {
     expect(found.get(poison.txid)?.[0]?.like).toBe(payee);
   });
 
+  it("is not run on a public key's page, whose findings the transaction page would not take", () => {
+    const payee = `bc1pdcl${"q".repeat(51)}4uu7`;
+    const fake = `bc1pdcl${"p".repeat(51)}4uu7`;
+    const key = `02${"ab".repeat(32)}`;
+    expect(lookalikes(key, [tx([fake], [own]), tx([own], [payee])]).size).toBe(0);
+  });
+
   it("leaves two that agree on only two leading characters", () => {
     const payee = `bc1pdc${"q".repeat(52)}4uu7`;
     const other = `bc1pdc${"p".repeat(52)}4uu7`;

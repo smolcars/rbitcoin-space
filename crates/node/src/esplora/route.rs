@@ -9,7 +9,7 @@ use std::str::FromStr;
 
 use bitcoin::hashes::{Hash as _, sha256};
 use bitcoin::hex::{DisplayHex as _, FromHex as _};
-use bitcoin::{Address, BlockHash, OutPoint, Transaction, Txid};
+use bitcoin::{Address, BlockHash, OutPoint, PublicKey, ScriptBuf, Transaction, Txid};
 use bytes::Bytes;
 use hyper::Method;
 
@@ -64,6 +64,29 @@ pub enum ScriptRef {
     /// Checked for the node's network by the caller (`Address::require_network`).
     Address(Address),
     ScriptHash(ScriptHash),
+    /// A bare public key: its pay-to-pubkey script, which has no address. The node knows the
+    /// script only by its hash, so it is asked as [`ScriptRef::ScriptHash`] is.
+    Key(PublicKey),
+}
+
+impl ScriptRef {
+    /// The script itself, which a hash alone does not give.
+    pub fn script_pubkey(&self) -> Option<ScriptBuf> {
+        match self {
+            Self::Address(a) => Some(a.script_pubkey()),
+            Self::ScriptHash(_) => None,
+            Self::Key(k) => Some(ScriptBuf::new_p2pk(k)),
+        }
+    }
+
+    /// The hash the node's index and Electrum key the script by.
+    pub fn script_hash(&self) -> ScriptHash {
+        match self {
+            Self::Address(a) => ScriptHash::from_script(&a.script_pubkey()),
+            Self::ScriptHash(h) => *h,
+            Self::Key(k) => ScriptHash::from_script(&ScriptBuf::new_p2pk(k)),
+        }
+    }
 }
 
 /// `start_index` of `/block/:hash/txs/:start_index`: a multiple of 25.
@@ -527,6 +550,7 @@ fn write_script(o: &mut String, s: &ScriptRef) -> fmt::Result {
     match s {
         ScriptRef::Address(a) => write!(o, "/address/{a}"),
         ScriptRef::ScriptHash(h) => write!(o, "/scripthash/{h}"),
+        ScriptRef::Key(_) => write!(o, "/scripthash/{}", s.script_hash()),
     }
 }
 

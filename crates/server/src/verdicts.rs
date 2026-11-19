@@ -15,7 +15,7 @@ use axum::http::header::CACHE_CONTROL;
 use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use bitcoin::{BlockHash, Txid};
-use node::esplora::{Route, ScriptHash, ScriptRef, ScriptSize};
+use node::esplora::{Route, ScriptHash, ScriptSize};
 
 /// How long a verdict holds. Long enough that reloads and other visitors in the meantime cost the
 /// node nothing; short enough that a page slowed by a moment of load is asked again soon.
@@ -98,24 +98,16 @@ pub fn history_page(route: &Route) -> Option<(ScriptHash, Page)> {
         } => (script, last_seen, asof),
         _ => return None,
     };
-    Some((script_hash(script), Some((*cursor, *asof))))
+    Some((script.script_hash(), Some((*cursor, *asof))))
 }
 
 /// The script the totals and unspent routes read.
 pub fn unpaged_script(route: &Route) -> Option<ScriptHash> {
     match route {
         Route::ScriptStats { script, .. } | Route::ScriptUtxo { script, .. } => {
-            Some(script_hash(script))
+            Some(script.script_hash())
         }
         _ => None,
-    }
-}
-
-/// An address and the scripthash of its script are one key.
-fn script_hash(script: &ScriptRef) -> ScriptHash {
-    match script {
-        ScriptRef::Address(a) => ScriptHash::from_script(&a.script_pubkey()),
-        ScriptRef::ScriptHash(h) => *h,
     }
 }
 

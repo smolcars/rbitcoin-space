@@ -596,15 +596,11 @@ async fn guarded(
         Some(ledger::Size::Large) => return Some(refused_early(Verdict::Large)),
         Some(ledger::Size::TooLarge) | None => {}
     }
+    // An address or a public key gives the script, so the ledger can adopt the answer.
     let script = match route {
-        Route::ScriptStats {
-            script: ScriptRef::Address(a),
-            ..
+        Route::ScriptStats { script, .. } | Route::ScriptUtxo { script, .. } => {
+            script.script_pubkey()
         }
-        | Route::ScriptUtxo {
-            script: ScriptRef::Address(a),
-            ..
-        } => Some(a.script_pubkey()),
         _ => None,
     };
     let (g, call) = (Arc::clone(guard), route.clone());
@@ -1293,11 +1289,11 @@ impl Payee {
         }
     }
 
-    /// How the node is asked: it knows a key's script only by its hash.
+    /// How the node is asked: an address by itself, a key by its script's hash.
     fn script_ref(self) -> ScriptRef {
         match self {
             Self::Address(a) => ScriptRef::Address(a),
-            Self::Key(_) => ScriptRef::ScriptHash(ScriptHash::from_script(&self.script_pubkey())),
+            Self::Key(k) => ScriptRef::Key(k),
         }
     }
 }
@@ -1741,6 +1737,14 @@ mod tests {
         let script = ScriptBuf::from_hex(&format!("21{G}ac")).unwrap();
         let sh = ScriptHash::from_script(&script);
         assert_eq!(ok(&format!("address/{G}")), format!("/scripthash/{sh}"));
+        // The route keeps the script, which the guard hands the ledger with a large key's totals.
+        let Call::Read(Route::ScriptStats { script: kept, .. }) =
+            parse(&format!("address/{G}"), None, Network::Mainnet).unwrap()
+        else {
+            panic!("not the totals route");
+        };
+        assert_eq!(kept.script_pubkey(), Some(script));
+        assert_eq!(kept.script_hash(), sh);
     }
 
     #[test]
