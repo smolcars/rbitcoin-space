@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { cost } from "../../lib/cost";
 import { feeBand } from "../../lib/format";
 import { type GridTx, gridSize, hitTest, type Layout, layout, MIN_AREA, rank } from "./layout";
 import { COINBASE_COLOR, colorOf } from "./scene";
@@ -108,10 +109,9 @@ describe("layout", () => {
   });
 
   it("is fast enough to run on the main thread", () => {
-    const start = performance.now();
-    layout(FULL, 6 / 5, 1_000_000);
-    // A few ms in a browser; generous here because test runners share the machine.
-    expect(performance.now() - start).toBeLessThan(200);
+    const { ms } = cost(() => layout(FULL, 6 / 5, 1_000_000));
+    // A few ms in a browser; generous here for a slow runner.
+    expect(ms).toBeLessThan(200);
   });
 
   it("draws the same picture for the same block, in any input order", () => {
@@ -213,12 +213,14 @@ describe("hitTest", () => {
 
   it("is fast on thousands of rectangles", () => {
     const l = layout(FULL, 6 / 5, 1_000_000);
-    const start = performance.now();
-    let found = 0;
-    for (let i = 0; i < 100_000; i++)
-      if (hitTest(l, (i * 7) % l.cols, (i * 13) % l.rows) !== -1) found++;
+    const { value: found, ms } = cost(() => {
+      let hits = 0;
+      for (let i = 0; i < 100_000; i++)
+        if (hitTest(l, (i * 7) % l.cols, (i * 13) % l.rows) !== -1) hits++;
+      return hits;
+    });
     expect(found).toBeGreaterThan(0);
-    expect(performance.now() - start).toBeLessThan(100);
+    expect(ms).toBeLessThan(100);
   });
 });
 

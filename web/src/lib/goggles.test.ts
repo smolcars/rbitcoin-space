@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { cost } from "./cost";
 import {
   census,
   formatShare,
@@ -143,10 +144,11 @@ describe("census", () => {
     }));
     const pick = { kinds: [TAPROOT, ACP], mode: "all" } as const;
     census(big, pick);
-    const start = performance.now();
-    for (let i = 0; i < 10; i++) census(big, pick);
+    const { ms } = cost(() => {
+      for (let i = 0; i < 10; i++) census(big, pick);
+    });
     // Generous for a slow CI runner; about 1 ms on a laptop.
-    expect((performance.now() - start) / 10).toBeLessThan(25);
+    expect(ms / 10).toBeLessThan(25);
   });
 });
 

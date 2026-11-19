@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { Transaction, Vout } from "../../lib/esplora";
 import { lookalikes, OWN_HEAD, PAIR_HEAD, summarize, TAIL } from "./lookalike";
 import { KEPT_WHOLE, Marked } from "../../components/Lookalike";
+import { cost } from "../../lib/cost";
 
 const BECH32 = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
 const BASE58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
@@ -240,29 +241,12 @@ describe("lookalikes between other addresses in the history", () => {
   });
 });
 
-/** Node's count of this process's time on a processor, in microseconds. The app's types leave Node out. */
-declare const process: { cpuUsage: () => { user: number; system: number } };
-
 describe("a huge history", () => {
   const own = "bc1qxyrkz6ug8wvn54fqq0uwh0wpr4nf5jt59s4rmc";
   /** What a run may cost. A linear read costs about a sixth of it; a quadratic one, many times it. */
   const LIMIT_MS = 1000;
   /** For building 100,000 addresses and reading them on a machine with every core taken four times over. */
   const TIMEOUT_MS = 30_000;
-  /**
-   * A run's answer and the processor time it took, not the time that passed: beside other builds a
-   * run waits its turn for many times as long (one took 1,136 ms, then 2,434 ms on a busier
-   * machine), and waiting is no cost of the rule. Vitest runs each test file in a process of its own.
-   */
-  function cost<T>(run: () => T): { value: T; ms: number } {
-    const used = () => {
-      const { user, system } = process.cpuUsage();
-      return (user + system) / 1000;
-    };
-    const start = used();
-    const value = run();
-    return { value, ms: used() - start };
-  }
 
   it(
     "reads 100,000 addresses in 40 transactions at once, and is quiet when none look alike",
