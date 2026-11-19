@@ -240,37 +240,62 @@ describe("lookalikes between other addresses in the history", () => {
   });
 });
 
+/** Node's count of this process's time on a processor, in microseconds. The app's types leave Node out. */
+declare const process: { cpuUsage: () => { user: number; system: number } };
+
 describe("a huge history", () => {
   const own = "bc1qxyrkz6ug8wvn54fqq0uwh0wpr4nf5jt59s4rmc";
+  /** What a run may cost. A linear read costs about a sixth of it; a quadratic one, many times it. */
+  const LIMIT_MS = 1000;
+  /** For building 100,000 addresses and reading them on a machine with every core taken four times over. */
+  const TIMEOUT_MS = 30_000;
+  /**
+   * A run's answer and the processor time it took, not the time that passed: beside other builds a
+   * run waits its turn for many times as long (one took 1,136 ms, then 2,434 ms on a busier
+   * machine), and waiting is no cost of the rule. Vitest runs each test file in a process of its own.
+   */
+  function cost<T>(run: () => T): { value: T; ms: number } {
+    const used = () => {
+      const { user, system } = process.cpuUsage();
+      return (user + system) / 1000;
+    };
+    const start = used();
+    const value = run();
+    return { value, ms: used() - start };
+  }
 
-  it("reads 100,000 addresses in 40 transactions at once, and is quiet when none look alike", () => {
-    const txs = Array.from({ length: 40 }, () =>
-      tx(
+  it(
+    "reads 100,000 addresses in 40 transactions at once, and is quiet when none look alike",
+    () => {
+      const txs = Array.from({ length: 40 }, () =>
+        tx(
+          [own],
+          Array.from({ length: 2500 }, () => p2wpkh("", "")),
+        ),
+      );
+      const { value: found, ms } = cost(() => lookalikes(own, txs));
+      // Random addresses: about 100,000² / 2 / 32^7 = 0.15 chance of a pair agreeing by luck.
+      expect(found.size).toBeLessThanOrEqual(2);
+      expect(ms).toBeLessThan(LIMIT_MS);
+    },
+    TIMEOUT_MS,
+  );
+
+  it(
+    "stays linear when a transaction's dust outputs all share one pair of ends",
+    () => {
+      const dust = tx(
         [own],
-        Array.from({ length: 2500 }, () => p2wpkh("", "")),
-      ),
-    );
-    const start = performance.now();
-    const found = lookalikes(own, txs);
-    const ms = performance.now() - start;
-    // Random addresses: about 100,000² / 2 / 32^7 = 0.15 chance of a pair agreeing by luck.
-    expect(found.size).toBeLessThanOrEqual(2);
-    expect(ms).toBeLessThan(1000);
-  });
-
-  it("stays linear when a transaction's dust outputs all share one pair of ends", () => {
-    const dust = tx(
-      [own],
-      Array.from({ length: 50_000 }, () => p2tr("dcl", "4uu7")),
-    );
-    const paid = tx([own], [p2tr("dcl", "4uu7")]);
-    const start = performance.now();
-    const found = lookalikes(own, [dust, paid]);
-    const ms = performance.now() - start;
-    expect(found.get(dust.txid)).toHaveLength(50_000);
-    expect(found.get(paid.txid)).toHaveLength(1);
-    expect(ms).toBeLessThan(1000);
-  });
+        Array.from({ length: 50_000 }, () => p2tr("dcl", "4uu7")),
+      );
+      const paid = tx([own], [p2tr("dcl", "4uu7")]);
+      const { value: found, ms } = cost(() => lookalikes(own, [dust, paid]));
+      expect(found.get(dust.txid)).toHaveLength(50_000);
+      expect(found.get(paid.txid)).toHaveLength(1);
+      expect(ms).toBeLessThan(LIMIT_MS);
+    },
+    TIMEOUT_MS,
+  );
 });
 
 describe("the summary the page's notice reads", () => {
