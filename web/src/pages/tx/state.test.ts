@@ -473,31 +473,33 @@ describe("the summary's block strip", () => {
 });
 
 describe("what is announced of a child that left with its parent", () => {
-  const A = "a".repeat(64);
-  const B = "b".repeat(64);
-  const C = "c".repeat(64);
+  const CHILD = "a".repeat(64);
+  const FIRST = "b".repeat(64);
+  const SECOND = "c".repeat(64);
   const inMempool = { kind: "mempool", position: null, time: 1, rate: null, live: true } as const;
   const left = (by: string[]) =>
     ({
       kind: "replaced",
-      chain: by.map((b, i) => ({ txid: i === 0 ? A : (by[i - 1] ?? A), by: b })),
+      chain: by.map((b, i) => ({ txid: i === 0 ? CHILD : (by[i - 1] ?? CHILD), by: b })),
       truncated: false,
     }) as const;
 
   it("is that it left with a transaction it depended on, once the page knows", () => {
     // Not known yet: only the topic's word.
-    expect(announcement(inMempool, left([B]))).toBe(
+    expect(announcement(inMempool, left([FIRST]))).toBe(
       "Replaced by another transaction spending the same coins.",
     );
-    expect(announcement(inMempool, left([B]), true)).toBe(
+    expect(announcement(inMempool, left([FIRST]), true)).toBe(
       "Not replaced itself: it left the mempool with a transaction it depended on, which was replaced.",
     );
   });
 
   it("claims nothing of how its line went on, only that its newest end changed", () => {
-    expect(announcement(left([B]), left([B, C]), true)).toBe(
+    expect(announcement(left([FIRST]), left([FIRST, SECOND]), true)).toBe(
       "The newest transaction in its line changed.",
     );
-    expect(announcement(left([B]), left([B, C]))).toBe("Its replacement was replaced too.");
+    expect(announcement(left([FIRST]), left([FIRST, SECOND]))).toBe(
+      "Its replacement was replaced too.",
+    );
   });
 });
