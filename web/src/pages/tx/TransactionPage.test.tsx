@@ -1074,7 +1074,7 @@ describe("TransactionPage", () => {
     // The second link is not known to be a child's: it reads as a replacement.
     expect(later).toContain("ffffffff…ffffffffreplaced by 99999999…99999999");
     expect(text(el.querySelector("p[aria-live=polite]") as Element)).toBe(
-      "The line of transactions it left with went on: 2 links now.",
+      "The line of transactions it left with changed: 2 links now, the newest 99999999.",
     );
 
     // The line goes on again, and this time the route answers, but its bounded record has let
@@ -1105,7 +1105,7 @@ describe("TransactionPage", () => {
       "Removed with a replaced transaction",
     );
     expect(text(el.querySelector("p[aria-live=polite]") as Element)).toBe(
-      "The line of transactions it left with went on: 3 links now.",
+      "The line of transactions it left with changed: 3 links now, the newest 88888888.",
     );
   });
 

@@ -69,6 +69,9 @@ import { judgeFee, parentsOf, verdictDetail, verdictText, verdictTitle } from ".
 import "./TransactionPage.css";
 
 export { POLL_MS } from "./Live";
+
+/** Links the route said are a child's that a page remembers: as many as one answer can list. */
+const CHILD_LINKS_KEPT = 32;
 /** A server following as many transactions as it can is asked again this much later. */
 const REFUSED_RETRY_MS = 60_000;
 /** How long a live socket may say nothing about the transaction before the page checks over HTTP. */
@@ -392,8 +395,16 @@ function TransactionView(props: { txid: string }) {
   const later = createMemo((): ReplacementLink[] => {
     const said = replacements()?.replacedBy;
     for (const l of said ?? []) {
-      if (l.shared === 0)
-        childLinks.set(`${l.txid}>${l.by}`, { txid: l.txid, by: l.by, shared: 0 });
+      if (l.shared !== 0) continue;
+      const k = `${l.txid}>${l.by}`;
+      // Newest last, and no more than one answer can list: a transaction that keeps coming back
+      // and leaving again, on a page left open, forgets the oldest.
+      childLinks.delete(k);
+      childLinks.set(k, { txid: l.txid, by: l.by, shared: 0 });
+      const oldest = childLinks.keys().next();
+      if (childLinks.size > CHILD_LINKS_KEPT && oldest.done !== true) {
+        childLinks.delete(oldest.value);
+      }
     }
     if (!said) return [...childLinks.values()];
     const spoken = new Set(said.map((l) => `${l.txid}>${l.by}`));
