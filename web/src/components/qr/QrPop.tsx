@@ -54,6 +54,8 @@ export default function QrPop(props: {
       const above = b.top - GAP - ph;
       y = above >= top ? above : top;
     }
+    // Nor below the window: a button carried under its foot takes the pop-up no further than that.
+    y = Math.max(top, Math.min(y, height - EDGE - ph));
     pop.style.setProperty("--x", `${Math.round(x)}px`);
     pop.style.setProperty("--y", `${Math.round(y)}px`);
     const room = Math.round(height - y - EDGE);
