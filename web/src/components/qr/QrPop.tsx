@@ -32,11 +32,16 @@ export default function QrPop(props: {
     if (!pop) return;
     const b = props.anchor.getBoundingClientRect();
     pop.style.removeProperty("--room");
+    pop.style.removeProperty("--qr-card");
     const pw = pop.offsetWidth;
     const ph = pop.offsetHeight;
     const width = document.documentElement.clientWidth;
     const height = document.documentElement.clientHeight;
-    const header = document.querySelector(".site-header")?.getBoundingClientRect().bottom ?? 0;
+    // Clear of the header only while it stays on screen: on a short screen it scrolls with the
+    // page (Header.css), and the code needs the room more.
+    const site = document.querySelector(".site-header");
+    const sticky = site !== null && getComputedStyle(site).position === "sticky";
+    const header = sticky ? site.getBoundingClientRect().bottom : 0;
     const top = Math.max(EDGE, header + GAP);
     const x = Math.max(EDGE, Math.min(b.right - pw, width - pw - EDGE));
     let y = b.bottom + GAP;
@@ -46,7 +51,15 @@ export default function QrPop(props: {
     }
     pop.style.setProperty("--x", `${Math.round(x)}px`);
     pop.style.setProperty("--y", `${Math.round(y)}px`);
-    pop.style.setProperty("--room", `${Math.round(height - y - EDGE)}px`);
+    const room = Math.round(height - y - EDGE);
+    pop.style.setProperty("--room", `${room}px`);
+    // The card no taller than the room left under the title, so the whole symbol is in view
+    // without scrolling; the text under it may scroll.
+    const card = pop.querySelector<HTMLElement>(".qr__card");
+    if (card) {
+      const side = Math.min(pop.clientWidth, room - pop.clientTop * 2 - card.offsetTop);
+      if (side < pop.clientWidth) pop.style.setProperty("--qr-card", `${Math.max(side, 120)}px`);
+    }
   };
   // A window that changes size (a phone turned, a toolbar shown) moves it back inside.
   window.addEventListener("resize", place, { passive: true });

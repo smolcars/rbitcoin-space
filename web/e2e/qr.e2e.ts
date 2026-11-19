@@ -126,13 +126,45 @@ test("at 320 px with motion on, the pop-up opens inside the window and stays the
   await page.getByRole("button", { name: "Show the address as a QR code" }).click();
   await expect(page.getByRole("dialog", { name: "Scan the address" })).toBeVisible();
   await inWindow(page);
+  // The code gets the card's whole width, about 4 px a module for the densest (Qr.css).
+  const card = await page.locator(".qr__card").evaluate((c) => c.getBoundingClientRect().width);
+  expect(card).toBeGreaterThanOrEqual(296);
   // A shorter window: it moves and shrinks to stay inside, scrolling within itself.
   await page.setViewportSize({ width: 320, height: 350 });
   await twoFrames(page);
   await inWindow(page);
-  // The code gets about 4 px a module even here (Qr.css).
-  const card = await page.locator(".qr__card").evaluate((c) => c.getBoundingClientRect().width);
-  expect(card).toBeGreaterThanOrEqual(296);
+});
+
+test("on a landscape phone the whole code is in view, its quiet zone clear", async ({ page }) => {
+  await page.setViewportSize({ width: 740, height: 360 });
+  for (const path of [
+    `/regtest/address/${chain.addresses.p2tr}`,
+    `/regtest/address/bc1p5d7rjq7g6rdk2yhzks9smlaqtedr4dekq08ge8ztwac72sfr9rusxg3297`,
+  ]) {
+    await page.goto(path);
+    await page.getByRole("button", { name: "Show the address as a QR code" }).click();
+    const dialog = page.getByRole("dialog", { name: "Scan the address" });
+    await expect(dialog.locator(".qr__code")).toBeVisible();
+    await inWindow(page);
+    const fit = await dialog.evaluate((d) => {
+      const card = d.querySelector(".qr__card");
+      if (!card) return "no card";
+      const c = card.getBoundingClientRect();
+      const r = d.getBoundingClientRect();
+      // The pop-up's scrollport, which the code must not need scrolling in.
+      const view = { top: r.top + d.clientTop, bottom: r.top + d.clientTop + d.clientHeight };
+      if (d.scrollTop !== 0) return `scrolled ${d.scrollTop}`;
+      if (c.top < view.top || c.bottom > view.bottom)
+        return `card ${c.top}–${c.bottom} outside ${view.top}–${view.bottom}`;
+      if (Math.abs(c.width - c.height) > 1) return `card ${c.width} by ${c.height}`;
+      // Nothing drawn over the card's edge, inside the quiet zone.
+      const style = getComputedStyle(card);
+      if (style.boxShadow !== "none") return `shadow ${style.boxShadow}`;
+      if (style.borderTopWidth !== "0px" || style.outlineStyle !== "none") return "border";
+      return "ok";
+    });
+    expect(fit, path).toBe("ok");
+  }
 });
 
 test("the card paints nothing inside the code's quiet zone", async ({ page }) => {

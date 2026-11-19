@@ -102,9 +102,12 @@
     flex-direction: column;
     gap: var(--space-2);
   }
-  /* Edge to edge in the pop-up, so the code gets every pixel the screen has. No rule or border:
-     the code's quiet zone runs to the card's edges and must stay clear. */
+  /* Edge to edge in the pop-up, so the code gets every pixel the screen has; on a short screen as
+     tall as the room under the title (--qr-card, QrPop.tsx), so the whole symbol is in view. No
+     rule or border: the code's quiet zone runs to the card's edges and must stay clear. */
   .qr__card {
+    align-self: center;
+    width: var(--qr-card, 100%);
     aspect-ratio: 1;
     background: var(--qr-paper);
   }
