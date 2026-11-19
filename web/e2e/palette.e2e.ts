@@ -233,10 +233,7 @@ test("a Lightning name lists nodes with their keys and leads to one", async ({ p
   await expect(node).toContainText(`${ACINQ.slice(0, 8)}…${ACINQ.slice(-8)}`);
   // The catch-all comes after everything that matched by name.
   await expect(options(page).last()).toContainText("All Lightning results");
-  // The catch-all was the row shown selected before the nodes came, so it keeps the selection
-  // (the reader's Enter opens what they saw); the reader moves up to the node.
-  await expect(selected(page)).toContainText("All Lightning results");
-  await page.keyboard.press("Home");
+  // The catch-all, shown first while the nodes were asked for, gives way to the node by name.
   await expect(selected(page)).toContainText("ACINQ");
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(`/regtest/lightning/node/${ACINQ}`);
@@ -585,6 +582,23 @@ test("the selection shown by default stays when a late row lands above it", asyn
   await page.keyboard.press("Enter");
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await expect(page).toHaveURL("/regtest/");
+});
+
+test("a catch-all or a stray-letter match shown first gives way to the name that arrives", async ({
+  page,
+}) => {
+  // Found on mainnet's data: "foundry" showed only "All Lightning results" until the pool list
+  // came, and pinning it made Enter search Lightning instead of opening Foundry USA.
+  await serve(page, { ...mainnet(), "search?q=foundry": { nodes: [], channels: [] } });
+  const pools = await hold(page, /\/regtest\/api\/v1\/mining\/pools$/, POOLS);
+  await page.goto("/regtest/");
+  await shortcut(page);
+  await field(page).fill("foundry");
+  await expect(selected(page)).toContainText("All Lightning results");
+  pools.release();
+  await expect(selected(page)).toContainText("Foundry USA");
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL("/regtest/mining/pool/foundryusa");
 });
 
 test("an id lookup survives the server's config arriving while it waits", async ({ page }) => {

@@ -71,6 +71,8 @@ interface Row {
   detail?: string | undefined;
   /** A Lightning node's key, shown beside its alias: the name is a claim, the key the identity. */
   key?: string;
+  /** How well it matched (match.ts `score`): only a strong match is pinned as the default. */
+  score?: number;
   run: () => void;
 }
 
@@ -85,6 +87,12 @@ interface Group {
 const FIRST = 1000;
 /** Lightning's index ranks its own nodes: a name it matched sits with a word's start. */
 const NODES = 60;
+/**
+ * The least score whose row is pinned when shown as the default selection: a name's start, a
+ * word's start or a keyword's. Below it, letters in order and the Lightning catch-all, which show
+ * while names are still being asked for, give way to the name that arrives.
+ */
+const PIN = 55;
 
 /** Pools by network, asked for once per page load. */
 const poolLists = new Map<Network, Promise<Pool[]>>();
@@ -331,6 +339,7 @@ export default function Palette(props: PaletteProps): JSX.Element {
           {
             id,
             kind,
+            score: FIRST,
             title: query.kind === "height" ? reading.label : truncateMiddle(q, 18, 12),
             mono: query.kind !== "height",
             detail:
@@ -363,6 +372,7 @@ export default function Palette(props: PaletteProps): JSX.Element {
             ? {
                 id,
                 kind: "date",
+                score: FIRST,
                 title,
                 detail: "Before the first block, 3 Jan 2009: opens block 0",
                 run: () => go(paths.block(0)),
@@ -370,6 +380,7 @@ export default function Palette(props: PaletteProps): JSX.Element {
             : {
                 id,
                 kind: "date",
+                score: FIRST,
                 title,
                 detail:
                   busy() === id
@@ -390,8 +401,9 @@ export default function Palette(props: PaletteProps): JSX.Element {
       out.push({
         name: "Pages",
         best: pageHits[0]?.score ?? 0,
-        rows: pageHits.map(({ item: p }): Row => ({
+        rows: pageHits.map(({ item: p, score }): Row => ({
           id: `page-${p.path}`,
+          score,
           kind: "page",
           title: p.name,
           run: () => go(p.path),
@@ -409,8 +421,9 @@ export default function Palette(props: PaletteProps): JSX.Element {
         out.push({
           name: "Mining pools",
           best: hits[0]?.score ?? 0,
-          rows: hits.map(({ item: pool }): Row => ({
+          rows: hits.map(({ item: pool, score }): Row => ({
             id: `pool-${pool.slug}`,
+            score,
             kind: "pool",
             title: pool.name,
             run: () => go(paths.pool(pool.slug)),
@@ -425,6 +438,7 @@ export default function Palette(props: PaletteProps): JSX.Element {
       const fresh = found?.q === q && found.network === net ? found.list : [];
       const rows = fresh.map((s): Row => ({
         id: `node-${s.key}`,
+        score: NODES,
         kind: "node",
         title: s.name ?? "No name",
         detail: `${formatBtcShort(s.capacity)} BTC`,
@@ -439,8 +453,9 @@ export default function Palette(props: PaletteProps): JSX.Element {
       out.push({
         name: "Actions",
         best: actionHits[0]?.score ?? 0,
-        rows: actionHits.map(({ item: a }): Row => ({
+        rows: actionHits.map(({ item: a, score }): Row => ({
           id: a.action.kind === "theme" ? "theme" : `network-${a.action.network}`,
+          score,
           kind: a.action.kind,
           title: a.name,
           run: () => act(a.action),
@@ -491,11 +506,13 @@ export default function Palette(props: PaletteProps): JSX.Element {
     stopLookup();
   });
 
-  // The row shown as selected is pinned by its id, the default included: a row arriving later
-  // above it must not take the selection, and Enter opens what the reader saw selected. A pinned
-  // row that goes away hands the selection to the first row, which is then pinned in turn.
+  // The row shown as selected is pinned by its id, the default included, when it matched by name:
+  // a row arriving later above it must not take the selection, and Enter opens what the reader
+  // saw selected. A weak default (letters in order, the Lightning catch-all) shows while the
+  // names are still asked for and gives way to the first row until a strong one is pinned. The
+  // reader's own move always pins (move). A pinned row that goes away hands the selection on.
   createEffect(current, (row) => {
-    if (row && row.id !== activeKey()) setActiveKey(row.id);
+    if (row && row.id !== activeKey() && (row.score ?? 0) >= PIN) setActiveKey(row.id);
   });
 
   // The selected row stays in sight; focus stays in the field, so the browser will not do it.
