@@ -140,7 +140,8 @@ export default function Palette(props: PaletteProps): JSX.Element {
   const [config, setConfig] = createSignal<AppConfig | null>();
   const [pools, setPools] = createSignal<{ network: Network; list: Pool[] }>();
   const [nodes, setNodes] = createSignal<{ q: string; network: Network; list: Suggestion[] }>();
-  const [dated, setDated] = createSignal<{ at: number; network: Network; answer: Dated }>();
+  // Kept by what was typed, not by the moment: today's moment is now, which moves on.
+  const [dated, setDated] = createSignal<{ q: string; network: Network; answer: Dated }>();
   // A row the reader ran that is still looking, or what it found instead of a page.
   const [busy, setBusy] = createSignal<string>();
   const [note, setNote] = createSignal<{ id: string; text: string }>();
@@ -249,12 +250,12 @@ export default function Palette(props: PaletteProps): JSX.Element {
       : answer.kind === "none"
         ? `This server's ${NETWORK_NAMES[net]} history has no block by then`
         : `Could not look this up: ${answer.message}`;
-  const goToDate = async (id: string, moment: Moment) => {
+  const goToDate = async (id: string, moment: Moment, q: string) => {
     const net = network();
     stopAsking();
     const mine = ++runs;
     const known = dated();
-    let answer = known?.at === moment.at && known.network === net ? known.answer : undefined;
+    let answer = known?.q === q && known.network === net ? known.answer : undefined;
     // A failure is asked again; a block or its absence is kept.
     if (answer === undefined || answer.kind === "failed") {
       setNote(undefined);
@@ -266,7 +267,7 @@ export default function Palette(props: PaletteProps): JSX.Element {
       }
       if (mine !== runs || closed) return;
       setBusy(undefined);
-      setDated({ at: moment.at, network: net, answer });
+      setDated({ q, network: net, answer });
     }
     if (answer.kind === "found") go(paths.block(answer.found.hash));
     else setNote({ id, text: dateText(answer, net) });
@@ -317,7 +318,7 @@ export default function Palette(props: PaletteProps): JSX.Element {
     if (moment) {
       const id = "date";
       const d = dated();
-      const answer = d?.at === moment.at && d.network === net ? d.answer : undefined;
+      const answer = d?.q === q && d.network === net ? d.answer : undefined;
       const n = note();
       const title = moment.timed ? `${moment.label} UTC` : `${moment.label}, end of the day UTC`;
       out.push({
@@ -345,7 +346,7 @@ export default function Palette(props: PaletteProps): JSX.Element {
                       : answer
                         ? dateText(answer, net)
                         : "The newest block by then, read in UTC",
-                run: () => void goToDate(id, moment),
+                run: () => void goToDate(id, moment, q),
               },
         ],
       });
@@ -500,7 +501,7 @@ export default function Palette(props: PaletteProps): JSX.Element {
           if (moment) {
             try {
               const answer = await askDate(moment, net);
-              if (live()) setDated({ at: moment.at, network: net, answer });
+              if (live()) setDated({ q, network: net, answer });
             } catch {
               // Aborted by a newer query, a lookup or closing.
             }

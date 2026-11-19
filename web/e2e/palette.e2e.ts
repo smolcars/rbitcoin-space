@@ -430,15 +430,19 @@ test.describe("a failed date lookup", () => {
 
 test.describe("with a test network's errors allowed", () => {
   test.use({ consoleErrorsAllowed: [/status of (404|502)/] });
-  test("today's date is asked for in whole seconds", async ({ page }) => {
+  test("today's date is asked for in whole seconds, and its answer shown", async ({ page }) => {
     const asked: string[] = [];
     await page.route(/\/regtest\/api\/v1\/mining\/blocks\/timestamp\/[^/]+$/, (r) => {
       asked.push(new URL(r.request().url()).pathname.split("/").at(-1) ?? "");
       return r.fulfill({ status: 404, json: { error: "none" } });
     });
+    // Time moves on between the ask and its answer, as on a slow phone: today's moment, which is
+    // now, is no longer the one asked about when the answer is shown.
+    await page.clock.install();
     await page.goto("/regtest/");
     await shortcut(page);
     await field(page).fill(new Date().toISOString().slice(0, 10));
+    await page.clock.runFor(1500);
     await expect.poll(() => asked.length).toBe(1);
     expect(asked[0]).toMatch(/^\d+$/);
     await expect(selected(page)).toContainText("history has no block by then");
