@@ -60,7 +60,7 @@
   /* Where the search's cell is too narrow for both, the hint gives way: the search's placeholder
      keeps its words. Just above each breakpoint the header's rows are at their tightest (measured
      in palette.e2e.ts with every section on). */
-  @media (max-width: 44em), (min-width: 65.0625em) and (max-width: 72em) {
+  @media (max-width: 44em), (min-width: 65.0625em) and (max-width: 78em) {
     .palette-hint {
       display: none;
     }
