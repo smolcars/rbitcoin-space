@@ -233,6 +233,11 @@ test("a Lightning name lists nodes with their keys and leads to one", async ({ p
   await expect(node).toContainText(`${ACINQ.slice(0, 8)}…${ACINQ.slice(-8)}`);
   // The catch-all comes after everything that matched by name.
   await expect(options(page).last()).toContainText("All Lightning results");
+  // The catch-all was the row shown selected before the nodes came, so it keeps the selection
+  // (the reader's Enter opens what they saw); the reader moves up to the node.
+  await expect(selected(page)).toContainText("All Lightning results");
+  await page.keyboard.press("Home");
+  await expect(selected(page)).toContainText("ACINQ");
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(`/regtest/lightning/node/${ACINQ}`);
 });
@@ -268,14 +273,22 @@ test("a phone opens it from beside its search as a sheet, with what was typed", 
   await withPools(page);
   await page.setViewportSize({ width: 360, height: 640 });
   await page.goto("/regtest/");
-  // At rest the header has no room for it; while the search has focus, the sections' row does.
+  // At rest the header has no room for it; while the search has focus it hangs under the search,
+  // over the page, and the sections stay where they are.
   const go = page.getByRole("button", { name: "Go to a page, pool or date" });
-  await expect(go).not.toBeInViewport();
+  await expect(go).toBeHidden();
+  const nav = page.getByRole("navigation", { name: "Main" });
+  const before = await nav.boundingBox();
   const search = page.getByRole("combobox", { name: "Search" });
   await search.click();
   await search.fill("foundry");
   await expect(go).toBeVisible();
-  await expect(page.getByRole("navigation", { name: "Main" })).toBeHidden();
+  await expect(nav).toBeVisible();
+  expect(await nav.boundingBox()).toStrictEqual(before);
+  const under = await go.boundingBox();
+  const searchBox = await page.locator(".search__field").boundingBox();
+  expect(under && searchBox && under.y >= searchBox.y + searchBox.height).toBe(true);
+  expect(under?.height ?? 0).toBeGreaterThanOrEqual(43.5);
   await go.click();
   await expect(field(page)).toHaveValue("foundry");
   await expect(field(page)).toBeFocused();
@@ -545,4 +558,182 @@ test("a date before the first block says so and opens block 0", async ({ page })
   await expect(row).toContainText("Before the first block");
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL("/regtest/block/0");
+});
+
+// Round two of the review: the opener as a state machine (src/palette/opener.ts), the lookups'
+// lifecycle, and a way in at every width.
+
+/** Holds every download of the palette's code until `release` is called. */
+async function holdCode(page: Page) {
+  return hold(page, /\/assets\/Palette-[^/]+\.js$/);
+}
+
+test("the selection shown by default stays when a late row lands above it", async ({ page }) => {
+  await serve(page, { ...mainnet(), "search?q=dark": { nodes: [], channels: [] } });
+  const pools = await hold(page, /\/regtest\/api\/v1\/mining\/pools$/, [
+    ...POOLS,
+    { name: "Darkside", slug: "darkside", unique_id: 200 },
+  ]);
+  await page.goto("/regtest/");
+  await shortcut(page);
+  await field(page).fill("dark");
+  // No key moves the selection: the default the reader sees is what Enter opens.
+  await expect(selected(page)).toContainText("Switch to dark theme");
+  pools.release();
+  await expect(options(page).first()).toContainText("Darkside");
+  await expect(selected(page)).toContainText("Switch to dark theme");
+  await page.keyboard.press("Enter");
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await expect(page).toHaveURL("/regtest/");
+});
+
+test("an id lookup survives the server's config arriving while it waits", async ({ page }) => {
+  const config = await hold(page, /\/app\/config$/);
+  const status = await hold(page, /\/regtest\/api\/tx\/[0-9a-f]{64}\/status$/);
+  await page.goto("/regtest/");
+  await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+  await shortcut(page);
+  await field(page).fill(chain.txs.payment);
+  await page.keyboard.press("Enter");
+  await expect(selected(page)).toContainText("Looking up");
+  config.release();
+  await page.waitForTimeout(400);
+  status.release();
+  await expect(page).toHaveURL(`/regtest/tx/${chain.txs.payment}`);
+});
+
+test.describe("a date looked up just before UTC midnight", () => {
+  test.use({ consoleErrorsAllowed: [/status of 404/] });
+  test("is asked again for the finished day once midnight has passed", async ({ page }) => {
+    const asked: string[] = [];
+    await page.route(/\/regtest\/api\/v1\/mining\/blocks\/timestamp\/\d+$/, (r) => {
+      asked.push(new URL(r.request().url()).pathname.split("/").at(-1) ?? "");
+      return r.fulfill({
+        json: { height: 106, hash: chain.blocks[106], timestamp: "2026-11-19T23:50:00.000Z" },
+      });
+    });
+    await page.clock.install({ time: new Date("2026-11-19T23:58:55Z") });
+    await page.goto("/regtest/");
+    await shortcut(page);
+    await field(page).fill("2026-11-19");
+    await page.clock.runFor(1000);
+    await expect.poll(() => asked.length).toBe(1);
+    await expect(selected(page)).toContainText("Block 106");
+    // Past midnight the day is over: Enter asks for its whole length, not the morning's answer.
+    await page.clock.runFor(70_000);
+    await page.keyboard.press("Enter");
+    await expect.poll(() => asked.length).toBe(2);
+    expect(asked[1]).toBe(String(Date.UTC(2026, 10, 19, 23, 59, 59) / 1000));
+  });
+});
+
+test.describe("while the palette closes", () => {
+  test("Enter runs nothing", async ({ page }) => {
+    await page.goto("/regtest/mining");
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+    await shortcut(page);
+    await field(page).fill("blocks");
+    await expect(selected(page)).toContainText("Blocks");
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Enter");
+    await expect(palette(page)).toHaveCount(0);
+    await page.waitForTimeout(300);
+    await expect(page).toHaveURL("/regtest/mining");
+  });
+
+  test("the shortcut opens it again once the fade has ended", async ({ page }) => {
+    await page.goto("/regtest/mining");
+    await shortcut(page);
+    await expect(field(page)).toBeFocused();
+    await page.keyboard.press("Escape");
+    await shortcut(page);
+    await expect(palette(page)).toBeVisible();
+    await expect(field(page)).toBeFocused();
+    await page.waitForTimeout(600);
+    await expect(palette(page)).toBeVisible();
+  });
+});
+
+test.describe("an open asked for while the code downloads", () => {
+  test("is dropped by a navigation, so it never opens on the next page", async ({ page }) => {
+    const code = await holdCode(page);
+    await page.goto("/regtest/blocks");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Blocks");
+    await shortcut(page);
+    await expect.poll(() => code.seen.count).toBeGreaterThan(0);
+    await page
+      .getByRole("navigation", { name: "Main" })
+      .getByRole("link", { name: "Mining" })
+      .click();
+    await expect(page).toHaveURL("/regtest/mining");
+    code.release();
+    await page.waitForTimeout(600);
+    await expect(palette(page)).toHaveCount(0);
+  });
+
+  test("opens after an odd number of presses, and not after an even one", async ({ page }) => {
+    const code = await holdCode(page);
+    await page.goto("/regtest/blocks");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Blocks");
+    for (let i = 0; i < 3; i += 1) await shortcut(page);
+    code.release();
+    await expect(palette(page)).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(palette(page)).toHaveCount(0);
+  });
+});
+
+test("Tab and Shift+Tab reach every section of the header at 360 px", async ({ page }) => {
+  await page.route(/\/app\/config$/, async (route) => {
+    const response = await route.fetch();
+    const config = (await response.json()) as Record<string, unknown>;
+    await route.fulfill({ response, json: { ...config, lightning: ["regtest"] } });
+  });
+  await page.setViewportSize({ width: 360, height: 640 });
+  await page.goto("/regtest/blocks");
+  const links = page.getByRole("navigation", { name: "Main" }).getByRole("link");
+  await expect(links).toHaveCount(4);
+  const names = await links.allInnerTexts();
+  const focusedName = () => page.evaluate(() => document.activeElement?.textContent?.trim() ?? "");
+  // Forward from the search: "Go to", then every section, then the theme.
+  await page.getByRole("combobox", { name: "Search" }).focus();
+  const forward: string[] = [];
+  for (let i = 0; i < names.length + 2; i += 1) {
+    await page.keyboard.press("Tab");
+    forward.push(await focusedName());
+  }
+  expect(forward.slice(0, names.length + 1)).toStrictEqual([
+    "Go to a page, pool or date",
+    ...names,
+  ]);
+  // Back from the theme: every section, then the search ("Go to" shows only while the search or
+  // it has focus, so going back it is the search that is reached).
+  await page.getByRole("button", { name: /Switch to (light|dark) theme/ }).focus();
+  const back: string[] = [];
+  for (const _ of names) {
+    await page.keyboard.press("Shift+Tab");
+    back.push(await focusedName());
+  }
+  expect(back).toStrictEqual(names.map((_, i) => names[names.length - 1 - i] ?? ""));
+  await page.keyboard.press("Shift+Tab");
+  await expect(page.getByRole("combobox", { name: "Search" })).toBeFocused();
+});
+
+test("every width from 320 to 1,600 px has a way in: the hint, or Go to under the search", async ({
+  page,
+}) => {
+  await page.goto("/regtest/blocks");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Blocks");
+  const hint = page.getByRole("button", { name: "Go to", exact: true });
+  const go = page.getByRole("button", { name: "Go to a page, pool or date" });
+  const search = page.getByRole("combobox", { name: "Search" });
+  const none: number[] = [];
+  for (let width = 320; width <= 1600; width += 20) {
+    await page.setViewportSize({ width, height: 800 });
+    if (await hint.isVisible()) continue;
+    await search.focus();
+    if (!(await go.isVisible()) || !(await go.isEnabled())) none.push(width);
+    await search.blur();
+  }
+  expect(none).toStrictEqual([]);
 });
