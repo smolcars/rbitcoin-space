@@ -266,20 +266,26 @@
       min-height: var(--touch);
     }
   }
-  /* A thumb's target on a touch screen wider than a phone, drawn nowhere and moving nothing: it
-     takes the gap above the line and the rest below it, so it never reaches over the plot. */
-  @media (pointer: coarse) and (min-width: 40.0625em) {
+  .chart__figures[open] > summary {
+    margin-bottom: var(--space-3);
+  }
+  /* A thumb's target on a touch screen, drawn nowhere and moving nothing: where the control is not
+     a thumb high already (wider than a phone) it takes the gap above the line and the rest below
+     it, so it never reaches over the plot, and the open figures start under it. */
+  @media (pointer: coarse) {
     .chart__csv {
       position: relative;
     }
     .chart__csv::before {
       content: "";
       position: absolute;
-      inset: calc(-1 * var(--space-2)) 0 calc(1lh + var(--space-2) - var(--touch));
+      inset: max(-1 * var(--space-2), 100% - var(--touch)) 0
+        min(0px, 100% + var(--space-2) - var(--touch));
     }
-  }
-  .chart__figures[open] > summary {
-    margin-bottom: var(--space-3);
+    .chart__figures[open] > summary {
+      /* A pixel over, so a line that lands between two pixels cuts nothing off the target. */
+      margin-bottom: max(var(--space-3), var(--touch) - var(--space-2) - 1lh + 1px);
+    }
   }
   /* One scrolling box, both ways, which takes focus; the table inside does not scroll itself. */
   .chart__table {
