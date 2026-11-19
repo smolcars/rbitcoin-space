@@ -24,6 +24,7 @@ import type { AddressStats, Transaction, Utxo } from "../../lib/esplora";
 import { groupDigits, MISSING } from "../../lib/format";
 import { NETWORK_NAMES, paths } from "../../lib/network";
 import { useNetwork } from "../../lib/page";
+import { steady } from "../../lib/steady";
 import {
   confirmations,
   isCoinbase,
@@ -182,9 +183,15 @@ export function History(props: {
   });
   const later = () => after().txs;
   const fresh = () => after().fresh;
+  // The object already held for a transaction whose answer has not changed, so the table, which
+  // keeps a row's elements while it is given the same object, rebuilds no row but those that
+  // changed: the reader keeps their focus, the row under their finger and a note they were sent
+  // to. Compared whole, so a field a later answer changed (a block, a pruned input) is never
+  // hidden behind the old object.
+  const steadyTxs = steady<Transaction>((t) => t.txid);
   const shown = createMemo(() => {
     const f = first();
-    return f ? mergePages(f, later()) : undefined;
+    return f ? steadyTxs(mergePages(f, later())) : undefined;
   });
   // The page works out the lookalikes over every loaded page at once (its notice and these rows read
   // the one answer), so a later page's lookalike also marks the earlier rows it imitates.
@@ -542,9 +549,11 @@ function Unspent(props: {
   retry: () => void;
 }) {
   const [page, setPage] = createSignal(1);
+  // As for the transactions: an output the answer still lists, unchanged, keeps its row.
+  const steadyUtxos = steady<Utxo>((u) => `${u.txid}:${u.vout}`);
   const sorted = createMemo(() => {
     const u = settled(props.utxos);
-    return u ? sortUtxos(u) : undefined;
+    return u ? sortUtxos(steadyUtxos(u)) : undefined;
   });
   const tipHeight = () => {
     const t = Number(settled(props.tip));

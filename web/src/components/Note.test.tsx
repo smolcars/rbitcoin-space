@@ -85,4 +85,65 @@ describe("Note", () => {
     flush();
     expect(shown()).toBeNull();
   });
+
+  it("opens again when the focused button is pressed after Escape closed it", async () => {
+    const el = mount(() => <Note focusable title="Slow: 20 min or more" figure="35 min 8 s" />);
+    const button = el.querySelector("button");
+    if (!button) throw new Error("no button");
+    button.focus();
+    flush();
+    expect(shown()).not.toBeNull();
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    await Promise.resolve();
+    flush();
+    expect(shown()).toBeNull();
+    expect(document.activeElement).toBe(button);
+    // Enter or Space on a button, and a tap, all arrive as a click.
+    button.click();
+    flush();
+    expect(shown()).not.toBeNull();
+    // A press while it is open leaves it open: it never toggles shut under a reader's finger.
+    button.click();
+    flush();
+    expect(shown()).not.toBeNull();
+  });
+
+  it("names a button by its figure alone, and reads a plain figure's note in place", () => {
+    const button = mount(() => (
+      <Note focusable title="Slow: 20 min or more" figure="35 min 8 s">
+        Blocks come every 10 min on average.
+      </Note>
+    )).querySelector("button");
+    const described = document.getElementById(button?.getAttribute("aria-describedby") ?? "");
+    // Its description still, though kept out of the name the button takes from its contents.
+    expect(described?.getAttribute("aria-hidden")).toBe("true");
+    expect(described?.textContent).toBe(
+      "Slow: 20 min or more. Blocks come every 10 min on average.",
+    );
+    const plain = mount(() => <Note title="Slow: 20 min or more" figure="35 min 8 s" />);
+    expect(plain.querySelector(".visually-hidden")?.hasAttribute("aria-hidden")).toBe(false);
+  });
+
+  it("stays open when pressed again just after the mouse left and Escape closed it", async () => {
+    vi.useFakeTimers();
+    const el = mount(() => <Note focusable title="Slow: 20 min or more" figure="35 min 8 s" />);
+    const button = el.querySelector("button");
+    if (!button) throw new Error("no button");
+    button.focus();
+    pointer(button, "pointerenter", "mouse");
+    flush();
+    // The mouse leaves: the note is to close in a moment, unless something else does first.
+    pointer(button, "pointerleave", "mouse");
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    await Promise.resolve();
+    flush();
+    expect(shown()).toBeNull();
+    button.click();
+    flush();
+    expect(shown()).not.toBeNull();
+    // The leave that was pending belonged to the note Escape closed, not to this one.
+    vi.advanceTimersByTime(1000);
+    flush();
+    expect(shown()).not.toBeNull();
+  });
 });

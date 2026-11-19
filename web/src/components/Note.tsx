@@ -11,7 +11,7 @@ const LINGER = 150;
 
 /**
  * A figure that explains itself: a note opens over the page while a mouse is on it or it has
- * keyboard focus. The note is drawn at the end of the page, so nothing around the figure clips it
+ * keyboard focus, and again when a focused button is pressed. The note is drawn at the end of the page, so nothing around the figure clips it
  * (the block strip's faded edges would), above the figure, or below it when asked or when the room
  * above is short. Screen readers hear the same words as the figure's description.
  */
@@ -59,6 +59,8 @@ export function Note(props: {
     pop.style.setProperty("--y", `${Math.round(up ? above : f.bottom + GAP)}px`);
   };
   const show = () => {
+    // Whatever opens it now means it to stay: a mouse that left a moment ago must not shut it.
+    clearTimeout(leaving);
     if (close || closing) return;
     setOpen(true);
     // Drawn before it is measured, and placed before the browser paints it.
@@ -66,6 +68,9 @@ export function Note(props: {
     place();
     close = openPop(
       () => {
+        // Closed already: the mouse's pending leave has nothing left to close, and must not close
+        // a note opened again before it fires.
+        clearTimeout(leaving);
         close = undefined;
         closing = true;
         queueMicrotask(() => (closing = false));
@@ -93,7 +98,14 @@ export function Note(props: {
   const inside = () => (
     <>
       {props.figure}
-      <span id={id} class="visually-hidden">
+      {/* A button is named by what it holds: the note is its description, not part of its name,
+          so it is kept out of the name (a description may be hidden). A plain figure has no role
+          for a description to hang on, so there the words are read in place. */}
+      <span
+        id={id}
+        class="visually-hidden"
+        aria-hidden={props.focusable === true ? "true" : undefined}
+      >
         {props.children === undefined ? props.title : `${props.title}. ${props.children}`}
       </span>
       <Show when={open()}>
@@ -122,6 +134,9 @@ export function Note(props: {
       onPointerLeave={leave}
       onFocusIn={show}
       onFocusOut={hide}
+      // Enter, Space or a tap on a button that already has focus: after Escape or a press
+      // elsewhere closed the note, focus has not moved, so nothing else would open it again.
+      onClick={show}
     >
       {inside()}
     </button>
