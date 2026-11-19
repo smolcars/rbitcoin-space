@@ -283,7 +283,7 @@ Rates are sat per 1,000 vB, as everywhere. `stale` is true while the node is fai
 
 **How often.** The server reconsiders every followed transaction at most once per `WS_MEMPOOL_INTERVAL_MS`, from the same projection the other mempool topics use, and a newly followed one at once (its first message comes within milliseconds). It publishes only from a view of the engines that matches the removal reasons it has folded in, so a transaction never reads as waiting after the server has seen it leave. A change of state, a new effective rate, or entering or leaving the next block goes out at once. A change of only how much is ahead of it, or of which later block it is in, goes out at most once per `WS_POSITION_INTERVAL_MS` (10 s): enough for a page to keep its estimate fresh, without a message for every shuffle.
 
-**`address:<address>`**
+**`address:<address>`** (or a public key in the address's place, for the outputs paid to the key itself: [`API.md`](API.md#public-keys))
 
 ```json
 {"topic":"address:bc1q…","type":"address","state":"watching","status":"6c3e…"}

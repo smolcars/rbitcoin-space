@@ -1,8 +1,51 @@
 import { describe, expect, it } from "vitest";
-import { recognise } from "./address";
+import { keyScript, recognise, scriptKey } from "./address";
 
 const TEST = ["signet", "testnet4", "testnet5", "regtest"];
 const TB = ["signet", "testnet4", "testnet5"];
+const ALL = ["mainnet", ...TEST];
+// A signet key paid in the open, and the curve's generator, compressed.
+const KEY =
+  "04a8c3fa3dbc022ca7c9a2214c5e673833317b3cff37c0fc170fc347f1a2f6b6e2a53db4d023387f89209de481cd014a44040e1b09c3226d40fed02c0bc8d0f548";
+const G = "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798";
+
+describe("a public key", () => {
+  it.each([KEY, G, `03${G.slice(2)}`])("%s stands for its output on every network", (key) => {
+    expect(recognise(key)).toStrictEqual({ address: key, type: "p2pk", networks: ALL });
+    expect(recognise(key.toUpperCase())?.address).toBe(key);
+  });
+
+  it.each([
+    // Hybrid keys pay another script; the rest have the wrong length for their first byte.
+    `06${KEY.slice(2)}`,
+    `04${G.slice(2)}`,
+    `02${KEY.slice(2)}`,
+    KEY.slice(0, -2),
+    `${G}00`,
+    G.slice(0, 64),
+  ])("%s is not one", (input) => {
+    expect(recognise(input)).toBeNull();
+    expect(keyScript(input)).toBeUndefined();
+  });
+
+  it("is paid by the script that pushes it and checks a signature", () => {
+    expect(keyScript(KEY)).toBe(`41${KEY}ac`);
+    expect(keyScript(G)).toBe(`21${G}ac`);
+    expect(scriptKey(`41${KEY}ac`)).toBe(KEY);
+    expect(scriptKey(`21${G}ac`)).toBe(G);
+  });
+
+  it.each([
+    `21${KEY}ac`,
+    `41${G}ac`,
+    `41${KEY}ad`,
+    `4106${KEY.slice(2)}ac`,
+    "76a914000000000000000000000000000000000000000088ac",
+    "",
+  ])("%j is not a pay-to-pubkey script", (script) => {
+    expect(scriptKey(script)).toBeUndefined();
+  });
+});
 
 describe("recognise", () => {
   it.each([

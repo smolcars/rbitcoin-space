@@ -1348,8 +1348,7 @@ pub async fn route(
     Extension(client): Extension<Client>,
     Path(address): Path<String>,
 ) -> Result<Response, ApiError> {
-    let address = crate::esplora::address(&address, ctx.config.network)?;
-    let script = address.script_pubkey();
+    let script = crate::esplora::payee(&address, ctx.config.network)?.script_pubkey();
     let sh = ScriptHash::from_script(&script);
     let Some(ledger) = &ctx.guard.ledger else {
         return Err(ApiError::new(

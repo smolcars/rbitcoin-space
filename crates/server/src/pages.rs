@@ -197,12 +197,15 @@ impl Pages {
                 }
             }
             [_, Some("address"), Some(a), None] => {
-                let address = esplora::address(a, network).ok()?.to_string();
+                let payee = esplora::payee(a, network).ok()?;
+                let (what, lower) = match payee {
+                    esplora::Payee::Address(_) => ("Address", "address"),
+                    esplora::Payee::Key(_) => ("Public key", "public key"),
+                };
+                let name = payee.to_string();
                 Head {
-                    title: format!("Address {}", short(&address)),
-                    description: format!(
-                        "{on} address {address}: its balance and its transactions."
-                    ),
+                    title: format!("{what} {}", short(&name)),
+                    description: format!("{on} {lower} {name}: its balance and its transactions."),
                 }
             }
             [_, Some("mining"), None, None] => Head {

@@ -4,6 +4,7 @@ import { Amount } from "../../components/Amount";
 import { FeeRate } from "../../components/FeeRate";
 import { Hash } from "../../components/Hash";
 import { Link } from "../../components/Link";
+import { scriptKey } from "../../lib/address";
 import type { Outspend, Transaction, Vout } from "../../lib/esplora";
 import { feeColor, groupDigits } from "../../lib/format";
 import type { Lookalike } from "../../lib/lookalike";
@@ -270,10 +271,14 @@ export function Flow(props: {
     </button>
   );
 
+  /** Whom an output pays: its address, or the key of a pay-to-pubkey script, which has none. */
+  const payee = (out: Vout | null | undefined) =>
+    out?.scriptpubkey_address ?? (out ? scriptKey(out.scriptpubkey) : undefined);
+
   /** The address, cut in the middle only as far as the card needs; or what the script is. */
   const who = (out: Vout | null | undefined): JSX.Element => (
     <Show
-      when={out?.scriptpubkey_address}
+      when={payee(out)}
       fallback={<span class="tx-flow__label">{out ? scriptLabel(out) : "Unknown"}</span>}
     >
       {(a) => <Hash value={a()} href={paths.address(a())} fit copy={false} />}
@@ -346,7 +351,7 @@ export function Flow(props: {
                   <Show when={marked(input.prevout)}>
                     <LookalikeTag />
                   </Show>
-                  {input.prevout?.scriptpubkey_address
+                  {input.prevout && payee(input.prevout)
                     ? classify(input.prevout.scriptpubkey).label
                     : ""}
                 </span>
@@ -405,7 +410,7 @@ export function Flow(props: {
                 <Show when={marked(out)}>
                   <LookalikeTag />
                 </Show>
-                <Show when={out.scriptpubkey_address}>
+                <Show when={payee(out)}>
                   <span>{classify(out.scriptpubkey).label}</span>
                 </Show>
                 <Spent

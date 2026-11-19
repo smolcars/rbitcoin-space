@@ -1,10 +1,19 @@
 // An address's type and networks from its form alone. Shared by the address page and search.
 import type { Network } from "./network";
 
-export type AddressType = "p2pkh" | "p2sh" | "p2wpkh" | "p2wsh" | "p2tr" | "p2a" | "witness" | "sp";
+export type AddressType =
+  | "p2pk"
+  | "p2pkh"
+  | "p2sh"
+  | "p2wpkh"
+  | "p2wsh"
+  | "p2tr"
+  | "p2a"
+  | "witness"
+  | "sp";
 
 export interface Recognised {
-  /** The form the API and the node use: bech32 in lower case, base58 as given. */
+  /** The form the API and the node use: bech32 and a public key in lower case, base58 as given. */
   address: string;
   type: AddressType;
   /** The networks an address of this form belongs to. Signet, testnet4 and Testnet 5 share their forms. */
@@ -12,6 +21,7 @@ export interface Recognised {
 }
 
 export const TYPE_NAMES: Record<AddressType, { short: string; long: string }> = {
+  p2pk: { short: "P2PK", long: "Pay to public key: paid to the key itself, which has no address" },
   p2pkh: { short: "P2PKH", long: "Pay to public key hash" },
   p2sh: { short: "P2SH", long: "Pay to script hash" },
   p2wpkh: { short: "P2WPKH", long: "Pay to witness public key hash (SegWit v0)" },
@@ -23,6 +33,20 @@ export const TYPE_NAMES: Record<AddressType, { short: string; long: string }> = 
 };
 
 const TEST_NETWORKS: readonly Network[] = ["signet", "testnet4", "testnet5", "regtest"];
+const EVERY_NETWORK: readonly Network[] = ["mainnet", ...TEST_NETWORKS];
+/** A public key in hex: compressed (66 digits, `02` or `03` first) or not (130, `04` first). */
+const KEY = /^(?:0[23][0-9a-f]{64}|04[0-9a-f]{128})$/;
+
+/** The pay-to-pubkey script that pays `key`, in hex, or undefined when `key` is not a key in lower case. */
+export function keyScript(key: string): string | undefined {
+  return KEY.test(key) ? `${key.length === 66 ? "21" : "41"}${key}ac` : undefined;
+}
+
+/** The key a pay-to-pubkey script pays, in hex, or undefined for any other script. */
+export function scriptKey(script: string): string | undefined {
+  const key = /^(?:21|41)([0-9a-f]+)ac$/.exec(script)?.[1];
+  return key !== undefined && keyScript(key) === script ? key : undefined;
+}
 const BECH32_NETWORKS: Record<string, readonly Network[]> = {
   bc: ["mainnet"],
   tb: ["signet", "testnet4", "testnet5"],
@@ -32,9 +56,13 @@ const BECH32_CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
 
 /**
  * Recognises an address's type and networks from its form alone, or null when it has no address's
- * form. The checksum is left to the server, which validates every address it is asked for.
+ * form. The checksum is left to the server, which validates every address it is asked for. A public
+ * key is recognised too: an output paid to a key has no address, so the key stands for it, on
+ * every network; whether it is a point on the curve is the server's to say.
  */
 export function recognise(input: string): Recognised | null {
+  const key = input.toLowerCase();
+  if (KEY.test(key)) return { address: key, type: "p2pk", networks: EVERY_NETWORK };
   const base58 = /^[1-9A-HJ-NP-Za-km-z]{25,35}$/.test(input);
   if (base58) {
     const first = input[0];

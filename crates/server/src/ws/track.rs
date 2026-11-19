@@ -43,8 +43,8 @@ pub const MEMPOOL_SYNCING: ApiError =
 const SUMMARY_EVERY: Duration = Duration::from_secs(60);
 
 /// A tracked topic's name as a client writes it, parsed strictly: `tx:` and 64 lowercase hex
-/// digits, or `address:` and an address of this network. Returns the topic and its name as the
-/// server writes it (bech32 in lower case).
+/// digits, or `address:` and an address of this network or a public key. Returns the topic and its
+/// name as the server writes it (bech32 and a key's hex in lower case).
 pub fn parse(name: &str, network: Network) -> Option<(Topic, String)> {
     if let Some(hex) = name.strip_prefix("tx:") {
         if !hex
@@ -56,9 +56,9 @@ pub fn parse(name: &str, network: Network) -> Option<(Topic, String)> {
         let txid = esplora::txid(hex).ok()?;
         return Some((Topic::Tx(txid), name.to_owned()));
     }
-    let address = esplora::address(name.strip_prefix("address:")?, network).ok()?;
-    let sh = ScriptHash::from_script(&address.script_pubkey());
-    Some((Topic::Address(sh), format!("address:{address}")))
+    let payee = esplora::payee(name.strip_prefix("address:")?, network).ok()?;
+    let sh = ScriptHash::from_script(&payee.script_pubkey());
+    Some((Topic::Address(sh), format!("address:{payee}")))
 }
 
 /// Whether `topic` follows a transaction or an address, in either protocol: those go through

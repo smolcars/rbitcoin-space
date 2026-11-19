@@ -45,8 +45,9 @@ export interface Form {
 
 export function form(address: string): Form | undefined {
   const r = recognise(address);
-  // Pay to anchor is one fixed address; silent payments never appear in a transaction.
-  if (!r || r.type === "p2a" || r.type === "sp") return undefined;
+  // Pay to anchor is one fixed address; silent payments never appear in a transaction, and a
+  // public key is no address to mistake for another.
+  if (!r || r.type === "p2a" || r.type === "sp" || r.type === "p2pk") return undefined;
   const folded = address.toLowerCase();
   const bech32 = r.type !== "p2pkh" && r.type !== "p2sh";
   const prefix = bech32 ? folded.lastIndexOf("1") + 2 : 1;

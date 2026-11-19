@@ -18,7 +18,7 @@ use axum::http::header::{ALLOW, CACHE_CONTROL, CONTENT_TYPE, RETRY_AFTER};
 use axum::http::{HeaderName, HeaderValue, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
 use bitcoin::address::NetworkUnchecked;
-use bitcoin::{Address, BlockHash, Transaction, Txid};
+use bitcoin::{Address, BlockHash, PublicKey, ScriptBuf, Transaction, Txid};
 use node::esplora::{
     BlockTxsStart, Error, Esplora, OutPosition, OutPositions, RawResponse, Route, ScriptHash,
     ScriptRef, ScriptSize,
@@ -1178,7 +1178,7 @@ fn parse_segments(segs: &[&str], q: &mut Query<'_>, network: Network) -> Result<
 
         [kind @ ("address" | "scripthash"), s, ref rest @ ..] => {
             let script = if kind == "address" {
-                ScriptRef::Address(address(s, network)?)
+                payee(s, network)?.script_ref()
             } else {
                 ScriptRef::ScriptHash(
                     ScriptHash::from_str(s)
@@ -1275,6 +1275,60 @@ pub(crate) fn address(s: &str, network: Network) -> Result<Address, ApiError> {
         .map_err(|_| ApiError::bad_request("invalid address"))?
         .require_network(chain)
         .map_err(|_| ApiError::bad_request("address is for another network"))
+}
+
+/// What an address route's `:address` names: an address, or a bare public key, which is paid by
+/// its pay-to-pubkey script and has no address (docs/API.md, "Public keys").
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Payee {
+    Address(Address),
+    Key(PublicKey),
+}
+
+impl Payee {
+    pub(crate) fn script_pubkey(&self) -> ScriptBuf {
+        match self {
+            Self::Address(a) => a.script_pubkey(),
+            Self::Key(k) => ScriptBuf::new_p2pk(k),
+        }
+    }
+
+    /// How the node is asked: it knows a key's script only by its hash.
+    fn script_ref(self) -> ScriptRef {
+        match self {
+            Self::Address(a) => ScriptRef::Address(a),
+            Self::Key(_) => ScriptRef::ScriptHash(ScriptHash::from_script(&self.script_pubkey())),
+        }
+    }
+}
+
+/// As the server writes it: an address as [`Address`] does, a key as lower-case hex.
+impl std::fmt::Display for Payee {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Address(a) => a.fmt(f),
+            Self::Key(k) => k.fmt(f),
+        }
+    }
+}
+
+/// An address of `network`, or a public key, which belongs to every network.
+pub(crate) fn payee(s: &str, network: Network) -> Result<Payee, ApiError> {
+    match public_key(s) {
+        Some(key) => Ok(Payee::Key(key)),
+        None => address(s, network).map(Payee::Address),
+    }
+}
+
+/// A point on the curve as 66 hex digits starting `02` or `03`, or 130 starting `04`.
+fn public_key(s: &str) -> Option<PublicKey> {
+    // A hybrid key (`06`, `07`) would parse and be written back as `04`: another script.
+    let form = match s.len() {
+        66 => s.starts_with("02") || s.starts_with("03"),
+        130 => s.starts_with("04"),
+        _ => false,
+    };
+    form.then(|| s.parse().ok()).flatten()
 }
 
 /// The query string as `name=value` pairs, each name at most once.
@@ -1658,6 +1712,55 @@ mod tests {
         ] {
             let e = err(&p);
             assert_eq!(e.status(), StatusCode::BAD_REQUEST, "{p}: {e:?}");
+        }
+    }
+
+    /// A signet key paid 513 times, and the hash of its pay-to-pubkey script as the node takes it.
+    const KEY: &str = "04a8c3fa3dbc022ca7c9a2214c5e673833317b3cff37c0fc170fc347f1a2f6b6e2a53db4d023387f89209de481cd014a44040e1b09c3226d40fed02c0bc8d0f548";
+    const KEY_SH: &str = "8c4d828b38197ebf595cf0c96da868cf9aea7cc55a3bb1c4fb688c0a941fa9d0";
+    /// The curve's generator, compressed.
+    const G: &str = "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798";
+
+    #[test]
+    fn a_public_key_is_asked_by_the_hash_of_its_script() {
+        for net in [Network::Mainnet, Network::Signet, Network::Regtest] {
+            let r = parse(&format!("address/{KEY}/txs"), None, net).unwrap();
+            assert_eq!(path(&r), format!("/scripthash/{KEY_SH}/txs"), "{net:?}");
+        }
+        let upper = KEY.to_ascii_uppercase();
+        assert_eq!(
+            ok(&format!("address/{upper}")),
+            format!("/scripthash/{KEY_SH}")
+        );
+        assert_eq!(
+            payee(&upper, Network::Signet).unwrap().to_string(),
+            KEY,
+            "written back in lower case"
+        );
+        // A compressed key is paid by its own, shorter script.
+        let script = ScriptBuf::from_hex(&format!("21{G}ac")).unwrap();
+        let sh = ScriptHash::from_script(&script);
+        assert_eq!(ok(&format!("address/{G}")), format!("/scripthash/{sh}"));
+    }
+
+    #[test]
+    fn only_a_point_in_its_own_form_is_a_public_key() {
+        for bad in [
+            // Hybrid: the same point, but another script.
+            format!("06{}", &KEY[2..]),
+            format!("07{}", &KEY[2..]),
+            // Not on the curve.
+            format!("04{}", "0".repeat(128)),
+            format!("02{}", "f".repeat(64)),
+            // The wrong length for its first byte, and no hex.
+            format!("04{}", &G[2..]),
+            format!("02{}", &KEY[2..]),
+            KEY[..128].to_owned(),
+            format!("{KEY}00"),
+            format!("{}zz", &KEY[..128]),
+        ] {
+            let e = err(&format!("address/{bad}"));
+            assert_eq!(e.status(), StatusCode::BAD_REQUEST, "{bad}");
         }
     }
 

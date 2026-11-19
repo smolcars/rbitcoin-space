@@ -2,6 +2,7 @@ import { createMemo, createSignal, For, Match, Show, Switch } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { Amount } from "../../components/Amount";
 import { Hash } from "../../components/Hash";
+import { scriptKey } from "../../lib/address";
 import type { Outspend, Transaction, Vin, Vout } from "../../lib/esplora";
 import { formatSize, groupDigits } from "../../lib/format";
 import type { Lookalike } from "../../lib/lookalike";
@@ -117,6 +118,23 @@ export function Inspector(props: {
   );
 }
 
+/** The key a pay-to-pubkey output pays, linked to its page: it has no address. Else "None". */
+function Key(props: { out: Vout }) {
+  return (
+    <Show when={scriptKey(props.out.scriptpubkey)} fallback="None">
+      {(k) => (
+        <Hash
+          value={k()}
+          href={paths.address(k())}
+          head={14}
+          tail={10}
+          copyLabel="Copy public key"
+        />
+      )}
+    </Show>
+  );
+}
+
 /** An input's or output's address: marked whole when it is a lookalike handed over, else short. */
 function Address(props: {
   address: string;
@@ -205,8 +223,8 @@ function InputDetails(props: {
                 <Fact label="Amount">
                   <Amount sats={p().value} />
                 </Fact>
-                <Fact label="Address">
-                  <Show when={p().scriptpubkey_address} fallback="None">
+                <Fact label={scriptKey(p().scriptpubkey) ? "Public key" : "Address"}>
+                  <Show when={p().scriptpubkey_address} fallback={<Key out={p()} />}>
                     {(a) => <Address address={a()} lookalike={props.lookalike} />}
                   </Show>
                 </Fact>
@@ -290,8 +308,8 @@ function OutputDetails(props: {
         <Fact label="Amount">
           <Amount sats={props.vout.value} />
         </Fact>
-        <Fact label="Address">
-          <Show when={props.vout.scriptpubkey_address} fallback="None">
+        <Fact label={scriptKey(props.vout.scriptpubkey) ? "Public key" : "Address"}>
+          <Show when={props.vout.scriptpubkey_address} fallback={<Key out={props.vout} />}>
             {(a) => <Address address={a()} lookalike={props.lookalike} />}
           </Show>
         </Fact>

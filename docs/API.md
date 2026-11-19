@@ -89,6 +89,7 @@ Every parameter is parsed into a typed value before the node is asked, and the n
 | Txid or block hash | 64 hex digits, optional `0x`; a bad one is `404` | Exactly 64 hex digits, any case; a bad one is `400` |
 | Height, index, vout, `max_txs` | integer | Decimal digits only, at most `u32::MAX`; anything else is `400` |
 | Address | Parsed by the node; a bad or wrong-network one is `404` | Parsed for the network in the URL: `400 invalid address` or `400 address is for another network` |
+| Public key in an address's place | `404`: not an address | A point on the curve in hex: the pay-to-pubkey script it is paid by ([below](#public-keys)) |
 | `?asof=` on a route that does not take it, any other unknown query parameter, or one given twice | `404` for `asof`; others ignored | `400` |
 | `/txs/outspends?txids=` | Up to 50; a token that is not a hash gets an empty slot | Up to 50; any token that is not a txid is `400`. `%2C` is accepted as the comma |
 | `/block/:hash/txs/:start_index` not a multiple of 25 | `400` | `400`, before asking the node |
@@ -96,6 +97,17 @@ Every parameter is parsed into a typed value before the node is asked, and the n
 | Trailing or doubled slash | `404` | `404` |
 
 The node is sent canonical forms: lowercase hex, lowercase bech32 addresses, `/block/:hash/txs` as `/txs/0`, and `/txs/summary?after_txid=X` as `/txs/summary/X`. The node answers each pair the same.
+
+#### Public keys
+
+An output paid to a public key itself (P2PK: `<key> OP_CHECKSIG`, most of the early coinbases) has no address, so the key stands in for one. Every route that takes `:address` takes a key in its place: `/api/address/:a` and everything under it, `/app/address/:a/ledger` and `/size`, the address page's link preview, the `address:` topic ([`WS.md`](WS.md#following-a-transaction-or-an-address)) and the MCP `get_address` tool ([`MCP.md`](MCP.md)).
+
+- **Form.** 66 hex digits starting `02` or `03` (compressed), or 130 starting `04` (uncompressed), any case, and a point on the curve. The two forms of one point are paid by two different scripts, so they are two different pages. A hybrid key (`06`, `07`) is refused: it parses as a point, but the script it is paid by could only be written from the hex, not from the key. Anything else of that shape is `400 invalid address`.
+- **Network.** A key belongs to no network: the same one is valid under every prefix, and answers zeros where nothing paid it.
+- **What the node is asked.** The script's hash, as `/scripthash/:hash` (SHA-256 of the script, byte-reversed as Electrum writes it, which is the order rbitcoin's route takes). So the answer is the node's scripthash answer, byte for byte: totals carry `"scripthash"` where an address's carry `"address"`. Limits, the large-address guard and the ledger key on the script's hash already, so a key costs what an address costs.
+- **Not** `/api/v1/validate-address`, which answers about addresses only.
+
+Checked on signet on 2026-11-19 with `04a8c3fa…c8d0f548`: 513 outputs funded and spent, 999 transactions, the totals another public explorer gives for that script. Code: `Payee` in `crates/server/src/esplora.rs`.
 
 ### Error bodies are ours
 

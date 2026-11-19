@@ -37,6 +37,7 @@ export function describe(raw: string, network: Network, lightning = false): Read
   if (q?.kind === "address") {
     const { type, networks } = q.address;
     const theirs = networks.includes(network) ? null : networkNames(networks);
+    if (type === "p2pk") return { label: "Public key (P2PK)", ready: true };
     return { label: `${theirs ?? TYPE_NAMES[type].short} address`, ready: true };
   }
   if (raw.length > MAX_QUERY) return { label: "Too long", ready: false };

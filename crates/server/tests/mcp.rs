@@ -426,6 +426,12 @@ async fn a_stateless_client_finds_and_calls_the_tools() {
     )
     .await;
     assert_eq!(other.unwrap_err(), "address is for another network");
+    // A public key's 130 digits reach the route, which says this one is no point on the curve.
+    let key = json!({ "address": format!("04{}", "0".repeat(128)) });
+    assert_eq!(
+        call(&addr, "get_address", key).await.unwrap_err(),
+        "invalid address"
+    );
 
     // The newest block and a block by height: with no store, as the node has it.
     for arguments in [
@@ -487,12 +493,12 @@ async fn a_stateless_client_finds_and_calls_the_tools() {
         (
             "get_address",
             json!({ "address": "../../mempool" }),
-            "address is required: a Bitcoin address",
+            "address is required: a Bitcoin address or a public key",
         ),
         (
             "get_address",
             json!({ "address": format!("{ADDRESS}?asof=1") }),
-            "address is required: a Bitcoin address",
+            "address is required: a Bitcoin address or a public key",
         ),
         (
             "get_block",

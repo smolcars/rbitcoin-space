@@ -31,8 +31,8 @@ pub async fn size_route(
     State(ctx): State<Arc<crate::NetworkContext>>,
     Path(address): Path<String>,
 ) -> Result<Response, crate::ApiError> {
-    let address = crate::esplora::address(&address, ctx.config.network)?;
-    let script = ScriptHash::from_script(&address.script_pubkey());
+    let payee = crate::esplora::payee(&address, ctx.config.network)?;
+    let script = ScriptHash::from_script(&payee.script_pubkey());
     let size = ctx
         .api
         .verdicts

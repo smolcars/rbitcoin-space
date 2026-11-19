@@ -317,6 +317,21 @@ describe("classify: Lightning", () => {
   it("keeps a number that fits a height a height", () => {
     expect(classify("4294967295")).toStrictEqual(height(4_294_967_295));
   });
+
+  it("takes a compressed key for an output's only from a link to an address page", () => {
+    const link = `https://mempool.space/signet/address/${KEY}`;
+    expect(classify(link)).toMatchObject({ kind: "address", address: { address: KEY } });
+  });
+
+  it("takes an uncompressed key, never a node's, for an output's", () => {
+    const key = `04${"ab".repeat(64)}`;
+    for (const q of [key, key.toUpperCase(), `https://mempool.space/address/${key}`]) {
+      expect(classify(q)).toMatchObject({
+        kind: "address",
+        address: { address: key, type: "p2pk" },
+      });
+    }
+  });
 });
 
 describe("classify: payment strings go to the decoder", () => {

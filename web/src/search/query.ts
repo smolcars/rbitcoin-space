@@ -169,7 +169,10 @@ function plain(q: string, hint: Hint): Query | null {
   }
   if (hint === null || hint === "address") {
     const address = recognise(compact);
-    if (address) return { kind: "address", address };
+    // A compressed key on its own is a Lightning node's far more often than an output's: only a
+    // link to an address page makes it one. An uncompressed key is never a node's.
+    const node = hint === null && address?.type === "p2pk" && compact.length === 66;
+    if (address && !node) return { kind: "address", address };
   }
   if ((hint === null || hint === "node") && /^0[23][0-9a-f]{64}$/i.test(compact)) {
     return { kind: "node", key: compact.toLowerCase() };

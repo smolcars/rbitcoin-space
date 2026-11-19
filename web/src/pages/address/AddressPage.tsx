@@ -79,13 +79,17 @@ export default function AddressPage() {
     const f = found();
     return f?.networks.includes(network()) ? `${network()} ${f.address}` : undefined;
   };
-  usePageTitle(() => `Address ${truncateMiddle(found()?.address ?? input())}`);
+  // A key has no address: the page is the key's, and says so.
+  const isKey = () => found()?.type === "p2pk";
+  usePageTitle(
+    () => `${isKey() ? "Public key" : "Address"} ${truncateMiddle(found()?.address ?? input())}`,
+  );
 
   return (
     <div class="wrap address">
       <header class="address-head">
         <div class="address-head__row">
-          <h1>Address</h1>
+          <h1>{isKey() ? "Public key" : "Address"}</h1>
           <Show when={found()}>
             {(f) => (
               <span class="address-type" title={TYPE_NAMES[f().type].long}>
@@ -96,8 +100,11 @@ export default function AddressPage() {
         </div>
         <Show when={found()} fallback={<p class="address-head__raw">{input()}</p>}>
           {(f) => (
-            <HashFull value={f().address} copyLabel="Copy address">
-              <QrButton value={f().address} what="address" />
+            <HashFull value={f().address} copyLabel={isKey() ? "Copy public key" : "Copy address"}>
+              {/* No code for a key: a wallet that scans one cannot pay it. */}
+              <Show when={!isKey()}>
+                <QrButton value={f().address} what="address" />
+              </Show>
             </HashFull>
           )}
         </Show>
@@ -356,7 +363,12 @@ function AddressBody(props: { address: string; found: Recognised | null }) {
           </Notice>
         </Match>
         <Match when={pageRefusal() === "invalid"}>
-          <Malformed network={network()} />
+          <Show when={props.found?.type === "p2pk"} fallback={<Malformed network={network()} />}>
+            <Notice title="This is not a valid public key" tone="caution">
+              It has a key's length and first digits, but it is not a point on Bitcoin's curve.
+              Check it for a mistyped character.
+            </Notice>
+          </Show>
         </Match>
         <Match when={pageRefusal() === "wrong-network" && props.found}>
           {(f) => <WrongNetwork found={f()} network={network()} />}

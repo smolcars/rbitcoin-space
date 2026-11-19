@@ -1,21 +1,25 @@
 // What the address page works out for itself: an address's net change in a transaction, and which
 // of the node's refusals an API error is. Pure functions. Recognising an address is in lib/address.
+import { keyScript } from "../../lib/address";
 import { ApiError } from "../../lib/api";
-import type { Transaction, Utxo } from "../../lib/esplora";
+import type { Transaction, Utxo, Vout } from "../../lib/esplora";
 import { feeRate, vsizeFromWeight } from "../../lib/format";
 
 /**
  * The address's net change in a transaction, in sats: what its outputs pay to the address minus
  * what its inputs spend from it. Null when the node has pruned the inputs, so the spent side is
- * unknown.
+ * unknown. An output paid to a public key names no address, so a key's are found by their script.
  */
 export function netChange(tx: Transaction, address: string): number | null {
   if (tx.pruned) return null;
+  const script = keyScript(address);
+  const own = (out: Vout) =>
+    script === undefined ? out.scriptpubkey_address === address : out.scriptpubkey === script;
   let sats = 0;
-  for (const out of tx.vout) if (out.scriptpubkey_address === address) sats += out.value;
+  for (const out of tx.vout) if (own(out)) sats += out.value;
   for (const input of tx.vin ?? []) {
     const prev = input.prevout;
-    if (prev?.scriptpubkey_address === address) sats -= prev.value;
+    if (prev && own(prev)) sats -= prev.value;
   }
   return sats;
 }
