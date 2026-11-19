@@ -128,7 +128,9 @@ export function Header(props: {
             </Link>
           ))}
         </nav>
-        <PaletteGo onOpen={() => openPalette?.(typed())} />
+        {/* Reached by a tap, which leaves focus in the search, or by Tab, which moves it here:
+            either way what the search holds goes on. */}
+        <PaletteGo onOpen={() => openPalette?.(search?.value ?? "")} />
         <ThemeToggle />
       </div>
       <div

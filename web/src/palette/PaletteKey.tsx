@@ -11,7 +11,10 @@ const apple = () =>
 
 /** Whether a key press is the palette's shortcut on this platform. */
 export function isPaletteKey(e: KeyboardEvent, onApple: boolean): boolean {
-  if (e.altKey || e.shiftKey || e.key === undefined) return false;
+  // A key an input method is composing with belongs to it ("Process" where the flag is unset).
+  if (e.altKey || e.shiftKey || e.isComposing || e.key === "Process" || e.key === undefined) {
+    return false;
+  }
   const k = e.key.toLowerCase() === "k" || e.code === "KeyK";
   return k && (onApple ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey);
 }
@@ -40,14 +43,17 @@ export function PaletteKey(props: {
   const [view, setView] = createSignal<{ C: Component<PaletteProps>; initial: string }>();
   const Shown = dynamic(() => view()?.C);
   let closeOpen: (() => void) | undefined;
+  // An open asked for while the code downloads; a newer press, or Escape, withdraws it.
+  let wanted = 0;
   let opening = false;
 
   const open = async (initial: string) => {
     if (view() !== undefined || opening) return;
+    const mine = ++wanted;
     opening = true;
     try {
       const C = await load();
-      setView({ C, initial });
+      if (mine === wanted) setView({ C, initial });
     } catch {
       // Offline or a deploy replaced the file: the next press asks again.
     } finally {
@@ -57,14 +63,20 @@ export function PaletteKey(props: {
   props.expose((initial) => void open(initial));
   const toggle = () => {
     if (closeOpen) closeOpen();
+    else if (opening) wanted += 1;
     else void open(props.typed());
   };
 
   onSettled(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && opening) {
+        wanted += 1;
+        return;
+      }
       if (!isPaletteKey(e, onApple)) return;
       e.preventDefault();
-      toggle();
+      // A held key repeats: only its first press counts.
+      if (!e.repeat) toggle();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
