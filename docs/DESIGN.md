@@ -123,6 +123,12 @@ Two ramps of Lightning's own, for drawings that colour channels (none yet; a nod
 - **Forwarding rate**, ppm, quiet to strong: `--ln-ppm-1` to `-6`, light `#9399a0`, `#6c90a9`, `#4d82b3`, `#466eb8`, `#5255b6`, `#5c3bab`; dark `#646a70`, `#597f9b`, `#5b90c7`, `#7a9ce9`, `#a9a5ff`, `#d8aeff`. A grey through blue to violet that also steps in lightness, darker each step on a light page and lighter on a dark one, so neighbours part without hue: each step at least 1.15:1 from the last, the strongest 3:1 on every surface (`contrast.test.ts`).
 - **Age**, one teal, `--ln-age` (light `#0f766e`, dark `#26b3a1`, 3:1 on every surface), mixed into the panel in five steps, `--ln-age-1` (the youngest, the teal itself) to `-5` (20%), each at least 1.15:1 from the next against the panel.
 
+### QR codes
+
+A QR code (the address page's address, a Lightning node's connect string) is drawn dark on a light card in both themes, never inverted: `--qr-paper` (`#ffffff`) and `--qr-ink` (`#161b1e`), the same in both, with the logo's arriving layer in `--qr-mark` (`#a8196b`). Its modules are soft: each dark module's corners round where both neighbours on that corner are light, so a lone module is a dot, a run a pill and a clump a blob, with a small fillet filling each inside corner. The three finders are a rounded ring round a rounded pupil, in their 1:1:3:1:1 proportions, their corners rounded by at most three quarters of a module. The logo sits in the middle, sized so the code still reads with room to spare ([`FRONTEND.md`](FRONTEND.md#qr-codes)): a short code (an address) shows the whole mark in a clear square; a longer one (a connect string) keeps the alignment pattern decoders look for in its middle, and that square becomes the block the crab lifts, its claws either side, its arriving layer above in `--qr-mark`. The quiet zone of four modules is part of the card.
+
+A node's code is drawn in the colour the node announces, so each node's code looks like its own; the crab in the middle takes it too. A colour under 4.5:1 on the card (the site's text bar, well past what a camera needs, so a dim screen or glare still reads) is darkened, keeping its hue, until it reaches that; a line under the code says which, with the announced colour as a swatch.
+
 ### Network
 
 `<html data-network="mainnet|signet|testnet4|testnet5|regtest">` sets `--color-network`.
@@ -348,6 +354,7 @@ Decided while building it, where the rest of this document left it open. The pag
 | Fee chip | A number and its unit, with a swatch only where it is the key to a drawing (`FeeRate swatch`) |
 | Amount | BTC with dimmed trailing zeros, sats on hover; `short` for a summary's magnitude |
 | Hash | Truncated or grouped, monospace, with copy; `whole` wraps the full value |
+| QR code | A small button beside a copy button that opens a pop-up by it: "Scan the address", the code on its light card, the value as text below. Closed by Escape, a press outside, its close button or a scroll ([QR codes](#qr-codes)) |
 | Stat | Label above a figure, optional muted sub-line |
 | Fact list | `dl` of label and value pairs, two columns or one |
 | Summary | The transaction page's answer: four figures in a panel, each a label, a value and one muted line: where it is (the block strip in small), fee rate (sats and vsize; once mined, a quiet line comparing it with its block's low end, [`FRONTEND.md`](FRONTEND.md#a-confirmed-transactions-fee-verdict)), amount (inputs to outputs), and first seen or mined. Each at least as wide as its figure; on a phone two by two, a wide amount on a row of its own. The broadcast page's three figures (fee, amount, size) are label-value pairs of the same kind |
