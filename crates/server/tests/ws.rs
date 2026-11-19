@@ -371,12 +371,25 @@ impl Ws {
 
     /// An upgrade with `headers` (each ending `\r\n`) in place of the usual `Host`.
     async fn upgrade(mut stream: TcpStream, path: &str, headers: &str) -> Result<Ws, String> {
+        let head = Self::head(&mut stream, path, headers).await;
+        if !head.starts_with("HTTP/1.1 101") {
+            return Err(head.lines().next().unwrap_or_default().to_owned());
+        }
+        assert!(
+            head.contains("sec-websocket-accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo="),
+            "{head}"
+        );
+        Ok(Ws { stream })
+    }
+
+    /// Sends an upgrade request with `headers` and reads the response head, byte by byte so
+    /// nothing after it is consumed.
+    async fn head(stream: &mut TcpStream, path: &str, headers: &str) -> String {
         let req = format!(
             "GET {path} HTTP/1.1\r\n{headers}Upgrade: websocket\r\nConnection: Upgrade\r\n\
              Sec-WebSocket-Key: {KEY}\r\nSec-WebSocket-Version: 13\r\n\r\n"
         );
         stream.write_all(req.as_bytes()).await.unwrap();
-        // Byte by byte, so nothing after the head is consumed.
         let mut head = Vec::new();
         while !head.ends_with(b"\r\n\r\n") {
             let mut b = [0u8];
@@ -389,15 +402,21 @@ impl Ws {
             }
             head.push(b[0]);
         }
-        let head = String::from_utf8(head).unwrap();
-        if !head.starts_with("HTTP/1.1 101") {
-            return Err(head.lines().next().unwrap_or_default().to_owned());
-        }
-        assert!(
-            head.contains("sec-websocket-accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo="),
-            "{head}"
-        );
-        Ok(Ws { stream })
+        String::from_utf8(head).unwrap()
+    }
+
+    /// A refused upgrade's status line and its `http_request` line. Every test in this binary
+    /// logs to one capture, so the line is found by the request id the response carries. Only
+    /// the first refusal of each reason is written whole (`crate::refusals`).
+    async fn refused(mut stream: TcpStream, headers: &str) -> (String, Value) {
+        let head = Self::head(&mut stream, "/regtest/app/ws", headers).await;
+        let id = head
+            .lines()
+            .find_map(|l| l.strip_prefix("x-request-id: "))
+            .unwrap_or_else(|| panic!("no request id: {head}"))
+            .to_owned();
+        let line = logged(|v| v["event"] == "http_request" && v["request_id"] == id.as_str()).await;
+        (head.lines().next().unwrap_or_default().to_owned(), line)
     }
 
     async fn send_raw(&mut self, bytes: &[u8]) {
@@ -880,12 +899,10 @@ async fn socket_caps_refuse_the_upgrade() {
     };
     let _a = connect(s.addr.clone()).await.unwrap();
     let b = connect(s.addr.clone()).await.unwrap();
-    assert_eq!(
-        connect(s.addr.clone()).await.err().unwrap(),
-        "HTTP/1.1 429 Too Many Requests"
-    );
     // The request log says which cap refused it, as for every other limit.
-    let refused = logged(|v| v["event"] == "http_request" && v["status"] == 429).await;
+    let (status, refused) =
+        Ws::refused(TcpStream::connect(&s.addr).await.unwrap(), "Host: test\r\n").await;
+    assert_eq!(status, "HTTP/1.1 429 Too Many Requests");
     assert_eq!(refused["refused"], "client_sockets");
     assert_eq!(refused["route"], "/regtest/app/ws");
     // Another address (127.0.0.2 is loopback on Linux; macOS needs an alias) has its own cap,
@@ -898,14 +915,8 @@ async fn socket_caps_refuse_the_upgrade() {
         let other = TcpSocket::new_v4().unwrap();
         other.bind("127.0.0.2:0".parse().unwrap()).unwrap();
         let stream = other.connect(s.addr.parse().unwrap()).await.unwrap();
-        assert_eq!(
-            Ws::connect_stream(stream, "/regtest/app/ws")
-                .await
-                .err()
-                .unwrap(),
-            "HTTP/1.1 503 Service Unavailable"
-        );
-        let refused = logged(|v| v["event"] == "http_request" && v["status"] == 503).await;
+        let (status, refused) = Ws::refused(stream, "Host: test\r\n").await;
+        assert_eq!(status, "HTTP/1.1 503 Service Unavailable");
         assert_eq!(refused["refused"], "server_sockets");
     }
     // A closed socket frees its slot.
@@ -1100,8 +1111,12 @@ async fn only_this_site_may_open_a_socket_from_a_browser() {
     // Not a browser: no Origin at all.
     assert!(up("Host: test\r\n").await.is_ok());
     // Another site's page: refused before it takes a socket slot, and said so in the log.
+    let evil = "Host: explorer.example\r\nOrigin: https://evil.example\r\n";
+    let stream = TcpStream::connect(&s.addr).await.unwrap();
+    let (status, refused) = Ws::refused(stream, evil).await;
+    assert_eq!(status, "HTTP/1.1 403 Forbidden");
+    assert_eq!(refused["refused"], "origin");
     for headers in [
-        "Host: explorer.example\r\nOrigin: https://evil.example\r\n",
         "Host: explorer.example\r\nOrigin: null\r\n",
         "Host: 127.0.0.1:1\r\nOrigin: http://127.0.0.1:2\r\n",
     ] {
@@ -1111,13 +1126,12 @@ async fn only_this_site_may_open_a_socket_from_a_browser() {
             "{headers}"
         );
     }
-    let refused = logged(|v| v["event"] == "http_request" && v["status"] == 403).await;
-    assert_eq!(refused["refused"], "origin");
-    let event = logged(|v| v["event"] == "ws_origin_refused").await;
-    assert_eq!(
-        (event["origin"].as_str(), event["host"].as_str()),
-        (Some("https://evil.example"), Some("explorer.example"))
-    );
+    // Another test refuses an origin too; only this one sends this host.
+    let event = logged(|v| {
+        v["event"] == "ws_origin_refused" && v["host"] == "explorer.example" && v["total"] == 1
+    })
+    .await;
+    assert_eq!(event["origin"], "https://evil.example");
 }
 
 #[tokio::test]
