@@ -126,8 +126,9 @@ describe("contrast from the tokens", () => {
     });
 
     it(`keeps the palette's glass readable over any page, ${name}`, () => {
-      // The page under the panel is dimmed by the scrim, then seen through the glass: its darkest
-      // and lightest pixels bound every mix the blur can make of it.
+      // The page under the panel is veiled, blurred, then seen through the glass, and the selected
+      // row's tint lies over that: the page's darkest and lightest pixels bound every mix the blur
+      // can make of it. (The blur's saturation is left out: it keeps a grey grey.)
       const css = (token: string): [Rgb, number] => {
         const scope = name === "light" ? ":root {" : ':root[data-theme="dark"] {';
         const start = tokens.indexOf(scope);
@@ -136,20 +137,27 @@ describe("contrast from the tokens", () => {
         if (!m) throw new Error(`no --${token} in ${name}`);
         return [[Number(m[1]), Number(m[2]), Number(m[3])], Number(m[4])];
       };
-      const [scrim, dim] = css("color-scrim");
+      const [veil, dim] = css("color-veil");
       const [glass, alpha] = css("color-glass");
+      const [lit, glow] = css("color-glass-lit");
+      const faint: string[] = [];
       for (const page of [
         [0, 0, 0],
         [255, 255, 255],
       ] as Rgb[]) {
-        const seen = mix(glass, alpha, mix(scrim, dim, page));
-        for (const text of ["color-text", "color-text-muted", "color-accent"]) {
-          expect(
-            ratio(rgb(theme.get(text) ?? ""), seen),
-            `${text} over ${page.join(" ")}`,
-          ).toBeGreaterThan(4.5);
+        const pane = mix(glass, alpha, mix(veil, dim, page));
+        for (const [where, under] of [
+          ["pane", pane],
+          ["selected row", mix(lit, glow, pane)],
+        ] as const) {
+          for (const text of ["color-text", "color-text-muted", "color-accent"]) {
+            const r = ratio(rgb(theme.get(text) ?? ""), under);
+            if (r < 4.5)
+              faint.push(`${text} on the ${where} over ${page.join(" ")}: ${r.toFixed(2)}`);
+          }
         }
       }
+      expect(faint).toStrictEqual([]);
     });
   });
 });
