@@ -1,15 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { damage, encodeQr } from "../../lib/qr";
 import {
-  codeFor,
   contrast,
+  drawingFor,
   findersPath,
   inkFor,
+  LOGO_MIN_PX,
   markFor,
   MIN_CONTRAST,
   modulesPath,
   parseHex,
+  pxPerModule,
   QUIET,
+  SOFT_MIN_PX,
 } from "./draw";
 
 const PUB = `02${"4d3c".repeat(16)}`;
@@ -17,41 +20,77 @@ const ONION = `${PUB}@abcdefghijklmnopqrstuvwxyz234567abcdefghijklmnopqrstuvwd.o
 const IPV4 = `${PUB}@203.0.113.7:9735`;
 const TAPROOT = "bc1p5d7rjq7g6rdk2yhzks9smlaqtedr4dekq08ge8ztwac72sfr9rusxg3297";
 
-describe("markFor", () => {
+/** The card widths the pop-up gives: a landscape phone, a 320 px phone, 360 px and desktop. */
+const SHORT = 254;
+const NARROW = 302;
+const WIDE = 318;
+
+/** The drawing's three looks, as the pop-up names them. */
+const look = (d: ReturnType<typeof drawingFor>) =>
+  d?.mark ? d.mark.kind : d?.soft === true ? "soft" : "plain";
+
+describe("drawingFor", () => {
   it.each([
-    ["a legacy address", "1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2", 4, "logo"],
-    ["a taproot address", TAPROOT, 6, "logo"],
-    // Version 7 by length, made 8 for the crab's room.
-    ["a connect string with an IPv4 host", IPV4, 8, "crab"],
-    ["a connect string with a v3 onion", ONION, 10, "crab"],
-  ])("leaves room for the logo in %s", (_, text, version, kind) => {
-    const code = codeFor(text);
-    expect(code?.version).toBe(version);
-    const mark = code && markFor(code);
-    expect(mark?.kind).toBe(kind);
+    ["a legacy address", "1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2", SHORT, 4, "logo"],
+    ["a taproot address", TAPROOT, SHORT, 6, "logo"],
+    // Version 7 by length, made 8 for the crab's room where the card has the pixels for it.
+    ["a connect string with an IPv4 host", IPV4, WIDE, 8, "crab"],
+    ["a connect string with an IPv4 host", IPV4, SHORT, 7, "soft"],
+    ["a connect string with a v3 onion", ONION, WIDE, 10, "crab"],
+    ["a connect string with a v3 onion", ONION, NARROW, 10, "soft"],
+    ["a connect string with a v3 onion", ONION, SHORT, 10, "plain"],
+    // The longest the node page shows: an address cut at 128 characters.
+    ["the longest connect string", `${PUB}@${"a".repeat(128)}`, WIDE, 12, "plain"],
+  ])("draws %s on a %i px card as version %i, %s", (_, text, px, version, kind) => {
+    const d = drawingFor(text, px);
+    expect(d?.code.version).toBe(version);
+    expect(look(d)).toBe(kind);
     // No block pays more than half of what it can correct for.
-    expect(code && mark ? damage(code, mark.hidden) : 1).toBeLessThanOrEqual(0.5);
+    expect(d?.mark ? damage(d.code, d.mark.hidden) : 0).toBeLessThanOrEqual(0.5);
   });
 
-  it("draws the logo only where the narrowest card gives it 4.5 px a module or more", () => {
-    // Version 10 (65 modules with the quiet zone) is 4.55 px on 296 px; 11 is 4.29.
-    for (const v of [8, 9, 10]) {
-      const code = encodeQr("x", "Q", { minVersion: v });
-      expect(code && markFor(code), `version ${v}`).not.toBeNull();
+  it("draws the logo from 4.75 px a module and soft modules from 4.62, else a plain code", () => {
+    expect(LOGO_MIN_PX).toBe(4.75);
+    expect(SOFT_MIN_PX).toBe(4.62);
+    // Version 10: 65 modules with the quiet zone.
+    const code = encodeQr("x", "Q", { minVersion: 10 });
+    if (!code) throw new Error("no code");
+    expect(pxPerModule(code, 65 * 4.75)).toBe(4.75);
+    expect(markFor(code, 65 * 4.75)).not.toBeNull();
+    expect(markFor(code, 65 * 4.75 - 0.01)).toBeNull();
+    for (const [px, kind] of [
+      [65 * 4.75, "crab"],
+      [65 * 4.75 - 0.01, "soft"],
+      [65 * 4.62, "soft"],
+      [65 * 4.62 - 0.01, "plain"],
+      [0, "plain"],
+    ] as const) {
+      const d = drawingFor(ONION, px);
+      expect(d?.code.version, `${px} px`).toBe(10);
+      expect(look(d), `${px} px`).toBe(kind);
     }
-    for (const v of [11, 12, 13]) {
-      const code = encodeQr("x", "Q", { minVersion: v });
-      expect(code && markFor(code), `version ${v}`).toBeNull();
-    }
-    // The longest connect string the node page shows (195 bytes) is version 12: no logo.
-    const longest = codeFor(`${PUB}@${"a".repeat(128)}`);
-    expect(longest?.version).toBe(12);
-    expect(longest && markFor(longest)).toBeNull();
   });
 
+  it("draws a plain code plainly: square modules and finders, nothing hidden", () => {
+    const d = drawingFor(ONION, SHORT);
+    if (!d) throw new Error("no drawing");
+    expect(d.soft).toBe(false);
+    expect(d.mark).toBeNull();
+    const path = modulesPath(d.code, d.mark, d.soft) + findersPath(d.code.size, d.soft);
+    expect(path).not.toContain("a");
+    // Every dark module is drawn: one square each, the finders' rings and pupils apart.
+    const squares = path.match(/M/g)?.length ?? 0;
+    const finderModules = 3 * (24 + 9);
+    let dark = 0;
+    for (const m of d.code.dark) dark += m;
+    expect(squares).toBe(dark - finderModules + 9);
+  });
+});
+
+describe("markFor", () => {
   it("keeps the middle alignment pattern, which the crab lifts", () => {
-    const code = codeFor(ONION);
-    const mark = code && markFor(code);
+    const code = drawingFor(ONION, WIDE)?.code;
+    const mark = code && markFor(code, WIDE);
     if (!code || !mark) throw new Error("no mark");
     const m = (code.size - 1) / 2;
     for (let dy = -2; dy <= 2; dy++)
@@ -61,28 +100,22 @@ describe("markFor", () => {
   });
 
   it("centres the whole logo on a code with no alignment pattern in its middle", () => {
-    const code = codeFor(TAPROOT);
-    const mark = code && markFor(code);
+    const code = drawingFor(TAPROOT, WIDE)?.code;
+    const mark = code && markFor(code, WIDE);
     if (!code || mark?.kind !== "logo") throw new Error("no logo");
     expect(mark.x * 2 + mark.size).toBe(code.size + 2 * QUIET);
   });
 
-  it.each([21, 27, 35, 40])("puts nothing in a version %i code, past the cutoff", (v) => {
+  it.each([14, 21, 27, 35, 40])("puts nothing in a version %i code, however wide", (v) => {
     const code = encodeQr("x", "Q", { minVersion: v });
     expect(code?.version).toBe(v);
-    expect(code && markFor(code)).toBeNull();
-  });
-
-  it("puts nothing in a code with alignment patterns round its middle", () => {
-    const code = encodeQr("x".repeat(250), "Q");
-    expect(code?.version).toBe(14);
-    expect(code && markFor(code)).toBeNull();
+    expect(code && markFor(code, 1e6)).toBeNull();
   });
 });
 
 describe("the shapes decoders need", () => {
   it("keeps finder rings nearly square and lone modules soft squares, not dots", () => {
-    const code = codeFor(TAPROOT);
+    const code = drawingFor(TAPROOT, WIDE)?.code;
     if (!code) throw new Error("no code");
     // Ring corners a tenth of a module, the pupil 0.75; OpenCV misread rounder rings.
     const radii = [...findersPath(code.size).matchAll(/a([\d.]+) /g)].map((m) => Number(m[1]));
@@ -93,10 +126,9 @@ describe("the shapes decoders need", () => {
   });
 
   it("draws the crab at 85% of its block's scale, for white round it", () => {
-    const code = codeFor(ONION);
-    const mark = code && markFor(code);
-    if (mark?.kind !== "crab") throw new Error("no crab");
-    expect(mark.scale).toBeCloseTo((5 / 26) * 0.85, 6);
+    const d = drawingFor(ONION, WIDE);
+    if (d?.mark?.kind !== "crab") throw new Error("no crab");
+    expect(d.mark.scale).toBeCloseTo((5 / 26) * 0.85, 6);
   });
 });
 
@@ -113,7 +145,7 @@ describe("the paths", () => {
   it("draw numbers and path commands only", () => {
     const code = encodeQr(ONION, "Q");
     if (!code) throw new Error("no code");
-    const d = modulesPath(code, markFor(code)) + findersPath(code.size);
+    const d = modulesPath(code, markFor(code, WIDE)) + findersPath(code.size);
     expect(d).toMatch(/^[MHVZahv0-9 .-]+$/);
   });
 
@@ -121,7 +153,7 @@ describe("the paths", () => {
     const code = encodeQr(TAPROOT, "Q");
     if (!code) throw new Error("no code");
     const every = modulesPath(code, null);
-    const cleared = modulesPath(code, markFor(code));
+    const cleared = modulesPath(code, markFor(code, WIDE));
     expect(cleared.length).toBeLessThan(every.length);
     // A module with no dark neighbour has four rounded corners.
     expect(every).toContain("a0.4 0.4 0 0 1 0.4 0.4V");

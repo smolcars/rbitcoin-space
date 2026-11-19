@@ -1,4 +1,4 @@
-import { onCleanup, onSettled } from "solid-js";
+import { createSignal, onCleanup, onSettled } from "solid-js";
 import { openPop } from "../pop";
 import { QrCode } from "./QrCode";
 import "./Qr.css";
@@ -23,6 +23,9 @@ export default function QrPop(props: {
   let pop: HTMLDivElement | undefined;
   let close: (() => void) | undefined;
   let leaving = false;
+  // The card's width as laid out, which decides how the code is drawn (draw.ts); 0, a plain code,
+  // until it is measured.
+  const [cardPx, setCardPx] = createSignal(0);
 
   /**
    * Measured by its layout size, not its drawn box, which the opening animation scales down, and
@@ -59,6 +62,7 @@ export default function QrPop(props: {
     if (card) {
       const side = Math.min(pop.clientWidth, room - pop.clientTop * 2 - card.offsetTop);
       if (side < pop.clientWidth) pop.style.setProperty("--qr-card", `${Math.max(side, 120)}px`);
+      setCardPx(card.offsetWidth);
     }
   };
   // A window that changes size (a phone turned, a toolbar shown) moves it back inside.
@@ -112,6 +116,7 @@ export default function QrPop(props: {
       </div>
       <div class="qr">
         <QrCode
+          px={cardPx()}
           text={props.value}
           label={`QR code of the ${props.what} below`}
           {...(props.colour === undefined ? {} : { colour: props.colour })}

@@ -184,6 +184,46 @@ test("the card paints nothing inside the code's quiet zone", async ({ page }) =>
   expect(fills).toBe(true);
 });
 
+/** Opens the node page's code for a node announcing `address`, returning the code's drawing. */
+async function openNode(page: Page, address: string) {
+  const node = recorded("node-acinq") as { addresses: string[] };
+  await serve(page, { ...mainnet(), [`nodes/${ACINQ}`]: { ...node, addresses: [address] } });
+  await page.goto(`/regtest/lightning/node/${ACINQ}`);
+  const button = page.getByRole("button", { name: "Show the connect string as a QR code" });
+  await button.scrollIntoViewIfNeeded();
+  await button.click();
+  const svg = page.getByRole("dialog").locator(".qr__code");
+  await expect(svg).toBeVisible();
+  return svg;
+}
+
+const ONION_HOST = "of7husrflx7sforh3fw6yqlpwstee3wg5imvvmkp4bz6rbjxtg5nljad.onion:9735";
+
+test("a short landscape phone draws a version 10 code plain, with no logo", async ({ page }) => {
+  await page.setViewportSize({ width: 640, height: 320 });
+  const svg = await openNode(page, ONION_HOST);
+  // 134 bytes: version 10, 65 modules with the quiet zone, on a card of about 254 px.
+  await expect(svg).toHaveAttribute("viewBox", "0 0 65 65");
+  const px = Number(await svg.getAttribute("data-px"));
+  expect(px).toBeGreaterThan(200);
+  expect(px / 65).toBeLessThan(4.62);
+  await expect(svg).toHaveAttribute("data-drawing", "plain");
+  await expect(svg.locator(".qr__mark")).toHaveCount(0);
+});
+
+test("an open code is drawn again when its card changes size", async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 740 });
+  const svg = await openNode(page, ONION_HOST);
+  // 318 px: about 4.9 px a module, room for the crab.
+  await expect(svg).toHaveAttribute("data-drawing", "logo");
+  // A shorter window (the same width, so the button stays put and the pop-up stays open).
+  await page.setViewportSize({ width: 360, height: 320 });
+  await expect(svg).toHaveAttribute("data-drawing", "plain");
+  await expect(svg.locator(".qr__mark")).toHaveCount(0);
+  await page.setViewportSize({ width: 360, height: 740 });
+  await expect(svg).toHaveAttribute("data-drawing", "logo");
+});
+
 test.describe("when the QR code's files fail", () => {
   test.use({ consoleErrorsAllowed: [/status of 503/] });
 

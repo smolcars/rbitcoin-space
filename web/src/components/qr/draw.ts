@@ -5,22 +5,19 @@ import { damage, encodeQr, type QrCode } from "../../lib/qr";
 /** Light modules round the code, as the standard asks. */
 export const QUIET = 4;
 /**
- * Corner radius of a data module, in modules: a soft square on its own, a rounded run or blob with
- * its neighbours. Half a module (round dots) cost OpenCV's detector a code now and then at about
- * 4 px a module; 0.4 read every one tried (docs/FRONTEND.md, "QR codes").
+ * Corner radius of a soft data module, in modules: a soft square on its own, a rounded run or blob
+ * with its neighbours. Half a module (round dots) cost OpenCV's detector a code now and then at
+ * about 4 px a module; 0.4 read every one tried (docs/FRONTEND.md, "QR codes").
  */
 const R = 0.4;
 /**
- * The card's width on a narrow phone, in px, with room to spare: a 320 px phone gives 302. The logo
- * is drawn only where it leaves the code `LOGO_MIN_PX` px a module or more on a card this wide.
+ * The drawing follows from the px a module gets on the card as it is drawn: the logo from
+ * `LOGO_MIN_PX`, soft modules and finder pupils from `SOFT_MIN_PX`, and below that a plain code
+ * (square modules and finders, no logo), as a dense code on a small card must scan before it looks
+ * good. Both bounds are measured against a plain control (docs/FRONTEND.md, "QR codes").
  */
-const NARROWEST_CARD = 296;
-/**
- * On 296 px, version 10 codes (4.55 px a module) with the logo read in ZBar, ZXing and OpenCV for
- * every mask and string tried, as they did from 284 to 320 px; version 12 (4.05 px) with the logo
- * lost OpenCV 28 of 48 reads it made without, and version 11 (4.29 px) lost 9 of 48 at 318 px.
- */
-const LOGO_MIN_PX = 4.5;
+export const LOGO_MIN_PX = 4.75;
+export const SOFT_MIN_PX = 4.62;
 /** At most this share of what a block can correct may be lost under the logo; the rest is margin. */
 const DAMAGE_BUDGET = 0.5;
 /** The clear square's side at most, as a share of the code's: beyond it the logo crowds the code. */
@@ -42,19 +39,36 @@ export type Mark =
   | { kind: "logo"; hidden: (x: number, y: number) => boolean; x: number; size: number }
   | { kind: "crab"; hidden: (x: number, y: number) => boolean; x: number; scale: number };
 
+/** The px a module of `code` gets on a card `px` wide, quiet zone included. */
+export const pxPerModule = (code: QrCode, px: number): number => px / (code.size + 2 * QUIET);
+
+/** How a code is drawn: its modules, the logo's room if it has one, and whether it is soft. */
+export interface Drawing {
+  code: QrCode;
+  mark: Mark | null;
+  soft: boolean;
+}
+
 /**
- * The code for `text` at level Q: the smallest one with room for the logo, at most two versions
- * past the smallest that holds it (a version 7 code becomes an 8 or a 9: it has the middle
- * alignment pattern but too few codewords to spare the crab's room). Without room, the smallest.
+ * The drawing of `text` at level Q on a card `px` wide. The code is the smallest that holds it, or
+ * at most two versions past it where that one has room for the logo and the px for it (a version 7
+ * code becomes an 8 or a 9: it has the middle alignment pattern but too few codewords to spare the
+ * crab's room).
  */
-export function codeFor(text: string): QrCode | null {
+export function drawingFor(text: string, px: number): Drawing | null {
   const first = encodeQr(text, "Q");
   if (!first) return null;
-  for (let v = first.version; v <= first.version + 2; v++) {
-    const code = v === first.version ? first : encodeQr(text, "Q", { minVersion: v });
-    if (code && markFor(code)) return code;
+  let code = first;
+  let mark = markFor(first, px);
+  for (let v = first.version + 1; !mark && v <= first.version + 2; v++) {
+    const next = encodeQr(text, "Q", { minVersion: v });
+    const room = next && markFor(next, px);
+    if (next && room) {
+      code = next;
+      mark = room;
+    }
   }
-  return first;
+  return { code, mark, soft: pxPerModule(code, px) >= SOFT_MIN_PX };
 }
 
 /** Whether the middle module is an alignment pattern's centre: versions 7 to 13, 21 to 27, 35 to 40. */
@@ -64,15 +78,14 @@ function middleAlignment(code: QrCode): boolean {
 }
 
 /**
- * Room for the logo that no block pays more than half of what it can correct for, so half is left
- * for the camera; null when there is none: a code too dense for the narrowest card (version 11 and
- * up), or one whose blocks cannot spare the room.
+ * Room for the logo on a card `px` wide that no block pays more than half of what it can correct
+ * for, so half is left for the camera; null when there is none: a code too dense for the card (under
+ * `LOGO_MIN_PX` a module), one whose blocks cannot spare the room, or version 14 and up.
  */
-export function markFor(code: QrCode): Mark | null {
+export function markFor(code: QrCode, px: number): Mark | null {
   // From 14 the middle has no pattern of its own (14 to 20) or the room crosses others (21 and up).
   if (code.version >= 14) return null;
-  // Too dense to spare the room on the narrowest card: from version 11.
-  if (NARROWEST_CARD / (code.size + 2 * QUIET) < LOGO_MIN_PX) return null;
+  if (pxPerModule(code, px) < LOGO_MIN_PX) return null;
   const m = (code.size - 1) / 2;
   if (code.version <= 6) {
     const max = Math.floor(code.size * MAX_CLEAR);
@@ -106,11 +119,13 @@ const inFinder = (size: number, x: number, y: number) =>
 const n = (v: number) => String(Math.round(v * 1000) / 1000);
 
 /**
- * The data modules as one path, in modules with the quiet zone's offset: each dark module a square
- * whose corners round where both its neighbours on that corner are light, so runs read as pills and
- * clumps as blobs, with a small fillet in each inside corner so the joins are smooth too.
+ * The data modules as one path, in modules with the quiet zone's offset. Soft: each dark module a
+ * square whose corners round where both its neighbours on that corner are light, so runs read as
+ * pills and clumps as blobs, with a small fillet in each inside corner so the joins are smooth too.
+ * Not soft: plain squares.
  */
-export function modulesPath(code: QrCode, mark: Mark | null): string {
+export function modulesPath(code: QrCode, mark: Mark | null, soft = true): string {
+  const r = soft ? R : 0;
   const { size } = code;
   const dark = (x: number, y: number) =>
     x >= 0 &&
@@ -130,21 +145,22 @@ export function modulesPath(code: QrCode, mark: Mark | null): string {
         const down = dark(x, y + 1);
         const left = dark(x - 1, y);
         const right = dark(x + 1, y);
-        const tl = up || left ? 0 : R;
-        const tr = up || right ? 0 : R;
-        const br = down || right ? 0 : R;
-        const bl = down || left ? 0 : R;
+        const tl = up || left ? 0 : r;
+        const tr = up || right ? 0 : r;
+        const br = down || right ? 0 : r;
+        const bl = down || left ? 0 : r;
         let d = `M${n(X + tl)} ${n(Y)}H${n(X + 1 - tr)}`;
-        if (tr) d += `a${R} ${R} 0 0 1 ${R} ${R}`;
+        if (tr) d += `a${r} ${r} 0 0 1 ${r} ${r}`;
         d += `V${n(Y + 1 - br)}`;
-        if (br) d += `a${R} ${R} 0 0 1 -${R} ${R}`;
+        if (br) d += `a${r} ${r} 0 0 1 -${r} ${r}`;
         d += `H${n(X + bl)}`;
-        if (bl) d += `a${R} ${R} 0 0 1 -${R} -${R}`;
+        if (bl) d += `a${r} ${r} 0 0 1 -${r} -${r}`;
         d += `V${n(Y + tl)}`;
-        if (tl) d += `a${R} ${R} 0 0 1 ${R} -${R}`;
+        if (tl) d += `a${r} ${r} 0 0 1 ${r} -${r}`;
         parts.push(`${d}Z`);
         continue;
       }
+      if (!soft) continue;
       // A light module between two dark ones that meet round a dark corner: fill that corner.
       for (const [dx, dy] of [
         [-1, -1],
@@ -166,8 +182,9 @@ export function modulesPath(code: QrCode, mark: Mark | null): string {
   return parts.join("");
 }
 
-/** A rounded rectangle as a path, `r` its corner radius. */
+/** A rounded rectangle as a path, `r` its corner radius (0 for square corners). */
 function roundRect(x: number, y: number, w: number, h: number, r: number): string {
+  if (r === 0) return `M${n(x)} ${n(y)}h${w}v${h}h${-w}Z`;
   return (
     `M${n(x + r)} ${n(y)}H${n(x + w - r)}a${r} ${r} 0 0 1 ${r} ${r}V${n(y + h - r)}` +
     `a${r} ${r} 0 0 1 -${r} ${r}H${n(x + r)}a${r} ${r} 0 0 1 -${r} -${r}V${n(y + r)}` +
@@ -176,12 +193,14 @@ function roundRect(x: number, y: number, w: number, h: number, r: number): strin
 }
 
 /**
- * The three finders: a nearly square ring round a soft pupil. OpenCV's detector misread codes whose
- * rings were rounded by a quarter of a module or more, at the sizes the pop-up draws them, and read
- * every one with these (docs/FRONTEND.md, "QR codes"). The ring is two outlines, filled even-odd; a
- * finder keeps its 1:1:3:1:1 proportions across its middle, which decoders look for.
+ * The three finders: soft, a nearly square ring round a soft pupil; or square. OpenCV's detector
+ * misread codes whose rings were rounded by a quarter of a module or more, at the sizes the pop-up
+ * draws them, and read every one with these (docs/FRONTEND.md, "QR codes"). The ring is two
+ * outlines, filled even-odd; a finder keeps its 1:1:3:1:1 proportions across its middle, which
+ * decoders look for.
  */
-export function findersPath(size: number): string {
+export function findersPath(size: number, soft = true): string {
+  const [ring, pupil] = soft ? [0.1, 0.75] : [0, 0];
   return [
     [0, 0],
     [size - 7, 0],
@@ -191,9 +210,9 @@ export function findersPath(size: number): string {
       const x = fx + QUIET;
       const y = fy + QUIET;
       return (
-        roundRect(x, y, 7, 7, 0.1) +
-        roundRect(x + 1, y + 1, 5, 5, 0.1) +
-        roundRect(x + 2, y + 2, 3, 3, 0.75)
+        roundRect(x, y, 7, 7, ring) +
+        roundRect(x + 1, y + 1, 5, 5, ring) +
+        roundRect(x + 2, y + 2, 3, 3, pupil)
       );
     })
     .join("");

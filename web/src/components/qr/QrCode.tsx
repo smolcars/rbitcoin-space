@@ -1,22 +1,22 @@
 import { createMemo, Show } from "solid-js";
 import { LogoParts } from "../../shell/Logo";
-import { codeFor, findersPath, inkFor, markFor, modulesPath, QUIET } from "./draw";
+import { drawingFor, findersPath, inkFor, modulesPath, QUIET } from "./draw";
 
 /** A token's value on the page, or "" where there is none (a test's document). */
 const token = (name: string) =>
   getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
 /**
- * `text` as a QR code at level Q, dark on a light card, with the logo in a clear square in the
- * middle. `colour` (a node's, `#rrggbb` already checked) draws it, darkened if it is too pale to
- * scan. Says so in a line under it when `colour` is given, or null for none announced.
+ * `text` as a QR code at level Q, dark on a light card `px` wide: soft, with the logo in the middle,
+ * where the card gives the code the pixels for it, and plain where it does not (draw.ts). `colour`
+ * (a node's, `#rrggbb` already checked) draws it, darkened if it is too pale to scan. Says so in a
+ * line under it when `colour` is given, or null for none announced.
  */
-export function QrCode(props: { text: string; label: string; colour?: string | null }) {
-  const code = createMemo(() => codeFor(props.text));
-  const mark = createMemo(() => {
-    const c = code();
-    return c ? markFor(c) : null;
-  });
+export function QrCode(props: { text: string; label: string; px: number; colour?: string | null }) {
+  const drawing = createMemo(() => drawingFor(props.text, props.px));
+  const code = () => drawing()?.code;
+  const mark = () => drawing()?.mark ?? null;
+  const soft = () => drawing()?.soft ?? false;
   const ink = createMemo(() =>
     inkFor(props.colour ?? null, token("--qr-paper") || "#fff", token("--qr-ink") || "#000"),
   );
@@ -32,9 +32,11 @@ export function QrCode(props: { text: string; label: string; colour?: string | n
                 viewBox={`0 0 ${box()} ${box()}`}
                 role="img"
                 aria-label={props.label}
+                data-drawing={mark() ? "logo" : soft() ? "soft" : "plain"}
+                data-px={props.px}
               >
-                <path d={modulesPath(c(), mark())} />
-                <path d={findersPath(c().size)} fill-rule="evenodd" />
+                <path d={modulesPath(c(), mark(), soft())} />
+                <path d={findersPath(c().size, soft())} fill-rule="evenodd" />
                 <Show when={mark()}>
                   {(m) => {
                     const k = m();
