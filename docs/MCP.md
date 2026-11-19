@@ -73,7 +73,7 @@ A tool does nothing of its own at the node. It sends a request to the routes in 
 A model reads a tool's answer, so text a stranger chose is a way to talk to it. Two things are done about it.
 
 - **Left out:** scripts and their text forms, witnesses and coinbase tags. A transaction's inputs and outputs are an address, a value and a script type.
-- **Named:** an answer that carries such text lists its field names in `untrusted_text`: an invoice's `description`, an offer's `issuer`, a refund's `payer_note`, a Lightning `alias`, an LNURL's `url`. The server's instructions tell the model to read those as data. That is a request to the model, not a guarantee: the client decides what it does with a tool's answer.
+- **Named:** an answer that carries such text lists its field names in `untrusted_text`: an invoice's `description`, an offer's `issuer`, a refund's `payer_note`, a Lightning node's `alias` and announced `sockets`, an LNURL's `url`. The server's instructions tell the model to read those as data. That is a request to the model, not a guarantee: the client decides what it does with a tool's answer.
 
 ## Privacy
 

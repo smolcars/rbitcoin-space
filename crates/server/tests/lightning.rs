@@ -144,6 +144,7 @@ async fn start(
         ("REGTEST_MEMPOOL_ENABLED", "false".to_owned()),
         ("BACKFILL_ENABLED", "false".to_owned()),
         ("DATA_DIR", dir.display().to_string()),
+        ("MCP_ENABLED", "true".to_owned()),
     ]
     .into_iter()
     .collect();
@@ -181,6 +182,26 @@ impl Reply {
     fn json(&self) -> Value {
         serde_json::from_slice(&self.body).unwrap()
     }
+}
+
+/// A `get_lightning_node` call's answer, as `POST /mcp` gives it.
+async fn lightning_tool(addr: &str, node: &str) -> Value {
+    let body = serde_json::json!({
+        "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+        "params": { "name": "get_lightning_node", "arguments": { "node": node } },
+    })
+    .to_string();
+    let mut stream = TcpStream::connect(addr).await.unwrap();
+    let req = format!(
+        "POST /mcp HTTP/1.1\r\nHost: t\r\nConnection: close\r\nContent-Type: application/json\r\nAccept: application/json, text/event-stream\r\nContent-Length: {}\r\n\r\n{body}",
+        body.len()
+    );
+    stream.write_all(req.as_bytes()).await.unwrap();
+    let mut raw = Vec::new();
+    stream.read_to_end(&mut raw).await.unwrap();
+    let split = raw.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
+    let reply: Value = serde_json::from_slice(&raw[split + 4..]).unwrap();
+    reply["result"]["structuredContent"].clone()
 }
 
 async fn get(addr: &str, target: &str) -> Reply {
@@ -794,6 +815,22 @@ async fn nodes_channels_search_and_rankings_answer_exactly_in_both_shapes() {
         assert_eq!(r.json()["error"], "lightning graph is still syncing; retry");
     }
     graph::install(&d.0, &ln.unwrap(), nodes, channels).await;
+
+    // The MCP tool names every field of gossip text it passes on: a node's announced addresses
+    // can be a hostname of its choosing.
+    let node = lightning_tool(&addr, &one).await;
+    assert_eq!(
+        node["sockets"],
+        "3.33.236.230:9735,of7husrflx7sforh3fw6yqlpwstee3wg5imvvmkp4bz6rbjxtg5nljad.onion:9735"
+    );
+    assert_eq!(
+        node["untrusted_text"],
+        serde_json::json!(["alias", "sockets"])
+    );
+    let found = lightning_tool(&addr, "acinq").await;
+    assert_eq!(found["matches"][0]["alias"], "ACINQ", "{found}");
+    assert!(found["matches"][0]["sockets"].is_null(), "{found}");
+    assert_eq!(found["untrusted_text"], serde_json::json!(["alias"]));
 
     // Every route's exact body, as reviewed when recorded.
     let want: serde_json::Map<String, Value> =
