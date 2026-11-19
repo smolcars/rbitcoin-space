@@ -248,6 +248,42 @@ describe("readHandover holds a finding to the rule and to what it was made for",
     });
   });
 
+  it("says there were more only when the transaction names more than are marked", () => {
+    const BECH32 = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
+    const ground = (n: number) =>
+      Array.from({ length: n }, (_, i): Lookalike => {
+        const a = BECH32[i % 32] ?? "q";
+        const b = BECH32[Math.floor(i / 32)] ?? "q";
+        return {
+          here: `bcrt1q92q${a}${b}${"q".repeat(28)}pmmx6`,
+          like: VICTIM,
+          own: true,
+          head: 2,
+          tail: 4,
+          prefix: 6,
+        };
+      });
+    const full = ground(HANDOVER_MAX);
+    const claiming = (count: number, t: Transaction) =>
+      read(raw({ from: VICTIM, found: full, count, txid: t.txid, network: "regtest" }), t);
+    // Every address the transaction names beside the reader's own is marked: none was left out,
+    // whatever the count says. The findings themselves hold, so they stay.
+    const exact = tx([VICTIM], [VICTIM, ...full.map((l) => l.here)]);
+    expect(claiming(HANDOVER_MAX + 1, exact)).toStrictEqual({
+      from: VICTIM,
+      found: full,
+      more: false,
+    });
+    // One more address there, of any kind the rule compares: a sixty-fifth is possible, a
+    // sixty-sixth is not.
+    const another = tx([CUSTOMER], [VICTIM, ...full.map((l) => l.here)]);
+    expect(claiming(HANDOVER_MAX + 1, another)?.more).toBe(true);
+    expect(claiming(HANDOVER_MAX + 2, another)?.more).toBe(false);
+    // An address the rule never compares (pay to anchor) is no lookalike left out.
+    const anchored = tx([VICTIM], [VICTIM, "bcrt1pfeesnyr2tx", ...full.map((l) => l.here)]);
+    expect(claiming(HANDOVER_MAX + 1, anchored)?.more).toBe(false);
+  });
+
   it("refuses a finding that hides a lookalike of the reader's own address behind another's", () => {
     // The lookalike agrees with the reader's address on two and four, and with this one on three
     // and four: the address page says it resembles the reader's, and so must what it hands over.

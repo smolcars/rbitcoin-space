@@ -215,6 +215,18 @@ export function readHandover(
   if (found.length === 0) return undefined;
   // Those of the reader's address first, as the address page orders them.
   found.sort((x, y) => Number(y.own) - Number(x.own));
-  // More were left out only of a full list, every one of which holds.
-  return { from: from[0], found, more: total > list.length && found.length === HANDOVER_MAX };
+  // More were left out only of a full list, every one of which holds, and only as many as the
+  // transaction has addresses left to be one: a count past that is no row's writing.
+  const full = found.length === HANDOVER_MAX && total > list.length;
+  return { from: from[0], found, more: full && total <= candidates(named, from[1]) };
+}
+
+/** How many of a transaction's addresses could be a finding: all the rule compares but the reader's. */
+function candidates(named: ReadonlySet<string>, from: Form): number {
+  let n = 0;
+  for (const a of named) {
+    const f = form(a);
+    if (f && f.id !== from.id) n++;
+  }
+  return n;
 }
