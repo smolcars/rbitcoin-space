@@ -1008,10 +1008,31 @@ describe("TransactionPage", () => {
     await vi.waitFor(async () => {
       await settle();
       expect(asked()).toBe(before + 1);
-      expect(text(el)).toContain("not replaced by a new version of itself");
+      expect(text(el)).toContain("Removed with a replaced transaction");
     });
     expect(el.querySelector(".tx-compare")).toBeNull();
     expect(el.querySelector(".tx-chain__compare")).toBeNull();
+    // Every place the page spoke of a replacement now says what happened to a child: the badge,
+    // the notice, its line, the steps and the details. Nothing calls it a version or replaced.
+    expect(el.querySelector(".tx-status")?.textContent).toBe("Removed");
+    const said = text(el.querySelector(".tx-notice") as Element);
+    expect(said).toContain(
+      "It spent coins from a transaction that ffffffff…ffffffff replaced, so it left the mempool with it. No new version of this transaction took its place, and it can no longer confirm.",
+    );
+    expect(said).toContain(
+      "This transactionremoved when ffffffff…ffffffff replaced a transaction it spent from",
+    );
+    expect(said).toContain("the newest version of the transaction it spent from.");
+    expect(said).not.toContain("This version");
+    expect(said).not.toContain("spending the same coins took its place");
+    // Said once: the notice's own words, not the line's again.
+    expect(said).not.toContain("not replaced by a new version of itself");
+    const whole = text(el);
+    expect(whole).toContain("Removed with its parentWhen ffffffff…ffffffff replaced");
+    expect(whole).toContain("so the coins it spent no longer exist.");
+    expect(whole).toContain("No: it was removed with its parent");
+    expect(whole).not.toContain("the version that replaced it");
+    expect(whole).not.toContain("No: it was replaced");
   });
 
   it("asks again when a reorg sends a confirmed transaction back and it is then replaced", async () => {

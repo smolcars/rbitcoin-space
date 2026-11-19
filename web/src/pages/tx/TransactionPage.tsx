@@ -40,7 +40,7 @@ import { Code } from "./Code";
 import { CompareLine } from "./Compare";
 import { Flow, type Selection } from "./Flow";
 import { Inspector } from "./Inspector";
-import { Chain, Follow, Group, LiveState, POLL_MS, Strip } from "./Live";
+import { Chain, Follow, Group, leftWithParent, LiveState, POLL_MS, Strip } from "./Live";
 import {
   announcement as sayChange,
   answered,
@@ -381,6 +381,9 @@ function TransactionView(props: { txid: string }) {
     }
   });
   const replaced = () => replacements()?.replaces.filter((l) => l.by === props.txid) ?? [];
+  // Shown as replaced, but by nothing of its own: it left with a transaction it spent from.
+  const childNow = () =>
+    shownNow().kind === "replaced" && leftWithParent(props.txid, replacements()?.replacedBy);
 
   // Who it is mined with: asked again when its group's rate changes.
   const relativesKey = () => {
@@ -447,7 +450,7 @@ function TransactionView(props: { txid: string }) {
               )
             }
           >
-            <StatusBadge shown={shownNow()} />
+            <StatusBadge shown={shownNow()} child={childNow()} />
           </Show>
           <Show when={following()}>
             <LiveState liveness={live()} network={NETWORK_NAMES[network()]} />
@@ -561,9 +564,23 @@ function ReplacedNotice(props: {
   later?: ReplacementLink[] | undefined;
 }) {
   const first = () => props.chain[0];
+  const child = () => leftWithParent(first()?.txid ?? "", props.later);
   return (
-    <Notice tone="negative" title="This version was replaced">
-      <Show when={first()}>
+    <Notice
+      tone="negative"
+      title={child() ? "Removed with a replaced transaction" : "This version was replaced"}
+    >
+      <Show when={child() && first()}>
+        {(l) => (
+          <p>
+            It spent coins from a transaction that{" "}
+            <Hash value={l().by} href={paths.tx(l().by)} copy={false} /> replaced, so it left the
+            mempool with it. No new version of this transaction took its place, and it can no longer
+            confirm.
+          </p>
+        )}
+      </Show>
+      <Show when={!child() && first()}>
         {(l) => (
           <p>
             Another transaction spending the same coins took its place:{" "}
@@ -585,6 +602,7 @@ function ReplacedNotice(props: {
         truncated={props.truncated}
         versions={props.versions ?? []}
         later={props.later ?? []}
+        explained
       />
     </Notice>
   );
@@ -613,8 +631,12 @@ const BADGES: Record<
   gone: ["Removed", "negative"],
 };
 
-function StatusBadge(props: { shown: Shown }) {
-  const badge = () => (props.shown.kind === "loading" ? undefined : BADGES[props.shown.kind]);
+function StatusBadge(props: { shown: Shown; child?: boolean }) {
+  // A child that left with its replaced parent was removed, not replaced.
+  const badge = () =>
+    props.shown.kind === "loading"
+      ? undefined
+      : BADGES[props.child === true ? "gone" : props.shown.kind];
   return (
     <Show when={badge()}>
       {(b) => (
@@ -688,6 +710,10 @@ function Body(props: {
     });
   };
 
+  // Shown as replaced, but by nothing of its own: it left with a transaction it spent from.
+  const child = () =>
+    props.shown.kind === "replaced" &&
+    leftWithParent(props.shown.chain[0]?.txid ?? "", props.later);
   // The full sequence, for a transaction that left the mempool unconfirmed or came back to it.
   const steps = (): Step[] => {
     const title = coinbase() ? "Spendable" : "Six confirmations";
@@ -695,7 +721,9 @@ function Body(props: {
       props.shown.kind === "replaced"
         ? {
             title: "Will not confirm",
-            detail: "Its coins are spent by the version that replaced it.",
+            detail: child()
+              ? "The transaction it spent from was replaced, so the coins it spent no longer exist."
+              : "Its coins are spent by the version that replaced it.",
             state: "dead",
           }
         : left()
@@ -719,6 +747,23 @@ function Body(props: {
       const now = props.shown;
       if (now.kind === "replaced") {
         const l = now.chain[0];
+        // A child's own link: it left with a transaction it spent from, replaced by what it names.
+        if (l && child()) {
+          return {
+            title: "Removed with its parent",
+            detail: (
+              <>
+                <span>
+                  When <Hash value={l.by} href={paths.tx(l.by)} copy={false} /> replaced a
+                  transaction it spent from
+                </span>
+                <Show when={l.seen}>{(t) => <TimeUtc time={t()} />}</Show>
+              </>
+            ),
+            state: "dead",
+            tone: "negative",
+          };
+        }
         return {
           title: "Replaced",
           detail: l ? (
@@ -1195,6 +1240,7 @@ function Body(props: {
               </Fact>
               <Fact label="Replaceable">
                 <Switch>
+                  <Match when={child()}>No: it was removed with its parent</Match>
                   <Match when={props.shown.kind === "replaced"}>No: it was replaced</Match>
                   <Match when={left()}>No: it is no longer in the mempool</Match>
                   <Match when={confirmed()}>No: it is confirmed</Match>
