@@ -282,7 +282,7 @@
       inset: max(-1 * var(--space-2), 100% - var(--touch)) 0
         min(0px, 100% + var(--space-2) - var(--touch));
     }
-    .chart__figures[open] > summary {
+    .chart__csv + .chart__figures[open] > summary {
       /* A pixel over, so a line that lands between two pixels cuts nothing off the target. */
       margin-bottom: max(var(--space-3), var(--touch) - var(--space-2) - 1lh + 1px);
     }
