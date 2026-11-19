@@ -1,8 +1,8 @@
 /* The header's ways into the palette. In the shell's first load, so kept small. */
 @layer components {
   /* The search and its hint share the search's cell: the field takes what the hint leaves. */
+  /* Not positioned: "Go to" below hangs from the header itself (PaletteKey.tsx). */
   .site-header__search {
-    position: relative;
     display: flex;
     align-items: center;
     gap: var(--space-2);
@@ -52,12 +52,16 @@
     transform: translateY(1px);
   }
 
-  /* Hangs under the search, over the page: it moves nothing and hides nothing. */
+  /* Hangs from the header's bottom edge, below every row the header has at this width, over the
+     page only: never over a header control. Its containing block is the header (sticky, or
+     relative on a short screen); its left and width follow the search field, which PaletteKey.tsx
+     measures. Over the page it may cover what lies just under the header while the search has
+     focus, as a dropdown of the search does; it goes on blur or Escape. */
   .palette-go {
     position: absolute;
-    top: calc(100% + var(--space-1));
-    left: 0;
-    right: 0;
+    top: calc(100% + 1px + var(--space-1));
+    left: var(--go-left, var(--gutter));
+    width: var(--go-width, calc(100% - 2 * var(--gutter)));
     z-index: 1;
     display: none;
     align-items: center;
@@ -100,6 +104,14 @@
     }
     .site-header__search:focus-within:not(:has(.search__list, .search__panel)) .palette-go {
       display: flex;
+    }
+  }
+  /* Nor while the network menu is open beside a focused search ("/" leaves it open): it hangs below
+     the header too. A phone's search hides the network switch, menu and all, while it has focus. */
+  @media (min-width: 40.0625em) and (max-width: 44em),
+    (min-width: 65.0625em) and (max-width: 78em) {
+    .site-header__inner:has(#network-menu:not([hidden])) .site-header__search .palette-go {
+      display: none;
     }
   }
 }

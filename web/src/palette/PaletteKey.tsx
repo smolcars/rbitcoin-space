@@ -4,7 +4,9 @@
 import { useBeforeLeave } from "@solidjs/router";
 import { dynamic } from "@solidjs/web";
 import { type Component, createSignal, For, onSettled } from "solid-js";
-import { IDLE, type Opener, type OpenerEvent, step } from "./opener";
+import { retryFiles } from "../lib/chunks";
+import { createLoader, createOpener } from "./loader";
+import { IDLE, type Opener } from "./opener";
 import type { PaletteProps } from "./Palette";
 import "./PaletteKey.css";
 
@@ -22,18 +24,26 @@ export function isPaletteKey(e: KeyboardEvent, onApple: boolean): boolean {
   return k && (onApple ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey);
 }
 
-let loading: Promise<Component<PaletteProps>> | undefined;
-const load = () => {
-  loading ??= (async () => {
-    try {
-      return (await import("./Palette")).default;
-    } catch (error) {
-      loading = undefined;
-      throw error;
-    }
-  })();
-  return loading;
-};
+/** Whether Palette.css is applied: it gives `.palette-probe` a custom property of its own. */
+function styled(): boolean {
+  const probe = document.createElement("span");
+  probe.className = "palette-probe";
+  document.body.append(probe);
+  const on = getComputedStyle(probe).getPropertyValue("--palette-styled").trim() === "1";
+  probe.remove();
+  return on;
+}
+
+/**
+ * The palette's code, loaded once and shared by a hover's warm-up and every press (loader.ts):
+ * files that failed before are asked for again first, so a stylesheet that failed offline does
+ * not leave the palette unstyled for the life of the page.
+ */
+const load = createLoader<Component<PaletteProps>>({
+  retry: retryFiles,
+  load: async () => (await import("./Palette")).default,
+  styled,
+});
 const warm = () => void load().catch(() => undefined);
 
 /** One time the palette is shown: a new one is a fresh palette. */
@@ -49,35 +59,18 @@ export function PaletteKey(props: {
   query: () => string;
 }) {
   const onApple = apple();
-  // The machine's state, kept in a plain variable too: a write is seen only after the flush.
-  let now: Opener = IDLE;
   const [state, setState] = createSignal<Opener>(IDLE);
   const [session, setSession] = createSignal<Session>();
   const Shown = dynamic(() => session()?.C);
-  let code: Component<PaletteProps> | undefined;
   // What the next palette starts with: the text at the last press.
   let initial = "";
-
-  const send = (event: OpenerEvent) => {
-    const before = now;
-    const after = step(before, event);
-    if (after === before) return;
-    now = after;
+  let was: Opener["kind"] = "idle";
+  const { send } = createOpener(load, (after, code) => {
     setState(after);
-    if (before.kind === "idle" && after.kind === "loading") {
-      load().then(
-        (C) => {
-          code = C;
-          send("arrived");
-        },
-        () => send("failed"),
-      );
-    }
-    if (after.kind === "open" && before.kind !== "open" && code) {
-      setSession({ C: code, initial });
-    }
+    if (after.kind === "open" && was !== "open" && code) setSession({ C: code, initial });
     if (after.kind === "idle") setSession(undefined);
-  };
+    was = after.kind;
+  });
   const press = (text: string) => {
     initial = text;
     send("press");
@@ -85,6 +78,29 @@ export function PaletteKey(props: {
 
   // Any navigation, Back included: nothing pending may open on the next page.
   useBeforeLeave(() => send("navigation"));
+
+  // "Go to" hangs from the header's edge (PaletteKey.css): it is placed under the search field,
+  // measured whenever the search takes focus or the window changes size.
+  let go: HTMLButtonElement | undefined;
+  onSettled(() => {
+    const el = go;
+    const header = el?.closest("header");
+    const cell = el?.parentElement;
+    if (!el || !header || !cell) return undefined;
+    const place = () => {
+      const field = cell.querySelector(".search__field")?.getBoundingClientRect();
+      if (!field) return;
+      const left = field.left - header.getBoundingClientRect().left;
+      el.style.setProperty("--go-left", `${Math.round(left)}px`);
+      el.style.setProperty("--go-width", `${Math.round(field.width)}px`);
+    };
+    cell.addEventListener("focusin", place);
+    window.addEventListener("resize", place, { passive: true });
+    return () => {
+      cell.removeEventListener("focusin", place);
+      window.removeEventListener("resize", place);
+    };
+  });
 
   onSettled(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -121,6 +137,7 @@ export function PaletteKey(props: {
       {/* Where there is no room for the hint: hangs under the search while it, or this, has
           focus, over the page, moving nothing; next after the search in the Tab order. */}
       <button
+        ref={go}
         type="button"
         class="palette-go"
         onPointerDown={(e) => {
