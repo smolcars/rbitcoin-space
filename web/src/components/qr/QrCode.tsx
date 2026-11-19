@@ -54,10 +54,10 @@ export function QrCode(props: { text: string; label: string; colour?: string | n
                       // just under it; the arriving layer one row above the pattern.
                       <g
                         class="qr__mark"
-                        transform={`translate(${k.x} ${k.x}) scale(${k.scale}) translate(-32 -13.2)`}
+                        transform={`translate(${k.x} ${k.x}) scale(${k.scale}) translate(-32 -10.7)`}
                       >
                         <LogoParts strata={false} />
-                        <rect class="logo__top" x="27" y="-4.7" width="18" height="4.2" rx="1.6" />
+                        <rect class="logo__top" x="27" y="-10.2" width="18" height="4.2" rx="1.6" />
                       </g>
                     );
                   }}

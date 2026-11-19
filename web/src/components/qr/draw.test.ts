@@ -66,6 +66,26 @@ describe("markFor", () => {
   });
 });
 
+describe("the shapes decoders need", () => {
+  it("keeps finder rings nearly square and lone modules soft squares, not dots", () => {
+    const code = codeFor(TAPROOT);
+    if (!code) throw new Error("no code");
+    // Ring corners a tenth of a module, the pupil 0.75; OpenCV misread rounder rings.
+    const radii = [...findersPath(code.size).matchAll(/a([\d.]+) /g)].map((m) => Number(m[1]));
+    expect(new Set(radii)).toStrictEqual(new Set([0.1, 0.75]));
+    // Data modules round by 0.4, so a lone one is no circle.
+    const modules = [...modulesPath(code, null).matchAll(/a([\d.]+) /g)].map((m) => Number(m[1]));
+    expect(new Set(modules)).toStrictEqual(new Set([0.4]));
+  });
+
+  it("draws the crab at 85% of its block's scale, for white round it", () => {
+    const code = codeFor(ONION);
+    const mark = code && markFor(code);
+    if (mark?.kind !== "crab") throw new Error("no crab");
+    expect(mark.scale).toBeCloseTo((5 / 26) * 0.85, 6);
+  });
+});
+
 describe("damage", () => {
   it("is nothing when nothing is hidden, and past what can be read when everything is", () => {
     const code = encodeQr(TAPROOT, "Q");
@@ -83,14 +103,14 @@ describe("the paths", () => {
     expect(d).toMatch(/^[MHVZahv0-9 .-]+$/);
   });
 
-  it("draw a lone module as a dot and leave the logo's room empty", () => {
+  it("draw a lone module as a soft square and leave the logo's room empty", () => {
     const code = encodeQr(TAPROOT, "Q");
     if (!code) throw new Error("no code");
     const every = modulesPath(code, null);
     const cleared = modulesPath(code, markFor(code));
     expect(cleared.length).toBeLessThan(every.length);
     // A module with no dark neighbour has four rounded corners.
-    expect(every).toContain("a0.5 0.5 0 0 1 0.5 0.5V");
+    expect(every).toContain("a0.4 0.4 0 0 1 0.4 0.4V");
   });
 });
 

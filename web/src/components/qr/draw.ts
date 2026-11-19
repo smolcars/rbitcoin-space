@@ -4,14 +4,22 @@ import { damage, encodeQr, type QrCode } from "../../lib/qr";
 
 /** Light modules round the code, as the standard asks. */
 export const QUIET = 4;
-/** Corner radius of a data module, in modules: half is a dot on its own, a pill in a run. */
-const R = 0.5;
+/**
+ * Corner radius of a data module, in modules: a soft square on its own, a rounded run or blob with
+ * its neighbours. Half a module (round dots) cost OpenCV's detector a code now and then at about
+ * 4 px a module; 0.4 read every one tried (docs/FRONTEND.md, "QR codes").
+ */
+const R = 0.4;
 /** At most this share of what a block can correct may be lost under the logo; the rest is margin. */
 const DAMAGE_BUDGET = 0.5;
 /** The clear square's side at most, as a share of the code's: beyond it the logo crowds the code. */
 const MAX_CLEAR = 0.3;
-/** The logo's units (its viewBox is 64 wide) per module when its block is a 5-module pattern. */
-const CRAB_SCALE = 5 / 26;
+/**
+ * Modules per unit of the logo's 64-unit box for the crab round the middle pattern: 85% of the
+ * scale at which its block would be the 5-module pattern, which leaves white between the crab and
+ * the modules round it. Drawn at full scale, OpenCV's detector lost the longest connect string.
+ */
+const CRAB_SCALE = (5 / 26) * 0.85;
 
 /**
  * Where the logo goes. `logo`: the whole mark in a clear square, for a code with no alignment
@@ -155,8 +163,9 @@ function roundRect(x: number, y: number, w: number, h: number, r: number): strin
 }
 
 /**
- * The three finders: a ring and a pupil each, their corners rounded by three quarters of a module
- * at most, as rounder ones lost OpenCV's detector. The ring is two outlines, filled even-odd; a
+ * The three finders: a nearly square ring round a soft pupil. OpenCV's detector misread codes whose
+ * rings were rounded by a quarter of a module or more, at the sizes the pop-up draws them, and read
+ * every one with these (docs/FRONTEND.md, "QR codes"). The ring is two outlines, filled even-odd; a
  * finder keeps its 1:1:3:1:1 proportions across its middle, which decoders look for.
  */
 export function findersPath(size: number): string {
@@ -169,9 +178,9 @@ export function findersPath(size: number): string {
       const x = fx + QUIET;
       const y = fy + QUIET;
       return (
-        roundRect(x, y, 7, 7, 0.75) +
-        roundRect(x + 1, y + 1, 5, 5, 0.5) +
-        roundRect(x + 2, y + 2, 3, 3, 0.4)
+        roundRect(x, y, 7, 7, 0.1) +
+        roundRect(x + 1, y + 1, 5, 5, 0.1) +
+        roundRect(x + 2, y + 2, 3, 3, 0.75)
       );
     })
     .join("");

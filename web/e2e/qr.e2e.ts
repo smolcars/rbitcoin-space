@@ -130,4 +130,7 @@ test("at 320 px with motion on, the pop-up opens inside the window and stays the
   await page.setViewportSize({ width: 320, height: 350 });
   await twoFrames(page);
   await inWindow(page);
+  // The code gets about 4 px a module even here (Qr.css).
+  const card = await page.locator(".qr__card").evaluate((c) => c.getBoundingClientRect().width);
+  expect(card).toBeGreaterThanOrEqual(296);
 });
