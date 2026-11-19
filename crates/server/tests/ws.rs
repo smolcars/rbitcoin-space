@@ -903,6 +903,7 @@ async fn socket_caps_refuse_the_upgrade() {
     let (status, refused) =
         Ws::refused(TcpStream::connect(&s.addr).await.unwrap(), "Host: test\r\n").await;
     assert_eq!(status, "HTTP/1.1 429 Too Many Requests");
+    assert_eq!(refused["status"], 429);
     assert_eq!(refused["refused"], "client_sockets");
     assert_eq!(refused["route"], "/regtest/app/ws");
     // Another address (127.0.0.2 is loopback on Linux; macOS needs an alias) has its own cap,
@@ -917,6 +918,7 @@ async fn socket_caps_refuse_the_upgrade() {
         let stream = other.connect(s.addr.parse().unwrap()).await.unwrap();
         let (status, refused) = Ws::refused(stream, "Host: test\r\n").await;
         assert_eq!(status, "HTTP/1.1 503 Service Unavailable");
+        assert_eq!(refused["status"], 503);
         assert_eq!(refused["refused"], "server_sockets");
     }
     // A closed socket frees its slot.
@@ -1115,6 +1117,7 @@ async fn only_this_site_may_open_a_socket_from_a_browser() {
     let stream = TcpStream::connect(&s.addr).await.unwrap();
     let (status, refused) = Ws::refused(stream, evil).await;
     assert_eq!(status, "HTTP/1.1 403 Forbidden");
+    assert_eq!(refused["status"], 403);
     assert_eq!(refused["refused"], "origin");
     for headers in [
         "Host: explorer.example\r\nOrigin: null\r\n",
