@@ -58,6 +58,51 @@ describe("retryFiles", () => {
   });
 });
 
+describe("retryFiles called while another call is in flight", () => {
+  const tick = () =>
+    new Promise((resolve) => {
+      setTimeout(resolve, 0);
+    });
+
+  it("waits for it, and asks again for what it failed to load", async () => {
+    failedLink("waited");
+    const first = retryFiles();
+    let second = "pending";
+    const next = retryFiles().then(
+      () => {
+        second = "loaded";
+      },
+      () => {
+        second = "failed";
+      },
+    );
+    await tick();
+    // The first call holds "waited": the lists are empty, which is not "nothing failed".
+    expect(second).toBe("pending");
+    const held = current("waited");
+    held?.dispatchEvent(new Event("error"));
+    await expect(first).rejects.toThrow("Could not load");
+    await tick();
+    // The second call asked for it again, through a link of its own.
+    expect(current("waited")).not.toBe(held);
+    expect(second).toBe("pending");
+    current("waited")?.dispatchEvent(new Event("load"));
+    await next;
+    expect(second).toBe("loaded");
+  });
+
+  it("answers once the first has loaded everything, with nothing asked twice", async () => {
+    failedLink("joined");
+    const first = retryFiles();
+    const second = retryFiles();
+    const asked = current("joined");
+    asked?.dispatchEvent(new Event("load"));
+    await expect(first).resolves.toStrictEqual({ scripts: false });
+    await expect(second).resolves.toStrictEqual({ scripts: false });
+    expect(current("joined")).toBe(asked);
+  });
+});
+
 /** A script preload that has failed, as Vite adds one for a page's code. */
 function failedPreload(href: string): void {
   const link = document.createElement("link");
@@ -83,6 +128,20 @@ describe("retryFiles and scripts", () => {
       cache: "reload",
     });
     // Nothing is left to ask for.
+    await expect(retryFiles()).resolves.toStrictEqual({ scripts: false });
+  });
+
+  it("tells a call that waited for another that the other proved a script", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof globalThis.fetch>(() => Promise.resolve(new Response("", { status: 200 }))),
+    );
+    failedPreload("/assets/Page-joined.js");
+    const first = retryFiles();
+    const second = retryFiles();
+    await expect(first).resolves.toStrictEqual({ scripts: true });
+    await expect(second).resolves.toStrictEqual({ scripts: true });
+    // A later call, with none in flight, starts clean.
     await expect(retryFiles()).resolves.toStrictEqual({ scripts: false });
   });
 

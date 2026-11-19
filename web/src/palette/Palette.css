@@ -1,11 +1,6 @@
 /* The command palette: a frosted panel in the upper third of the screen over the dimmed page
    (docs/DESIGN.md "Command palette"). */
 @layer components {
-  /* PaletteKey.tsx asks this whether the stylesheet is applied before it opens the palette. */
-  .palette-probe {
-    --palette-styled: 1;
-  }
-
   .palette {
     /* The height the screen leaves, the on-screen keyboard taken off, set from visualViewport. */
     --room: var(--palette-room, 100dvh);
@@ -332,5 +327,11 @@
     .palette__foot > :not(.palette__net) {
       display: none;
     }
+  }
+
+  /* PaletteKey.tsx asks this whether the stylesheet is applied before it opens the palette. It is
+     the file's last rule, so a stylesheet cut short on its way does not pass for a whole one. */
+  .palette-probe {
+    --palette-styled: 1;
   }
 }

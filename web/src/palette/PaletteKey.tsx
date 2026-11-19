@@ -80,7 +80,7 @@ export function PaletteKey(props: {
   useBeforeLeave(() => send("navigation"));
 
   // "Go to" hangs from the header's edge (PaletteKey.css): it is placed under the search field,
-  // measured whenever the search takes focus or the window changes size.
+  // measured whenever the search takes focus, the window changes size or the field does.
   let go: HTMLButtonElement | undefined;
   onSettled(() => {
     const el = go;
@@ -96,9 +96,14 @@ export function PaletteKey(props: {
     };
     cell.addEventListener("focusin", place);
     window.addEventListener("resize", place, { passive: true });
+    // The field also changes size with the window still: sections arriving beside it narrow it.
+    const field = cell.querySelector(".search__field");
+    const sized = typeof ResizeObserver === "function" ? new ResizeObserver(place) : undefined;
+    if (field) sized?.observe(field);
     return () => {
       cell.removeEventListener("focusin", place);
       window.removeEventListener("resize", place);
+      sized?.disconnect();
     };
   });
 

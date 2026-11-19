@@ -817,6 +817,69 @@ test.describe("an open after the palette's files failed to download", () => {
     expect(await styledPanel(page)).toBe("16px");
     expect(refused).toBe(2);
   });
+  test("a stylesheet that arrives cut short does not pass for a whole one", async ({ page }) => {
+    let asked = 0;
+    await page.route(/\/assets\/Palette-[^/]+\.css$/, async (route) => {
+      asked++;
+      if (asked === 1) return route.fulfill({ status: 503, body: "" });
+      // The second answer is the stylesheet's first half, cut at a rule's end so that it parses.
+      const text = await (await route.fetch()).text();
+      const cut = text.indexOf("}", Math.floor(text.length / 2)) + 1;
+      return route.fulfill({ status: 200, contentType: "text/css", body: text.slice(0, cut) });
+    });
+    await page.goto("/regtest/blocks");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Blocks");
+    await shortcut(page);
+    await page.waitForTimeout(1000);
+    await expect(palette(page)).toHaveCount(0);
+    await shortcut(page);
+    await expect.poll(() => asked).toBe(2);
+    await page.waitForTimeout(1000);
+    // Half a stylesheet is applied, and the palette still does not open without the whole of it.
+    await expect(palette(page)).toHaveCount(0);
+  });
+
+  test("a press while another page's stylesheet is being recovered leaves that recovery whole", async ({
+    page,
+  }) => {
+    let asked = 0;
+    let release: (() => void) | undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await page.route(/\/assets\/DecodePage-[^/]+\.css$/, async (route) => {
+      asked++;
+      if (asked === 1) return route.fulfill({ status: 503, body: "" });
+      if (asked === 2) {
+        await held;
+        return route.fulfill({ status: 503, body: "" });
+      }
+      return route.continue();
+    });
+    await page.goto("/regtest/blocks");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Blocks");
+    // The decoder's stylesheet fails, and the shell waits a second before it asks again.
+    await page.getByRole("contentinfo").getByRole("link", { name: "Decoder" }).click();
+    await expect.poll(() => asked).toBe(1);
+    // The palette's own load asks for every failed file first: that request is held here.
+    await shortcut(page);
+    await expect.poll(() => asked).toBe(2);
+    // The shell's turn comes while it is held: it must wait, not take the empty list for recovery
+    // and show the decoder without its styles.
+    await page.waitForTimeout(1500);
+    await expect(page.getByRole("heading", { level: 1, name: "Decode" })).toHaveCount(0);
+    release?.();
+    // That request failed too, so the shell asks a third time, and the page comes with its styles.
+    await expect.poll(() => asked, { timeout: 20_000 }).toBe(3);
+    await expect(palette(page)).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("heading", { level: 1, name: "Decode" })).toBeVisible({
+      timeout: 20_000,
+    });
+    expect(
+      await page.locator(".dec__form").evaluate((el) => getComputedStyle(el).display),
+    ).not.toBe("block");
+  });
 });
 
 // Round three: "Go to" hangs from the header's bottom edge, over the page only, never over a
