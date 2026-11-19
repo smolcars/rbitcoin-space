@@ -13,17 +13,38 @@ function watchQrFiles(page: Page): string[] {
   return seen;
 }
 
-/** The pop-up fits inside the window. */
+/** Waits two frames, for a resize to reach the page or a script that just arrived to draw. */
+async function twoFrames(page: Page) {
+  await page.evaluate(async () => {
+    await new Promise((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(resolve));
+    });
+  });
+}
+
+/**
+ * The pop-up fits inside the window, scrollbar excluded, once its opening animation has run: the
+ * animation scales it, and it was once placed from that smaller box.
+ */
 async function inWindow(page: Page) {
   const dialog = page.getByRole("dialog");
-  const box = await dialog.boundingBox();
-  const size = page.viewportSize();
-  expect(box && size).toBeTruthy();
-  if (!box || !size) return;
-  expect(box.x).toBeGreaterThanOrEqual(0);
-  expect(box.y).toBeGreaterThanOrEqual(0);
-  expect(box.x + box.width).toBeLessThanOrEqual(size.width);
-  expect(box.y + box.height).toBeLessThanOrEqual(size.height);
+  const box = await dialog.evaluate(async (d) => {
+    await Promise.all(d.getAnimations().map(async (a) => a.finished));
+    const r = d.getBoundingClientRect();
+    const { clientWidth, clientHeight } = document.documentElement;
+    return {
+      left: r.left,
+      top: r.top,
+      right: r.right,
+      bottom: r.bottom,
+      clientWidth,
+      clientHeight,
+    };
+  });
+  expect(box.left).toBeGreaterThanOrEqual(0);
+  expect(box.top).toBeGreaterThanOrEqual(0);
+  expect(box.right).toBeLessThanOrEqual(box.clientWidth);
+  expect(box.bottom).toBeLessThanOrEqual(box.clientHeight);
 }
 
 test("an address opens as a QR code, loaded only then, and Escape returns focus", async ({
@@ -94,4 +115,19 @@ test("a node's connect string is drawn in its colour, darkened when too pale", a
   expect(0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)).toBeLessThanOrEqual(0.1834);
   // Its hue kept: still more red and green than blue.
   expect(Math.min(r, g)).toBeGreaterThan(b);
+});
+
+test("at 320 px with motion on, the pop-up opens inside the window and stays there", async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.setViewportSize({ width: 320, height: 650 });
+  await page.goto(`/regtest/address/${chain.addresses.p2tr}`);
+  await page.getByRole("button", { name: "Show the address as a QR code" }).click();
+  await expect(page.getByRole("dialog", { name: "Scan the address" })).toBeVisible();
+  await inWindow(page);
+  // A shorter window: it moves and shrinks to stay inside, scrolling within itself.
+  await page.setViewportSize({ width: 320, height: 350 });
+  await twoFrames(page);
+  await inWindow(page);
 });

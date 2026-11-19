@@ -24,26 +24,36 @@ export default function QrPop(props: {
   let close: (() => void) | undefined;
   let leaving = false;
 
-  const place = (b: DOMRect) => {
+  /**
+   * Measured by its layout size, not its drawn box, which the opening animation scales down, and
+   * at its full height: the room it was last given is lifted first.
+   */
+  const place = () => {
     if (!pop) return;
-    const p = pop.getBoundingClientRect();
+    const b = props.anchor.getBoundingClientRect();
+    pop.style.removeProperty("--room");
+    const pw = pop.offsetWidth;
+    const ph = pop.offsetHeight;
     const width = document.documentElement.clientWidth;
     const height = document.documentElement.clientHeight;
     const header = document.querySelector(".site-header")?.getBoundingClientRect().bottom ?? 0;
     const top = Math.max(EDGE, header + GAP);
-    const x = Math.max(EDGE, Math.min(b.right - p.width, width - p.width - EDGE));
+    const x = Math.max(EDGE, Math.min(b.right - pw, width - pw - EDGE));
     let y = b.bottom + GAP;
-    if (y + p.height > height - EDGE) {
-      const above = b.top - GAP - p.height;
+    if (y + ph > height - EDGE) {
+      const above = b.top - GAP - ph;
       y = above >= top ? above : top;
     }
     pop.style.setProperty("--x", `${Math.round(x)}px`);
     pop.style.setProperty("--y", `${Math.round(y)}px`);
     pop.style.setProperty("--room", `${Math.round(height - y - EDGE)}px`);
   };
+  // A window that changes size (a phone turned, a toolbar shown) moves it back inside.
+  window.addEventListener("resize", place, { passive: true });
+  onCleanup(() => window.removeEventListener("resize", place));
 
   onSettled(() => {
-    place(props.anchor.getBoundingClientRect());
+    place();
     close = openPop(
       () => {
         close = undefined;
