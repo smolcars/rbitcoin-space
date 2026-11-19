@@ -59,6 +59,8 @@ export function Note(props: {
     pop.style.setProperty("--y", `${Math.round(up ? above : f.bottom + GAP)}px`);
   };
   const show = () => {
+    // Whatever opens it now means it to stay: a mouse that left a moment ago must not shut it.
+    clearTimeout(leaving);
     if (close || closing) return;
     setOpen(true);
     // Drawn before it is measured, and placed before the browser paints it.
@@ -66,6 +68,9 @@ export function Note(props: {
     place();
     close = openPop(
       () => {
+        // Closed already: the mouse's pending leave has nothing left to close, and must not close
+        // a note opened again before it fires.
+        clearTimeout(leaving);
         close = undefined;
         closing = true;
         queueMicrotask(() => (closing = false));
