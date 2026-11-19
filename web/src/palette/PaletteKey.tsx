@@ -33,6 +33,8 @@ const warm = () => void load().catch(() => undefined);
 export function PaletteKey(props: {
   /** The header search's text, when it has focus: the palette starts from it. */
   typed: () => string;
+  /** Hands the header a way to open it, for a phone's "Go to" (PaletteGo). */
+  expose: (open: (initial: string) => void) => void;
 }) {
   const onApple = apple();
   const [view, setView] = createSignal<{ C: Component<PaletteProps>; initial: string }>();
@@ -52,6 +54,7 @@ export function PaletteKey(props: {
       opening = false;
     }
   };
+  props.expose((initial) => void open(initial));
   const toggle = () => {
     if (closeOpen) closeOpen();
     else void open(props.typed());
@@ -84,20 +87,6 @@ export function PaletteKey(props: {
           <kbd>{k}</kbd>
         ))}
       </button>
-      {/* A phone has no shortcut: while its search is open, this takes what is typed there on. */}
-      <button
-        type="button"
-        class="palette-phone btn"
-        title="Go to a page, pool, date or ID"
-        onPointerDown={(e) => {
-          // The search keeps focus, so the row does not fold away under the finger.
-          e.preventDefault();
-          warm();
-        }}
-        onClick={() => void open(props.typed())}
-      >
-        Go to
-      </button>
       <Show when={view()}>
         {(v) => (
           <Shown
@@ -111,5 +100,26 @@ export function PaletteKey(props: {
         )}
       </Show>
     </>
+  );
+}
+
+/**
+ * A phone's way in: it has no shortcut and no room at rest, so while its search has focus this
+ * takes the sections' row and carries what was typed on to the palette.
+ */
+export function PaletteGo(props: { onOpen: () => void }) {
+  return (
+    <button
+      type="button"
+      class="palette-phone"
+      onPointerDown={(e) => {
+        // The search keeps focus, so the row does not fold away under the finger.
+        e.preventDefault();
+        warm();
+      }}
+      onClick={() => props.onOpen()}
+    >
+      Go to a page, pool or date
+    </button>
   );
 }

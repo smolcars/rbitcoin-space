@@ -243,17 +243,20 @@ test.describe("actions", () => {
   });
 });
 
-test("a phone opens it from its search as a sheet, with what was typed", async ({ page }) => {
+test("a phone opens it from beside its search as a sheet, with what was typed", async ({
+  page,
+}) => {
   await withPools(page);
   await page.setViewportSize({ width: 360, height: 640 });
   await page.goto("/regtest/");
-  // At rest the header has no room for it; the search's row does once it opens.
-  await expect(page.getByRole("button", { name: "Go to" })).toHaveCount(0);
+  // At rest the header has no room for it; while the search has focus, the sections' row does.
+  const go = page.getByRole("button", { name: "Go to a page, pool or date" });
+  await expect(go).toBeHidden();
   const search = page.getByRole("combobox", { name: "Search" });
   await search.click();
   await search.fill("foundry");
-  const go = page.getByRole("button", { name: "Go to" });
-  await expect(go).toHaveCount(1);
+  await expect(go).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Main" })).toBeHidden();
   await go.click();
   await expect(field(page)).toHaveValue("foundry");
   await expect(field(page)).toBeFocused();

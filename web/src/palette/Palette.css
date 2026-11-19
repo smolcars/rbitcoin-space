@@ -191,6 +191,10 @@
     text-wrap: balance;
   }
 
+  .palette__eg {
+    white-space: nowrap;
+  }
+
   .palette__foot {
     display: flex;
     flex: none;

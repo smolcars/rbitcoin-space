@@ -549,8 +549,8 @@ export default function Palette(props: PaletteProps): JSX.Element {
             when={rows().length > 0}
             fallback={
               <p class="palette__empty" role="presentation">
-                Nothing here goes by that name. Try a page, a pool, a date such as 2024-04-20, or a
-                block, transaction or address.
+                Nothing here goes by that name. Try a page, a pool, a date such as{" "}
+                <span class="palette__eg">2024-04-20</span>, or a block, transaction or address.
               </p>
             }
           >
