@@ -183,6 +183,7 @@ describe("readDate", () => {
       label: "20 Apr 2024",
       timed: false,
       early: false,
+      open: false,
     });
   });
 
@@ -208,6 +209,7 @@ describe("readDate", () => {
       label: "20 Apr 2024, 14:30",
       timed: true,
       early: false,
+      open: false,
     });
     expect(readDate("2024-04-20T00:09:27Z", NOW)?.at).toBe(at(2024, 4, 20, 0, 9, 27));
     expect(readDate("20 Apr 2024, 9:05", NOW)?.at).toBe(at(2024, 4, 20, 9, 5, 59));
@@ -233,6 +235,17 @@ describe("readDate", () => {
     expect(readDate("2024-02-29", NOW)).not.toBeNull();
   });
 
+  it("marks a cutoff still to come as open, and a passed one by its own second", () => {
+    const before = Date.UTC(2026, 10, 19, 23, 58, 55) / 1000;
+    const after = Date.UTC(2026, 10, 20, 0, 0, 5) / 1000;
+    expect(readDate("2026-11-19", before)).toMatchObject({ at: before, open: true });
+    expect(readDate("2026-11-19", after)).toMatchObject({
+      at: Date.UTC(2026, 10, 19, 23, 59, 59) / 1000,
+      open: false,
+    });
+    expect(readDate("2024-04-20", after)?.open).toBe(false);
+  });
+
   it("sends whole seconds for today, where it stops at a fractional now", () => {
     const now = NOW + 0.992;
     const today = readDate("2026-11-19", now);
@@ -246,6 +259,7 @@ describe("readDate", () => {
       label: "2 Jan 2009",
       timed: false,
       early: true,
+      open: false,
     });
     expect(readDate("2009-01-03 18:15:04", NOW)?.early).toBe(true);
     expect(readDate("2009-01-03", NOW)?.early).toBe(false);

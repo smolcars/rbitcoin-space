@@ -201,6 +201,8 @@ export interface Moment {
   timed: boolean;
   /** Before Bitcoin's first block: no block can be at or before it. */
   early: boolean;
+  /** Its cutoff is still to come, so `at` is now and its answer may change until it passes. */
+  open: boolean;
 }
 
 /** Bitcoin's first block, 3 Jan 2009 18:15:05 UTC: nothing before it has a block. */
@@ -286,5 +288,6 @@ export function readDate(input: string, now: number): Moment | null {
     label: day + clock,
     timed: time !== undefined,
     early: at < GENESIS_TIME,
+    open: at > now,
   };
 }

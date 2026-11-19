@@ -1,6 +1,6 @@
 // The command palette: one field that goes anywhere. Loaded on first open (PaletteKey.tsx); the
 // header search's logic (search/search.ts) reads identifiers, so the two never disagree.
-import { useBeforeLeave, useLocation, useNavigate } from "@solidjs/router";
+import { useLocation, useNavigate } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, For, onCleanup, onSettled, Show } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { ApiError, fetchApi, isNotFound } from "../lib/api";
@@ -125,30 +125,41 @@ const isFound = (v: unknown): v is Found =>
 export interface PaletteProps {
   /** What the field starts with: the header search's text when the palette is opened from it. */
   initial: string;
-  /** Gives the opener a way to close it (the shortcut pressed again). */
-  control: (close: () => void) => void;
-  /** Called once the palette has closed and may be removed. */
+  /** The opener says it is closing (opener.ts): the palette fades out and runs nothing more. */
+  closing: boolean;
+  /** The reader is done with it: Escape, a press outside, an action done. */
+  onDismiss: () => void;
+  /** The fade has ended and the dialog is closed. */
   onClosed: () => void;
 }
+
+/** What a date's kept answer is for: the typed text, and its cutoff once that has passed. */
+const dateKey = (q: string, moment: Moment) => `${q}|${moment.open ? "open" : moment.at}`;
 
 export default function Palette(props: PaletteProps): JSX.Element {
   const network = useNetwork();
   const navigate = useNavigate();
   const location = useLocation();
-  const searcher = createSearch();
+  // Two searches: suggestions are cancelled by every key and by the config arriving; an explicit
+  // lookup only by its own cancellation (an edit, a newer lookup, closing). Neither touches the other.
+  const suggester = createSearch();
+  const runner = createSearch();
   const [text, setText] = createSignal(props.initial);
   const [config, setConfig] = createSignal<AppConfig | null>();
   const [pools, setPools] = createSignal<{ network: Network; list: Pool[] }>();
   const [nodes, setNodes] = createSignal<{ q: string; network: Network; list: Suggestion[] }>();
   // Kept by what was typed, not by the moment: today's moment is now, which moves on.
-  const [dated, setDated] = createSignal<{ q: string; network: Network; answer: Dated }>();
-  // A row the reader ran that is still looking, or what it found instead of a page.
-  const [busy, setBusy] = createSignal<string>();
+  // Kept with its cutoff's second once that has passed (dateKey): past midnight, the same text
+  // asks again for the finished day.
+  const [dated, setDated] = createSignal<{ key: string; network: Network; answer: Dated }>();
+  // The explicit lookup under way, if any: "Looking up…" is drawn from it alone, and the lookup
+  // clears it in its own `finally`, so no way it ends can leave the row looking.
+  const [lookup, setLookup] = createSignal<{ token: number; id: string }>();
+  const busy = () => lookup()?.id;
   const [note, setNote] = createSignal<{ id: string; text: string }>();
   // The selected row, by id: a row arriving late must not move the selection to another.
   const [activeKey, setActiveKey] = createSignal<string>();
   const [said, setSaid] = createSignal("");
-  const [closing, setClosing] = createSignal(false);
   const [room, setRoom] = createSignal<number>();
   let dialog: HTMLDialogElement | undefined;
   let input: HTMLInputElement | undefined;
@@ -156,19 +167,43 @@ export default function Palette(props: PaletteProps): JSX.Element {
   const narrow = typeof matchMedia === "function" && matchMedia("(max-width: 40em)").matches;
   const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   let left = false;
-  let closed = false;
-  // Explicit lookups (Enter on an id or a date) and the scheduled asks each have a generation:
-  // anything newer, an edit, a navigation or closing makes the older one's answer stale.
-  let runs = 0;
+  // Closing (the opener's state) or unmounted: nothing more is run, asked or shown.
+  let done = false;
+  const ended = () => done || props.closing;
+  // The scheduled asks (suggestions, a date's block) have a generation: an edit, a lookup or
+  // closing makes an older one's answer stale.
   let asks = 0;
   let askTimer: ReturnType<typeof setTimeout> | undefined;
   const stopAsking = () => {
     asks += 1;
     clearTimeout(askTimer);
   };
-  const stopRunning = () => {
-    runs += 1;
-    setBusy(undefined);
+  // The explicit lookup's token, kept in a plain variable as well: a signal's write is seen only
+  // after the flush, and a lookup checks it right after its awaits.
+  let token = 0;
+  let lookupAbort: AbortController | undefined;
+  const stopLookup = () => {
+    token += 1;
+    lookupAbort?.abort();
+    lookupAbort = undefined;
+    runner.cancel();
+    setLookup(undefined);
+  };
+  /** Starts an explicit lookup for row `id`; `live` says whether it is still the current one. */
+  const startLookup = (id: string) => {
+    stopAsking();
+    stopLookup();
+    const mine = token;
+    setLookup({ token: mine, id });
+    setNote(undefined);
+    lookupAbort = new AbortController();
+    return {
+      signal: lookupAbort.signal,
+      live: () => mine === token && !ended(),
+      end: () => {
+        if (mine === token) setLookup(undefined);
+      },
+    };
   };
 
   const offer = createMemo((): Offer => {
@@ -183,65 +218,61 @@ export default function Palette(props: PaletteProps): JSX.Element {
     };
   });
 
+  // Navigating closes the palette by itself: the opener hears of every navigation.
   const go = (path: string) => {
     left = true;
     navigate(onNetwork(network(), path));
-    close();
+    props.onDismiss();
   };
   const act = (action: Action) => {
     if (action.kind === "theme") {
       toggleTheme();
-      close();
+      props.onDismiss();
       return;
     }
     left = true;
     navigate(
       onNetwork(action.network, stripNetwork(location.pathname)) + location.search + location.hash,
     );
-    close();
+    props.onDismiss();
   };
 
   // An identifier is looked up as the header search looks it up; a miss is said in its row.
   const lookUp = async (id: string, raw: string) => {
     const net = network();
-    stopAsking();
-    const mine = ++runs;
-    setNote(undefined);
-    setBusy(id);
-    const outcome = await searcher.run(raw, net);
-    if (outcome === undefined || mine !== runs || closed) return;
-    setBusy(undefined);
-    if (outcome.kind === "go") go(outcome.path);
-    else if (outcome.kind === "missing") {
-      setNote({ id, text: `Nothing on ${NETWORK_NAMES[net]} has this ID` });
-    } else {
-      const e = outcome.error;
-      setNote({ id, text: e instanceof ApiError ? e.message : "Search could not finish" });
+    const run = startLookup(id);
+    try {
+      const outcome = await runner.run(raw, net);
+      if (outcome === undefined || !run.live()) return;
+      if (outcome.kind === "go") go(outcome.path);
+      else if (outcome.kind === "missing") {
+        setNote({ id, text: `Nothing on ${NETWORK_NAMES[net]} has this ID` });
+      } else {
+        const e = outcome.error;
+        setNote({ id, text: e instanceof ApiError ? e.message : "Search could not finish" });
+      }
+    } finally {
+      run.end();
     }
   };
 
   let dateAsk: AbortController | undefined;
-  /** The block at a moment; rejects only when aborted, by a newer ask or closing. */
-  const askDate = async (moment: Moment, net: Network): Promise<Dated> => {
-    dateAsk?.abort();
-    const controller = new AbortController();
-    dateAsk = controller;
+  /** The block at a moment; rejects only when `signal` aborts. */
+  const askDate = async (moment: Moment, net: Network, signal: AbortSignal): Promise<Dated> => {
     try {
       const body = await fetchApi<unknown>(net, `/v1/mining/blocks/timestamp/${moment.at}`, {
-        signal: controller.signal,
+        signal,
       });
       return isFound(body)
         ? { kind: "found", found: body }
         : { kind: "failed", message: "The server's answer could not be read" };
     } catch (error) {
-      if (controller.signal.aborted) throw error;
+      if (signal.aborted) throw error;
       if (isNotFound(error)) return { kind: "none" };
       return {
         kind: "failed",
         message: error instanceof ApiError ? error.message : "The lookup could not finish",
       };
-    } finally {
-      if (dateAsk === controller) dateAsk = undefined;
     }
   };
   const dateText = (answer: Dated, net: Network): string =>
@@ -250,24 +281,26 @@ export default function Palette(props: PaletteProps): JSX.Element {
       : answer.kind === "none"
         ? `This server's ${NETWORK_NAMES[net]} history has no block by then`
         : `Could not look this up: ${answer.message}`;
-  const goToDate = async (id: string, moment: Moment, q: string) => {
+  const goToDate = async (id: string, q: string) => {
+    // Read again now, not when the row was drawn: the day may have ended since.
+    const moment = readDate(q, Date.now() / 1000);
+    if (!moment) return;
     const net = network();
-    stopAsking();
-    const mine = ++runs;
+    const key = dateKey(q, moment);
     const known = dated();
-    let answer = known?.q === q && known.network === net ? known.answer : undefined;
+    let answer = known?.key === key && known.network === net ? known.answer : undefined;
     // A failure is asked again; a block or its absence is kept.
     if (answer === undefined || answer.kind === "failed") {
-      setNote(undefined);
-      setBusy(id);
+      const run = startLookup(id);
       try {
-        answer = await askDate(moment, net);
+        answer = await askDate(moment, net, run.signal);
       } catch {
         return;
+      } finally {
+        run.end();
       }
-      if (mine !== runs || closed) return;
-      setBusy(undefined);
-      setDated({ q, network: net, answer });
+      if (!run.live()) return;
+      setDated({ key, network: net, answer });
     }
     if (answer.kind === "found") go(paths.block(answer.found.hash));
     else setNote({ id, text: dateText(answer, net) });
@@ -318,7 +351,7 @@ export default function Palette(props: PaletteProps): JSX.Element {
     if (moment) {
       const id = "date";
       const d = dated();
-      const answer = d?.q === q && d.network === net ? d.answer : undefined;
+      const answer = d?.key === dateKey(q, moment) && d.network === net ? d.answer : undefined;
       const n = note();
       const title = moment.timed ? `${moment.label} UTC` : `${moment.label}, end of the day UTC`;
       out.push({
@@ -346,7 +379,7 @@ export default function Palette(props: PaletteProps): JSX.Element {
                       : answer
                         ? dateText(answer, net)
                         : "The newest block by then, read in UTC",
-                run: () => void goToDate(id, moment, q),
+                run: () => void goToDate(id, q),
               },
         ],
       });
@@ -455,7 +488,14 @@ export default function Palette(props: PaletteProps): JSX.Element {
   createEffect(text, () => {
     setActiveKey(undefined);
     setNote(undefined);
-    stopRunning();
+    stopLookup();
+  });
+
+  // The row shown as selected is pinned by its id, the default included: a row arriving later
+  // above it must not take the selection, and Enter opens what the reader saw selected. A pinned
+  // row that goes away hands the selection to the first row, which is then pinned in turn.
+  createEffect(current, (row) => {
+    if (row && row.id !== activeKey()) setActiveKey(row.id);
   });
 
   // The selected row stays in sight; focus stays in the field, so the browser will not do it.
@@ -484,12 +524,12 @@ export default function Palette(props: PaletteProps): JSX.Element {
     () => ({ q: text().trim(), net: network(), lightning: offer().lightning }),
     ({ q, net, lightning }) => {
       stopAsking();
-      searcher.cancel();
+      suggester.cancel();
       dateAsk?.abort();
       if (q === "") return;
       const mine = asks;
       // Whether this ask is still the latest, checked after every wait.
-      const live = () => mine === asks && !closed;
+      const live = () => mine === asks && !ended();
       askTimer = setTimeout(() => {
         void (async () => {
           if (classify(q) === null && pools()?.network !== net) {
@@ -499,44 +539,48 @@ export default function Palette(props: PaletteProps): JSX.Element {
           }
           const moment = readDate(q, Date.now() / 1000);
           if (moment) {
+            if (moment.early) return;
+            dateAsk = new AbortController();
             try {
-              const answer = await askDate(moment, net);
-              if (live()) setDated({ q, network: net, answer });
+              const answer = await askDate(moment, net, dateAsk.signal);
+              if (live()) setDated({ key: dateKey(q, moment), network: net, answer });
             } catch {
               // Aborted by a newer query, a lookup or closing.
             }
             return;
           }
           if (!lightning) return;
-          const r = await searcher.suggest(q, net);
+          const r = await suggester.suggest(q, net);
           if (r !== undefined && live()) setNodes({ q, network: net, list: r.nodes });
         })();
       }, ASK_MS);
     },
   );
 
-  const close = () => {
-    if (closing() || !dialog?.open) return;
-    closed = true;
-    setClosing(true);
+  // The opener's closing: everything stops at once, the fade runs, then the dialog closes.
+  const stopAll = () => {
     stopAsking();
-    stopRunning();
-    searcher.cancel();
+    stopLookup();
+    suggester.cancel();
     dateAsk?.abort();
-    const done = () => {
-      clearTimeout(fallback);
-      dialog?.removeEventListener("animationend", done);
-      if (dialog?.open) dialog.close();
-    };
-    // Under reduced motion there is no animation to wait for.
-    const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const fallback = setTimeout(done, still ? 0 : 400);
-    if (!still) dialog.addEventListener("animationend", done);
   };
-  props.control(close);
-  // Any navigation, Back included, ends the palette and everything it was waiting for: an answer
-  // arriving later must never take the reader somewhere else.
-  useBeforeLeave(() => close());
+  createEffect(
+    () => props.closing,
+    (closing) => {
+      if (!closing) return;
+      stopAll();
+      const finish = () => {
+        clearTimeout(fallback);
+        dialog?.removeEventListener("animationend", finish);
+        if (dialog?.open === true) dialog.close();
+      };
+      // Under reduced motion there is no animation to wait for.
+      const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const fallback = setTimeout(finish, still ? 0 : 400);
+      if (!still) dialog?.addEventListener("animationend", finish);
+    },
+  );
+  const close = () => props.onDismiss();
 
   onSettled(() => {
     void loadConfig().then((c) => setConfig(c));
@@ -551,12 +595,15 @@ export default function Palette(props: PaletteProps): JSX.Element {
     return () => vv?.removeEventListener("resize", fit);
   });
   onCleanup(() => {
-    closed = true;
-    stopAsking();
+    done = true;
     clearTimeout(sayTimer);
-    searcher.cancel();
-    dateAsk?.abort();
+    stopAll();
   });
+
+  /** Runs a row, but only while open: never during the fade (opener.ts `active`). */
+  const runRow = (row: Row | undefined) => {
+    if (!ended()) row?.run();
+  };
 
   const rowAt = (target: EventTarget | null): number | undefined => {
     const row = target instanceof Element ? target.closest<HTMLElement>("[data-index]") : null;
@@ -577,7 +624,7 @@ export default function Palette(props: PaletteProps): JSX.Element {
     else if (e.key === "ArrowUp") move(i - 1);
     else if (e.key === "Home" && !e.shiftKey) move(0);
     else if (e.key === "End" && !e.shiftKey) move(rows().length - 1);
-    else if (e.key === "Enter") current()?.run();
+    else if (e.key === "Enter") runRow(current());
     else if (e.key === "Escape") close();
     else return;
     e.preventDefault();
@@ -588,7 +635,7 @@ export default function Palette(props: PaletteProps): JSX.Element {
     // oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions -- a click on the dialog itself is a click on its backdrop
     <dialog
       ref={dialog}
-      class={["palette", { "palette--closing": closing() }]}
+      class={["palette", { "palette--closing": props.closing }]}
       aria-label="Go to"
       style={{ "--palette-room": room() === undefined ? undefined : `${room()}px` }}
       onCancel={(e) => {
@@ -651,7 +698,7 @@ export default function Palette(props: PaletteProps): JSX.Element {
           }}
           onClick={(e) => {
             const i = rowAt(e.target);
-            if (i !== undefined) rows()[i]?.run();
+            if (i !== undefined) runRow(rows()[i]);
           }}
         >
           <Show

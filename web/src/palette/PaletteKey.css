@@ -2,6 +2,7 @@
 @layer components {
   /* The search and its hint share the search's cell: the field takes what the hint leaves. */
   .site-header__search {
+    position: relative;
     display: flex;
     align-items: center;
     gap: var(--space-2);
@@ -51,54 +52,54 @@
     transform: translateY(1px);
   }
 
-  .palette-phone {
+  /* Hangs under the search, over the page: it moves nothing and hides nothing. */
+  .palette-go {
+    position: absolute;
+    top: calc(100% + var(--space-1));
+    left: 0;
+    right: 0;
+    z-index: 1;
     display: none;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: var(--touch);
+    padding: 0 var(--space-3);
+    border: 1px solid var(--color-line-strong);
+    border-radius: var(--radius-m);
+    background: var(--color-surface-raised);
+    box-shadow: var(--shadow-pop);
+    color: var(--color-text);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    text-align: left;
+    cursor: pointer;
+  }
+  .palette-go svg {
+    width: 16px;
+    height: 16px;
+    flex: none;
+    fill: none;
+    stroke: var(--color-text-muted);
+    stroke-width: 1.6;
+    stroke-linecap: round;
+  }
+  @media (hover: hover) {
+    .palette-go:hover {
+      background: var(--color-surface-sunken);
+    }
   }
 
-  /* A phone has no room for the hint at rest. While its search has focus, "Go to" takes the
-     sections' row, which the search's own list covers when it opens. */
-  /* Where the search's cell is too narrow for both, the hint gives way: the search's placeholder
-     keeps its words. Just above each breakpoint the header's rows are at their tightest (measured
-     in palette.e2e.ts with every section on). */
+  /* Where the search's cell is too narrow for both, the hint gives way, so the search's placeholder
+     keeps its words (palette.e2e.ts measures it with every section on), and "Go to" takes its
+     place: shown while the search, or "Go to" itself, has focus, so Tab reaches it next and
+     Shift+Tab goes back to the search. The header's sections stay where they are. While the
+     search's own list or answer is open, that is what hangs there. */
   @media (max-width: 44em), (min-width: 65.0625em) and (max-width: 78em) {
     .palette-hint {
       display: none;
     }
-  }
-  @media (max-width: 40em) {
-    /* At rest it is out of sight but reachable, as the skip link is (above the screen): hidden with display: none, it
-       would vanish as focus left the search for it, and the browser would drop the focus. */
-    .palette-phone {
+    .site-header__search:focus-within:not(:has(.search__list, .search__panel)) .palette-go {
       display: flex;
-      position: absolute;
-      top: -10rem;
-      left: 0;
-      width: 1px;
-      height: 1px;
-      overflow: hidden;
-      white-space: nowrap;
-    }
-    /* While the search, or the button itself, has focus it takes the sections' row. */
-    .site-header__inner:has(.site-header__search:focus-within, .palette-phone:focus) .nav {
-      display: none;
-    }
-    .site-header__inner:has(.site-header__search:focus-within, .palette-phone:focus)
-      .palette-phone {
-      position: static;
-      grid-area: nav;
-      width: auto;
-      height: auto;
-      overflow: visible;
-      align-items: center;
-      gap: var(--space-2);
-      min-height: var(--touch);
-      padding: 0 var(--space-2);
-      border: 0;
-      background: none;
-      color: var(--color-text-muted);
-      font-size: var(--text-sm);
-      font-weight: var(--weight-medium);
-      cursor: pointer;
     }
   }
 }

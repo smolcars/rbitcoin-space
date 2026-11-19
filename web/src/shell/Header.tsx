@@ -8,7 +8,7 @@ import { NetworkSwitch } from "./NetworkSwitch";
 import { ThemeToggle } from "./ThemeToggle";
 import "./Header.css";
 import { dragScroll } from "../components/dragScroll";
-import { PaletteGo, PaletteKey } from "../palette/PaletteKey";
+import { PaletteKey } from "../palette/PaletteKey";
 
 const NAV = [
   { href: "/blocks", label: "Blocks", match: (p: string) => /^\/blocks?(\/|$)/.test(p) },
@@ -46,7 +46,6 @@ export function Header(props: {
   const page = () => stripNetwork(location.pathname);
   const nav = () => tabs(networkFromPath(location.pathname), props.lightning(), props.ark());
   let search: HTMLInputElement | undefined;
-  let openPalette: ((initial: string) => void) | undefined;
   /** The search's text while it has focus: the palette opened from it starts there. */
   const typed = () =>
     search !== undefined && document.activeElement === search ? search.value : "";
@@ -115,7 +114,7 @@ export function Header(props: {
         <NetworkSwitch networks={props.networks} />
         <div class="site-header__search">
           <SearchField ref={(el) => (search = el)} />
-          <PaletteKey typed={typed} expose={(open) => (openPalette = open)} />
+          <PaletteKey typed={typed} query={() => search?.value ?? ""} />
         </div>
         <nav class="nav" aria-label="Main" ref={(el) => dragScroll(el)}>
           {nav().map((item) => (
@@ -128,9 +127,6 @@ export function Header(props: {
             </Link>
           ))}
         </nav>
-        {/* Reached by a tap, which leaves focus in the search, or by Tab, which moves it here:
-            either way what the search holds goes on. */}
-        <PaletteGo onOpen={() => openPalette?.(search?.value ?? "")} />
         <ThemeToggle />
       </div>
       <div

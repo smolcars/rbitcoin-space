@@ -1,7 +1,10 @@
 // The way into the command palette that ships with the shell: the ⌘K / Ctrl K shortcut and the
-// header's controls. The palette itself (Palette.tsx) and its logic load on first open.
+// header's controls. The palette itself (Palette.tsx) and its logic load on first open. Whether it
+// is shown is opener.ts's state machine: this file only feeds it events and draws its state.
+import { useBeforeLeave } from "@solidjs/router";
 import { dynamic } from "@solidjs/web";
-import { type Component, createSignal, onSettled, Show } from "solid-js";
+import { type Component, createSignal, For, onSettled } from "solid-js";
+import { IDLE, type Opener, type OpenerEvent, step } from "./opener";
 import type { PaletteProps } from "./Palette";
 import "./PaletteKey.css";
 
@@ -33,50 +36,66 @@ const load = () => {
 };
 const warm = () => void load().catch(() => undefined);
 
+/** One time the palette is shown: a new one is a fresh palette. */
+interface Session {
+  C: Component<PaletteProps>;
+  initial: string;
+}
+
 export function PaletteKey(props: {
-  /** The header search's text, when it has focus: the palette starts from it. */
+  /** The header search's text when it has focus: the shortcut's palette starts from it. */
   typed: () => string;
-  /** Hands the header a way to open it, for a phone's "Go to" (PaletteGo). */
-  expose: (open: (initial: string) => void) => void;
+  /** The header search's text, focused or not: "Go to" hands it on. */
+  query: () => string;
 }) {
   const onApple = apple();
-  const [view, setView] = createSignal<{ C: Component<PaletteProps>; initial: string }>();
-  const Shown = dynamic(() => view()?.C);
-  let closeOpen: (() => void) | undefined;
-  // An open asked for while the code downloads; a newer press, or Escape, withdraws it.
-  let wanted = 0;
-  let opening = false;
+  // The machine's state, kept in a plain variable too: a write is seen only after the flush.
+  let now: Opener = IDLE;
+  const [state, setState] = createSignal<Opener>(IDLE);
+  const [session, setSession] = createSignal<Session>();
+  const Shown = dynamic(() => session()?.C);
+  let code: Component<PaletteProps> | undefined;
+  // What the next palette starts with: the text at the last press.
+  let initial = "";
 
-  const open = async (initial: string) => {
-    if (view() !== undefined || opening) return;
-    const mine = ++wanted;
-    opening = true;
-    try {
-      const C = await load();
-      if (mine === wanted) setView({ C, initial });
-    } catch {
-      // Offline or a deploy replaced the file: the next press asks again.
-    } finally {
-      opening = false;
+  const send = (event: OpenerEvent) => {
+    const before = now;
+    const after = step(before, event);
+    if (after === before) return;
+    now = after;
+    setState(after);
+    if (before.kind === "idle" && after.kind === "loading") {
+      load().then(
+        (C) => {
+          code = C;
+          send("arrived");
+        },
+        () => send("failed"),
+      );
     }
+    if (after.kind === "open" && before.kind !== "open" && code) {
+      setSession({ C: code, initial });
+    }
+    if (after.kind === "idle") setSession(undefined);
   };
-  props.expose((initial) => void open(initial));
-  const toggle = () => {
-    if (closeOpen) closeOpen();
-    else if (opening) wanted += 1;
-    else void open(props.typed());
+  const press = (text: string) => {
+    initial = text;
+    send("press");
   };
+
+  // Any navigation, Back included: nothing pending may open on the next page.
+  useBeforeLeave(() => send("navigation"));
 
   onSettled(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && opening) {
-        wanted += 1;
+      if (e.key === "Escape") {
+        send("escape");
         return;
       }
       if (!isPaletteKey(e, onApple)) return;
       e.preventDefault();
       // A held key repeats: only its first press counts.
-      if (!e.repeat) toggle();
+      if (!e.repeat) press(props.typed());
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
@@ -93,45 +112,41 @@ export function PaletteKey(props: {
         title={`Go to a page, pool, date or ID (${hint.join(onApple ? "" : " ")})`}
         onPointerEnter={warm}
         onFocus={warm}
-        onClick={() => void open("")}
+        onClick={() => press("")}
       >
         {hint.map((k) => (
           <kbd>{k}</kbd>
         ))}
       </button>
-      <Show when={view()}>
-        {(v) => (
+      {/* Where there is no room for the hint: hangs under the search while it, or this, has
+          focus, over the page, moving nothing; next after the search in the Tab order. */}
+      <button
+        type="button"
+        class="palette-go"
+        onPointerDown={(e) => {
+          // A press keeps focus in the search, so the control stays under the finger.
+          e.preventDefault();
+          warm();
+        }}
+        onFocus={warm}
+        onClick={() => press(props.query())}
+      >
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M2.5 4.5h11M2.5 8h7M2.5 11.5h9" />
+        </svg>
+        Go to a page, pool or date
+      </button>
+      {/* Keyed by the session, so a palette opened again is a fresh one. */}
+      <For each={session() ? [session()] : []}>
+        {() => (
           <Shown
-            initial={v().initial}
-            control={(close) => (closeOpen = close)}
-            onClosed={() => {
-              closeOpen = undefined;
-              setView(undefined);
-            }}
+            initial={session()?.initial ?? ""}
+            closing={state().kind === "closing"}
+            onDismiss={() => send("escape")}
+            onClosed={() => send("closed")}
           />
         )}
-      </Show>
+      </For>
     </>
-  );
-}
-
-/**
- * A phone's way in: it has no shortcut and no room at rest, so while its search has focus this
- * takes the sections' row and carries what was typed on to the palette.
- */
-export function PaletteGo(props: { onOpen: () => void }) {
-  return (
-    <button
-      type="button"
-      class="palette-phone"
-      onPointerDown={(e) => {
-        // The search keeps focus, so the row does not fold away under the finger.
-        e.preventDefault();
-        warm();
-      }}
-      onClick={() => props.onOpen()}
-    >
-      Go to a page, pool or date
-    </button>
   );
 }
