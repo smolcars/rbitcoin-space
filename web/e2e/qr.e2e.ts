@@ -135,6 +135,23 @@ test("at 320 px with motion on, the pop-up opens inside the window and stays the
   expect(card).toBeGreaterThanOrEqual(296);
 });
 
+test("the card paints nothing inside the code's quiet zone", async ({ page }) => {
+  await page.goto(`/regtest/address/${chain.addresses.p2tr}`);
+  await page.getByRole("button", { name: "Show the address as a QR code" }).click();
+  const card = page.getByRole("dialog").locator(".qr__card");
+  await expect(card).toBeVisible();
+  // The code's quiet zone is drawn inside the card: no inset rule, border or outline crosses it.
+  await expect(card).toHaveCSS("box-shadow", "none");
+  await expect(card).toHaveCSS("border-top-width", "0px");
+  await expect(card).toHaveCSS("outline-style", "none");
+  const fills = await card.evaluate((c) => {
+    const svg = c.querySelector("svg")?.getBoundingClientRect();
+    const box = c.getBoundingClientRect();
+    return svg && Math.abs(svg.width - box.width) < 1 && Math.abs(svg.height - box.height) < 1;
+  });
+  expect(fills).toBe(true);
+});
+
 test.describe("when the QR code's files fail", () => {
   test.use({ consoleErrorsAllowed: [/status of 503/] });
 
