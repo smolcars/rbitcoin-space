@@ -283,27 +283,38 @@ describe("address page", () => {
 
   it("keeps an unchanged row's elements, and the focus in it, when its history is asked again", async () => {
     let page = [tx(1, [[OTHER, 2000]], [[ME, 1000]])];
+    const answers: Response[] = [];
     serve({
       [`/address/${ME}`]: () => Response.json(stats()),
       // Each answer is parsed anew: the same transactions, never the same objects.
-      [`/address/${ME}/txs`]: () => Response.json(page),
+      [`/address/${ME}/txs`]: () => {
+        const answer = Response.json(page);
+        answers.push(answer);
+        return answer;
+      },
     });
     const el = open(`/address/${ME}`);
     await until(() => expect(el.querySelectorAll("tbody tr .hash")).toHaveLength(1));
     await until(() => expect(text(el.querySelector(".address-live") as Element)).toBe("Live"));
-    const asked = () => calls.filter((c) => c.endsWith("/txs")).length;
+    /** Once the newest answer has been read and what it changed is drawn. */
+    const applied = async (n: number) => {
+      await until(() => expect(answers[n - 1]?.bodyUsed).toBe(true));
+      for (let i = 0; i < 5; i++) {
+        await new Promise((resolve) => {
+          setTimeout(resolve, 0);
+        });
+        flush();
+      }
+    };
     const row = el.querySelector("tbody tr");
     const link = row?.querySelector<HTMLAnchorElement>(".hash a");
     link?.focus();
     expect(document.activeElement).toBe(link);
     // Asked again, and the answer is the same history: nothing is rebuilt. The very elements, not
     // ones like them, so a reader's focus, or a test's hold on a row, is not lost.
-    const before = asked();
+    const before = answers.length;
     status("s2");
-    await until(() => expect(asked()).toBe(before + 1));
-    await new Promise((resolve) => {
-      setTimeout(resolve, 20);
-    });
+    await applied(before + 1);
     expect([...el.querySelectorAll("tbody tr")]).toStrictEqual([row]);
     expect(row?.isConnected).toBe(true);
     expect(document.activeElement).toBe(link);
@@ -312,6 +323,14 @@ describe("address page", () => {
     status("s3");
     await until(() => expect(el.querySelectorAll("tbody tr .hash")).toHaveLength(2));
     expect(el.querySelectorAll("tbody tr")[1]).toBe(row);
+    // The same transaction in the same block, answered differently (a node that has since pruned
+    // its inputs, say): what the answer says now is drawn, never the object held from before.
+    expect(text(row as Element)).toContain("+0.00001000");
+    page = [tx(2, [[OTHER, 9000]], [[ME, 8000]], false), tx(1, [[OTHER, 2000]], [[ME, 1500]])];
+    status("s4");
+    await until(() =>
+      expect(text(el.querySelectorAll("tbody tr")[1] as Element)).toContain("+0.00001500"),
+    );
   });
 
   it("asks again for a change heard while the last one is still being fetched", async () => {

@@ -24,6 +24,7 @@ import type { AddressStats, Transaction, Utxo } from "../../lib/esplora";
 import { groupDigits, MISSING } from "../../lib/format";
 import { NETWORK_NAMES, paths } from "../../lib/network";
 import { useNetwork } from "../../lib/page";
+import { steady } from "../../lib/steady";
 import {
   confirmations,
   isCoinbase,
@@ -181,24 +182,15 @@ export function History(props: {
   });
   const later = () => after().txs;
   const fresh = () => after().fresh;
-  // The same object for the same transaction in the same block from one answer to the next. The
-  // table keeps a row's elements for as long as it is given the same object, so a refresh that
-  // changed nothing rebuilds nothing: the reader keeps their focus, the row under their finger and
-  // a note they were sent to. A transaction is its txid's for good, and its status only moves
-  // with its block, so one that matches on both is the one already held.
-  let held = new Map<string, Transaction>();
+  // The object already held for a transaction whose answer has not changed, so the table, which
+  // keeps a row's elements while it is given the same object, rebuilds no row but those that
+  // changed: the reader keeps their focus, the row under their finger and a note they were sent
+  // to. Compared whole, so a field a later answer changed (a block, a pruned input) is never
+  // hidden behind the old object.
+  const steadyTxs = steady<Transaction>((t) => t.txid);
   const shown = createMemo(() => {
     const f = first();
-    if (!f) return undefined;
-    const next = new Map<string, Transaction>();
-    const list = mergePages(f, later()).map((t) => {
-      const key = `${t.txid}:${t.status.block_hash ?? ""}`;
-      const same = held.get(key) ?? t;
-      next.set(key, same);
-      return same;
-    });
-    held = next;
-    return list;
+    return f ? steadyTxs(mergePages(f, later())) : undefined;
   });
   // The page works out the lookalikes over every loaded page at once (its notice and these rows read
   // the one answer), so a later page's lookalike also marks the earlier rows it imitates.
@@ -544,9 +536,11 @@ function Unspent(props: {
   retry: () => void;
 }) {
   const [page, setPage] = createSignal(1);
+  // As for the transactions: an output the answer still lists, unchanged, keeps its row.
+  const steadyUtxos = steady<Utxo>((u) => `${u.txid}:${u.vout}`);
   const sorted = createMemo(() => {
     const u = settled(props.utxos);
-    return u ? sortUtxos(u) : undefined;
+    return u ? sortUtxos(steadyUtxos(u)) : undefined;
   });
   const tipHeight = () => {
     const t = Number(settled(props.tip));
