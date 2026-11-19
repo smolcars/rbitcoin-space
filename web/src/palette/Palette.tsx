@@ -1,9 +1,9 @@
 // The command palette: one field that goes anywhere. Loaded on first open (PaletteKey.tsx); the
 // header search's logic (search/search.ts) reads identifiers, so the two never disagree.
-import { useLocation, useNavigate } from "@solidjs/router";
+import { useBeforeLeave, useLocation, useNavigate } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, For, onCleanup, onSettled, Show } from "solid-js";
 import type { JSX } from "@solidjs/web";
-import { ApiError, fetchApi } from "../lib/api";
+import { ApiError, fetchApi, isNotFound } from "../lib/api";
 import { type AppConfig, loadConfig } from "../lib/config";
 import { formatBtcShort, groupDigits, truncateMiddle } from "../lib/format";
 import { NETWORK_NAMES, type Network, onNetwork, paths, stripNetwork } from "../lib/network";
@@ -98,6 +98,13 @@ interface Found {
   hash: string;
 }
 
+/** What a date's lookup came to: its block, or why there is none to show. */
+type Dated =
+  | { kind: "found"; found: Found }
+  /** The server's block history has nothing at or before then: too early, or not indexed. */
+  | { kind: "none" }
+  | { kind: "failed"; message: string };
+
 const isFound = (v: unknown): v is Found =>
   typeof v === "object" &&
   v !== null &&
@@ -125,11 +132,12 @@ export default function Palette(props: PaletteProps): JSX.Element {
   const [config, setConfig] = createSignal<AppConfig | null>();
   const [pools, setPools] = createSignal<{ network: Network; list: Pool[] }>();
   const [nodes, setNodes] = createSignal<{ q: string; network: Network; list: Suggestion[] }>();
-  const [dated, setDated] = createSignal<{ at: number; network: Network; found: Found | null }>();
+  const [dated, setDated] = createSignal<{ at: number; network: Network; answer: Dated }>();
   // A row the reader ran that is still looking, or what it found instead of a page.
   const [busy, setBusy] = createSignal<string>();
   const [note, setNote] = createSignal<{ id: string; text: string }>();
-  const [active, setActive] = createSignal(0);
+  // The selected row, by id: a row arriving late must not move the selection to another.
+  const [activeKey, setActiveKey] = createSignal<string>();
   const [said, setSaid] = createSignal("");
   const [closing, setClosing] = createSignal(false);
   const [room, setRoom] = createSignal<number>();
@@ -139,6 +147,20 @@ export default function Palette(props: PaletteProps): JSX.Element {
   const narrow = typeof matchMedia === "function" && matchMedia("(max-width: 40em)").matches;
   const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   let left = false;
+  let closed = false;
+  // Explicit lookups (Enter on an id or a date) and the scheduled asks each have a generation:
+  // anything newer, an edit, a navigation or closing makes the older one's answer stale.
+  let runs = 0;
+  let asks = 0;
+  let askTimer: ReturnType<typeof setTimeout> | undefined;
+  const stopAsking = () => {
+    asks += 1;
+    clearTimeout(askTimer);
+  };
+  const stopRunning = () => {
+    runs += 1;
+    setBusy(undefined);
+  };
 
   const offer = createMemo((): Offer => {
     const c = config();
@@ -173,10 +195,12 @@ export default function Palette(props: PaletteProps): JSX.Element {
   // An identifier is looked up as the header search looks it up; a miss is said in its row.
   const lookUp = async (id: string, raw: string) => {
     const net = network();
+    stopAsking();
+    const mine = ++runs;
     setNote(undefined);
     setBusy(id);
     const outcome = await searcher.run(raw, net);
-    if (outcome === undefined) return;
+    if (outcome === undefined || mine !== runs || closed) return;
     setBusy(undefined);
     if (outcome.kind === "go") go(outcome.path);
     else if (outcome.kind === "missing") {
@@ -188,7 +212,8 @@ export default function Palette(props: PaletteProps): JSX.Element {
   };
 
   let dateAsk: AbortController | undefined;
-  const askDate = async (moment: Moment, net: Network): Promise<Found | null> => {
+  /** The block at a moment; rejects only when aborted, by a newer ask or closing. */
+  const askDate = async (moment: Moment, net: Network): Promise<Dated> => {
     dateAsk?.abort();
     const controller = new AbortController();
     dateAsk = controller;
@@ -196,29 +221,47 @@ export default function Palette(props: PaletteProps): JSX.Element {
       const body = await fetchApi<unknown>(net, `/v1/mining/blocks/timestamp/${moment.at}`, {
         signal: controller.signal,
       });
-      return isFound(body) ? body : null;
+      return isFound(body)
+        ? { kind: "found", found: body }
+        : { kind: "failed", message: "The server's answer could not be read" };
     } catch (error) {
       if (controller.signal.aborted) throw error;
-      return null;
+      if (isNotFound(error)) return { kind: "none" };
+      return {
+        kind: "failed",
+        message: error instanceof ApiError ? error.message : "The lookup could not finish",
+      };
     } finally {
       if (dateAsk === controller) dateAsk = undefined;
     }
   };
+  const dateText = (answer: Dated, net: Network): string =>
+    answer.kind === "found"
+      ? `Block ${groupDigits(answer.found.height)}, the newest by then`
+      : answer.kind === "none"
+        ? `This server's ${NETWORK_NAMES[net]} history has no block by then`
+        : `Could not look this up: ${answer.message}`;
   const goToDate = async (id: string, moment: Moment) => {
     const net = network();
+    stopAsking();
+    const mine = ++runs;
     const known = dated();
-    let found = known?.at === moment.at && known.network === net ? known.found : undefined;
-    if (found === undefined) {
+    let answer = known?.at === moment.at && known.network === net ? known.answer : undefined;
+    // A failure is asked again; a block or its absence is kept.
+    if (answer === undefined || answer.kind === "failed") {
+      setNote(undefined);
       setBusy(id);
       try {
-        found = await askDate(moment, net);
+        answer = await askDate(moment, net);
       } catch {
         return;
       }
+      if (mine !== runs || closed) return;
       setBusy(undefined);
+      setDated({ at: moment.at, network: net, answer });
     }
-    if (found) go(paths.block(found.hash));
-    else setNote({ id, text: `No block on ${NETWORK_NAMES[net]} by then` });
+    if (answer.kind === "found") go(paths.block(answer.found.hash));
+    else setNote({ id, text: dateText(answer, net) });
   };
 
   const groups = createMemo((): Group[] => {
@@ -265,7 +308,7 @@ export default function Palette(props: PaletteProps): JSX.Element {
     if (moment) {
       const id = "date";
       const d = dated();
-      const found = d?.at === moment.at && d.network === net ? d.found : undefined;
+      const answer = d?.at === moment.at && d.network === net ? d.answer : undefined;
       const n = note();
       out.push({
         name: "Go to a date",
@@ -279,11 +322,9 @@ export default function Palette(props: PaletteProps): JSX.Element {
                 ? "Looking up…"
                 : n?.id === id
                   ? n.text
-                  : found
-                    ? `Block ${groupDigits(found.height)}, the newest by then`
-                    : found === null
-                      ? `No block on ${NETWORK_NAMES[net]} by then`
-                      : "The newest block by then, read in UTC",
+                  : answer
+                    ? dateText(answer, net)
+                    : "The newest block by then, read in UTC",
             run: () => void goToDate(id, moment),
           },
         ],
@@ -312,27 +353,18 @@ export default function Palette(props: PaletteProps): JSX.Element {
     }
 
     const found = nodes();
-    if (o.lightning && q !== "" && query === null && reading?.ready === true) {
+    const named = o.lightning && q !== "" && query === null && reading?.ready === true;
+    if (named) {
       const fresh = found?.q === q && found.network === net ? found.list : [];
-      out.push({
-        name: "Lightning nodes",
-        rows: [
-          ...fresh.map((s): Row => ({
-            id: `node-${s.key}`,
-            kind: "node",
-            title: s.name ?? "No name",
-            detail: `${formatBtcShort(s.capacity)} BTC`,
-            key: s.key,
-            run: () => go(s.path),
-          })),
-          {
-            id: "lightning-search",
-            kind: "search",
-            title: `All Lightning results for “${truncateMiddle(q, 24, 8)}”`,
-            run: () => go(paths.lightningSearch(q)),
-          },
-        ],
-      });
+      const rows = fresh.map((s): Row => ({
+        id: `node-${s.key}`,
+        kind: "node",
+        title: s.name ?? "No name",
+        detail: `${formatBtcShort(s.capacity)} BTC`,
+        key: s.key,
+        run: () => go(s.path),
+      }));
+      if (rows.length > 0) out.push({ name: "Lightning nodes", rows });
     }
 
     const actionRows = rank(q, actions(o, scheme()), (a) => a).map((a): Row => ({
@@ -342,21 +374,46 @@ export default function Palette(props: PaletteProps): JSX.Element {
       run: () => act(a.action),
     }));
     if (actionRows.length > 0) out.push({ name: "Actions", rows: actionRows });
+
+    // The catch-all comes last, after anything that matched by name.
+    if (named) {
+      out.push({
+        name: "Lightning search",
+        rows: [
+          {
+            id: "lightning-search",
+            kind: "search",
+            title: `All Lightning results for “${truncateMiddle(q, 24, 8)}”`,
+            run: () => go(paths.lightningSearch(q)),
+          },
+        ],
+      });
+    }
     return out;
   });
 
   const rows = createMemo(() => groups().flatMap((g) => g.rows));
   const optionId = (row: Row) => `palette-option-${row.id.replaceAll(/[^\w-]/g, "_")}`;
-  const current = () => rows()[Math.min(active(), rows().length - 1)];
+  const current = (): Row | undefined => {
+    const key = activeKey();
+    const all = rows();
+    return all.find((r) => r.id === key) ?? all[0];
+  };
+  const active = () => {
+    const row = current();
+    return row ? rows().indexOf(row) : -1;
+  };
   const activeId = () => {
     const row = current();
     return row ? optionId(row) : undefined;
   };
 
-  // Every change of query puts the selection back on the first row.
+  // Every change of query puts the selection back on the first row, and makes a lookup under
+  // way for the old one stale.
   createEffect(text, () => {
-    setActive(0);
+    setActiveKey(undefined);
     setNote(undefined);
+    stopRunning();
   });
 
   // The selected row stays in sight; focus stays in the field, so the browser will not do it.
@@ -381,33 +438,36 @@ export default function Palette(props: PaletteProps): JSX.Element {
 
   // The server is asked once typing pauses: pools on first need, then either the block at a date
   // or the Lightning nodes a name matches. Each new key aborts the request before it.
-  let askTimer: ReturnType<typeof setTimeout> | undefined;
   createEffect(
     () => ({ q: text().trim(), net: network(), lightning: offer().lightning }),
     ({ q, net, lightning }) => {
-      clearTimeout(askTimer);
+      stopAsking();
       searcher.cancel();
       dateAsk?.abort();
       if (q === "") return;
+      const mine = asks;
+      // Whether this ask is still the latest, checked after every wait.
+      const live = () => mine === asks && !closed;
       askTimer = setTimeout(() => {
         void (async () => {
           if (classify(q) === null && pools()?.network !== net) {
             const list = await loadPools(net);
-            if (network() === net) setPools({ network: net, list });
+            if (!live()) return;
+            setPools({ network: net, list });
           }
           const moment = readDate(q, Date.now() / 1000);
           if (moment) {
             try {
-              const found = await askDate(moment, net);
-              setDated({ at: moment.at, network: net, found });
+              const answer = await askDate(moment, net);
+              if (live()) setDated({ at: moment.at, network: net, answer });
             } catch {
-              // Aborted by a newer query.
+              // Aborted by a newer query, a lookup or closing.
             }
             return;
           }
           if (!lightning) return;
           const r = await searcher.suggest(q, net);
-          if (r !== undefined) setNodes({ q, network: net, list: r.nodes });
+          if (r !== undefined && live()) setNodes({ q, network: net, list: r.nodes });
         })();
       }, ASK_MS);
     },
@@ -415,8 +475,10 @@ export default function Palette(props: PaletteProps): JSX.Element {
 
   const close = () => {
     if (closing() || !dialog?.open) return;
+    closed = true;
     setClosing(true);
-    clearTimeout(askTimer);
+    stopAsking();
+    stopRunning();
     searcher.cancel();
     dateAsk?.abort();
     const done = () => {
@@ -430,6 +492,9 @@ export default function Palette(props: PaletteProps): JSX.Element {
     if (!still) dialog.addEventListener("animationend", done);
   };
   props.control(close);
+  // Any navigation, Back included, ends the palette and everything it was waiting for: an answer
+  // arriving later must never take the reader somewhere else.
+  useBeforeLeave(() => close());
 
   onSettled(() => {
     void loadConfig().then((c) => setConfig(c));
@@ -444,7 +509,8 @@ export default function Palette(props: PaletteProps): JSX.Element {
     return () => vv?.removeEventListener("resize", fit);
   });
   onCleanup(() => {
-    clearTimeout(askTimer);
+    closed = true;
+    stopAsking();
     clearTimeout(sayTimer);
     searcher.cancel();
     dateAsk?.abort();
@@ -457,13 +523,14 @@ export default function Palette(props: PaletteProps): JSX.Element {
   };
 
   const move = (to: number) => {
-    const n = rows().length;
-    if (n > 0) setActive(((to % n) + n) % n);
+    const all = rows();
+    const n = all.length;
+    if (n > 0) setActiveKey(all[((to % n) + n) % n]?.id);
   };
 
   const onKey = (e: KeyboardEvent) => {
     if (e.isComposing) return;
-    const i = Math.min(active(), rows().length - 1);
+    const i = active();
     if (e.key === "ArrowDown") move(i + 1);
     else if (e.key === "ArrowUp") move(i - 1);
     else if (e.key === "Home" && !e.shiftKey) move(0);
@@ -538,7 +605,7 @@ export default function Palette(props: PaletteProps): JSX.Element {
           onPointerDown={(e) => e.preventDefault()}
           onPointerMove={(e) => {
             const i = rowAt(e.target);
-            if (i !== undefined && i !== active()) setActive(i);
+            if (i !== undefined && i !== active()) move(i);
           }}
           onClick={(e) => {
             const i = rowAt(e.target);

@@ -254,5 +254,6 @@ export function readDate(input: string, now: number): Moment | null {
   const day = `${d} ${MONTHS[mo - 1] ?? ""} ${y}`;
   const clock =
     time === undefined ? "" : `, ${two(h)}:${two(mi)}${s === undefined ? "" : `:${two(s)}`}`;
-  return { at: Math.min(at, now), label: day + clock, timed: time !== undefined };
+  // Whole seconds: the timestamp route takes digits only.
+  return { at: Math.floor(Math.min(at, now)), label: day + clock, timed: time !== undefined };
 }

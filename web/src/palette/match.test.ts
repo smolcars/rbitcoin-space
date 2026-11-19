@@ -207,6 +207,13 @@ describe("readDate", () => {
     expect(readDate("2024-02-29", NOW)).not.toBeNull();
   });
 
+  it("sends whole seconds for today, where it stops at a fractional now", () => {
+    const now = NOW + 0.992;
+    const today = readDate("2026-11-19", now);
+    expect(today?.at).toBe(NOW);
+    expect(Number.isInteger(today?.at)).toBe(true);
+  });
+
   it("starts at the first block and stops at now", () => {
     expect(readDate("2009-01-02", NOW)).toBeNull();
     expect(readDate("2009-01-03 18:15:04", NOW)).toBeNull();
@@ -232,6 +239,9 @@ describe("isPaletteKey", () => {
     expect(isPaletteKey(key({ key: "j", ctrlKey: true }), false)).toBe(false);
     expect(isPaletteKey(key({ key: "k", ctrlKey: true, shiftKey: true }), false)).toBe(false);
     expect(isPaletteKey(key({ key: "k", ctrlKey: true, altKey: true }), false)).toBe(false);
+    // A key an input method is composing with is the input method's.
+    expect(isPaletteKey(key({ key: "k", metaKey: true, isComposing: true }), true)).toBe(false);
+    expect(isPaletteKey(key({ key: "Process", code: "KeyK", metaKey: true }), true)).toBe(false);
     // Another layout's letter on the K key.
     expect(isPaletteKey(key({ key: "л", code: "KeyK", ctrlKey: true }), false)).toBe(true);
   });
