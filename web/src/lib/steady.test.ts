@@ -56,19 +56,41 @@ describe("sameContent", () => {
   });
 
   it("tells apart two answers a short digest took for one another", () => {
-    // Found in review: an output reconfirmed one block later, whose two answers shared a length
-    // and a 32-bit hash.
+    // An output reconfirmed one block later. A digest this helper once used (the JSON's length
+    // and a 32-bit FNV-1a of it) gives both of these answers 251:3937124698: found by search.
+    const digest = (value: unknown) => {
+      const json = JSON.stringify(value);
+      let hash = 0x811c9dc5;
+      for (const unit of json.split("")) {
+        hash ^= unit.codePointAt(0) ?? 0;
+        hash = Math.imul(hash, 0x01000193);
+      }
+      return `${json.length}:${hash >>> 0}`;
+    };
     const at = (height: number, hash: string, time: number) => ({
       txid: "ab".repeat(32),
       vout: 0,
       value: 5000,
       status: { confirmed: true, block_height: height, block_hash: hash, block_time: time },
     });
+    const first = at(
+      900_100,
+      "8aa452eeb7e7041956540fbe85e021649984d088bb05dcfd71a9b507bd2f5591",
+      1_700_000_225,
+    );
+    const second = at(
+      900_101,
+      "82147c741c231ac111bfaf2dfc028d7c3cf3250ca2f500dad91d5eb0203857a4",
+      1_700_000_016,
+    );
+    expect(digest(first)).toBe("251:3937124698");
+    expect(digest(second)).toBe(digest(first));
+    expect(sameContent(first, second)).toBe(false);
     const keep = steady<ReturnType<typeof at>>((u) => `${u.txid}:${u.vout}`);
-    const [first] = keep([at(900_100, "11".repeat(32), 1_700_000_000)]);
-    const [second] = keep([at(900_101, "22".repeat(32), 1_700_000_600)]);
-    expect(second).not.toBe(first);
-    expect(second?.status.block_height).toBe(900_101);
+    keep([first]);
+    const [now] = keep([second]);
+    expect(now).toBe(second);
+    expect(now?.status.block_height).toBe(900_101);
   });
 });
 
@@ -88,5 +110,28 @@ describe("steady, on pages already held", () => {
     });
     expect(keep([old])[0]).toBe(old);
     expect(reads).toBe(0);
+  });
+
+  it("compares a new object with the one held once, however often it is given again", () => {
+    const keep = steady<Row>((r) => r.id);
+    const [old] = keep([row("a")]);
+    // The same content in a new object: compared, found the same, and the old one handed on.
+    const fresh = row("a");
+    expect(keep([fresh])[0]).toBe(old);
+    // The same answer mapped again (a list worked out twice over one answer): nothing is read.
+    const counter = { reads: 0 };
+    const counted = (o: Row) =>
+      Object.defineProperty(o, "fee", {
+        enumerable: true,
+        get: () => {
+          counter.reads += 1;
+          return 1;
+        },
+      });
+    counted(old as Row);
+    counted(fresh);
+    expect(keep([fresh])[0]).toBe(old);
+    expect(keep([fresh])[0]).toBe(old);
+    expect(counter.reads).toBe(0);
   });
 });

@@ -26,19 +26,22 @@ export function sameContent(a: unknown, b: unknown): boolean {
 /**
  * Makes a function that maps each answer's items to the objects already held for them: an item is
  * the one held when it has the same `key` and the same content, every field of it, so nothing a
- * later answer changed is ever hidden behind an old object. An item that is the very object held
- * (a page loaded before and not asked again) is taken as it is, with nothing compared. It holds
- * only the last answer's items.
+ * later answer changed is ever hidden behind an old object. An item is compared once: the very
+ * object held (a page loaded before and not asked again), or the very object last found to be
+ * the same as it (the same answer mapped again), is taken with nothing read. It holds only the
+ * last answer's items.
  */
 export function steady<T>(key: (item: T) => string): (items: readonly T[]) => T[] {
-  let held = new Map<string, T>();
+  // The object handed on for each key, and the object last given for it that was found the same.
+  let held = new Map<string, { kept: T; given: T }>();
   return (items) => {
-    const next = new Map<string, T>();
+    const next = new Map<string, { kept: T; given: T }>();
     const out = items.map((item) => {
       const k = key(item);
       const old = held.get(k);
-      const kept = old !== undefined && (old === item || sameContent(old, item)) ? old : item;
-      next.set(k, kept);
+      const known = old !== undefined && (old.kept === item || old.given === item);
+      const kept = old !== undefined && (known || sameContent(old.kept, item)) ? old.kept : item;
+      next.set(k, { kept, given: item });
       return kept;
     });
     held = next;
