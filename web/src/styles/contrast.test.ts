@@ -124,5 +124,32 @@ describe("contrast from the tokens", () => {
         expect(ratio(colour, band), `${net}'s edge on its band`).toBeGreaterThan(3);
       }
     });
+
+    it(`keeps the palette's glass readable over any page, ${name}`, () => {
+      // The page under the panel is dimmed by the scrim, then seen through the glass: its darkest
+      // and lightest pixels bound every mix the blur can make of it.
+      const css = (token: string): [Rgb, number] => {
+        const scope = name === "light" ? ":root {" : ':root[data-theme="dark"] {';
+        const start = tokens.indexOf(scope);
+        const body = tokens.slice(start, tokens.indexOf("}", start));
+        const m = new RegExp(`--${token}: rgb\\((\\d+) (\\d+) (\\d+) / ([\\d.]+)\\)`).exec(body);
+        if (!m) throw new Error(`no --${token} in ${name}`);
+        return [[Number(m[1]), Number(m[2]), Number(m[3])], Number(m[4])];
+      };
+      const [scrim, dim] = css("color-scrim");
+      const [glass, alpha] = css("color-glass");
+      for (const page of [
+        [0, 0, 0],
+        [255, 255, 255],
+      ] as Rgb[]) {
+        const seen = mix(glass, alpha, mix(scrim, dim, page));
+        for (const text of ["color-text", "color-text-muted", "color-accent"]) {
+          expect(
+            ratio(rgb(theme.get(text) ?? ""), seen),
+            `${text} over ${page.join(" ")}`,
+          ).toBeGreaterThan(4.5);
+        }
+      }
+    });
   });
 });

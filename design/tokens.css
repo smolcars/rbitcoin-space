@@ -49,6 +49,9 @@
   --color-negative: #b42318;
   --color-live: #1f6f9c; /* the breathing dot of a page that updates itself: not a status of the data */
   --color-scrim: rgb(22 27 30 / 0.5);
+  /* The command palette's frosted panel, where the backdrop is blurred: opaque enough that text
+     keeps 4.5:1 over any page under the scrim (src/styles/contrast.test.ts). */
+  --color-glass: rgb(255 255 255 / 0.88);
 
   /* Fee bands, cheapest to dearest: one ramp, the same in both themes. Thresholds in docs/DESIGN.md. */
   --fee-1: #868a8d;
@@ -212,6 +215,7 @@
     --color-negative: #ff8a7a;
     --color-live: #6cb0dc;
     --color-scrim: rgb(5 6 7 / 0.6);
+    --color-glass: rgb(37 42 47 / 0.88);
     --tile-face-top: #262b30;
     --tile-face-side: #131619;
     --tile-side-shade: 0.62;
@@ -268,6 +272,7 @@
   --color-negative: #ff8a7a;
   --color-live: #6cb0dc;
   --color-scrim: rgb(5 6 7 / 0.6);
+  --color-glass: rgb(37 42 47 / 0.88);
   --tile-face-top: #262b30;
   --tile-face-side: #131619;
   --tile-side-shade: 0.62;
