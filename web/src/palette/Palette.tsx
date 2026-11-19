@@ -18,8 +18,9 @@ import {
   type Moment,
   type Offer,
   type Pool,
+  orderGroups,
   pages,
-  rank,
+  ranked,
   readDate,
   readPools,
 } from "./match";
@@ -76,7 +77,14 @@ interface Row {
 interface Group {
   name: string;
   rows: Row[];
+  /** Its best row's match, which places it among the others (orderGroups). */
+  best: number;
 }
+
+/** Above any name's score: what the query is (an id, a date) leads. */
+const FIRST = 1000;
+/** Lightning's index ranks its own nodes: a name it matched sits with a word's start. */
+const NODES = 60;
 
 /** Pools by network, asked for once per page load. */
 const poolLists = new Map<Network, Promise<Pool[]>>();
@@ -284,6 +292,7 @@ export default function Palette(props: PaletteProps): JSX.Element {
       const id = "search";
       out.push({
         name: "Search",
+        best: FIRST,
         rows: [
           {
             id,
@@ -310,46 +319,70 @@ export default function Palette(props: PaletteProps): JSX.Element {
       const d = dated();
       const answer = d?.at === moment.at && d.network === net ? d.answer : undefined;
       const n = note();
+      const title = moment.timed ? `${moment.label} UTC` : `${moment.label}, end of the day UTC`;
       out.push({
         name: "Go to a date",
+        best: FIRST,
         rows: [
-          {
-            id,
-            kind: "date",
-            title: moment.timed ? `${moment.label} UTC` : `${moment.label}, end of the day UTC`,
-            detail:
-              busy() === id
-                ? "Looking up…"
-                : n?.id === id
-                  ? n.text
-                  : answer
-                    ? dateText(answer, net)
-                    : "The newest block by then, read in UTC",
-            run: () => void goToDate(id, moment),
-          },
+          // Nothing is at or before a time before the first block: the nearest is block 0.
+          moment.early
+            ? {
+                id,
+                kind: "date",
+                title,
+                detail: "Before the first block, 3 Jan 2009: opens block 0",
+                run: () => go(paths.block(0)),
+              }
+            : {
+                id,
+                kind: "date",
+                title,
+                detail:
+                  busy() === id
+                    ? "Looking up…"
+                    : n?.id === id
+                      ? n.text
+                      : answer
+                        ? dateText(answer, net)
+                        : "The newest block by then, read in UTC",
+                run: () => void goToDate(id, moment),
+              },
         ],
       });
     }
 
-    const pageRows = rank(q, pages(o), (p) => p).map((p): Row => ({
-      id: `page-${p.path}`,
-      kind: "page",
-      title: p.name,
-      run: () => go(p.path),
-    }));
-    if (pageRows.length > 0) out.push({ name: "Pages", rows: pageRows });
+    const pageHits = ranked(q, pages(o), (p) => p);
+    if (pageHits.length > 0) {
+      out.push({
+        name: "Pages",
+        best: pageHits[0]?.score ?? 0,
+        rows: pageHits.map(({ item: p }): Row => ({
+          id: `page-${p.path}`,
+          kind: "page",
+          title: p.name,
+          run: () => go(p.path),
+        })),
+      });
+    }
 
     const p = pools();
     if (q !== "" && query === null && p?.network === net) {
-      const rows = rank(q, p.list, (pool) => ({ name: pool.name, words: [pool.slug] }))
-        .slice(0, MAX_POOLS)
-        .map((pool): Row => ({
-          id: `pool-${pool.slug}`,
-          kind: "pool",
-          title: pool.name,
-          run: () => go(paths.pool(pool.slug)),
-        }));
-      if (rows.length > 0) out.push({ name: "Mining pools", rows });
+      const hits = ranked(q, p.list, (pool) => ({ name: pool.name, words: [pool.slug] })).slice(
+        0,
+        MAX_POOLS,
+      );
+      if (hits.length > 0) {
+        out.push({
+          name: "Mining pools",
+          best: hits[0]?.score ?? 0,
+          rows: hits.map(({ item: pool }): Row => ({
+            id: `pool-${pool.slug}`,
+            kind: "pool",
+            title: pool.name,
+            run: () => go(paths.pool(pool.slug)),
+          })),
+        });
+      }
     }
 
     const found = nodes();
@@ -364,21 +397,29 @@ export default function Palette(props: PaletteProps): JSX.Element {
         key: s.key,
         run: () => go(s.path),
       }));
-      if (rows.length > 0) out.push({ name: "Lightning nodes", rows });
+      if (rows.length > 0) out.push({ name: "Lightning nodes", best: NODES, rows });
     }
 
-    const actionRows = rank(q, actions(o, scheme()), (a) => a).map((a): Row => ({
-      id: a.action.kind === "theme" ? "theme" : `network-${a.action.network}`,
-      kind: a.action.kind,
-      title: a.name,
-      run: () => act(a.action),
-    }));
-    if (actionRows.length > 0) out.push({ name: "Actions", rows: actionRows });
+    const actionHits = ranked(q, actions(o, scheme()), (a) => a);
+    if (actionHits.length > 0) {
+      out.push({
+        name: "Actions",
+        best: actionHits[0]?.score ?? 0,
+        rows: actionHits.map(({ item: a }): Row => ({
+          id: a.action.kind === "theme" ? "theme" : `network-${a.action.network}`,
+          kind: a.action.kind,
+          title: a.name,
+          run: () => act(a.action),
+        })),
+      });
+    }
 
+    const ordered = orderGroups(out);
     // The catch-all comes last, after anything that matched by name.
     if (named) {
-      out.push({
+      ordered.push({
         name: "Lightning search",
+        best: 0,
         rows: [
           {
             id: "lightning-search",
@@ -389,7 +430,7 @@ export default function Palette(props: PaletteProps): JSX.Element {
         ],
       });
     }
-    return out;
+    return ordered;
   });
 
   const rows = createMemo(() => groups().flatMap((g) => g.rows));

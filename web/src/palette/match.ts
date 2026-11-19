@@ -47,22 +47,45 @@ function inOrder(name: string, q: string): boolean {
   return true;
 }
 
+/** Keeps what matches with its score, best first; ties keep their given order. */
+export function ranked<T>(
+  query: string,
+  items: readonly T[],
+  key: (item: T) => { name: string; words?: readonly string[] },
+): { item: T; score: number }[] {
+  return (
+    items
+      .map((item, i) => {
+        const k = key(item);
+        return { item, i, score: score(query, k.name, k.words) };
+      })
+      .filter((x) => x.score > 0)
+      // oxlint-disable-next-line unicorn/no-array-sort -- sorts the fresh array map made; toSorted is newer than the browsers we build for
+      .sort((a, b) => b.score - a.score || a.i - b.i)
+      .map(({ item, score: s }) => ({ item, score: s }))
+  );
+}
+
 /** Keeps what matches, best first; ties keep their given order. */
 export function rank<T>(
   query: string,
   items: readonly T[],
   key: (item: T) => { name: string; words?: readonly string[] },
 ): T[] {
+  return ranked(query, items, key).map((x) => x.item);
+}
+
+/**
+ * Groups by their best match, so "ant" shows AntPool before a page that only has the letters in
+ * order; groups that match as well keep their given order.
+ */
+export function orderGroups<G extends { best: number }>(groups: readonly G[]): G[] {
   return (
-    items
-      .map((item, i) => {
-        const k = key(item);
-        return { item, i, s: score(query, k.name, k.words) };
-      })
-      .filter((x) => x.s > 0)
+    groups
+      .map((g, i) => ({ g, i }))
       // oxlint-disable-next-line unicorn/no-array-sort -- sorts the fresh array map made; toSorted is newer than the browsers we build for
-      .sort((a, b) => b.s - a.s || a.i - b.i)
-      .map((x) => x.item)
+      .sort((a, b) => b.g.best - a.g.best || a.i - b.i)
+      .map((x) => x.g)
   );
 }
 
@@ -176,6 +199,8 @@ export interface Moment {
   label: string;
   /** Whether a time of day was given. */
   timed: boolean;
+  /** Before Bitcoin's first block: no block can be at or before it. */
+  early: boolean;
 }
 
 /** Bitcoin's first block, 3 Jan 2009 18:15:05 UTC: nothing before it has a block. */
@@ -209,7 +234,8 @@ function month(word: string): number | null {
  * A date in a form that cannot be misread: `2024-04-20` (or with `/` or `.`), with an optional
  * `14:30` or `14:30:05` after a space or `T` and an optional `Z` or `UTC`; or with the month in
  * words, `20 Apr 2024`, `20 April 2024`, `April 20, 2024`. No `04/05/2024`, which is two dates.
- * Null for anything else, an impossible day, or a time before the first block.
+ * Null for anything else, an impossible day, or more than a year ahead; a time before the first
+ * block is read, and marked `early`.
  */
 export function readDate(input: string, now: number): Moment | null {
   const q = input.trim().replace(/\s*(?:z|utc)$/i, "");
@@ -249,11 +275,16 @@ export function readDate(input: string, now: number): Moment | null {
     return null;
   }
   const at = Math.floor(ms / 1000);
-  if (at < GENESIS_TIME || at > now + 86_400 * 366) return null;
+  if (at > now + 86_400 * 366) return null;
   const two = (n: number) => String(n).padStart(2, "0");
   const day = `${d} ${MONTHS[mo - 1] ?? ""} ${y}`;
   const clock =
     time === undefined ? "" : `, ${two(h)}:${two(mi)}${s === undefined ? "" : `:${two(s)}`}`;
   // Whole seconds: the timestamp route takes digits only.
-  return { at: Math.floor(Math.min(at, now)), label: day + clock, timed: time !== undefined };
+  return {
+    at: Math.floor(Math.min(at, now)),
+    label: day + clock,
+    timed: time !== undefined,
+    early: at < GENESIS_TIME,
+  };
 }

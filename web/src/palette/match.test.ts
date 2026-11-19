@@ -4,9 +4,11 @@ import { routes } from "../routes";
 import {
   actions,
   GENESIS_TIME,
+  orderGroups,
   type Offer,
   pages,
   rank,
+  ranked,
   readDate,
   readPools,
   score,
@@ -76,6 +78,28 @@ describe("rank", () => {
   it("finds a page by what it is for", () => {
     expect(rank("invoice", pages(ALL), (p) => p).map((p) => p.name)).toStrictEqual(["Decoder"]);
     expect(rank("rbf", pages(ALL), (p) => p).map((p) => p.name)[0]).toBe("Replacements");
+  });
+});
+
+describe("group order", () => {
+  it("puts the group with the better match first, the given order breaking ties", () => {
+    const best = (q: string, names: string[]) =>
+      ranked(q, names, (name) => ({ name }))[0]?.score ?? 0;
+    const groups = [
+      { name: "Pages", best: best("ant", ["Replacements", "Mining"]) },
+      { name: "Mining pools", best: best("ant", ["AntPool", "Bitcoin Affiliate Network"]) },
+      { name: "Actions", best: 0 },
+    ];
+    expect(orderGroups(groups).map((g) => g.name)).toStrictEqual([
+      "Mining pools",
+      "Pages",
+      "Actions",
+    ]);
+    const tie = [
+      { name: "a", best: 5 },
+      { name: "b", best: 5 },
+    ];
+    expect(orderGroups(tie).map((g) => g.name)).toStrictEqual(["a", "b"]);
   });
 });
 
@@ -158,6 +182,7 @@ describe("readDate", () => {
       at: at(2024, 4, 20, 23, 59, 59),
       label: "20 Apr 2024",
       timed: false,
+      early: false,
     });
   });
 
@@ -182,6 +207,7 @@ describe("readDate", () => {
       at: at(2024, 4, 20, 14, 30, 59),
       label: "20 Apr 2024, 14:30",
       timed: true,
+      early: false,
     });
     expect(readDate("2024-04-20T00:09:27Z", NOW)?.at).toBe(at(2024, 4, 20, 0, 9, 27));
     expect(readDate("20 Apr 2024, 9:05", NOW)?.at).toBe(at(2024, 4, 20, 9, 5, 59));
@@ -214,9 +240,15 @@ describe("readDate", () => {
     expect(Number.isInteger(today?.at)).toBe(true);
   });
 
-  it("starts at the first block and stops at now", () => {
-    expect(readDate("2009-01-02", NOW)).toBeNull();
-    expect(readDate("2009-01-03 18:15:04", NOW)).toBeNull();
+  it("marks a time before the first block as early, and stops at now", () => {
+    expect(readDate("2009-01-02", NOW)).toStrictEqual({
+      at: Date.UTC(2009, 0, 2, 23, 59, 59) / 1000,
+      label: "2 Jan 2009",
+      timed: false,
+      early: true,
+    });
+    expect(readDate("2009-01-03 18:15:04", NOW)?.early).toBe(true);
+    expect(readDate("2009-01-03", NOW)?.early).toBe(false);
     expect(readDate("2009-01-03", NOW)?.at).toBeGreaterThan(GENESIS_TIME);
     expect(readDate("2026-12-25", NOW)?.at).toBe(NOW);
     expect(readDate("2099-01-01", NOW)).toBeNull();

@@ -532,3 +532,13 @@ test("a phone's opener stays while Tab reaches it, and takes what was typed", as
   await page.keyboard.press("Enter");
   await expect(field(page)).toHaveValue("foundry");
 });
+
+test("a date before the first block says so and opens block 0", async ({ page }) => {
+  await page.goto("/regtest/");
+  await shortcut(page);
+  await field(page).fill("2008-10-31");
+  const row = palette(page).getByRole("group", { name: "Go to a date" }).getByRole("option");
+  await expect(row).toContainText("Before the first block");
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL("/regtest/block/0");
+});
