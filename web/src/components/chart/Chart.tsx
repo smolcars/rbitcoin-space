@@ -9,6 +9,7 @@ import { onNetwork } from "../../lib/network";
 import { useNetwork } from "../../lib/page";
 import { type Column, DataTable } from "../DataTable";
 import { Link } from "../Link";
+import { chartColumns, chartCsv, csvFileName, saveCsv } from "./csv";
 import {
   areaPath,
   extent,
@@ -60,6 +61,8 @@ export interface ChartSeries {
    * its header ("Capacity, BTC"), so its cells are bare numbers.
    */
   unit?: string;
+  /** The unit of the raw values, for the CSV's header ("sat" where `unit` is "BTC"). */
+  rawUnit?: string;
   /**
    * Its points are samples, the moments something was looked at: each is marked with a dot when
    * they stand {@link MARK_SPACING} px or more apart, so a line between two reads as two looks.
@@ -81,6 +84,8 @@ export interface ChartBand {
   unit?: string;
   /** A shorter name for the figures' header on a phone ("Middle 80%"). */
   narrow?: string;
+  /** The unit of the raw values, for the CSV's header ("sat" where `unit` is "BTC"). */
+  rawUnit?: string;
 }
 
 /**
@@ -117,6 +122,8 @@ export interface ChartNote {
   name: string;
   values: readonly Value[];
   format: (v: number) => string;
+  /** The unit of the raw values, for the CSV's header ("sat" where `unit` is "BTC"). */
+  rawUnit?: string;
 }
 
 export interface ChartProps {
@@ -138,6 +145,8 @@ export interface ChartProps {
   layers?: readonly ChartLayer[];
   /** A layer's value in the readout and the figures. */
   layerFormat?: (v: number) => string;
+  /** The unit of the layers' raw values, for the CSV's header ("share, 0-1"). */
+  layerUnit?: string;
   /** Figures read out after the series, not drawn: a count beside a size. */
   notes?: readonly ChartNote[];
   /**
@@ -515,6 +524,12 @@ export default function Chart(props: ChartProps) {
       ...bands().map((b) => describeSeries(`${b.name}, upper`, props.x, b.hi, b.format)),
     ].join(" ");
 
+  const download = () =>
+    saveCsv(
+      chartCsv(props.x, chartColumns(props)),
+      csvFileName(props.label, network(), new Date()),
+    );
+
   const pick = (e: PointerEvent) => {
     const f = frame();
     const el = e.currentTarget;
@@ -889,6 +904,17 @@ export default function Chart(props: ChartProps) {
         <p id={`${id}-summary`} class="visually-hidden">
           {summary()}
         </p>
+        {/* On the figures' line, out of the flow, so the chart's height never changes. */}
+        <Show when={props.x.length > 0}>
+          <button
+            type="button"
+            class="chart__csv"
+            aria-label={`Download CSV: ${props.label}`}
+            onClick={download}
+          >
+            Download CSV
+          </button>
+        </Show>
         <details class="chart__figures" onToggle={(e) => setFigures(e.currentTarget.open)}>
           <summary>Show the figures</summary>
           <Show when={figures()}>

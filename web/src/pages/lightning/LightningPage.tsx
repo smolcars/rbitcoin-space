@@ -95,6 +95,8 @@ interface Figure {
   fmt: (n: number) => string;
   axis: (n: number) => string;
   unit?: string;
+  /** The unit of the raw figure, for the chart's CSV: capacities are in sats. */
+  raw?: string;
   /** A long change in magnitude, for a figure's narrowest room. */
   short?: (n: number) => string;
   /** The mean beside a median, in the chart's readout. */
@@ -105,13 +107,14 @@ interface Figure {
 const FIGURES: readonly [Figure, ...Figure[]] = [
   { key: "channels", label: "Channels", fmt: groupDigits, axis: groupDigits },
   { key: "nodes", label: "Nodes", fmt: groupDigits, axis: groupDigits },
-  { key: "capacity", label: "Capacity", fmt: btc, axis: formatBtcShort, unit: "BTC" },
+  { key: "capacity", label: "Capacity", fmt: btc, axis: formatBtcShort, unit: "BTC", raw: "sat" },
   {
     key: "med_capacity",
     label: "Median channel",
     fmt: btc,
     axis: formatBtcShort,
     unit: "BTC",
+    raw: "sat",
     mean: { key: "avg_capacity", fmt: btc },
   },
   {
@@ -120,6 +123,7 @@ const FIGURES: readonly [Figure, ...Figure[]] = [
     fmt: ppm,
     axis: groupDigits,
     unit: "ppm",
+    raw: "ppm",
     short: (n) => `${formatPowerOfTen(n)} ppm`,
     mean: { key: "avg_fee_rate", fmt: ppm },
   },
@@ -129,6 +133,7 @@ const FIGURES: readonly [Figure, ...Figure[]] = [
     fmt: msat,
     axis: groupDigits,
     unit: "msat",
+    raw: "msat",
     short: msatAsBtc,
     mean: { key: "avg_base_fee_msat", fmt: msat },
   },
@@ -516,12 +521,22 @@ function HistoryChart(props: { s: Series; period: Period; figure: Figure }) {
               draw: "line",
               format: f().axis,
               ...(f().unit === undefined ? {} : { unit: f().unit }),
+              ...(f().raw === undefined ? {} : { rawUnit: f().raw }),
               marks: true,
             },
           ]}
           notes={(() => {
             const m = f().mean;
-            return m === undefined ? [] : [{ name: "Mean", values: col(m.key), format: m.fmt }];
+            return m === undefined
+              ? []
+              : [
+                  {
+                    name: "Mean",
+                    values: col(m.key),
+                    format: m.fmt,
+                    ...(f().raw === undefined ? {} : { rawUnit: f().raw }),
+                  },
+                ];
           })()}
           time={time()}
         />

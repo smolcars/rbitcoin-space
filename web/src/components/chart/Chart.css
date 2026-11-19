@@ -230,24 +230,38 @@
   }
 
   .chart__caption {
+    position: relative;
     margin-top: var(--space-2);
     font-size: var(--text-sm);
   }
-  .chart__figures > summary {
+  .chart__figures > summary,
+  .chart__csv {
     display: inline-block;
     cursor: pointer;
     color: var(--color-text-muted);
     text-decoration: underline;
     text-underline-offset: 0.2em;
   }
+  /* The figures' second action, at the end of their line: out of the flow, so it moves nothing. */
+  .chart__csv {
+    position: absolute;
+    top: 0;
+    right: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+    line-height: inherit;
+  }
   @media (hover: hover) {
-    .chart__figures > summary:hover {
+    .chart__figures > summary:hover,
+    .chart__csv:hover {
       color: var(--color-text);
     }
   }
   /* A finger's target on a phone. */
   @media (max-width: 40em) {
-    .chart__figures > summary {
+    .chart__figures > summary,
+    .chart__csv {
       display: inline-flex;
       align-items: center;
       min-height: var(--touch);

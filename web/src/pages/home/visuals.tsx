@@ -158,7 +158,15 @@ export function IncomingChart(props: { network: Network; height: number }) {
             gap={(history()?.step ?? 60) * (BRIDGE_STEPS + 1)}
             height={props.height}
             left={{ format: (v) => `${formatSi(v, "vB")}/s`, zero: true }}
-            series={[{ name: "Arriving", values: s().values, draw: "line", format: rateText }]}
+            series={[
+              {
+                name: "Arriving",
+                values: s().values,
+                draw: "line",
+                format: rateText,
+                rawUnit: "vB/s",
+              },
+            ]}
             time={pointTime(60)}
             summary={summary()}
           />

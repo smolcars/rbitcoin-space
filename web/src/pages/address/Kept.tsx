@@ -119,6 +119,7 @@ function KeptChart(props: { ledger: Tracked }) {
                     draw: "step",
                     until: Math.max(now(), p().at(-1)?.time ?? 0),
                     format: btc,
+                    rawUnit: "sat",
                   },
                 ]}
                 notes={[{ name: "Block", values: p().map((q) => q.height), format: groupDigits }]}

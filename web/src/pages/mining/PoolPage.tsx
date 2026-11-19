@@ -218,6 +218,7 @@ function Pool(props: { network: Network; slug: string }) {
                     draw: "area",
                     values: series().share,
                     format: formatShare,
+                    rawUnit: "0-1",
                   },
                   {
                     name: "Hashrate",
@@ -226,6 +227,7 @@ function Pool(props: { network: Network; slug: string }) {
                     tone: 2,
                     values: series().hashrate,
                     format: (v) => formatHashrate(v, 4),
+                    rawUnit: "H/s",
                   },
                 ]}
               />

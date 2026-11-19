@@ -155,6 +155,7 @@ function Way(props: {
                   draw: "step",
                   tone: props.tone,
                   format: reading,
+                  rawUnit: "ppm",
                 },
               ]}
               time={formatMoment}

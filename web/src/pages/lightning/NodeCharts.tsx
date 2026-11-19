@@ -121,6 +121,7 @@ export function NodeHistory(props: { history: ApiResource<HistoryAnswer>; retry:
                         // In magnitude, as the glance and header read it: whole at any size.
                         format: formatBtcShort,
                         unit: "BTC",
+                        rawUnit: "sat",
                       },
                     ]}
                     // Midnights are days; a change and the last point (now) are moments.

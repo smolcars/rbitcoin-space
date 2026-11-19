@@ -408,6 +408,7 @@ function HashrateChart(props: {
                 values: series()?.hashrate ?? [],
                 draw: "area",
                 format: (v) => formatHashrate(v, 4),
+                rawUnit: "H/s",
               },
               {
                 name: "Difficulty",
@@ -772,6 +773,7 @@ function FeesChart(props: TabProps) {
             draw: "area",
             values: (points() ?? []).map((p) => Number(p["avgFees"])),
             format: btcFull,
+            rawUnit: "sat",
           },
         ]}
       />
@@ -815,6 +817,7 @@ function RatesChart(props: TabProps) {
             hi: a().map((p) => pos(p.avgFee_90)),
             format: formatFeeRate,
             unit: "sat/vB",
+            rawUnit: "sat/vB",
           },
           {
             name: "25th to 75th percentile",
@@ -824,6 +827,7 @@ function RatesChart(props: TabProps) {
             hi: a().map((p) => pos(p.avgFee_75)),
             format: formatFeeRate,
             unit: "sat/vB",
+            rawUnit: "sat/vB",
           },
         ]}
         series={[
@@ -833,6 +837,7 @@ function RatesChart(props: TabProps) {
             values: a().map((p) => pos(p.avgFee_50)),
             format: formatFeeRate,
             unit: "sat/vB",
+            rawUnit: "sat/vB",
           },
         ]}
       />
@@ -874,6 +879,7 @@ function SizesChart(props: TabProps) {
             draw: "area",
             values: (points()?.sizes ?? []).map((p) => p.avgSize),
             format: bytesText,
+            rawUnit: "B",
           },
           {
             name: "Weight, of the limit",
@@ -882,6 +888,7 @@ function SizesChart(props: TabProps) {
             tone: 2,
             values: (points()?.weights ?? []).map((p) => p.avgWeight / 4_000_000),
             format: percent,
+            rawUnit: "0-1",
           },
         ]}
       />
@@ -930,6 +937,7 @@ function SharesChart(props: TabProps & { ranking: MiningData<Ranking> }) {
         left={{ format: percent, domain: [0, 1] }}
         layers={layers()?.layers ?? []}
         layerFormat={formatShare}
+        layerUnit="0-1"
         time={(t) => `Week of ${formatDay(t)}`}
         summary={shareSummary(layers()?.layers ?? [])}
       />

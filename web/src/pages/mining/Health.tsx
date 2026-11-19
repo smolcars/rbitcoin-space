@@ -78,6 +78,7 @@ export function HealthChart(props: {
               values: health()?.rate ?? [],
               draw: "area",
               format: rate,
+              rawUnit: "%",
             },
           ]}
           notes={[

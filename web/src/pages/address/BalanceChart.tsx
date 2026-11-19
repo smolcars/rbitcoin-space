@@ -213,6 +213,7 @@ export function BalanceChart(props: {
                           draw: "step",
                           until: v().end,
                           format: btc,
+                          rawUnit: "sat",
                         },
                       ]}
                       notes={[
@@ -221,7 +222,12 @@ export function BalanceChart(props: {
                           values: v().pts.map((p) => p.height),
                           format: groupDigits,
                         },
-                        { name: "Change", values: v().pts.map((p) => p.change), format: signedBtc },
+                        {
+                          name: "Change",
+                          values: v().pts.map((p) => p.change),
+                          format: signedBtc,
+                          rawUnit: "sat",
+                        },
                       ]}
                       time={formatMoment}
                     />
