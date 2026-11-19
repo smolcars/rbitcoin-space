@@ -36,8 +36,9 @@ function precompress(): Plugin {
 export default defineConfig({
   plugins: [solid(), precompress()],
   // happy-dom gives component tests a DOM; pure-logic tests run in it unchanged.
-  // The contrast test reads the tokens as text (src/styles/contrast.test.ts).
-  test: { environment: "happy-dom", css: { include: [/tokens\.css/] } },
+  // The contrast test reads the tokens as text (src/styles/contrast.test.ts), and the palette's
+  // test its stylesheet (src/palette/style.test.ts).
+  test: { environment: "happy-dom", css: { include: [/tokens\.css/, /palette\/Palette\.css/] } },
   // No data: URIs, so the strict CSP (default-src 'self') holds for every asset.
   build: {
     assetsInlineLimit: 0,

@@ -147,13 +147,19 @@
     border-radius: var(--radius-m);
     cursor: pointer;
   }
-  /* The selected row is lit glass: a translucent tint of the accent with light along its top
-     edge and a faint accent rim, not a flat fill. */
+  /* The selected row: the solid accent-soft on the solid pane. On glass (below) it is lit glass:
+     a translucent tint of the accent with light along its top edge and a faint accent rim. */
   .palette__row[aria-selected="true"] {
-    background: var(--color-glass-lit, var(--color-accent-soft));
-    box-shadow:
-      inset 0 1px 0 var(--glass-shine),
-      inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 22%, transparent);
+    background: var(--color-accent-soft);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 22%, transparent);
+  }
+  @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+    .palette__row[aria-selected="true"] {
+      background: var(--color-glass-lit);
+      box-shadow:
+        inset 0 1px 0 var(--glass-shine),
+        inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 22%, transparent);
+    }
   }
   .palette__icon {
     display: grid;
