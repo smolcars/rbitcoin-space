@@ -471,3 +471,48 @@ describe("the summary's block strip", () => {
     });
   });
 });
+
+describe("what is announced of a child that left with its parent", () => {
+  const CHILD = "a".repeat(64);
+  const FIRST = "b".repeat(64);
+  const SECOND = "c".repeat(64);
+  const inMempool = { kind: "mempool", position: null, time: 1, rate: null, live: true } as const;
+  const left = (by: string[]) =>
+    ({
+      kind: "replaced",
+      chain: by.map((b, i) => ({ txid: i === 0 ? CHILD : (by[i - 1] ?? CHILD), by: b })),
+      truncated: false,
+    }) as const;
+
+  it("is that it left with a transaction it depended on, once the page knows", () => {
+    // Not known yet: only the topic's word.
+    expect(announcement(inMempool, left([FIRST]))).toBe(
+      "Replaced by another transaction spending the same coins.",
+    );
+    expect(announcement(inMempool, left([FIRST]), true)).toBe(
+      "Not replaced itself: it left the mempool with a transaction it depended on, which was replaced.",
+    );
+  });
+
+  it("claims nothing of how its line went on, only that its newest end changed", () => {
+    expect(announcement(left([FIRST]), left([FIRST, SECOND]), true)).toBe(
+      "The line of transactions it left with changed: 2 links now, the newest cccccccc.",
+    );
+    // A third hop is another sentence, or a live region would have nothing new to say.
+    const THIRD = "d".repeat(64);
+    expect(announcement(left([FIRST, SECOND]), left([FIRST, SECOND, THIRD]), true)).toBe(
+      "The line of transactions it left with changed: 3 links now, the newest dddddddd.",
+    );
+    expect(announcement(left([FIRST]), left([FIRST, SECOND]))).toBe(
+      "Its replacement was replaced too.",
+    );
+    // The same length with another end (seen after a reconnection), and a shorter line: each is
+    // its own sentence, and none says the line went on when it did not.
+    expect(announcement(left([FIRST, SECOND]), left([FIRST, THIRD]), true)).toBe(
+      "The line of transactions it left with changed: 2 links now, the newest dddddddd.",
+    );
+    expect(announcement(left([FIRST, SECOND]), left([THIRD]), true)).toBe(
+      "The line of transactions it left with changed: 1 link now, the newest dddddddd.",
+    );
+  });
+});

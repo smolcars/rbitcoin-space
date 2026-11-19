@@ -1017,10 +1017,105 @@ describe("TransactionPage", () => {
     await vi.waitFor(async () => {
       await settle();
       expect(asked()).toBe(before + 1);
-      expect(text(el)).toContain("not replaced by a new version of itself");
+      expect(text(el)).toContain("Removed with a replaced transaction");
     });
     expect(el.querySelector(".tx-compare")).toBeNull();
     expect(el.querySelector(".tx-chain__compare")).toBeNull();
+    // Every place the page spoke of a replacement now says what happened to a child: the badge,
+    // the notice, its line, the steps and the details. Nothing calls it a version or replaced.
+    expect(el.querySelector(".tx-status")?.textContent).toBe("Removed");
+    const said = text(el.querySelector(".tx-notice") as Element);
+    expect(said).toContain(
+      "It left the mempool when ffffffff…ffffffff replaced a transaction it depended on. No new version of this transaction took its place. It can still confirm only if the replaced transaction is mined after all.",
+    );
+    expect(said).toContain(
+      "This transactionremoved when ffffffff…ffffffff replaced a transaction it depended on",
+    );
+    expect(said).toContain("Follow ffffffff…ffffffff, the newest in this line.");
+    expect(said).not.toContain("the newest version");
+    expect(said).not.toContain("This version");
+    expect(said).not.toContain("spending the same coins took its place");
+    // Said once: the notice's own words, not the line's again.
+    expect(said).not.toContain("not replaced by a new version of itself");
+    const whole = text(el);
+    expect(whole).toContain("Removed with its parentWhen ffffffff…ffffffff replaced");
+    expect(whole).toContain(
+      "Unless the transaction it depended on is mined after all, in place of what replaced it.",
+    );
+    expect(whole).not.toContain("no longer exist");
+    expect(whole).toContain("No: it was removed with its parent");
+    // Nowhere does it promise what a miner may still undo.
+    expect(whole).toContain("Not expected to confirm");
+    expect(whole).not.toContain("Will not confirm");
+    // The topic spoke first and said "replaced": the route's word is announced after it.
+    expect(text(el.querySelector("p[aria-live=polite]") as Element)).toBe(
+      "Not replaced itself: it left the mempool with a transaction it depended on, which was replaced.",
+    );
+    expect(whole).not.toContain("the version that replaced it");
+    expect(whole).not.toContain("No: it was replaced");
+
+    // What replaced its parent is replaced in turn, and the ask that follows fails: the page
+    // keeps that its own link is a child's, so it still reads as removed, never as replaced twice.
+    const NEWER = "9".repeat(64);
+    replies[`/app/tx/${TXID}/replacements`] = { status: 500, body: { error: "down" } };
+    ws.receive(
+      msg({
+        state: "replaced",
+        truncated: false,
+        chain: [
+          { txid: TXID, by: PARENT_REPLACEMENT },
+          { txid: PARENT_REPLACEMENT, by: NEWER },
+        ],
+      }),
+    );
+    await vi.waitFor(async () => {
+      await settle();
+      expect(asked()).toBe(before + 2);
+      expect(text(el)).toContain("99999999…99999999");
+    });
+    expect(el.querySelector(".tx-status")?.textContent).toBe("Removed");
+    const later = text(el.querySelector(".tx-notice") as Element);
+    expect(later).toContain("Removed with a replaced transaction");
+    // A line with a child's link in it is not a line of versions.
+    expect(later).not.toContain("It was replaced 2 times");
+    expect(later).not.toContain("Each version spends the same coins");
+    expect(later).toContain("Follow 99999999…99999999, the newest in this line.");
+    // The second link is not known to be a child's: it reads as a replacement.
+    expect(later).toContain("ffffffff…ffffffffreplaced by 99999999…99999999");
+    expect(text(el.querySelector("p[aria-live=polite]") as Element)).toBe(
+      "The line of transactions it left with changed: 2 links now, the newest 99999999.",
+    );
+
+    // The line goes on again, and this time the route answers, but its bounded record has let
+    // the child's own link go: it says nothing of it. What it said before still stands.
+    const NEWEST = "8".repeat(64);
+    replies[`/app/tx/${TXID}/replacements`] = {
+      status: 200,
+      body: { txid: TXID, truncated: false, replaced_by: [], replaces: [], versions: [] },
+    };
+    ws.receive(
+      msg({
+        state: "replaced",
+        truncated: false,
+        chain: [
+          { txid: TXID, by: PARENT_REPLACEMENT },
+          { txid: PARENT_REPLACEMENT, by: NEWER },
+          { txid: NEWER, by: NEWEST },
+        ],
+      }),
+    );
+    await vi.waitFor(async () => {
+      await settle();
+      expect(asked()).toBe(before + 3);
+      expect(text(el)).toContain("88888888…88888888");
+    });
+    expect(el.querySelector(".tx-status")?.textContent).toBe("Removed");
+    expect(text(el.querySelector(".tx-notice") as Element)).toContain(
+      "Removed with a replaced transaction",
+    );
+    expect(text(el.querySelector("p[aria-live=polite]") as Element)).toBe(
+      "The line of transactions it left with changed: 3 links now, the newest 88888888.",
+    );
   });
 
   it("asks again when a reorg sends a confirmed transaction back and it is then replaced", async () => {
@@ -1055,6 +1150,85 @@ describe("TransactionPage", () => {
       expect(asked()).toBe(before + 1);
       expect(el.querySelector(".tx-chain__compare")).not.toBeNull();
     });
+  });
+
+  it("says a change again when it is worded like the one before it", async () => {
+    const [A, B, C] = ["a".repeat(64), "b".repeat(64), "c".repeat(64)];
+    serve(payment({ confirmed: false }));
+    const el = page(`/tx/${TXID}`);
+    await settle();
+    const ws = FakeSocket.last();
+    ws.hello({ network: "mainnet" });
+    ws.receive(mempoolMsg(0));
+    await settle();
+    const region = () => el.querySelector("p[aria-live=polite]")?.textContent;
+    const chain = (...by: string[]) =>
+      msg({
+        state: "replaced",
+        truncated: false,
+        chain: by.map((b, i) => ({ txid: i === 0 ? TXID : (by[i - 1] ?? TXID), by: b })),
+      });
+    ws.receive(chain(A));
+    await settle();
+    ws.receive(chain(A, B));
+    await settle();
+    expect(region()).toBe("Its replacement was replaced too.");
+    // The same sentence for the next one: the region's text changes all the same, by a space no
+    // screen reader reads, so it is said a second time.
+    ws.receive(chain(A, B, C));
+    await settle();
+    expect(region()).toBe("Its replacement was replaced too.\u00A0");
+  });
+
+  it("never forgets that the link it shows is a child's, however many others it learns", async () => {
+    const PARENT_REPLACEMENT = "f".repeat(64);
+    const others = (from: number) =>
+      Array.from({ length: 32 }, (_, i) => ({
+        txid: (from + i).toString(16).padStart(64, "0"),
+        by: (from + i + 1000).toString(16).padStart(64, "0"),
+        shared_inputs: 0,
+      }));
+    const answer = (links: object[]) => ({
+      status: 200,
+      body: { txid: TXID, truncated: false, replaced_by: links, replaces: [], versions: [] },
+    });
+    serve(payment({ confirmed: false }));
+    const el = page(`/tx/${TXID}`);
+    await settle();
+    const ws = FakeSocket.last();
+    ws.hello({ network: "mainnet" });
+    ws.receive(mempoolMsg(0));
+    await settle();
+    const own = { txid: TXID, by: PARENT_REPLACEMENT };
+    const leaves = (...more: { txid: string; by: string }[]) =>
+      ws.receive(msg({ state: "replaced", truncated: false, chain: [own, ...more] }));
+    const badge = () => el.querySelector(".tx-status")?.textContent;
+    // The route says its own link is a child's, among others.
+    replies[`/app/tx/${TXID}/replacements`] = answer([
+      { ...own, shared_inputs: 0 },
+      ...others(1).slice(1),
+    ]);
+    leaves();
+    await vi.waitFor(async () => {
+      await settle();
+      expect(badge()).toBe("Removed");
+    });
+    // Its line goes on, and the route now lists thirty-two other child links and not this one.
+    replies[`/app/tx/${TXID}/replacements`] = answer(others(100));
+    leaves({ txid: PARENT_REPLACEMENT, by: "9".repeat(64) });
+    await vi.waitFor(async () => {
+      await settle();
+      expect(text(el)).toContain("99999999…99999999");
+    });
+    expect(badge()).toBe("Removed");
+    // And then the route fails: the page has only what it remembers, the shown link among it.
+    replies[`/app/tx/${TXID}/replacements`] = { status: 500, body: { error: "down" } };
+    leaves({ txid: PARENT_REPLACEMENT, by: "8".repeat(64) });
+    await vi.waitFor(async () => {
+      await settle();
+      expect(text(el)).toContain("88888888…88888888");
+    });
+    expect(badge()).toBe("Removed");
   });
 
   it("names what it replaced in the details", async () => {

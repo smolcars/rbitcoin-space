@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { clearApiCache } from "../../lib/api";
 import { FakeSocket } from "../../lib/fakes";
 import { mount } from "../../components/test-utils";
-import { Chain } from "./Live";
+import { Chain, leftWithParent } from "./Live";
 
 const A = "a".repeat(64);
 const B = "b".repeat(64);
@@ -119,5 +119,46 @@ describe("Chain", () => {
     expect(el.querySelector(".tx-compare")).toBeNull();
     expect(el.querySelector(".tx-chain__compare")).toBeNull();
     expect(asked).toStrictEqual([]);
+  });
+
+  it("says of each link what that link is, and of a line with a child in it nothing as versions", async () => {
+    // C spent from P, which spent from S: Q bumped P (C left with it), then R replaced S (Q left).
+    const el = mount(() => (
+      <Chain
+        chain={[
+          { txid: A, by: B },
+          { txid: B, by: C },
+        ]}
+        truncated={false}
+        versions={[]}
+        later={[
+          { txid: A, by: B, shared: 0 },
+          { txid: B, by: C, shared: 0 },
+        ]}
+      />
+    ));
+    await settled(() => expect(el.textContent).toContain("the newest in this line."));
+    const rows = [...el.querySelectorAll(".tx-chain__link")].map((r) => r.textContent ?? "");
+    expect(rows[0]).toContain("This transaction");
+    expect(rows[0]).toContain("replaced a transaction it depended on");
+    expect(rows[1]).toContain("replaced a transaction it depended on");
+    expect(rows.join(" ")).not.toContain("replaced by");
+    expect(el.textContent).not.toContain("It was replaced 2 times");
+    expect(el.textContent).not.toContain("the newest version");
+  });
+});
+
+describe("leftWithParent", () => {
+  it("takes the route's word only for the link it is about", () => {
+    const said = [{ txid: A, by: B, shared: 0 }];
+    expect(leftWithParent({ txid: A, by: B }, said)).toBe(true);
+    // It came back and was replaced again, by a new version of itself: another link.
+    expect(leftWithParent({ txid: A, by: C }, said)).toBe(false);
+    // Shared inputs not recorded, or shared: a version's link, as before.
+    expect(leftWithParent({ txid: A, by: B }, [{ txid: A, by: B }])).toBe(false);
+    expect(leftWithParent({ txid: A, by: B }, [{ txid: A, by: B, shared: 1 }])).toBe(false);
+    // Nothing asked yet, or no link shown.
+    expect(leftWithParent({ txid: A, by: B }, undefined)).toBe(false);
+    expect(leftWithParent(undefined, said)).toBe(false);
   });
 });

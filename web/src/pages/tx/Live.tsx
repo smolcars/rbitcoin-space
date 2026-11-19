@@ -265,6 +265,23 @@ function TxList(props: { txids: string[]; label: string }) {
 }
 
 /**
+ * Whether the link from `txid` to `by` is a child's: the two share no input, so `txid` left the
+ * mempool because a transaction it depended on (one it spent from, or one further back) was
+ * replaced by `by`, and is no earlier version of it (docs/MEMPOOL.md, "Versions"). Only the
+ * replacements route says so, in `later`, and of that very link: an answer about another link of
+ * the same transaction (it came back and was replaced again) says nothing of this one. Until the
+ * route has answered, nothing is known and this is false.
+ */
+export function leftWithParent(
+  link: { txid: string; by: string } | undefined,
+  later: readonly ReplacementLink[] | undefined,
+) {
+  return (
+    link !== undefined && later?.find((k) => k.txid === link.txid && k.by === link.by)?.shared === 0
+  );
+}
+
+/**
  * What replaced it, link by link to the newest replacement, whose own state is followed live (one
  * topic, however long the chain).
  */
@@ -278,6 +295,8 @@ export function Chain(props: {
   versions?: string[];
   /** What replaced it, from the same route, which says how many inputs each pair shares. */
   later?: ReplacementLink[];
+  /** Whoever shows this already says a child left with its parent: not said again here. */
+  explained?: boolean;
 }) {
   const last = () => props.chain.at(-1);
   const here = () => props.chain[0]?.txid ?? "";
@@ -285,7 +304,10 @@ export function Chain(props: {
   const at = (txid: string) => versions().indexOf(txid);
   // Its own link is a child's: it left with a replaced parent, and is no version of what
   // replaced that parent. Only the route says so; the topic's links do not.
-  const child = () => props.later?.find((k) => k.txid === here())?.shared === 0;
+  const childLink = (l: ReplacementLink) => leftWithParent(l, props.later);
+  const child = () => leftWithParent(props.chain[0], props.later);
+  // A line with a child's link in it is not a line of versions: nothing is said of it as one.
+  const versionsOnly = () => !props.chain.some(childLink);
   // The one pair shown, by txid, whichever control picked it: this version and what replaced it
   // until a link or a picker chooses another.
   const [pair, setPair] = createSignal<[string, string]>();
@@ -303,7 +325,7 @@ export function Chain(props: {
     setPair([versions()[from] ?? "", versions()[to] ?? ""]);
   return (
     <div class="tx-chain">
-      <Show when={props.chain.length > 1}>
+      <Show when={props.chain.length > 1 && versionsOnly()}>
         <p class="tx-chain__lead">
           It was replaced {groupDigits(props.chain.length)} times
           {props.truncated ? " or more" : ""}. Each version spends the same coins, so only the last
@@ -320,7 +342,11 @@ export function Chain(props: {
               <span class="tx-chain__body">
                 <span class="tx-chain__line">
                   {i() === 0 ? (
-                    "This version"
+                    child() ? (
+                      "This transaction"
+                    ) : (
+                      "This version"
+                    )
                   ) : (
                     <Hash value={l.txid} href={paths.tx(l.txid)} copy={false} />
                   )}
@@ -332,12 +358,23 @@ export function Chain(props: {
                   </Show>
                 </span>
                 <span class="tx-chain__line">
-                  replaced by <Hash value={l.by} href={paths.tx(l.by)} copy={false} />
-                  <Show when={l.byRate !== undefined}>
-                    <span class="tx-chain__rate">
-                      {" "}
-                      at <FeeRate rate={l.byRate ?? 0} />
-                    </span>
+                  {/* A child's link: what it names replaced a transaction this one depended on. */}
+                  <Show
+                    when={childLink(l)}
+                    fallback={
+                      <>
+                        replaced by <Hash value={l.by} href={paths.tx(l.by)} copy={false} />
+                        <Show when={l.byRate !== undefined}>
+                          <span class="tx-chain__rate">
+                            {" "}
+                            at <FeeRate rate={l.byRate ?? 0} />
+                          </span>
+                        </Show>
+                      </>
+                    }
+                  >
+                    removed when <Hash value={l.by} href={paths.tx(l.by)} copy={false} /> replaced a
+                    transaction it depended on
                   </Show>
                 </span>
                 <Show when={l.seen}>
@@ -370,12 +407,12 @@ export function Chain(props: {
         </For>
       </ol>
       <Show when={last()?.by} keyed>
-        {(id) => <Newest txid={id} />}
+        {(id) => <Newest txid={id} versions={versionsOnly()} />}
       </Show>
-      <Show when={child()}>
+      <Show when={child() && props.explained !== true}>
         <p class="tx-chain__lead">
-          It was not replaced by a new version of itself: it spent coins from a transaction that was
-          replaced, and left the mempool with it.
+          It was not replaced by a new version of itself: a transaction it depended on was replaced,
+          and it left the mempool with it.
         </p>
       </Show>
       <Show when={versions().length > 1 && shown()[0] >= 0 && shown()[1] >= 0}>
@@ -392,7 +429,7 @@ export function Chain(props: {
 }
 
 /** The newest replacement's own state, from its topic: where it is, or that it confirmed. */
-function Newest(props: { txid: string }) {
+function Newest(props: { txid: string; versions?: boolean }) {
   const network = useNetwork();
   const socket = useLiveStatus();
   const [heardState, setSaid] = createSignal<TxState>();
@@ -402,8 +439,8 @@ function Newest(props: { txid: string }) {
   return (
     <p class="tx-chain__newest">
       <span>
-        Follow <Hash value={props.txid} href={paths.tx(props.txid)} copy={false} />, the newest
-        version.
+        Follow <Hash value={props.txid} href={paths.tx(props.txid)} copy={false} />,{" "}
+        {props.versions === false ? "the newest in this line." : "the newest version."}
       </span>{" "}
       <Switch>
         <Match when={said()?.state === "confirmed" && (said() as TxState & { state: "confirmed" })}>
