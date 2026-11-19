@@ -22,7 +22,7 @@ use bitcoin::consensus::encode::serialize_hex;
 use bitcoin::hashes::Hash;
 use bitcoin::{BlockHash, CompactTarget, TxMerkleNode};
 use engine::audit::{Audit, Side, Totals};
-use engine::store::{Options, Store, params};
+use engine::store::{Options, Read, Store, params};
 use rbitcoin_space::{App, Config, IMMUTABLE};
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
@@ -1255,6 +1255,32 @@ async fn same_as_fresh(addr: &str, port: u16, dir: &Path, targets: &[String], wh
     }
 }
 
+/// Waits until the server has attributed the table's pools, as it does once at start
+/// (`engine::blocks::reattribute`). The fixture's rows carry no pool, so that is a write to the
+/// block table, and every answer kept before it is rightly dropped. Its last write records the
+/// pool list, after its last block row.
+async fn attributed(store: &Store) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+    loop {
+        let rows: i64 = store
+            .read(Read::Blocks, |sql| {
+                Ok(sql
+                    .prepare("SELECT count(*) FROM pool_list")?
+                    .query_row([], |r| r.get(0))?)
+            })
+            .await
+            .unwrap();
+        if rows > 0 {
+            return;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the server never attributed its pools"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+}
+
 #[tokio::test]
 async fn kept_answers_follow_every_write_and_match_an_uncached_server() {
     let chain = chain();
@@ -1263,6 +1289,7 @@ async fn kept_answers_follow_every_write_and_match_an_uncached_server() {
     let (port, node) = mock(&chain).await;
     let (addr, store) = start_app(port, Some(&dir.0), &[]).await;
     let store = store.unwrap();
+    attributed(&store).await;
     let at = |h: u32| chain[h as usize].block_hash();
     let targets = [
         format!("{V1}/blocks"),
@@ -1280,7 +1307,8 @@ async fn kept_answers_follow_every_write_and_match_an_uncached_server() {
     same_as_fresh(&addr, port, &dir.0, &targets, "at start").await;
 
     // A write from another connection moves no version: the answer is kept, so it is served
-    // from memory. (The server's own writer is the only writer in service.)
+    // from memory. (The server's own writer is the only writer in service, and it has finished
+    // its work at start.)
     let list = get(&addr, &targets[0]).await;
     let other = Store::open(&dir.0, "regtest", Options::default()).unwrap();
     other
