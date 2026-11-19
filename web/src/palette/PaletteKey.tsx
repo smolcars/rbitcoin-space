@@ -40,7 +40,9 @@ function styled(): boolean {
  * not leave the palette unstyled for the life of the page.
  */
 const load = createLoader<Component<PaletteProps>>({
-  retry: retryFiles,
+  // Its own files only (the chunk is named for Palette.tsx): a page's failed files stay on the
+  // list for the shell, which is waiting to ask for them and needs to hear what they proved.
+  retry: () => retryFiles((href) => /\/Palette-[^/]*\.(?:css|js)$/.test(href)),
   load: async () => (await import("./Palette")).default,
   styled,
 });

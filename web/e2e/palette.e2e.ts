@@ -861,18 +861,18 @@ test.describe("an open after the palette's files failed to download", () => {
     // The decoder's stylesheet fails, and the shell waits a second before it asks again.
     await page.getByRole("contentinfo").getByRole("link", { name: "Decoder" }).click();
     await expect.poll(() => asked).toBe(1);
-    // The palette's own load asks for every failed file first: that request is held here.
+    // The palette's own load asks only for its own files, so the decoder's stays the shell's to
+    // ask for: its second request, a second after the first, is held here.
     await shortcut(page);
-    await expect.poll(() => asked).toBe(2);
-    // The shell's turn comes while it is held: it must wait, not take the empty list for recovery
-    // and show the decoder without its styles.
+    await expect(palette(page)).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect.poll(() => asked, { timeout: 10_000 }).toBe(2);
+    // While it is held the decoder is not shown: nothing took its stylesheet for recovered.
     await page.waitForTimeout(1500);
     await expect(page.getByRole("heading", { level: 1, name: "Decode" })).toHaveCount(0);
     release?.();
     // That request failed too, so the shell asks a third time, and the page comes with its styles.
     await expect.poll(() => asked, { timeout: 20_000 }).toBe(3);
-    await expect(palette(page)).toBeVisible();
-    await page.keyboard.press("Escape");
     await expect(page.getByRole("heading", { level: 1, name: "Decode" })).toBeVisible({
       timeout: 20_000,
     });

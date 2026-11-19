@@ -5,9 +5,9 @@ import { IDLE, type Opener, type OpenerEvent, step } from "./opener";
 /** What loading the palette takes, in order. */
 export interface Steps<C> {
   /**
-   * Asks again for every file that failed before (`retryFiles`, docs/FRONTEND.md "When a page's
-   * files fail to load"). Its own outcome is not decisive: a file of another page may fail again,
-   * and the palette's own files are proven by the next two steps.
+   * Asks again for the palette's own files that failed before (`retryFiles` with a test of the
+   * address, docs/FRONTEND.md "When a page's files fail to load"). Its own outcome is not decisive:
+   * the palette's files are proven by the next two steps.
    */
   retry: () => Promise<unknown>;
   /** The code itself: `import()`. */

@@ -58,48 +58,46 @@ describe("retryFiles", () => {
   });
 });
 
-describe("retryFiles called while another call is in flight", () => {
-  const tick = () =>
-    new Promise((resolve) => {
-      setTimeout(resolve, 0);
-    });
+describe("retryFiles narrowed to a caller's own files", () => {
+  /** A failed stylesheet that answers to an address, which happy-dom would fetch if it were set. */
+  function failedAt(name: string, href: string): HTMLLinkElement {
+    const link = failedLink(name);
+    Object.defineProperty(link, "href", { value: href });
+    return link;
+  }
 
-  it("waits for it, and asks again for what it failed to load", async () => {
-    failedLink("waited");
-    const first = retryFiles();
-    let second = "pending";
-    const next = retryFiles().then(
-      () => {
-        second = "loaded";
-      },
-      () => {
-        second = "failed";
-      },
-    );
-    await tick();
-    // The first call holds "waited": the lists are empty, which is not "nothing failed".
-    expect(second).toBe("pending");
-    const held = current("waited");
-    held?.dispatchEvent(new Event("error"));
-    await expect(first).rejects.toThrow("Could not load");
-    await tick();
-    // The second call asked for it again, through a link of its own.
-    expect(current("waited")).not.toBe(held);
-    expect(second).toBe("pending");
-    current("waited")?.dispatchEvent(new Event("load"));
-    await next;
-    expect(second).toBe("loaded");
+  it("asks only for those, and leaves the others on the list for the next call", async () => {
+    const page = failedAt("page", "/assets/DecodePage-a1.css");
+    const own = failedAt("own", "/assets/Palette-b2.css");
+    const narrowed = retryFiles((href) => href.includes("/Palette-"));
+    // Its own was asked for again, through a new link; the page's was left as it failed.
+    expect(current("own")).not.toBe(own);
+    expect(current("page")).toBe(page);
+    // A call for everything, made meanwhile, still finds the page's stylesheet and asks for it.
+    const all = retryFiles();
+    expect(current("page")).not.toBe(page);
+    current("page")?.dispatchEvent(new Event("load"));
+    await expect(all).resolves.toStrictEqual({ scripts: false });
+    current("own")?.dispatchEvent(new Event("load"));
+    await expect(narrowed).resolves.toStrictEqual({ scripts: false });
   });
 
-  it("answers once the first has loaded everything, with nothing asked twice", async () => {
-    failedLink("joined");
-    const first = retryFiles();
-    const second = retryFiles();
-    const asked = current("joined");
-    asked?.dispatchEvent(new Event("load"));
-    await expect(first).resolves.toStrictEqual({ scripts: false });
-    await expect(second).resolves.toStrictEqual({ scripts: false });
-    expect(current("joined")).toBe(asked);
+  it("leaves a failed script it was not asked about, so the next call still proves it", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(() =>
+      Promise.resolve(new Response("x", { status: 200 })),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const preload = document.createElement("link");
+    preload.rel = "modulepreload";
+    preload.href = "/assets/DecodePage-c3.js";
+    document.head.append(preload);
+    preload.dispatchEvent(new Event("error"));
+    await expect(retryFiles((href) => href.includes("/Palette-"))).resolves.toStrictEqual({
+      scripts: false,
+    });
+    expect(fetch).not.toHaveBeenCalled();
+    await expect(retryFiles()).resolves.toStrictEqual({ scripts: true });
+    vi.unstubAllGlobals();
   });
 });
 
@@ -128,20 +126,6 @@ describe("retryFiles and scripts", () => {
       cache: "reload",
     });
     // Nothing is left to ask for.
-    await expect(retryFiles()).resolves.toStrictEqual({ scripts: false });
-  });
-
-  it("tells a call that waited for another that the other proved a script", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn<typeof globalThis.fetch>(() => Promise.resolve(new Response("", { status: 200 }))),
-    );
-    failedPreload("/assets/Page-joined.js");
-    const first = retryFiles();
-    const second = retryFiles();
-    await expect(first).resolves.toStrictEqual({ scripts: true });
-    await expect(second).resolves.toStrictEqual({ scripts: true });
-    // A later call, with none in flight, starts clean.
     await expect(retryFiles()).resolves.toStrictEqual({ scripts: false });
   });
 
