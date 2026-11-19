@@ -496,7 +496,12 @@ describe("what is announced of a child that left with its parent", () => {
 
   it("claims nothing of how its line went on, only that its newest end changed", () => {
     expect(announcement(left([FIRST]), left([FIRST, SECOND]), true)).toBe(
-      "The newest transaction in its line changed.",
+      "The line of transactions it left with went on: 2 links now.",
+    );
+    // A third hop is another sentence, or a live region would have nothing new to say.
+    const THIRD = "d".repeat(64);
+    expect(announcement(left([FIRST, SECOND]), left([FIRST, SECOND, THIRD]), true)).toBe(
+      "The line of transactions it left with went on: 3 links now.",
     );
     expect(announcement(left([FIRST]), left([FIRST, SECOND]))).toBe(
       "Its replacement was replaced too.",

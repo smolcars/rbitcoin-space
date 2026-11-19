@@ -384,9 +384,10 @@ function TransactionView(props: { txid: string }) {
   // The links the route said are a child's, kept for the page's life: two transactions that share
   // no input never come to share one, so what was said of a link stays true of it. Taken only
   // from answers the page took up (one a newer ask replaced is never read here), and nothing
-  // else of an old answer is kept: when a later ask fails, the page still knows a transaction
-  // left with its parent and does not go back to calling it replaced, and shows no comparison
-  // it cannot vouch for.
+  // else of an old answer is kept. They stand beside whatever the route says now, for the links
+  // it no longer speaks of: an ask that fails, or one answered after the server's bounded record
+  // let the link go while the topic still shows it, does not send the page back to calling the
+  // transaction replaced.
   const childLinks = new Map<string, ReplacementLink>();
   const later = createMemo((): ReplacementLink[] => {
     const said = replacements()?.replacedBy;
@@ -394,7 +395,10 @@ function TransactionView(props: { txid: string }) {
       if (l.shared === 0)
         childLinks.set(`${l.txid}>${l.by}`, { txid: l.txid, by: l.by, shared: 0 });
     }
-    return said ?? [...childLinks.values()];
+    if (!said) return [...childLinks.values()];
+    const spoken = new Set(said.map((l) => `${l.txid}>${l.by}`));
+    const remembered = [...childLinks].filter(([k]) => !spoken.has(k)).map(([, l]) => l);
+    return remembered.length === 0 ? said : [...said, ...remembered];
   });
   const replaced = () => replacements()?.replaces.filter((l) => l.by === props.txid) ?? [];
   // Shown as replaced, but by nothing of its own: it left with a transaction it depended on.

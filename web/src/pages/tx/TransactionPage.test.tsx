@@ -1074,7 +1074,38 @@ describe("TransactionPage", () => {
     // The second link is not known to be a child's: it reads as a replacement.
     expect(later).toContain("ffffffff…ffffffffreplaced by 99999999…99999999");
     expect(text(el.querySelector("p[aria-live=polite]") as Element)).toBe(
-      "The newest transaction in its line changed.",
+      "The line of transactions it left with went on: 2 links now.",
+    );
+
+    // The line goes on again, and this time the route answers, but its bounded record has let
+    // the child's own link go: it says nothing of it. What it said before still stands.
+    const NEWEST = "8".repeat(64);
+    replies[`/app/tx/${TXID}/replacements`] = {
+      status: 200,
+      body: { txid: TXID, truncated: false, replaced_by: [], replaces: [], versions: [] },
+    };
+    ws.receive(
+      msg({
+        state: "replaced",
+        truncated: false,
+        chain: [
+          { txid: TXID, by: PARENT_REPLACEMENT },
+          { txid: PARENT_REPLACEMENT, by: NEWER },
+          { txid: NEWER, by: NEWEST },
+        ],
+      }),
+    );
+    await vi.waitFor(async () => {
+      await settle();
+      expect(asked()).toBe(before + 3);
+      expect(text(el)).toContain("88888888…88888888");
+    });
+    expect(el.querySelector(".tx-status")?.textContent).toBe("Removed");
+    expect(text(el.querySelector(".tx-notice") as Element)).toContain(
+      "Removed with a replaced transaction",
+    );
+    expect(text(el.querySelector("p[aria-live=polite]") as Element)).toBe(
+      "The line of transactions it left with went on: 3 links now.",
     );
   });
 

@@ -200,9 +200,10 @@ export function announcement(before: Shown, after: Shown, child = false): string
       newest(after.chain) !== newest(before.chain)
     ) {
       // A child left with a transaction it depended on: the line it is shown in can go on by a
-      // new version or by another removal, and only its newest end is known to have changed.
+      // new version or by another removal, and only that it went on is known. Its length is
+      // said, so each time is a new sentence: the same one twice would not be announced again.
       return child
-        ? "The newest transaction in its line changed."
+        ? `The line of transactions it left with went on: ${groupDigits(after.chain.length)} links now.`
         : "Its replacement was replaced too.";
     }
     return undefined;
