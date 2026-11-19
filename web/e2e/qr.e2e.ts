@@ -161,17 +161,22 @@ test.describe("when the QR code's files fail", () => {
 });
 
 test.describe("when the QR code's files are slow", () => {
-  /** Holds the pop-up's script back until the returned function lets it through. */
-  async function hold(page: Page): Promise<() => void> {
-    let release: (() => void) | undefined;
-    const gate = new Promise<void>((resolve) => {
+  test.use({ consoleErrorsAllowed: [/status of 503/] });
+
+  /**
+   * Holds the pop-up's script (or stylesheet) back until the returned function lets it through,
+   * or, given a status, answers it with that.
+   */
+  async function hold(page: Page, kind: "js" | "css" = "js"): Promise<(status?: number) => void> {
+    let release: ((status?: number) => void) | undefined;
+    const gate = new Promise<number | undefined>((resolve) => {
       release = resolve;
     });
-    await page.route(/\/assets\/QrPop-[^/]+\.js$/, async (route) => {
-      await gate;
-      await route.continue();
+    await page.route(new RegExp(`/assets/QrPop-[^/]+\\.${kind}$`), async (route) => {
+      const status = await gate;
+      await (status === undefined ? route.continue() : route.fulfill({ status, body: "" }));
     });
-    return () => release?.();
+    return (status) => release?.(status);
   }
 
   test("Escape gives up waiting, and the late file opens nothing", async ({ page }) => {
@@ -210,5 +215,92 @@ test.describe("when the QR code's files are slow", () => {
     await expect(page.getByRole("dialog")).toHaveCount(0);
     expect(await page.evaluate(() => document.activeElement?.outerHTML.slice(0, 80))).toBe(moved);
     await expect(button).toHaveAttribute("aria-busy", "false");
+  });
+
+  test("a click away while it loads gives up, even where focus falls to the page", async ({
+    page,
+  }) => {
+    const release = await hold(page);
+    await page.goto(`/regtest/address/${chain.addresses.p2tr}`);
+    const button = page.getByRole("button", { name: "Show the address as a QR code" });
+    const arrived = page.waitForResponse(/\/assets\/QrPop-[^/]+\.js$/);
+    await button.focus();
+    await page.keyboard.press("Enter");
+    await expect(button).toHaveAttribute("aria-busy", "true");
+    // Blank space above the page's main part: nothing there takes focus, so it falls to the page.
+    await page.getByText("Regtest is a test network").click();
+    expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
+    await expect(button).toHaveAttribute("aria-busy", "false");
+    release();
+    await arrived;
+    await twoFrames(page);
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
+  });
+
+  test("a press cancelled while its stylesheet failed asks for it again", async ({ page }) => {
+    const release = await hold(page, "css");
+    await page.goto(`/regtest/address/${chain.addresses.p2tr}`);
+    const button = page.getByRole("button", { name: "Show the address as a QR code" });
+    const asked: string[] = [];
+    page.on("request", (r) => {
+      if (/\/assets\/QrPop-[^/]+\.css$/.test(r.url())) asked.push(r.url());
+    });
+    const failed = page.waitForResponse(/\/assets\/QrPop-[^/]+\.css$/);
+    await button.click();
+    await expect(button).toHaveAttribute("aria-busy", "true");
+    await page.keyboard.press("Escape");
+    await expect(button).toHaveAttribute("aria-busy", "false");
+    release(503);
+    await failed;
+    await twoFrames(page);
+    await page.unrouteAll();
+    const before = asked.length;
+    await button.click();
+    const dialog = page.getByRole("dialog", { name: "Scan the address" });
+    await expect(dialog).toBeVisible();
+    // Styled: fixed over the page, its stylesheet asked for again.
+    await expect(dialog).toHaveCSS("position", "fixed");
+    expect(asked.length).toBeGreaterThan(before);
+  });
+
+  test("cancelled waits leave no listeners behind", async ({ page, browserName }) => {
+    // Chromium alone lists a node's listeners (its DevTools protocol).
+    test.skip(browserName !== "chromium", "needs the DevTools protocol");
+    await hold(page);
+    await page.goto(`/regtest/address/${chain.addresses.p2tr}`);
+    const cdp = await page.context().newCDPSession(page);
+    // Only the shell group's, where the button lives (vite.config.ts): Playwright's clicks and the
+    // page's chart add listeners of their own, on their own schedule.
+    const urls = new Map<string, string>();
+    cdp.on("Debugger.scriptParsed", (e) => urls.set(e.scriptId, e.url));
+    await cdp.send("Debugger.enable");
+    const listeners = async () => {
+      const { result } = await cdp.send("Runtime.evaluate", { expression: "document" });
+      const { listeners: all } = await cdp.send("DOMDebugger.getEventListeners", {
+        objectId: result.objectId ?? "",
+      });
+      return all.filter(
+        (l) =>
+          ["keydown", "pointerdown", "focusin"].includes(l.type) &&
+          (urls.get(l.scriptId) ?? "").includes("/assets/app-"),
+      ).length;
+    };
+    const button = page.getByRole("button", { name: "Show the address as a QR code" });
+    const cycle = async () => {
+      await button.click();
+      await expect(button).toHaveAttribute("aria-busy", "true");
+      await page.keyboard.press("Escape");
+      await expect(button).toHaveAttribute("aria-busy", "false");
+    };
+    const baseline = await listeners();
+    for (let i = 0; i < 3; i++) await cycle();
+    expect(await listeners()).toBe(baseline);
+    // Leaving the page while one waits removes its listeners too.
+    await button.click();
+    await expect(button).toHaveAttribute("aria-busy", "true");
+    await page.getByRole("link", { name: "Blocks" }).first().click();
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Blocks");
+    expect(await listeners()).toBe(baseline);
   });
 });

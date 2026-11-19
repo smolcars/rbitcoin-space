@@ -35,43 +35,60 @@ async function loadPop(): Promise<PopModule> {
  * code. `what` names the value ("address"). `colour`, a node's checked `#rrggbb` (null for none
  * announced), draws the code; leave it out for the site's ink.
  *
- * While the pop-up's code loads, pressing the button again, or Escape, gives up waiting; so does
- * moving focus elsewhere, and the pop-up then never opens. A download that fails leaves the page
- * as it is: the button says so and tries again when pressed.
+ * While the pop-up's code loads, pressing the button again, Escape, a press anywhere else or focus
+ * moving elsewhere gives up waiting, and the pop-up then never opens. A download that fails leaves
+ * the page as it is: the button says so and tries again when pressed.
  */
 export function QrButton(props: { value: string; what: string; colour?: string | null }) {
   const id = createUniqueId();
   const [state, setState] = createSignal<"closed" | "loading" | "open" | "failed">("closed");
   let button: HTMLButtonElement | undefined;
-  // Which press is being waited for: a newer press, a cancel or leaving the page moves it on.
-  let attempt = 0;
+  // Ends the wait under way and removes its listeners: a cancel, its end, or leaving the page.
   let stopWaiting: (() => void) | undefined;
-  onCleanup(() => {
-    attempt++;
-    stopWaiting?.();
-  });
+  onCleanup(() => stopWaiting?.());
 
-  const start = async (retry: boolean) => {
-    const mine = ++attempt;
-    setState("loading");
-    const key = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      attempt++;
+  const start = async () => {
+    stopWaiting?.();
+    let waiting = true;
+    const giveUp = () => {
+      stop();
       setState("closed");
     };
-    document.addEventListener("keydown", key);
-    stopWaiting = () => document.removeEventListener("keydown", key);
-    try {
-      if (retry && !loaded) await retryFiles();
-      await loadPop();
-      if (mine !== attempt) return;
-      // The reader moved on while it loaded: open nothing over where they are now.
-      const at = document.activeElement;
-      setState(at && at !== button && at !== document.body ? "closed" : "open");
-    } catch {
-      if (mine === attempt) setState("failed");
-    } finally {
+    const key = (e: KeyboardEvent) => {
+      if (e.key === "Escape") giveUp();
+    };
+    // Not focus alone: Safari does not focus a button it clicks, and a press on blank space leaves
+    // focus on the page itself.
+    const pointer = (e: PointerEvent) => {
+      if (!(e.target instanceof Node && button?.contains(e.target))) giveUp();
+    };
+    const focus = (e: FocusEvent) => {
+      if (e.target !== button) giveUp();
+    };
+    const stop = () => {
+      waiting = false;
       document.removeEventListener("keydown", key);
+      document.removeEventListener("pointerdown", pointer, true);
+      document.removeEventListener("focusin", focus);
+      if (stopWaiting === stop) stopWaiting = undefined;
+    };
+    document.addEventListener("keydown", key);
+    document.addEventListener("pointerdown", pointer, true);
+    document.addEventListener("focusin", focus);
+    stopWaiting = stop;
+    setState("loading");
+    try {
+      // Every press that has not loaded the pop-up asks again for whatever failed, however the
+      // last attempt ended: a cancelled one can leave a failed stylesheet that Vite never retries.
+      if (!loaded) await retryFiles();
+      await loadPop();
+      if (!waiting) return;
+      stop();
+      setState("open");
+    } catch {
+      if (!waiting) return;
+      stop();
+      setState("failed");
     }
   };
 
@@ -79,10 +96,9 @@ export function QrButton(props: { value: string; what: string; colour?: string |
     const now = state();
     if (now === "open") setState("closed");
     else if (now === "loading") {
-      attempt++;
       stopWaiting?.();
       setState("closed");
-    } else void start(now === "failed");
+    } else void start();
   };
 
   const label = () =>
