@@ -1,0 +1,84 @@
+import { createMemo, Show } from "solid-js";
+import { LogoParts } from "../../shell/Logo";
+import { codeFor, findersPath, inkFor, markFor, modulesPath, QUIET } from "./draw";
+
+/** A token's value on the page, or "" where there is none (a test's document). */
+const token = (name: string) =>
+  getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+/**
+ * `text` as a QR code at level Q, dark on a light card, with the logo in a clear square in the
+ * middle. `colour` (a node's, `#rrggbb` already checked) draws it, darkened if it is too pale to
+ * scan. Says so in a line under it when `colour` is given, or null for none announced.
+ */
+export function QrCode(props: { text: string; label: string; colour?: string | null }) {
+  const code = createMemo(() => codeFor(props.text));
+  const mark = createMemo(() => {
+    const c = code();
+    return c ? markFor(c) : null;
+  });
+  const ink = createMemo(() =>
+    inkFor(props.colour ?? null, token("--qr-paper") || "#fff", token("--qr-ink") || "#000"),
+  );
+  return (
+    <Show when={code()} fallback={<p class="qr__none">This is too long to show as a QR code.</p>}>
+      {(c) => {
+        const box = () => c().size + 2 * QUIET;
+        return (
+          <>
+            <div class="qr__card" style={{ "--qr-use": ink().colour }}>
+              <svg
+                class="qr__code"
+                viewBox={`0 0 ${box()} ${box()}`}
+                role="img"
+                aria-label={props.label}
+              >
+                <path d={modulesPath(c(), mark())} />
+                <path d={findersPath(c().size)} fill-rule="evenodd" />
+                <Show when={mark()}>
+                  {(m) => {
+                    const k = m();
+                    return k.kind === "logo" ? (
+                      <svg
+                        class="qr__mark"
+                        x={k.x}
+                        y={k.x}
+                        width={k.size}
+                        height={k.size}
+                        viewBox="0 0 64 64"
+                      >
+                        <LogoParts />
+                      </svg>
+                    ) : (
+                      // The logo's units, its block's middle on the pattern's and the crab's eyes
+                      // just under it; the arriving layer one row above the pattern.
+                      <g
+                        class="qr__mark"
+                        transform={`translate(${k.x} ${k.x}) scale(${k.scale}) translate(-32 -13.2)`}
+                      >
+                        <LogoParts strata={false} />
+                        <rect class="logo__top" x="27" y="-4.7" width="18" height="4.2" rx="1.6" />
+                      </g>
+                    );
+                  }}
+                </Show>
+              </svg>
+            </div>
+            <Show when={props.colour !== undefined}>
+              <p class="qr__note">
+                <Show when={props.colour}>
+                  {(raw) => <span class="qr__swatch" style={{ "--qr-raw": raw() }} />}
+                </Show>
+                {ink().from === "colour"
+                  ? "Drawn in the node's own colour"
+                  : ink().from === "darkened"
+                    ? "Drawn in the node's colour, darkened so it scans"
+                    : "The node announces no colour"}
+              </p>
+            </Show>
+          </>
+        );
+      }}
+    </Show>
+  );
+}

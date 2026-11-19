@@ -104,6 +104,11 @@
   --pool-12: #967f0e;
   --pool-other: #7d868b;
 
+  /* QR codes: dark on a light card in both themes, as a camera reads them (docs/DESIGN.md). */
+  --qr-paper: #ffffff;
+  --qr-ink: #161b1e;
+  --qr-mark: #a8196b; /* the logo's arriving layer on the card: the light theme's accent */
+
   /* Networks */
   --network-mainnet: #161b1e;
   --network-signet: #0b7285;

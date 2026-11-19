@@ -1,0 +1,145 @@
+@layer components {
+  /* The pop-up, fixed over the page beside its button (QrButton.tsx places it). */
+  .qr-pop {
+    position: fixed;
+    top: var(--y, 0);
+    left: var(--x, 0);
+    z-index: var(--z-tooltip);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    box-sizing: border-box;
+    width: min(19rem, calc(100vw - 2 * var(--space-4)));
+    max-height: var(--room, none);
+    overflow-y: auto;
+    padding: var(--space-3) var(--space-4) var(--space-4);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-l);
+    background: var(--color-surface-raised);
+    box-shadow: var(--shadow-pop);
+    color: var(--color-text);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-regular);
+    letter-spacing: normal;
+    text-align: start;
+    white-space: normal;
+    animation: qr-open var(--dur-base) var(--ease-out);
+    transform-origin: top right;
+  }
+  @keyframes qr-open {
+    from {
+      opacity: 0;
+      transform: scale(0.96);
+    }
+  }
+  .qr-pop:focus {
+    outline: none;
+  }
+  .qr-pop:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+  .qr-pop__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+  }
+  .qr-pop__title {
+    margin: 0;
+    font-weight: var(--weight-bold);
+  }
+  .qr-pop__close {
+    flex: none;
+    display: inline-grid;
+    place-items: center;
+    width: var(--touch);
+    height: var(--touch);
+    margin: -10px -12px -10px 0;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-m);
+    background: none;
+    color: var(--color-text-muted);
+    cursor: pointer;
+  }
+  .qr-pop__close svg {
+    width: 12px;
+    height: 12px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+  }
+  @media (hover: hover) {
+    .qr-pop__close:hover {
+      color: var(--color-text);
+    }
+  }
+  /* The value as text: what the code holds, character for character. */
+  .qr-pop__text {
+    margin: 0;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    line-height: var(--leading-snug);
+    overflow-wrap: anywhere;
+    color: var(--color-text-muted);
+    user-select: all;
+  }
+
+  /* The card: light in both themes, as a camera reads dark on light best. Its own padding is
+     nothing: the code's quiet zone is drawn inside it. */
+  .qr {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+  .qr__card {
+    aspect-ratio: 1;
+    border-radius: var(--radius-m);
+    background: var(--qr-paper);
+    box-shadow: inset 0 0 0 1px var(--color-line);
+  }
+  .qr__code {
+    display: block;
+    width: 100%;
+    height: 100%;
+    fill: var(--qr-use, var(--qr-ink));
+  }
+  /* The logo in the room the code leaves for it (draw.ts), in the code's ink. */
+  .qr__mark {
+    fill: var(--qr-use, var(--qr-ink));
+  }
+  .qr__mark .logo__lines {
+    fill: none;
+    stroke: var(--qr-use, var(--qr-ink));
+  }
+  .qr__mark .logo__mid {
+    fill-opacity: 0.6;
+  }
+  .qr__mark .logo__top {
+    fill: var(--qr-mark);
+  }
+  /* A node's code says what its colour became, on a line kept while the drawing loads. */
+  .qr__note {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: 1.4em;
+    margin: 0;
+    color: var(--color-text-muted);
+    font-size: var(--text-xs);
+  }
+  .qr__swatch {
+    flex: none;
+    width: 0.9em;
+    height: 0.9em;
+    border-radius: 50%;
+    background: var(--qr-raw);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-text) 25%, transparent);
+  }
+  .qr__none {
+    margin: 0;
+    color: var(--color-text-muted);
+  }
+}

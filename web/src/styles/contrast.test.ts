@@ -86,6 +86,8 @@ describe("contrast from the tokens", () => {
       expect(short(theme, TEXT.slice(0, 6), ["color-accent-soft"], 4.5)).toStrictEqual([]);
       expect(short(theme, ["color-on-accent"], ["color-accent"], 4.5)).toStrictEqual([]);
       expect(short(theme, MARKS, SURFACES, 3)).toStrictEqual([]);
+      // A QR code's card stays light in both themes (components/qr/draw.ts holds a node's ink to this).
+      expect(short(theme, ["qr-ink"], ["qr-paper"], 4.5)).toStrictEqual([]);
     });
 
     it(`steps the forwarding-rate ramp in lightness, away from the surface, ${name}`, () => {

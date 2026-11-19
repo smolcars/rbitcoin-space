@@ -1,0 +1,54 @@
+@layer components {
+  /* The QR button: a 28 px drawn button in a 44 px target that takes only its room, as the copy
+     button beside it is. */
+  .qr-button {
+    position: relative;
+    isolation: isolate;
+    flex: none;
+    display: inline-grid;
+    place-items: center;
+    width: var(--touch);
+    height: var(--touch);
+    margin: -8px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-m);
+    background: none;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    transition: color var(--dur-quick) var(--ease-out);
+  }
+  /* After a copy button, its target starts where the copy button's ends. */
+  .copy + .qr-button {
+    margin-inline-start: 0;
+  }
+  .qr-button::before {
+    content: "";
+    position: absolute;
+    inset: 8px;
+    z-index: -1;
+    border-radius: var(--radius-m);
+  }
+  .qr-button svg {
+    width: 15px;
+    height: 15px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.4;
+  }
+  .qr-button .qr-button__dots {
+    fill: currentColor;
+    stroke: none;
+  }
+  @media (hover: hover) {
+    .qr-button:hover {
+      color: var(--color-text);
+    }
+    .qr-button:hover::before {
+      background: var(--color-surface-sunken);
+    }
+  }
+  .qr-button[aria-expanded="true"] {
+    color: var(--color-accent);
+  }
+}
