@@ -587,7 +587,9 @@ test("the command palette has no checker finding, empty and with results, in eit
 }) => {
   await page.goto("/regtest/blocks");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Blocks");
-  await page.keyboard.press("Control+k");
+  // ⌘K where the browser says it is Apple's (the WebKit profiles), Ctrl K elsewhere.
+  const apple = await page.evaluate(() => /Mac|iPhone|iPad|iPod/.test(navigator.userAgent));
+  await page.keyboard.press(apple ? "Meta+k" : "Control+k");
   const dialog = page.getByRole("dialog", { name: "Go to" });
   await expect(dialog.getByRole("option").first()).toBeVisible();
   expect.soft(await axe(page), "axe-core, the palette empty").toEqual([]);
