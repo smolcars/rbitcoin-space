@@ -12,8 +12,12 @@ describe("chart CSV", () => {
   });
 
   it("keeps a would-be formula as text", () => {
-    for (const bad of ["=1+1", "+1", "-1", "@SUM(A1)", "\tx", "\rx", "  =cmd", "\n=cmd"]) {
+    for (const bad of ["=1+1", "+1", "-1", "@SUM(A1)", "\tx", "\rx", "  =cmd", "\n=cmd", "\nx"]) {
       expect(textField(bad).startsWith(`"'`)).toBe(true);
+    }
+    // Some spreadsheet locales read the full-width signs as the plain ones.
+    for (const wide of ["＝1+1", "＋1", "－1", "＠SUM(A1)"]) {
+      expect(textField(wide).startsWith(`"'`)).toBe(true);
     }
     expect(textField('=HYPERLINK("x")')).toBe(`"'=HYPERLINK(""x"")"`);
     expect(textField("Foundry USA")).toBe('"Foundry USA"');

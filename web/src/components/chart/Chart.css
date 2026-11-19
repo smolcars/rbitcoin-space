@@ -230,7 +230,6 @@
   }
 
   .chart__caption {
-    position: relative;
     margin-top: var(--space-2);
     font-size: var(--text-sm);
   }
@@ -242,11 +241,11 @@
     text-decoration: underline;
     text-underline-offset: 0.2em;
   }
-  /* The figures' second action, at the end of their line: out of the flow, so it moves nothing. */
+  /* The figures' second action, floated to the end of their line, so it adds no height there; where
+     the two cannot share a line (large text on a narrow phone) the figures' control goes under it. */
   .chart__csv {
-    position: absolute;
-    top: 0;
-    right: 0;
+    float: right;
+    margin-left: var(--space-4);
     padding: 0;
     border: 0;
     background: none;

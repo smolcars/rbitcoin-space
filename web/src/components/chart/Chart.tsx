@@ -904,11 +904,11 @@ export default function Chart(props: ChartProps) {
         <p id={`${id}-summary`} class="visually-hidden">
           {summary()}
         </p>
-        {/* On the figures' line, out of the flow, so the chart's height never changes. */}
+        {/* Floated to the end of the figures' line, so the chart is no taller for it. */}
         <Show when={props.x.length > 0}>
           <button
             type="button"
-            class="chart__csv"
+            class="chart__csv tap"
             aria-label={`Download CSV: ${props.label}`}
             onClick={download}
           >

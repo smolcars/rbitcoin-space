@@ -30,11 +30,12 @@ export function chartColumns(props: ChartProps): CsvColumn[] {
 
 /**
  * A text field, quoted. One that a spreadsheet would read as a formula (OWASP's CSV injection
- * guidance: `=`, `+`, `-`, `@`, a tab or a carriage return first, here also after leading
- * spaces or line breaks) gets a `'` in front, so it stays text: a pool's name is a miner's words.
+ * guidance: `=`, `+`, `-`, `@` or their full-width forms, a tab, a carriage return or a line feed
+ * first, here also after leading spaces) gets a `'` in front, so it stays text: a pool's name is a
+ * miner's words.
  */
 export function textField(text: string): string {
-  const risky = /^[\t\r]|^[\s]*[=+\-@]/u.test(text);
+  const risky = /^[\t\r\n]|^\s*[=+\-@＝＋－＠]/u.test(text);
   return `"${(risky ? `'${text}` : text).replaceAll('"', '""')}"`;
 }
 

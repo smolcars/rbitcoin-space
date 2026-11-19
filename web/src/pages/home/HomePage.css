@@ -651,8 +651,10 @@
     text-align: center;
   }
   /* The figures behind the chart are on the history page: here they would open below it and push
-     the panel taller, which is fixed. The chart keeps its slider and summary for a screen reader. */
-  .home-flow .chart__figures {
+     the panel taller, which is fixed, and their download has no line to sit on without them. The
+     chart keeps its slider and summary for a screen reader. */
+  .home-flow .chart__figures,
+  .home-flow .chart__csv {
     display: none;
   }
   .home-flow__frame {
