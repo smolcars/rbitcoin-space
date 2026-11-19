@@ -38,7 +38,7 @@ export function codeFor(text: string): QrCode | null {
   return first;
 }
 
-/** Whether the middle module is an alignment pattern's centre (versions 7 to 13, 21 to 27…). */
+/** Whether the middle module is an alignment pattern's centre: versions 7 to 13, 21 to 27, 35 to 40. */
 function middleAlignment(code: QrCode): boolean {
   const v = code.version;
   return v >= 7 && (Math.floor(v / 7) + 2) % 2 === 1;
@@ -50,6 +50,8 @@ function middleAlignment(code: QrCode): boolean {
  * its middle, versions 14 and up, which these pages never reach).
  */
 export function markFor(code: QrCode): Mark | null {
+  // From 14 the middle has no pattern of its own (14 to 20) or the room crosses others (21 and up).
+  if (code.version >= 14) return null;
   const m = (code.size - 1) / 2;
   if (code.version <= 6) {
     const max = Math.floor(code.size * MAX_CLEAR);

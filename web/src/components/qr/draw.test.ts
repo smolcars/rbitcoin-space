@@ -53,6 +53,12 @@ describe("markFor", () => {
     expect(mark.x * 2 + mark.size).toBe(code.size + 2 * QUIET);
   });
 
+  it.each([21, 27, 35, 40])("puts nothing in a version %i code, past the cutoff", (v) => {
+    const code = encodeQr("x", "Q", { minVersion: v });
+    expect(code?.version).toBe(v);
+    expect(code && markFor(code)).toBeNull();
+  });
+
   it("puts nothing in a code with alignment patterns round its middle", () => {
     const code = encodeQr("x".repeat(250), "Q");
     expect(code?.version).toBe(14);
