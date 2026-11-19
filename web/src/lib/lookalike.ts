@@ -165,6 +165,9 @@ function finding(v: unknown, from: Form, named: ReadonlySet<string>): Lookalike 
     return undefined;
   }
   if (own ? fh.ownKey !== fl.ownKey : fh.pairKey !== fl.pairKey) return undefined;
+  // One that resembles the reader's own address is said to: the address page puts that first, and
+  // a finding naming another address instead would hide what matters most.
+  if (!own && fh.ownKey === from.ownKey) return undefined;
   const found: Lookalike = {
     here,
     like,
@@ -203,12 +206,15 @@ export function readHandover(
   const seen = new Set<string>();
   for (const v of list) {
     const l = finding(v, from[1], named);
-    if (!l || seen.has(l.here)) continue;
+    if (!l) continue;
+    // A row names each lookalike address once: the same one twice is no row's writing.
+    if (seen.has(l.here)) return undefined;
     seen.add(l.here);
     found.push(l);
   }
   if (found.length === 0) return undefined;
   // Those of the reader's address first, as the address page orders them.
   found.sort((x, y) => Number(y.own) - Number(x.own));
-  return { from: from[0], found, more: total > list.length };
+  // More were left out only of a full list, every one of which holds.
+  return { from: from[0], found, more: total > list.length && found.length === HANDOVER_MAX };
 }

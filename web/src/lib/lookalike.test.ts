@@ -84,15 +84,29 @@ describe("readHandover", () => {
   });
 
   it("caps what a row writes, and says there were more", () => {
-    const many = Array.from({ length: HANDOVER_MAX + 36 }, () => own);
-    const written = JSON.parse(handoverState(VICTIM, many, poisoning.txid, "regtest")) as {
+    // A hundred addresses ground to the reader's ends, as a poisoning transaction carries them.
+    const BECH32 = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
+    const ground = Array.from({ length: HANDOVER_MAX + 36 }, (_, i): Lookalike => {
+      const a = BECH32[i % 32] ?? "q";
+      const b = BECH32[Math.floor(i / 32)] ?? "q";
+      // "92" and "mmx6" as the reader's, the characters next to them different from theirs.
+      return {
+        here: `bcrt1q92q${a}${b}${"q".repeat(28)}pmmx6`,
+        like: VICTIM,
+        own: true,
+        head: 2,
+        tail: 4,
+        prefix: 6,
+      };
+    });
+    const dusted = tx([CUSTOMER], [VICTIM, ...ground.map((l) => l.here)]);
+    const written = JSON.parse(handoverState(VICTIM, ground, dusted.txid, "regtest")) as {
       lookalike: { found: unknown[] };
     };
     expect(written.lookalike.found).toHaveLength(HANDOVER_MAX);
-    // One distinct address, said once.
-    expect(read(written, poisoning)).toStrictEqual({
+    expect(read(written, dusted)).toStrictEqual({
       from: VICTIM,
-      found: [own],
+      found: ground.slice(0, HANDOVER_MAX),
       more: true,
     });
   });
@@ -211,5 +225,42 @@ describe("readHandover holds a finding to the rule and to what it was made for",
       network: "regtest",
     });
     expect(readHandover(handed, poisoning, "regtest")).toBeUndefined();
+  });
+
+  it("says there were more only of a full list whose every finding holds", () => {
+    // Sixty-four copies of one finding claiming a sixty-fifth: no row writes an address twice.
+    const copies = raw({
+      from: VICTIM,
+      found: Array.from({ length: HANDOVER_MAX }, () => own),
+      count: HANDOVER_MAX + 1,
+    });
+    expect(readHandover(copies, poisoning, "regtest")).toBeUndefined();
+    // A full list of which only one holds: that one is marked, and nothing is said of more.
+    const padded = raw({
+      from: VICTIM,
+      found: [own, ...Array.from({ length: HANDOVER_MAX - 1 }, () => ({ ...pair, here: PAYEE }))],
+      count: HANDOVER_MAX + 1,
+    });
+    expect(readHandover(padded, poisoning, "regtest")).toStrictEqual({
+      from: VICTIM,
+      found: [own],
+      more: false,
+    });
+  });
+
+  it("refuses a finding that hides a lookalike of the reader's own address behind another's", () => {
+    // The lookalike agrees with the reader's address on two and four, and with this one on three
+    // and four: the address page says it resembles the reader's, and so must what it hands over.
+    const other = `bcrt1q92t${"a".repeat(31)}mmx6`;
+    const hidden = raw({
+      from: VICTIM,
+      found: [{ here: VICTIM_LOOKALIKE, like: other, own: false, head: 3, tail: 4, prefix: 6 }],
+      count: 1,
+    });
+    expect(readHandover(hidden, poisoning, "regtest")).toBeUndefined();
+    // Said as it is, it is taken.
+    expect(
+      readHandover(raw({ from: VICTIM, found: [own], count: 1 }), poisoning, "regtest"),
+    ).toStrictEqual({ from: VICTIM, found: [own], more: false });
   });
 });

@@ -91,6 +91,7 @@ test("warns under a payment naming a lookalike, and nowhere else", async ({ page
   expect(await cautionRule(card)).toStrictEqual({ width: "3px", caution: true });
   // On a phone its inspector's address is whole, and a tap anywhere on it, its last character
   // included, opens it rather than copying it: the copy button's target stops at its edge.
+  const before = page.viewportSize();
   await page.setViewportSize({ width: 320, height: 800 });
   await card.locator(".tx-flow__open").click();
   const missed = await page.locator("#tx-inspector .tx-lookalike-addr a").evaluate((a) => {
@@ -103,7 +104,26 @@ test("warns under a payment naming a lookalike, and nowhere else", async ({ page
     });
   });
   expect(missed).toStrictEqual([]);
-  await page.setViewportSize({ width: 1280, height: 720 });
+  // The same again at a smaller text size, where a gap in rem would shrink under the button's
+  // reach, which is in pixels.
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = "12px";
+  });
+  const missedSmall = await page.locator("#tx-inspector .tx-lookalike-addr a").evaluate((a) => {
+    a.scrollIntoView({ block: "center" });
+    return [...a.getClientRects()].flatMap((r) => {
+      const y = r.top + r.height / 2;
+      return [r.left + 1, r.right - 1].flatMap((x) =>
+        document.elementFromPoint(x, y)?.closest("a, button") === a ? [] : [`${x},${y}`],
+      );
+    });
+  });
+  expect(missedSmall).toStrictEqual([]);
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = "";
+  });
+  // Back to the width the run was given, a phone's or a desktop's.
+  await page.setViewportSize(before ?? { width: 1280, height: 720 });
   // A reload keeps it, as the browser keeps the entry's state (so does going to the same URL).
   await page.reload();
   await expect(caution).toBeVisible();
