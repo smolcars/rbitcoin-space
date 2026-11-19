@@ -17,7 +17,7 @@ let closeOpen: (() => void) | undefined;
 export function openPop(
   onClose: () => void,
   inside: () => readonly (HTMLElement | undefined)[],
-  options: { scroll?: boolean; absorb?: boolean; through?: string } = {},
+  options: { scroll?: boolean; absorb?: boolean; through?: string; follow?: boolean } = {},
 ): () => void {
   closeOpen?.();
   const press = (e: PointerEvent) => {
@@ -42,10 +42,26 @@ export function openPop(
     inside()[0]?.focus();
   };
   // A scroll or resize closes it once its button has moved: not a nudge, such as iOS Safari's
-  // toolbar settling as the pop-up opens.
-  const at = inside()[0]?.getBoundingClientRect();
-  const moved = () => {
+  // toolbar settling as the pop-up opens. With `follow`, a resize (a phone turned) does not: the
+  // pop-up places itself again, and the button's new place, and any scroll the browser makes in
+  // the next two frames to keep the page in range, become where it is measured from.
+  let at = inside()[0]?.getBoundingClientRect();
+  let settling = 0;
+  const moved = (e: Event) => {
     const now = inside()[0]?.getBoundingClientRect();
+    if (options.follow === true && (e.type === "resize" || settling > 0)) {
+      at = now;
+      if (e.type === "resize") {
+        settling++;
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => {
+            settling--;
+            at = inside()[0]?.getBoundingClientRect();
+          }),
+        );
+      }
+      return;
+    }
     if (at && now && Math.max(Math.abs(now.top - at.top), Math.abs(now.left - at.left)) > 16)
       close();
   };

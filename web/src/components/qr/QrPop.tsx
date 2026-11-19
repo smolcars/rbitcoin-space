@@ -74,10 +74,15 @@ export default function QrPop(props: {
     close = openPop(
       () => {
         close = undefined;
+        // Closed while it held focus (a scroll, a press outside): focus goes back to its button
+        // rather than to the page. A press outside moves it on to what was pressed, if anything.
+        if (pop?.contains(document.activeElement) === true)
+          props.anchor.focus({ preventScroll: true });
         if (!leaving) props.onClose();
       },
       () => [props.anchor, pop],
-      { scroll: true, absorb: true },
+      // Turned or resized, it stays open and is placed and drawn again (place, above).
+      { scroll: true, absorb: true, follow: true },
     );
     pop?.focus({ preventScroll: true });
   });

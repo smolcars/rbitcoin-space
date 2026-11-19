@@ -224,6 +224,41 @@ test("an open code is drawn again when its card changes size", async ({ page }) 
   await expect(svg).toHaveAttribute("data-drawing", "logo");
 });
 
+test("a phone turned while the code is open keeps it open, in view and drawn for its card", async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.setViewportSize({ width: 360, height: 740 });
+  const svg = await openNode(page, ONION_HOST);
+  await expect(svg).toHaveAttribute("data-drawing", "logo");
+  for (const [width, height, drawing] of [
+    [740, 360, "plain"],
+    [360, 740, "logo"],
+  ] as const) {
+    await page.setViewportSize({ width, height });
+    await twoFrames(page);
+    await expect(page.getByRole("dialog")).toBeVisible();
+    await inWindow(page);
+    // Version 10 on a 294 px card is 4.52 px a module: under the bound for soft modules.
+    await expect(svg).toHaveAttribute("data-drawing", drawing);
+  }
+});
+
+test("a scroll that carries the button away closes the code and gives focus back", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 360, height: 740 });
+  await page.goto(`/regtest/address/${chain.addresses.p2tr}`);
+  const button = page.getByRole("button", { name: "Show the address as a QR code" });
+  await button.click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await page.evaluate(() => {
+    window.scrollBy(0, 400);
+  });
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(button).toBeFocused();
+});
+
 test.describe("when the QR code's files fail", () => {
   test.use({ consoleErrorsAllowed: [/status of 503/] });
 
