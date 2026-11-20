@@ -1,8 +1,17 @@
 // The address page as of a past block (`?at=<height>`): the block field that picks one, the band
 // that says which block the page shows, and the page itself, every read pinned to that block's
 // hash. Nothing live: no topic, no ledger, no refresh. docs/FRONTEND.md "An address as of a block".
-import { useSearchParams } from "@solidjs/router";
-import { createMemo, createSignal, Match, onCleanup, Show, Switch, untrack } from "solid-js";
+import { useLocation, useSearchParams } from "@solidjs/router";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  Match,
+  onCleanup,
+  Show,
+  Switch,
+  untrack,
+} from "solid-js";
 import "../../components/Button.css";
 import { Link } from "../../components/Link";
 import { ErrorState } from "../../components/States";
@@ -41,6 +50,18 @@ export function AsOfForm(props: { id: string; current?: number | undefined }) {
   const [asking, setAsking] = createSignal(false);
   let ask: AbortController | undefined;
   onCleanup(() => ask?.abort());
+  // A date's lookup belongs to the page that asked it: moving to another address or network
+  // (the router keeps this form mounted) drops it, so its height never lands on that page.
+  const location = useLocation();
+  createEffect(
+    () => location.pathname,
+    (_, before) => {
+      if (before === undefined) return;
+      ask?.abort();
+      setAsking(false);
+      setNote(undefined);
+    },
+  );
   const noteId = `${props.id}-note`;
   const submit = async (e: SubmitEvent) => {
     e.preventDefault();
@@ -70,6 +91,7 @@ export function AsOfForm(props: { id: string; current?: number | undefined }) {
     setNote(undefined);
     try {
       const answer = await blockAt(typed.moment, net, controller.signal);
+      if (controller.signal.aborted) return;
       if (answer.kind === "found") setSearch({ at: String(answer.found.height) });
       else if (answer.kind === "none") {
         setNote(
@@ -134,32 +156,44 @@ function DepthMark() {
   );
 }
 
-type Resolved =
-  | { kind: "block"; block: Pinned; tip: number | undefined }
-  | { kind: "future"; tip: number | undefined };
+type Resolved = { kind: "block"; block: Pinned } | { kind: "future"; tip: number | undefined };
 
-/** A height on the best chain now: its hash, then that block's time, and the tip beside them. */
+/** Height lookups that may answer 404 while the tip already reaches the height, before giving up. */
+const LOOKUPS = 3;
+
+/**
+ * A height on the best chain now: its hash, then that block's time. Not found, the tip is read to
+ * name the newest block; a tip at or above the height means the block was mined between the two
+ * answers, and the height is looked up again.
+ */
 async function resolve(net: Network, height: number, signal: AbortSignal): Promise<Resolved> {
-  // Only to say how far the chain reaches and to stop "Next" there; never read into the figures.
-  const tip = fetchApi<string>(net, "/blocks/tip/height", { as: "text", signal, fresh: true }).then(
-    readTip,
-    () => undefined,
-  );
-  let hash: string;
-  try {
-    hash = (
-      await fetchApi<string>(net, `/block-height/${height}`, { as: "text", signal, fresh: true })
-    ).trim();
-  } catch (error) {
-    if (isNotFound(error)) return { kind: "future", tip: await tip };
-    throw error;
+  const lookup = () =>
+    fetchApi<string>(net, `/block-height/${height}`, { as: "text", signal, fresh: true });
+  let hash: string | undefined;
+  for (let i = 0; hash === undefined; i++) {
+    try {
+      // oxlint-disable-next-line no-await-in-loop -- each lookup follows the tip read before it
+      hash = (await lookup()).trim();
+    } catch (error) {
+      if (!isNotFound(error)) throw error;
+      // oxlint-disable-next-line no-await-in-loop -- only after a 404
+      const tip = await fetchApi<string>(net, "/blocks/tip/height", {
+        as: "text",
+        signal,
+        fresh: true,
+      }).then(readTip, () => undefined);
+      if (tip === undefined || tip < height) return { kind: "future", tip };
+      if (i + 1 >= LOOKUPS) {
+        throw new Error(`The node does not answer for block ${height} yet.`, { cause: error });
+      }
+    }
   }
   const block = /^[0-9a-f]{64}$/.test(hash)
     ? await fetchApi<unknown>(net, `/block/${hash}`, { signal })
     : undefined;
   const pinned = readPinned(hash, block, height);
   if (pinned === undefined) throw new Error("The node's answer for this block could not be read.");
-  return { kind: "block", block: pinned, tip: await tip };
+  return { kind: "block", block: pinned };
 }
 
 /**
@@ -187,8 +221,11 @@ export function PinnedBody(props: { address: string; isKey: boolean; at: At }) {
   );
 }
 
-/** The band's actions: back to the present, and another block. */
-function Actions(props: { height?: number | undefined; tip?: number | undefined }) {
+/**
+ * The band's actions: back to the present, and another block. "Next" is always offered: a step
+ * past the tip lands on "has not been mined yet", which names the newest block then.
+ */
+function Actions(props: { height?: number | undefined }) {
   const [, setSearch] = useSearchParams<{ at: string }>();
   const [open, setOpen] = createSignal(false);
   const step = (h: number) => setSearch({ at: String(h) }, { scroll: false });
@@ -204,12 +241,7 @@ function Actions(props: { height?: number | undefined; tip?: number | undefined 
               <span aria-hidden="true">‹</span> Block {groupDigits((props.height ?? 1) - 1)}
             </button>
           </Show>
-          <button
-            class="btn"
-            type="button"
-            disabled={props.tip !== undefined && (props.height ?? 0) >= props.tip}
-            onClick={() => step((props.height ?? 0) + 1)}
-          >
+          <button class="btn" type="button" onClick={() => step((props.height ?? 0) + 1)}>
             Block {groupDigits((props.height ?? 0) + 1)} <span aria-hidden="true">›</span>
           </button>
         </Show>
@@ -294,7 +326,10 @@ function PinnedAt(props: { address: string; isKey: boolean; height: number; agai
     refetchStats();
     if (first.state === "errored") refetchFirst();
   };
-  const tip = () => answer()?.tip;
+  const tip = () => {
+    const a = answer();
+    return a?.kind === "future" ? a.tip : undefined;
+  };
   const pinnedFor = createMemo(() => {
     const b = block();
     return b === undefined ? undefined : { hash: b.hash, height: b.height };
@@ -341,7 +376,7 @@ function PinnedAt(props: { address: string; isKey: boolean; height: number; agai
               {`The ${noun}'s figures, coins and history as they stood at this block. Later blocks and unconfirmed transactions are left out, and the page does not update.`}
             </p>
           </Show>
-          <Actions height={answer()?.kind === "future" ? undefined : height} tip={tip()} />
+          <Actions height={answer()?.kind === "future" ? undefined : height} />
         </div>
       </section>
       <Switch>
@@ -393,16 +428,15 @@ function PinnedAt(props: { address: string; isKey: boolean; height: number; agai
           </Notice>
         </Match>
         <Match when={failure() === "too-large"}>
-          <Notice title={`This ${noun} cannot be shown as of a past block`}>
-            It has more history than this server's node will add up, now or at any block, which is
-            common for exchange and mining pool addresses.
+          <Notice title={`This server does not add this ${noun} up`}>
+            {`It has taken this ${noun} for one with too much history to add up, so it shows no totals, transactions or coins for it, as of a past block or otherwise.`}
           </Notice>
         </Match>
         <Match when={kept()}>
           <Notice title={`Totals at block ${groupDigits(height)} are not kept for this ${noun}`}>
             It has so much history that this server keeps its running totals only as they stand now,
-            not its balance at past blocks. Its transactions are listed below while this block is
-            among the server's last 100.
+            not its balance at past blocks. Its transactions as of this block are listed below only
+            if the server keeps its whole history and this block is among the server's last 100.
           </Notice>
           <Show when={pinnedFor()}>
             {(p) => (
@@ -423,7 +457,7 @@ function PinnedAt(props: { address: string; isKey: boolean; height: number; agai
         </Match>
         <Match when={unused()}>
           <Notice title={`Not used yet at block ${groupDigits(height)}`}>
-            {`No transaction had paid to or spent from this ${noun} by this block: its balance then was nothing. Its first transaction came later. Try a later block, or go back to now.`}
+            {`No transaction paying or spending this ${noun} had confirmed by block ${groupDigits(height)}.`}
           </Notice>
         </Match>
         <Match when={true}>

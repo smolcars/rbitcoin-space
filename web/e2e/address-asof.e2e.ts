@@ -3,6 +3,7 @@
 // it in block 107, the P2WPKH address was paid 91 BTC in block 106 and has two payments waiting.
 import type { Page } from "@playwright/test";
 import { chain, expect, test } from "./fixtures";
+import { freshAddress, gate } from "./regtest";
 
 // Refusals and failures these tests make on purpose.
 test.use({ consoleErrorsAllowed: [/status of (404|502|503|504)/] });
@@ -160,7 +161,9 @@ test("a large address, kept or not, says what it cannot show as of a block", asy
   const address = chain.addresses.p2pkh;
   await refuseTotals(page, address, 503, "address history too large for this server");
   await page.goto(`/regtest/address/${address}?at=108`);
-  await expect(page.getByText("This address cannot be shown as of a past block")).toBeVisible();
+  await expect(page.getByText("This server does not add this address up")).toBeVisible();
+  // It says what the server established, not that the node refuses at every block.
+  await expect(page.getByText(/node will add up|at any block/)).toHaveCount(0);
   await expect(page.locator(".address-stats")).toHaveCount(0);
 
   await page.unrouteAll();
@@ -257,4 +260,148 @@ test("the block field and the band fit a 320 px phone without a sideways scroll"
   await band(page).getByRole("button", { name: "Another block" }).click();
   await expect(page.getByLabel("Block height or date")).toHaveValue("106");
   expect(await wide()).toBe(false);
+});
+
+test("a date's lookup still running when the reader moves to another address is dropped", async ({
+  page,
+}) => {
+  const { open, shut } = gate();
+  await page.route(
+    (url) => url.pathname.startsWith("/regtest/api/v1/mining/blocks/timestamp/"),
+    async (route) => {
+      await shut;
+      await route.continue().catch(() => undefined);
+    },
+  );
+  await page.goto(`/regtest/address/${chain.addresses.p2tr}`);
+  await page.getByRole("button", { name: "As of a block" }).click();
+  await page.getByLabel("Block height or date").fill("2026-01-01");
+  await page.getByLabel("Block height or date").press("Enter");
+  await expect(page.getByRole("button", { name: "Looking up…" })).toBeVisible();
+  // Within the app, to another address: the router keeps the header's field mounted.
+  const search = page.getByRole("search").getByRole("combobox", { name: "Search" });
+  await search.fill(chain.addresses.p2sh);
+  await search.press("Enter");
+  await expect(page).toHaveURL(`/regtest/address/${chain.addresses.p2sh}`);
+  // The answer is let through (or its request was already dropped): either way, not applied.
+  open();
+  await page.waitForTimeout(1500);
+  await expect(page).toHaveURL(`/regtest/address/${chain.addresses.p2sh}`);
+});
+
+test("the snapshot never waits on the tip, which is read only to name the newest block", async ({
+  page,
+}) => {
+  const { open, shut } = gate();
+  let tipAsked = 0;
+  await page.route(
+    (url) => url.pathname === "/regtest/api/blocks/tip/height",
+    async (route) => {
+      tipAsked++;
+      await shut;
+      await route.continue().catch(() => undefined);
+    },
+  );
+  try {
+    await page.goto(`/regtest/address/${chain.addresses.p2tr}?at=107`);
+    await expect(stat(page, "Balance")).toHaveText("1.49 BTC");
+    await expect(rows(page)).toHaveCount(2);
+    expect(tipAsked).toBe(0);
+  } finally {
+    open();
+  }
+});
+
+test("a height not found while the tip already reaches it is looked up again", async ({ page }) => {
+  // The lookup misses, then the block is there: mined between the two answers.
+  let misses = 1;
+  await page.route(
+    (url) => url.pathname === "/regtest/api/block-height/107",
+    (route) =>
+      misses-- > 0
+        ? route.fulfill({ status: 404, json: { error: "not found" } })
+        : route.continue(),
+  );
+  await page.goto(`/regtest/address/${chain.addresses.p2tr}?at=107`);
+  await expect(stat(page, "Balance")).toHaveText("1.49 BTC");
+  await expect(page.getByText("has not been mined yet")).toHaveCount(0);
+});
+
+test("next is offered at the tip, and a step past it says the block is not mined yet", async ({
+  page,
+}) => {
+  const tip = chain.tip.height;
+  await page.goto(`/regtest/address/${chain.addresses.p2tr}?at=${tip}`);
+  await expect(stat(page, "Balance")).toHaveText("1.49 BTC");
+  await band(page)
+    .getByRole("button", { name: `Block ${tip + 1}` })
+    .click();
+  await expect(page).toHaveURL(new RegExp(`\\?at=${tip + 1}$`));
+  await expect(page.getByText(`Block ${tip + 1} has not been mined yet`)).toBeVisible();
+  await expect(page.getByText(`The newest block is ${tip}.`)).toBeVisible();
+});
+
+test("an empty history as of a block says only what had confirmed by it", async ({ page }) => {
+  await page.goto(`/regtest/address/${freshAddress()}?at=${chain.tip.height}`);
+  await expect(
+    page.getByText(
+      `No transaction paying or spending this address had confirmed by block ${chain.tip.height}.`,
+    ),
+  ).toBeVisible();
+  await expect(page.getByText(/came later|will show here|never been used/)).toHaveCount(0);
+
+  // A kept address whose list as of the block is empty.
+  const address = chain.addresses.p2pkh;
+  const notKept = "unspent outputs and older history are not kept for an address this large";
+  await refuseTotals(page, address, 503, notKept);
+  await page.route(
+    (url) => url.pathname === `/regtest/api/address/${address}/txs/chain`,
+    (route) => route.fulfill({ json: [] }),
+  );
+  await page.goto(`/regtest/address/${address}?at=108`);
+  await expect(page.getByText("No transactions by block 108")).toBeVisible();
+  await expect(
+    page.getByText("No transaction paying or spending this address had confirmed by block 108."),
+  ).toBeVisible();
+  await expect(page.getByText(/never been used|will show here/)).toHaveCount(0);
+  // The notice promises the list under both of the server's conditions, not one.
+  await expect(page.getByText(/keeps its whole history and this block is among/)).toBeVisible();
+});
+
+test("every address read carries the one resolved hash, paged and after a change of block", async ({
+  page,
+}) => {
+  const address = chain.addresses.miner;
+  const hashOf = async (h: number) =>
+    (await (await page.request.get(`/regtest/api/block-height/${h}`)).text()).trim();
+  const [at107, at108] = [await hashOf(107), await hashOf(108)];
+  let want = at107;
+  const seen: { url: string; asof: string | null; want: string }[] = [];
+  page.on("request", (r) => {
+    const u = new URL(r.url());
+    if (/^\/regtest\/(api|app)\/address\//.test(u.pathname) && u.pathname.includes(address)) {
+      seen.push({ url: u.pathname + u.search, asof: u.searchParams.get("asof"), want });
+    }
+  });
+  await page.goto(`/regtest/address/${address}?at=107`);
+  await expect(rows(page)).toHaveCount(25);
+  await page.getByRole("button", { name: "Show 25 more" }).click();
+  await expect(rows(page)).toHaveCount(50);
+  const chart = page.getByRole("slider", { name: /^Confirmed balance after each block/ });
+  await expect(chart).toBeVisible();
+  const paged = seen.filter((s) => /\/txs\/chain\/[0-9a-f]{64}/.test(s.url));
+  expect(paged.length).toBeGreaterThan(0);
+
+  want = at108;
+  await band(page).getByRole("button", { name: "Block 108" }).click();
+  await expect(band(page).getByRole("heading")).toHaveText("As of block 108");
+  await expect(rows(page)).toHaveCount(25);
+  await page.getByRole("button", { name: "Show 25 more" }).click();
+  await expect(rows(page)).toHaveCount(50);
+  await page.getByRole("tab", { name: "Unspent outputs" }).click();
+  await expect(rows(page).first()).toBeVisible();
+  await expect(chart).toBeVisible();
+
+  expect(seen.filter((s) => s.want === at108).length).toBeGreaterThan(3);
+  expect(seen.filter((s) => s.asof !== s.want)).toStrictEqual([]);
 });

@@ -73,6 +73,11 @@ test("a pinned block that a reorganization replaces is said, and the height is l
   const old = await rpc<string>("getblockhash", [height]);
   await page.goto(`/regtest/address/${address}?at=${height}`);
   await expect(balance(page)).toHaveText("0.200 BTC");
+  // Every read the page makes by itself is in (the chart's last), so the tab below is the one
+  // pinned read after the reorganization.
+  await expect(
+    page.getByRole("slider", { name: "Confirmed balance after each block" }),
+  ).toBeVisible();
 
   // The block is replaced by one that does not hold the payment, and the chain grows past it.
   // `invalidateblock` answers null, which the helper takes for a failure: the tip says.

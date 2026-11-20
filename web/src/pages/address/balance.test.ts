@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Stamped } from "../../lib/api";
+import { ApiError, type Stamped } from "../../lib/api";
 import type { TxSummary } from "../../lib/esplora";
 import {
   advance,
@@ -160,6 +160,29 @@ describe("loadHistory", () => {
     const h = await loadHistory(BASE, flaky);
     expect(h).toMatchObject({ complete: false, balance: 77_777, total: 300 });
     expect(h.rows).toHaveLength(50);
+  });
+
+  it("as of a block, a later page answered 404 means the block left the chain: no partial chart", async () => {
+    const rows = Array.from({ length: 300 }, (_, i) => row(300 - i, 100));
+    const n = node(rows, 77_777, 300);
+    const pinned = "a".repeat(64);
+    const gone = (p: string) =>
+      p.includes(`/txs/summary/${txid(276)}`)
+        ? Promise.reject(new ApiError(404, "Not found."))
+        : n.fetch(p);
+    await expect(loadHistory(BASE, gone, MAX_PAGES, undefined, pinned)).rejects.toMatchObject({
+      status: 404,
+    });
+    // Its totals are never asked: they could come from before the block left.
+    expect(n.asked.some((p) => p === `${BASE}?asof=${pinned}`)).toBe(false);
+    // Any other failure of a later page keeps the pages already in, anchored, as before.
+    const slow = (p: string) =>
+      p.includes(`/txs/summary/${txid(276)}`)
+        ? Promise.reject(new ApiError(504, "Request timed out."))
+        : n.fetch(p);
+    const h = await loadHistory(BASE, slow, MAX_PAGES, undefined, pinned);
+    expect(h).toMatchObject({ complete: false, balance: 77_777, total: 300 });
+    expect(h.rows).toHaveLength(25);
   });
 
   it("knows a history of exactly the cap is whole when the totals agree", async () => {

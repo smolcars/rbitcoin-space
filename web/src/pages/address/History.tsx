@@ -530,6 +530,12 @@ function Transactions(props: {
           retry={props.retryFirst}
         />
       </Match>
+      <Match when={props.shown?.length === 0 && props.at !== undefined}>
+        <Empty title={`No transactions by block ${groupDigits(props.at ?? 0)}`}>
+          No transaction paying or spending this address had confirmed by block{" "}
+          {groupDigits(props.at ?? 0)}.
+        </Empty>
+      </Match>
       <Match when={props.shown?.length === 0}>
         <Empty title="This address has never been used">
           No transaction on {NETWORK_NAMES[network()]} has paid to it or spent from it. A payment to
