@@ -1642,3 +1642,177 @@ async fn a_block_s_channels_are_found_by_its_hash_and_capped() {
     }
     assert_eq!(calls.load(Ordering::SeqCst), 0);
 }
+
+/// A node's close record: its stored closes by kind, by peer and with their fees, for a node in
+/// the graph and for one that has left it; no node call, strict about the key.
+#[tokio::test]
+async fn a_node_s_close_record_comes_from_its_stored_closes() {
+    let d = dir("record");
+    let (nodes, channels) = graph::fill(&d.0).await;
+    // Node 5 left the graph: its only channel, with node 1, was force closed.
+    {
+        let store = Store::open(&d.0, "regtest", Options::default()).unwrap();
+        lightning::apply(
+            &store,
+            vec![Change::Closed(
+                graph::sopen(graph::scid(799_700, 4, 0), 5, 1, 600_000, 0),
+                Close {
+                    block: graph::at(800_303, 4),
+                    txid: graph::txid(0x66),
+                    kind: Kind::Force,
+                    fee: Some(2_500),
+                },
+            )],
+        )
+        .await
+        .unwrap();
+        store.close().await;
+    }
+    let (addr, calls, _server, _stop, ln) = start(&d.0, true).await;
+    graph::install(&d.0, &ln.unwrap(), nodes, channels).await;
+    let record = |n: u8| {
+        let addr = addr.clone();
+        async move {
+            let key = graph::hex(&graph::key(n));
+            get(&addr, &format!("/regtest/app/lightning/nodes/{key}/closes")).await
+        }
+    };
+
+    let one = record(1).await;
+    assert_eq!(one.status, 200);
+    assert_eq!(one.header("cache-control"), Some("public, max-age=10"));
+    let v = one.json();
+    // The history starts a day after T; every close is later.
+    assert_eq!(v["from"], graph::T + graph::DAY);
+    assert_eq!(v["minimum"], 20);
+    let n = &v["node"];
+    assert_eq!(
+        [
+            &n["closed"],
+            &n["cooperative"],
+            &n["force"],
+            &n["penalty"],
+            &n["other"]
+        ],
+        [3, 0, 1, 1, 1].map(Value::from).each_ref()
+    );
+    // Three closes are not a rate.
+    assert_eq!(n["shares"], Value::Null);
+    assert_eq!(
+        n["fees"],
+        serde_json::json!({
+            "cooperative": { "sum": 0, "known": 0 },
+            "force": { "sum": 2_500, "known": 1 },
+            "penalty": { "sum": 0, "known": 0 },
+            "other": { "sum": 1_000, "known": 1 },
+        })
+    );
+    let weeks = n["weeks"].as_array().unwrap();
+    let summed: u64 = weeks
+        .iter()
+        .map(|w| {
+            ["cooperative", "force", "penalty", "other"]
+                .iter()
+                .map(|k| w[k].as_u64().unwrap())
+                .sum::<u64>()
+        })
+        .sum();
+    assert_eq!(summed, 3, "each close in one week");
+    assert!(weeks.windows(2).all(|w| w[1]["time"].as_u64().unwrap()
+        - w[0]["time"].as_u64().unwrap()
+        == 7 * graph::DAY));
+    // Its peers with a commitment close: 3 (a breach, one channel still open with it) and 5,
+    // gone from the graph (no alias, nothing open); 2 had only a close by neither protocol.
+    let p = &v["peers"];
+    assert_eq!(
+        (
+            p["count"].as_u64(),
+            p["forced"].as_u64(),
+            p["more"].as_u64()
+        ),
+        (Some(3), Some(2), Some(0))
+    );
+    let list = p["list"].as_array().unwrap();
+    assert_eq!(list.len(), 2);
+    let three = list
+        .iter()
+        .find(|r| r["id"] == graph::hex(&graph::key(3)))
+        .unwrap();
+    assert_eq!(
+        (
+            three["penalty"].as_u64(),
+            three["closed"].as_u64(),
+            three["open"].as_u64()
+        ),
+        (Some(1), Some(1), Some(1))
+    );
+    assert_eq!(
+        (&three["alias"], &three["shares"]),
+        (&Value::Null, &Value::Null)
+    );
+    let five = list
+        .iter()
+        .find(|r| r["id"] == graph::hex(&graph::key(5)))
+        .unwrap();
+    assert_eq!(
+        (five["force"].as_u64(), five["open"].as_u64()),
+        (Some(1), Some(0))
+    );
+
+    // Node 5 is not in the graph, but its close is stored: its record still answers.
+    let gone = record(5).await;
+    assert_eq!(gone.status, 200);
+    let g = gone.json();
+    assert_eq!(
+        (g["node"]["closed"].as_u64(), g["node"]["force"].as_u64()),
+        (Some(1), Some(1))
+    );
+    assert_eq!(g["peers"]["list"][0]["id"], graph::hex(&graph::key(1)));
+    assert_eq!(g["peers"]["list"][0]["alias"], "ACINQ");
+    // Node 4 is in the graph with no close: an empty record, not a refusal.
+    let none = record(4).await.json();
+    assert_eq!(
+        (
+            none["node"]["closed"].as_u64(),
+            none["peers"]["count"].as_u64()
+        ),
+        (Some(0), Some(0))
+    );
+    // The network's figures come with the overview's computation, each channel once.
+    for _ in 0..80 {
+        if !record(1).await.json()["network"].is_null() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    let net = record(1).await.json()["network"].clone();
+    assert_eq!(
+        [
+            &net["closed"],
+            &net["cooperative"],
+            &net["force"],
+            &net["penalty"],
+            &net["other"]
+        ],
+        [4, 1, 1, 1, 1].map(Value::from).each_ref(),
+        "{net}"
+    );
+    assert_eq!(
+        net["fees"]["cooperative"],
+        serde_json::json!({ "sum": 300, "known": 1 })
+    );
+
+    // A node never seen, a malformed key, and the route takes no parameters that change it.
+    let unknown = record(9).await;
+    assert_eq!(
+        (unknown.status, unknown.json()["error"].as_str()),
+        (404, Some("node not found"))
+    );
+    let bad = get(&addr, "/regtest/app/lightning/nodes/03zz/closes").await;
+    assert_eq!(bad.status, 400);
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        0,
+        "the record called the node"
+    );
+}

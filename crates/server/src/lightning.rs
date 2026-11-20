@@ -1101,6 +1101,7 @@ pub fn routes() -> Router<Arc<NetworkContext>> {
         .merge(fees::routes())
         .merge(feed::routes())
         .merge(movers::routes())
+        .merge(record::routes())
         .merge(penalties::routes())
 }
 
@@ -1557,5 +1558,6 @@ mod index;
 mod movers;
 pub(crate) mod nodes;
 mod penalties;
+mod record;
 #[cfg(test)]
 mod tests;

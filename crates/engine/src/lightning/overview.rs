@@ -18,6 +18,8 @@ pub struct Row {
     pub open: u64,
     /// The closing block's time and the kind: `Penalty` once a breach was swept.
     pub close: Option<(u64, Kind)>,
+    /// The closing transaction's fee, sats, when the node said.
+    pub fee: Option<u64>,
 }
 
 /// Every stored channel: one pass over the table.
@@ -26,7 +28,8 @@ pub async fn rows(store: &Store) -> Result<Vec<Row>, Error> {
         .read(Read::LightningIndex, |sql| {
             let mut s = sql.prepare(
                 "SELECT node_one, node_two, capacity, open_time, close_time, \
-                 CASE WHEN penalty_txid IS NOT NULL THEN 2 ELSE close_kind END FROM ln_channels",
+                 CASE WHEN penalty_txid IS NOT NULL THEN 2 ELSE close_kind END, close_fee \
+                 FROM ln_channels",
             )?;
             let mut q = s.query([])?;
             let mut out = Vec::new();
@@ -48,11 +51,15 @@ pub async fn rows(store: &Store) -> Result<Vec<Row>, Error> {
                     )),
                     _ => None,
                 };
+                let fee = r
+                    .get::<_, Option<i64>>(6)?
+                    .and_then(|f| u64::try_from(f).ok());
                 out.push(Row {
                     nodes: [key(0)?, key(1)?],
                     capacity: num(2)?,
                     open: num(3)?,
                     close,
+                    fee,
                 });
             }
             Ok(out)
@@ -233,6 +240,7 @@ mod tests {
             capacity,
             open,
             close,
+            fee: None,
         }
     }
 

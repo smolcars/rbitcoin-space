@@ -11,6 +11,7 @@ use axum::body::Bytes;
 use axum::extract::{RawQuery, State};
 use axum::routing::get;
 use engine::lightning::overview::{self, Day, Mover, Movers};
+use engine::lightning::record::{self, Record};
 use engine::lightning::{self as store_ln, DAY, Index};
 use engine::store::Store;
 use serde_json::{Value, json};
@@ -30,12 +31,16 @@ const PERIODS: [(&str, u64); 3] = [("24h", DAY), ("1w", 7 * DAY), ("1m", 30 * DA
 const DAYS: u64 = 90;
 const DEFAULT_DAYS: u64 = 30;
 
-/// The last computation: each period's movers answer, encoded, and the closes of [`DAYS`] days.
+/// The last computation: each period's movers answer, encoded, the closes of [`DAYS`] days, and
+/// the network's close record since its history starts.
 #[derive(Debug)]
 pub(crate) struct Overview {
-    time: u64,
+    pub(crate) time: u64,
     movers: [Bytes; 3],
     closes: Vec<Day>,
+    /// When the close record starts: the history's start, or the oldest close if older.
+    pub(crate) record_from: Option<u64>,
+    pub(crate) network: Record,
 }
 
 /// Works the figures out every [`EVERY`] once the graph is indexed, until the peer stops.
@@ -59,6 +64,7 @@ async fn compute(store: &Store, l: &Arc<Lightning>, index: Arc<Index>) -> bool {
     };
     let read = started.elapsed();
     let now = store_ln::unix_now();
+    let start = index.start;
     let work = tokio::task::spawn_blocking(move || {
         let started = Instant::now();
         let movers = PERIODS.map(|(name, span)| {
@@ -67,10 +73,12 @@ async fn compute(store: &Store, l: &Arc<Lightning>, index: Arc<Index>) -> bool {
             Bytes::from(serde_json::to_vec(&v).unwrap_or_default())
         });
         let closes = overview::closes(&rows, now, DAYS);
-        (movers, closes, started.elapsed())
+        let record_from = start.into_iter().chain(record::first_close(&rows)).min();
+        let network = record::network(&rows, record_from.unwrap_or(now), now);
+        (movers, closes, record_from, network, started.elapsed())
     })
     .await;
-    let Ok((movers, closes, took)) = work else {
+    let Ok((movers, closes, record_from, network, took)) = work else {
         l.overview_failures.fetch_add(1, Ordering::Relaxed);
         return false;
     };
@@ -78,6 +86,8 @@ async fn compute(store: &Store, l: &Arc<Lightning>, index: Arc<Index>) -> bool {
         time: now,
         movers,
         closes,
+        record_from,
+        network,
     }));
     let us = |d: Duration| d.as_micros().try_into().unwrap_or(u64::MAX);
     l.overview_read_us.store(us(read), Ordering::Relaxed);

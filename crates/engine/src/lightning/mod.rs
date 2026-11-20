@@ -9,6 +9,7 @@ mod db;
 pub mod fees;
 mod graph;
 pub mod overview;
+pub mod record;
 mod sampler;
 
 pub use db::{
