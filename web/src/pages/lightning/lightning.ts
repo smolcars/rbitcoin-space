@@ -1498,3 +1498,187 @@ export function baseShort(msatValue: number): string {
   if (m > 0 && m < 1000) return msat(m);
   return msatAsSats(m).replace(/ sats?$/, "");
 }
+
+// A node's close record (`/app/lightning/nodes/:key/closes`): how its channels this server watched
+// ended, by kind, week and peer, beside every channel's over the same span.
+
+export type ByKind = Record<CloseKind, number>;
+
+export interface RecordTally extends ByKind {
+  closed: number;
+  /** Each kind's share of `closed` in percent to one decimal; null below the answer's `minimum`. */
+  shares: ByKind | null;
+  /** The closing transactions' fees, sats, over the closes whose fee is known. */
+  fees: Record<CloseKind, { sum: number; known: number }>;
+  /** Monday 00:00 UTC of each week from the record's start, oldest first. */
+  weeks: (ByKind & { time: number })[];
+}
+
+export interface RecordPeer extends ByKind {
+  id: string;
+  alias: string | null;
+  closed: number;
+  shares: ByKind | null;
+  /** The node's channels with this peer open now. */
+  open: number;
+}
+
+export interface NodeCloses {
+  id: string;
+  /** When the record starts; null before this server's history has. */
+  from: number | null;
+  time: number;
+  /** The fewest closes a share is given for. */
+  minimum: number;
+  node: RecordTally;
+  /** `list`: the peers it had a force close or penalty with, most first; `more` left out. */
+  peers: { count: number; forced: number; list: RecordPeer[]; more: number };
+  /** Every stored channel's record, each close once; null until the server first works it out. */
+  network: (RecordTally & { time: number }) | null;
+}
+
+/** Each kind a count of zero or more: not a type guard, so the object stays an `Obj` to check on. */
+const kindCounts = (v: Obj): boolean => CLOSE_KINDS.every((k) => num(v[k]) && v[k] >= 0);
+const isByKind = (v: unknown): v is ByKind => obj(v) && kindCounts(v);
+
+const isWeek = (w: unknown): w is ByKind & { time: number } =>
+  obj(w) && kindCounts(w) && num(w["time"]);
+
+const isTally = (v: unknown): v is RecordTally => {
+  if (!obj(v) || !kindCounts(v) || !obj(v["fees"])) return false;
+  const fees = v["fees"];
+  return (
+    num(v["closed"]) &&
+    nullable(v["shares"], isByKind) &&
+    CLOSE_KINDS.every((k) => {
+      const f = fees[k];
+      return obj(f) && num(f["sum"]) && num(f["known"]);
+    }) &&
+    list(v["weeks"], isWeek)
+  );
+};
+
+const isRecordPeer = (v: unknown): v is RecordPeer =>
+  obj(v) &&
+  kindCounts(v) &&
+  str(v["id"]) &&
+  nullable(v["alias"], str) &&
+  num(v["closed"]) &&
+  num(v["open"]) &&
+  nullable(v["shares"], isByKind);
+
+export const isNodeCloses = (v: unknown): v is NodeCloses => {
+  if (!obj(v) || !obj(v["peers"])) return false;
+  const p = v["peers"];
+  const n = v["network"];
+  return (
+    str(v["id"]) &&
+    nullable(v["from"], num) &&
+    num(v["time"]) &&
+    num(v["minimum"]) &&
+    isTally(v["node"]) &&
+    num(p["count"]) &&
+    num(p["forced"]) &&
+    num(p["more"]) &&
+    list(p["list"], isRecordPeer) &&
+    (n === null || (obj(n) && num(n["time"]) && isTally(n)))
+  );
+};
+
+/**
+ * Each kind in a node's record, in a few words: what the chain shows, never who did it. The words
+ * of docs/LIGHTNING.md "How a close is classified", as `CLOSE_WORDS` gives them in full.
+ */
+export const RECORD_WORDS: Record<CloseKind, string> = {
+  cooperative: "Likely a mutual close; a splice that took funds out looks the same",
+  force: "One end broadcast its commitment; the chain does not say which end",
+  penalty: "A revoked state was broadcast and swept; the record does not say by which end",
+  other: "Not a close by either protocol: most likely a splice that added funds",
+};
+
+/** A share as the record writes it: whole percent, one decimal under 10, "under 0.1%" above none, "0%" for none. */
+export function shareText(percent: number, closes: number): string {
+  if (closes === 0) return "0%";
+  if (percent < 0.1) return "under 0.1%";
+  // Near 100 a whole number would round a close away: 402 of 403 is not all of them.
+  return percent < 10 || (percent > 99 && percent < 100)
+    ? `${percent.toFixed(1)}%`
+    : `${Math.round(percent)}%`;
+}
+
+/** Kinds worth a row or column: every kind with a close in either record, cooperative and force always. */
+export function kindsIn(...tallies: (ByKind | null)[]): CloseKind[] {
+  return CLOSE_KINDS.filter(
+    (k) => k === "cooperative" || k === "force" || tallies.some((t) => t !== null && t[k] > 0),
+  );
+}
+
+/** Fees of one kind per close, rounded to the sat; null with no fee known. */
+export const perClose = (f: { sum: number; known: number }): number | null =>
+  f.known === 0 ? null : Math.round(f.sum / f.known);
+
+export interface WeekRow extends ByKind {
+  /** The week's Monday, or null for the weeks before those shown, summed. */
+  time: number | null;
+  closed: number;
+  /** Every channel's closes that week and how many were force closes or penalties. */
+  network: { closed: number; forced: number } | null;
+}
+
+const sum = (k: ByKind): number => CLOSE_KINDS.reduce((a, x) => a + k[x], 0);
+
+/**
+ * The newest `keep` weeks, newest first, and the weeks before them summed as one row (`time`
+ * null) when there are any. The network's week is matched by its Monday.
+ */
+export function weekRows(
+  weeks: readonly (ByKind & { time: number })[],
+  network: readonly (ByKind & { time: number })[] | null,
+  keep = 8,
+): WeekRow[] {
+  const net = new Map(network?.map((w) => [w.time, w]));
+  const row = (k: ByKind, time: number | null, n: ByKind | null): WeekRow => ({
+    time,
+    cooperative: k.cooperative,
+    force: k.force,
+    penalty: k.penalty,
+    other: k.other,
+    closed: sum(k),
+    network: n === null ? null : { closed: sum(n), forced: n.force + n.penalty },
+  });
+  const newest = [...weeks];
+  newest.reverse();
+  const shown = newest.slice(0, keep).map((w) => row(w, w.time, net.get(w.time) ?? null));
+  const earlier = newest.slice(keep);
+  if (earlier.length === 0) return shown;
+  const add = (ws: readonly ByKind[]): ByKind => ({
+    cooperative: ws.reduce((a, w) => a + w.cooperative, 0),
+    force: ws.reduce((a, w) => a + w.force, 0),
+    penalty: ws.reduce((a, w) => a + w.penalty, 0),
+    other: ws.reduce((a, w) => a + w.other, 0),
+  });
+  const netEarlier = earlier.map((w) => net.get(w.time)).filter((w) => w !== undefined);
+  return [...shown, row(add(earlier), null, network === null ? null : add(netEarlier))];
+}
+
+/**
+ * Who its force closes and penalties were with, in one sentence: how many, with how many peers,
+ * and the most with any one. Never who closed: the chain does not say.
+ */
+export function peersInWords(r: NodeCloses): string {
+  const forced = r.node.force + r.node.penalty;
+  if (forced === 0) return "None of its closes was a force close or a penalty.";
+  const what =
+    r.node.penalty === 0
+      ? count(r.node.force, "force close")
+      : r.node.force === 0
+        ? count(r.node.penalty, "penalty", "penalties")
+        : `${count(r.node.force, "force close")} and ${count(r.node.penalty, "penalty", "penalties")}`;
+  const peers = r.peers.forced;
+  const top = r.peers.list[0];
+  const most = top === undefined ? 0 : top.force + top.penalty;
+  if (forced === 1)
+    return `Its one ${r.node.force === 1 ? "force close" : "penalty"} was with the peer below.`;
+  if (peers === 1) return `Its ${what} were all with one peer.`;
+  return `Its ${what} were with ${groupDigits(peers)} different peers, at most ${groupDigits(most)} with any one.`;
+}

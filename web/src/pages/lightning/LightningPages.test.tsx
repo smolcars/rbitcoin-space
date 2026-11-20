@@ -23,6 +23,7 @@ import {
   CLOSING,
   closedChannel,
   closedOf,
+  closeRecord,
   closeEvent,
   closes,
   EARLIER,
@@ -36,12 +37,14 @@ import {
   openChannel,
   overview,
   PENUMBRA,
+  recordPeer,
   series,
   stats,
   SWEEP,
   synced,
   syncing,
   T0,
+  tally,
   top,
 } from "./testdata";
 
@@ -908,6 +911,122 @@ describe("a node", () => {
     const bad = open("/lightning/node/not-a-key");
     await shows(bad, "Not a node's public key");
     expect(requests.filter((r) => r.includes("not-a-key"))).toStrictEqual([]);
+  });
+});
+
+describe("a node's close record", () => {
+  const node = `/app/lightning/nodes/${ACINQ}`;
+  const record = `${node}/closes`;
+  const emptyList = json({
+    status: "closed",
+    page: 0,
+    per_page: 25,
+    total: 0,
+    sort: "closed",
+    dir: "desc",
+    channels: [],
+  });
+  const section = (el: HTMLElement) =>
+    el.querySelector<HTMLElement>("[aria-labelledby=ln-record-title]");
+  const sectionText = (el: HTMLElement) => text(section(el) ?? el);
+
+  it("shows how its channels ended beside every channel's, its fees, its weeks and its peers", async () => {
+    replies[node] = json(acinq());
+    replies[`${node}/channels?status=closed`] = emptyList;
+    replies[record] = json(
+      closeRecord(
+        tally({ cooperative: 54, force: 25, penalty: 0, other: 0 }, [
+          { cooperative: 20, force: 20, penalty: 0, other: 0 },
+          { cooperative: 34, force: 5, penalty: 0, other: 0 },
+        ]),
+        [recordPeer(1, { force: 2, closed: 3, open: 1 }), recordPeer(2)],
+      ),
+    );
+    const el = open(`/lightning/node/${ACINQ}?view=closed`);
+    await shows(el, "Week by week");
+    const t = sectionText(el);
+    expect(t).toContain("Since 12 Nov 2026");
+    expect(t).toContain("79 channels closed in the 8 days this server has watched");
+    expect(t).toContain("Each close is in the record of both nodes of its channel");
+    expect(t).toContain("68%all 91%");
+    expect(t).toContain("32%all 8.8%");
+    // Other: none here, some among every channel, so its row is there.
+    expect(t).toContain("0%all 0.3%");
+    expect(t).toContain(
+      "the chain shows that one end broadcast its commitment, not which end or why",
+    );
+    // Fees: in all, a close's mean, and every channel's mean.
+    expect(t).toContain("Force25 0001 0001 000");
+    expect(t).toContain("16 Nov 2026345");
+    expect(t).toContain("Its 25 force closes were with 2 different peers, at most 2 with any one.");
+    expect(links(el)).toContain(`/lightning/node/${ACINQ}?view=closed&peer=${recordPeer(1).id}`);
+    // No verdict in colour: every kind in the record is in the muted tone.
+    const tags = [...(section(el)?.querySelectorAll(".ln-tag") ?? [])];
+    expect(tags.length).toBeGreaterThan(0);
+    expect(tags.every((tag) => tag.classList.contains("ln-tag--muted"))).toBe(true);
+    // The glance counts its closes, and gives no share of its own.
+    expect(text(el)).not.toContain("forced");
+  });
+
+  it("gives counts and no share below the minimum, and names a penalty without saying by whom", async () => {
+    replies[node] = json(acinq());
+    replies[`${node}/channels?status=closed`] = emptyList;
+    replies[record] = json(
+      closeRecord(tally({ cooperative: 1, force: 1, penalty: 1, other: 0 }), [
+        recordPeer(1, { force: 0, penalty: 1 }),
+        recordPeer(2),
+      ]),
+    );
+    const el = open(`/lightning/node/${ACINQ}?view=closed`);
+    await shows(el, "With whom");
+    const t = sectionText(el);
+    expect(t).toContain("Shares are given from 20 closes; with 3, the counts say more");
+    expect(t).not.toMatch(/\d%all/);
+    expect(t).toContain("Penalty");
+    expect(t).toContain("the record does not say by which end");
+    expect(t).toContain("Its 1 force close and 1 penalty were with 2 different peers");
+    // The peers' table has a penalty column only when a peer has one.
+    expect([...(section(el)?.querySelectorAll("th") ?? [])].map((h) => h.textContent)).toContain(
+      "Penalty",
+    );
+  });
+
+  it("says when every channel's figures are not worked out yet, and when the node has none", async () => {
+    replies[node] = json(acinq());
+    replies[`${node}/channels?status=closed`] = emptyList;
+    replies[record] = json(
+      closeRecord(tally({ cooperative: 0, force: 0, penalty: 0, other: 0 }, []), [], null),
+    );
+    const el = open(`/lightning/node/${ACINQ}?view=closed`);
+    await shows(el, "None of its channels closed in the 8 days this server has watched.");
+    expect(section(el)?.querySelector("table")).toBeNull();
+  });
+
+  it("shows its own error, and the rest of the page still works", async () => {
+    replies[node] = json(acinq());
+    replies[`${node}/channels?status=closed`] = emptyList;
+    replies[record] = json({ error: "upstream unavailable" }, 502);
+    const el = open(`/lightning/node/${ACINQ}?view=closed`);
+    await shows(el, "Could not load its close record");
+    expect(text(el)).toContain("Closed channels");
+  });
+
+  it("shows a node that left the graph by its record, and nothing more for one never seen", async () => {
+    replies[node] = json({ error: "node not found" }, 404);
+    replies[record] = json(
+      closeRecord(tally({ cooperative: 9, force: 3, penalty: 0, other: 0 }), [recordPeer(1)]),
+    );
+    const el = open(`/lightning/node/${ACINQ}`);
+    await shows(el, "This server knows no such node");
+    await shows(el, "12 channels closed");
+    replies[record] = json({ error: "node not found" }, 404);
+    clearApiCache();
+    const other = open(`/lightning/node/${BFX}`);
+    await shows(other, "This server knows no such node");
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 50);
+    });
+    expect(section(other)).toBeNull();
   });
 });
 

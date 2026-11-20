@@ -5,6 +5,9 @@ import type {
   ChannelDetail,
   CloseKind,
   ListedChannel,
+  NodeCloses,
+  RecordPeer,
+  RecordTally,
   NodeDetail,
   OpenChannel,
   Overview,
@@ -378,3 +381,68 @@ export const closes = (): Closes => {
     total: { cooperative: 9, force: 1, penalty: 1, other: 0, capacity: 27_000_000 },
   };
 };
+
+/** Monday 9 November 2026, 00:00 UTC: the first week of the records below. */
+export const WEEK1 = 1_794_182_400;
+
+/** A tally as `/nodes/:key/closes` sends one: counts, shares from `minimum`, fees, weeks. */
+export function tally(
+  counts: { cooperative: number; force: number; penalty: number; other: number },
+  weeks: { cooperative: number; force: number; penalty: number; other: number }[] = [counts],
+  minimum = 20,
+): RecordTally {
+  const closed = counts.cooperative + counts.force + counts.penalty + counts.other;
+  const share = (n: number) => Math.round((n * 1000) / closed) / 10;
+  return {
+    ...counts,
+    closed,
+    shares:
+      closed < minimum
+        ? null
+        : {
+            cooperative: share(counts.cooperative),
+            force: share(counts.force),
+            penalty: share(counts.penalty),
+            other: share(counts.other),
+          },
+    fees: {
+      cooperative: { sum: counts.cooperative * 300, known: counts.cooperative },
+      force: { sum: counts.force * 1_000, known: counts.force },
+      penalty: { sum: counts.penalty * 2_000, known: counts.penalty },
+      other: { sum: 0, known: 0 },
+    },
+    weeks: weeks.map((w, i) => ({ ...w, time: WEEK1 + i * 7 * 86_400 })),
+  };
+}
+
+/** A node's close record: `peers` those it had a force close or penalty with. */
+export function closeRecord(
+  node: RecordTally,
+  peers: RecordPeer[] = [],
+  network: RecordTally | null = tally({ cooperative: 1_638, force: 158, penalty: 0, other: 6 }),
+): NodeCloses {
+  return {
+    id: ACINQ,
+    from: 1_794_502_800,
+    time: 1_795_215_000,
+    minimum: 20,
+    node,
+    peers: { count: peers.length + 3, forced: peers.length, list: peers, more: 0 },
+    network: network === null ? null : { ...network, time: 1_795_214_000 },
+  };
+}
+
+export function recordPeer(n: number, more: Partial<RecordPeer> = {}): RecordPeer {
+  return {
+    id: `03${n.toString(16).padStart(2, "0").repeat(32)}`,
+    alias: `peer ${n}`,
+    cooperative: 0,
+    force: 1,
+    penalty: 0,
+    other: 0,
+    closed: 1,
+    shares: null,
+    open: 0,
+    ...more,
+  };
+}

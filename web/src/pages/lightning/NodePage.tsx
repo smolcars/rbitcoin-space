@@ -37,6 +37,7 @@ import {
   readView,
   weekAgo,
 } from "./lightning";
+import { CloseRecord } from "./CloseRecord";
 import { ClosedList, OpenList } from "./NodeChannels";
 import { FeeFigures, NodeFees, NodeHistory, RecentChanges } from "./NodeCharts";
 import { ask, Gate, LightningNav, rememberList, SatsFig, Stat, Tag } from "./parts";
@@ -91,6 +92,8 @@ function Node(props: { network: Network; id: string }) {
           title="This server knows no such node"
           text="It holds a node while the node has an open channel it checked against the chain. A node with only private or closed channels, or one that never announced a channel, is not here."
         />
+        {/* A node that left still has the closes this server saw: shown when there are any. */}
+        <CloseRecord network={props.network} id={props.id} gone />
       </Match>
       <Match when={node.state === "errored"}>
         <ErrorState title="Could not load this node" error={node.error} retry={refetch} />
@@ -163,7 +166,10 @@ function Body(props: { node: NodeDetail; network: Network }) {
             <OpenList node={props.node} network={props.network} now={now} />
           </Match>
           <Match when={view() === "closed"}>
-            <ClosedList node={props.node} network={props.network} now={now} />
+            <div class="ln-node-closed">
+              <CloseRecord network={props.network} id={props.node.id} />
+              <ClosedList node={props.node} network={props.network} now={now} />
+            </div>
           </Match>
           <Match when={view() === "fees"}>
             <div class="ln-node-fees">
@@ -260,8 +266,6 @@ function Glance(props: { node: NodeDetail; history: HistoryAnswer | undefined; n
   const c = () => props.node.channels;
   const week = () => (props.history === undefined ? null : weekAgo(props.history, props.now));
   const age = (t: number | null) => (t === null ? MISSING : days(props.now - t));
-  const forced = () =>
-    c().closed === 0 ? null : Math.round(((c().force + c().penalty) / c().closed) * 100);
   return (
     <section aria-labelledby="ln-node-glance-title">
       <SectionHeader title="At a glance" id="ln-node-glance-title">
@@ -310,13 +314,12 @@ function Glance(props: { node: NodeDetail; history: HistoryAnswer | undefined; n
         <Stat
           label="Closes seen"
           sub={
-            <Show when={forced() !== null} fallback="None seen">
-              {forced()}% forced
+            <Show when={c().closed > 0} fallback="None seen">
               <span class="ln-node-kinds">
                 <For each={CLOSE_KINDS}>
                   {(k) => (
                     <Show when={c()[k] > 0}>
-                      <Tag icon={KIND_TAG[k].icon} tone={KIND_TAG[k].tone}>
+                      <Tag icon={KIND_TAG[k].icon} tone="muted">
                         <span class="num">{groupDigits(c()[k])}</span> {KIND_SHORT[k].toLowerCase()}
                       </Tag>
                     </Show>
