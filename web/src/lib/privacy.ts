@@ -123,7 +123,8 @@ export interface PrivacyReport {
   /**
    * Findings that may be incomplete or absent for want of data: what each reports is true of the
    * data that is there, but more could be missing (a reuse among the unknown inputs) or a check
-   * it depends on did not run.
+   * it depends on did not run. Conservative: it never omits a kind the missing or invalid data
+   * could change, and it may list one that data could not in fact change.
    */
   unreliable: FindingKind[];
 }
@@ -337,17 +338,15 @@ export function checkPrivacy(tx: Transaction): PrivacyReport {
   const inputsBy = new Map<string, number[]>();
   for (const { i, o } of funding) push(inputsBy, key(o), i);
   const complete = !report.inputsMissing && report.unknownInputs.length === 0;
-  // Every amount valid alone, the outputs together within the supply, and, when every input's
-  // value is known (anchors included), the inputs covering the outputs.
+  // Every amount valid alone, the outputs and the known inputs each within the supply together,
+  // and, when every input's value is known (anchors included), the inputs covering the outputs.
   const known = vin.flatMap((input) => (input.prevout ? [input.prevout.value] : []));
   const outValues = tx.vout.map((o) => o.value);
   let amounts = outValues.every((v) => isAmount(v)) && known.every((v) => isAmount(v));
   const outTotal = amounts ? total(outValues) : null;
-  if (outTotal === null) amounts = false;
-  else if (complete) {
-    const inTotal = total(known);
-    if (inTotal === null || inTotal < outTotal) amounts = false;
-  }
+  const inTotal = amounts ? total(known) : null;
+  if (outTotal === null || inTotal === null) amounts = false;
+  else if (complete && inTotal < outTotal) amounts = false;
   const s: Shape = { funding, outs, inputsBy, complete, amounts };
   const { findings, notRun } = report;
 

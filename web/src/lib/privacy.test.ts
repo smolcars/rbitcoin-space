@@ -766,6 +766,27 @@ describe("spent together with inputs it cannot see (R2)", () => {
 });
 
 describe("unreliable names only what missing data could change (R9)", () => {
+  it("is conservative: with an unknown input it may list kinds the data could not change", () => {
+    // Three unequal outputs can be neither disputed nor a CoinJoin, yet both are listed. Listing
+    // once too often is the safe side; never narrow this into omitting a kind data could change.
+    const r = checkPrivacy(
+      tx(
+        [{ value: 400_000, to: "i0" }, { value: 300_000, to: "i1" }, null],
+        [
+          { value: 100_001, to: "a" },
+          { value: 200_002, to: "b" },
+          { value: 300_003, to: "c" },
+        ],
+      ),
+    );
+    expect(r.unreliable).toStrictEqual([
+      "reuse",
+      "change",
+      "change-disputed",
+      "coinjoin",
+      "spent-together",
+    ]);
+  });
   it("two known pay-backs settle the change question, whatever the unknown input holds", () => {
     const r = checkPrivacy(
       tx(
@@ -813,6 +834,23 @@ describe("unreliable names only what missing data could change (R9)", () => {
 describe("amounts that are not valid (R4, R8)", () => {
   const SUPPLY = 21_000_000 * 100_000_000;
   const AMOUNT_RULES = ["coinjoin", "round", "unneeded"];
+  it("known inputs adding up to one sat over the supply stop the amount rules, beside an unknown input (R10)", () => {
+    const r = checkPrivacy(
+      tx(
+        [
+          { value: 1_050_000_000_000_000, to: "i0" },
+          { value: 1_050_000_000_000_001, to: "i1" },
+          null,
+        ],
+        [
+          { value: 500_000, to: "a" },
+          { value: 123_457, to: "b" },
+        ],
+      ),
+    );
+    expect(reasons(r)).toStrictEqual([]);
+    expect(r.notRun).toContain("round");
+  });
   /** Three outputs whose values claim to be equal, from three senders, with one reused address. */
   const claimed = (values: number[]) =>
     tx(
