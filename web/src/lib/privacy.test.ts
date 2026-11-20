@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { cost } from "./cost";
 import type { ScriptType, Transaction, Vin, Vout } from "./esplora";
 import {
   type ChangeReading,
@@ -989,14 +990,13 @@ describe("unnecessary input states an inequality, not a proof (R5)", () => {
 });
 
 describe("large transactions", () => {
-  // Linear: 5,000 outputs or inputs take well under 50 ms; a quadratic pass would take seconds.
+  // 5,000 outputs or inputs take well under 50 ms of processor time (lib/cost.ts, so a busy
+  // machine cannot fail these); a quadratic pass would take seconds.
   it("5,000 outputs, all equal, are checked in under 50 ms", () => {
     const t = join(5_000, 100_000, 5_000);
-    const start = performance.now();
-    const r = checkPrivacy(t);
-    const took = performance.now() - start;
+    const { value: r, ms } = cost(() => checkPrivacy(t));
     expect(finding(r, "coinjoin")?.groups[0]?.outputs.length).toBe(5_000);
-    expect(took).toBeLessThan(50);
+    expect(ms).toBeLessThan(50);
   });
   it("5,000 outputs in 1,666 groups of three equal values, whose groups are sorted, take under 50 ms (R6)", () => {
     const ins = Array.from({ length: 5_000 }, (_, k) => ({ value: 10_000_000, to: `in${k}` }));
@@ -1005,17 +1005,16 @@ describe("large transactions", () => {
       to: `out${k}`,
     }));
     const t = tx(ins, outs);
-    const start = performance.now();
-    const r = checkPrivacy(t);
-    expect(performance.now() - start).toBeLessThan(50);
+    const { value: r, ms } = cost(() => checkPrivacy(t));
+    expect(ms).toBeLessThan(50);
     expect(finding(r, "coinjoin")?.groups).toHaveLength(1_666);
   });
   it("5,000 inputs from one address to 5,000 outputs paying it back are checked in under 50 ms", () => {
     const ins = Array.from({ length: 5_000 }, () => ({ value: 20_000, to: "same" }));
     const outs = Array.from({ length: 5_000 }, () => ({ value: 10_000, to: "same" }));
-    const start = performance.now();
-    const r = checkPrivacy(tx(ins, outs));
-    expect(performance.now() - start).toBeLessThan(50);
+    const t = tx(ins, outs);
+    const { value: r, ms } = cost(() => checkPrivacy(t));
+    expect(ms).toBeLessThan(50);
     expect(finding(r, "reuse")?.addresses[0]?.outputs.length).toBe(5_000);
   });
 });
