@@ -4,6 +4,7 @@ import { routes as address } from "./pages/address/routes";
 import { routes as ark } from "./pages/ark/routes";
 import { routes as block } from "./pages/block/routes";
 import { routes as decode } from "./pages/decode/routes";
+import { routes as fees } from "./pages/fees/routes";
 import { routes as blocks } from "./pages/blocks/routes";
 import { routes as home } from "./pages/home/routes";
 import { routes as lightning } from "./pages/lightning/routes";
@@ -33,6 +34,7 @@ export const routes: RouteDefinition[] = [
       ...lightning,
       ...ark,
       ...mempool,
+      ...fees,
       ...notFound,
     ],
   },

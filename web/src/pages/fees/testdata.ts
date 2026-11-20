@@ -1,0 +1,196 @@
+// Answers of `/app/fees/score` recorded on the live site on 2026-11-20 (mainnet and signet), for the
+// tests: the page drawn from real figures, a level below its target and one with too few blocks.
+
+/** Mainnet, the last week: the day-long level under its target. */
+export const MAINNET_1W: unknown = {
+  from: 1794605432,
+  levels: [
+    {
+      blocks: 1,
+      enough: true,
+      interval: [0.8575, 0.9118],
+      left_out: { no_clearing: 4, outage: 0, unfinished: 34 },
+      met: 0.8846,
+      name: "high",
+      outcomes: 1035,
+      overpay: { mean: 1.064, median: 0.977 },
+      scored: 19521,
+      shortfall: 0.753,
+    },
+    {
+      blocks: 3,
+      enough: true,
+      interval: [0.9106, 0.9624],
+      left_out: { no_clearing: 0, outage: 0, unfinished: 59 },
+      met: 0.9365,
+      name: "medium",
+      outcomes: 1035,
+      overpay: { mean: 0.851, median: 0.879 },
+      scored: 19500,
+      shortfall: 0.67,
+    },
+    {
+      blocks: 6,
+      enough: true,
+      interval: [0.9111, 0.9633],
+      left_out: { no_clearing: 0, outage: 0, unfinished: 118 },
+      met: 0.9372,
+      name: "low",
+      outcomes: 1032,
+      overpay: { mean: 0.598, median: 0.552 },
+      scored: 19441,
+      shortfall: 0.771,
+    },
+    {
+      blocks: 144,
+      enough: true,
+      interval: [0.6329, 0.7141],
+      left_out: { no_clearing: 0, outage: 0, unfinished: 2769 },
+      met: 0.6735,
+      name: "no_rush",
+      outcomes: 897,
+      overpay: { mean: 0.043, median: 0.002 },
+      scored: 16790,
+      shortfall: 0.014,
+    },
+  ],
+  min_blocks: 30,
+  not_ours: { node: 268, nothing: 271 },
+  to: 1795210232,
+  window: "1w",
+};
+
+/** Mainnet, the last 24 hours: the day-long level has too few finished answers. */
+export const MAINNET_24H: unknown = {
+  from: 1795123832,
+  levels: [
+    {
+      blocks: 1,
+      enough: true,
+      interval: [0.7751, 0.9508],
+      left_out: { no_clearing: 1, outage: 0, unfinished: 34 },
+      met: 0.863,
+      name: "high",
+      outcomes: 145,
+      overpay: { mean: 1.392, median: 1.081 },
+      scored: 2846,
+      shortfall: 0.938,
+    },
+    {
+      blocks: 3,
+      enough: true,
+      interval: [0.7459, 0.9826],
+      left_out: { no_clearing: 0, outage: 0, unfinished: 59 },
+      met: 0.8643,
+      name: "medium",
+      outcomes: 144,
+      overpay: { mean: 1.382, median: 0.996 },
+      scored: 2822,
+      shortfall: 1.19,
+    },
+    {
+      blocks: 6,
+      enough: true,
+      interval: [0.7633, 0.9978],
+      left_out: { no_clearing: 0, outage: 0, unfinished: 118 },
+      met: 0.8806,
+      name: "low",
+      outcomes: 141,
+      overpay: { mean: 1.163, median: 0.884 },
+      scored: 2763,
+      shortfall: 1.742,
+    },
+    {
+      blocks: 144,
+      enough: false,
+      interval: null,
+      left_out: { no_clearing: 0, outage: 0, unfinished: 2769 },
+      met: null,
+      name: "no_rush",
+      outcomes: 6,
+      overpay: null,
+      scored: 112,
+      shortfall: null,
+    },
+  ],
+  min_blocks: 30,
+  not_ours: { node: 0, nothing: 0 },
+  to: 1795210232,
+  window: "24h",
+};
+
+/** Signet, the last week: blocks with room, so every answer at the minimum reads as a miss. */
+export const SIGNET_1W: unknown = {
+  from: 1794605411,
+  levels: [
+    {
+      blocks: 1,
+      enough: true,
+      interval: [0, 0.0039],
+      left_out: { no_clearing: 68, outage: 0, unfinished: 22 },
+      met: 0,
+      name: "high",
+      outcomes: 979,
+      overpay: { mean: null, median: null },
+      scored: 19483,
+      shortfall: 0.671,
+    },
+    {
+      blocks: 3,
+      enough: true,
+      interval: [0, 0.0039],
+      left_out: { no_clearing: 0, outage: 0, unfinished: 46 },
+      met: 0,
+      name: "medium",
+      outcomes: 987,
+      overpay: { mean: null, median: null },
+      scored: 19527,
+      shortfall: 0.172,
+    },
+    {
+      blocks: 6,
+      enough: true,
+      interval: [0, 0.0039],
+      left_out: { no_clearing: 0, outage: 0, unfinished: 98 },
+      met: 0,
+      name: "low",
+      outcomes: 985,
+      overpay: { mean: null, median: null },
+      scored: 19475,
+      shortfall: 0.056,
+    },
+    {
+      blocks: 144,
+      enough: true,
+      interval: [0, 0.0045],
+      left_out: { no_clearing: 0, outage: 0, unfinished: 2829 },
+      met: 0,
+      name: "no_rush",
+      outcomes: 849,
+      overpay: { mean: null, median: null },
+      scored: 16744,
+      shortfall: 0.001,
+    },
+  ],
+  min_blocks: 30,
+  not_ours: { node: 48, nothing: 474 },
+  to: 1795210211,
+  window: "1w",
+};
+
+/** Mainnet's last 24 hours as if nothing had been recorded in `window`. */
+export function nothingRecorded(window: string): unknown {
+  const v = structuredClone(MAINNET_24H) as Record<string, unknown>;
+  Object.assign(v, { window, from: null, not_ours: { node: 0, nothing: 0 } });
+  for (const l of v["levels"] as Record<string, unknown>[])
+    Object.assign(l, {
+      scored: 0,
+      outcomes: 0,
+      enough: false,
+      met: null,
+      interval: null,
+      overpay: null,
+      shortfall: null,
+    });
+  return v;
+}

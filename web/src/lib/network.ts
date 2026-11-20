@@ -96,6 +96,9 @@ export const paths = {
   /** The mempool's history, for an interval such as `1w` when given. */
   mempool: (interval?: string) =>
     interval === undefined ? "/mempool" : `/mempool?interval=${encodeURIComponent(interval)}`,
+  /** How this server's fee recommendations have done, over a window such as `24h` when given. */
+  feeScore: (window?: string) =>
+    window === undefined ? "/fees/score" : `/fees/score?window=${encodeURIComponent(window)}`,
   /** Looking up an Ark VTXO. */
   ark: () => "/ark",
   /** An Ark VTXO by its `<txid>:<vout>`, on whichever implementation knows it. */

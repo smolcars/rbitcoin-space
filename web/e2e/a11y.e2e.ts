@@ -18,6 +18,7 @@ import {
 import { chain, expect, stubRetargets, test } from "./fixtures";
 import { KEPT, LARGE, stubLarge } from "./large-address";
 import { ACINQ, mainnet, penalties, serve } from "./lightning-answers";
+import { serveScore } from "./score-answers";
 
 // axe-core is a development dependency only: read from node_modules and run in the page through
 // Playwright, never bundled or served.
@@ -339,6 +340,13 @@ const PAGES: PageType[] = [
     ready: (p) => p.getByRole("heading", { level: 1, name: "Next block" }),
   },
   { name: "mempool", path: "/regtest/mempool", ready: (p) => p.getByRole("slider").first() },
+  {
+    name: "fee track record",
+    path: "/regtest/fees/score",
+    ready: (p) => p.getByRole("table").first(),
+    // Mainnet's recorded week: regtest has too few blocks for any share.
+    before: serveScore,
+  },
   {
     name: "mining",
     path: "/regtest/mining",

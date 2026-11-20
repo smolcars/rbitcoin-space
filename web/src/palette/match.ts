@@ -113,6 +113,11 @@ export function pages(offer: Offer): Page[] {
     { name: "Next block", path: paths.projected(1), words: ["projected", "upcoming", "template"] },
     { name: "Mempool", path: paths.mempool(), words: ["history", "backlog", "unconfirmed"] },
     { name: "Replacements", path: paths.rbf(), words: ["rbf", "replace by fee", "full rbf"] },
+    {
+      name: "Fee track record",
+      path: paths.feeScore(),
+      words: ["fee score", "fee accuracy", "recommendations", "reliability", "estimates"],
+    },
     { name: "Mining", path: paths.mining(), words: ["pools", "hashrate", "difficulty"] },
     { name: "Lightning", path: paths.lightning(), words: ["ln", "nodes", "channels"] },
     {

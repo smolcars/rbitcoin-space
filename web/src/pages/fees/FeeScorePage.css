@@ -1,0 +1,239 @@
+@layer pages {
+  .fee-score {
+    display: grid;
+    gap: var(--space-5);
+    padding-top: var(--space-5);
+    padding-bottom: var(--space-8);
+  }
+  .fee-score > *,
+  .fee-score__busy > * {
+    min-width: 0;
+  }
+
+  /* The title and the periods on one row where they fit, as on the mempool page. */
+  .fee-score__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-5);
+  }
+  .fee-score__head h1 {
+    margin: 0;
+  }
+  .fee-score__head .periods {
+    margin-left: auto;
+  }
+  .fee-score__intro {
+    display: grid;
+    gap: var(--space-2);
+    max-width: 44rem;
+  }
+  .fee-score__intro p {
+    margin: 0;
+  }
+  .fee-score__caveat {
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+  .fee-score__slot {
+    min-height: 32rem;
+  }
+  .fee-score__busy {
+    display: grid;
+    gap: var(--space-5);
+  }
+  .fee-score__busy[aria-busy="true"] {
+    opacity: 0.55;
+    transition: opacity var(--dur-quick) var(--ease-out);
+  }
+  .fee-score__coverage {
+    margin: calc(var(--space-2) * -1) 0 var(--space-2);
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+  .fee-score__prose {
+    display: grid;
+    gap: var(--space-2);
+    max-width: 44rem;
+    margin-bottom: var(--space-4);
+    font-size: var(--text-sm);
+  }
+  .fee-score__evidence .fee-score__prose {
+    margin: var(--space-4) 0 0;
+  }
+  .fee-score__prose p {
+    margin: 0;
+  }
+
+  /* One row per level: its name, its share, the share on a line against the target, the verdict. */
+  .fee-levels {
+    display: grid;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .fee-level {
+    display: grid;
+    grid-template-columns: 8rem 14rem minmax(10rem, 1fr) 10rem;
+    grid-template-areas:
+      "name figure meter verdict"
+      ". detail detail detail";
+    align-items: center;
+    gap: var(--space-2) var(--space-5);
+    padding: var(--space-4) 0;
+    border-top: 1px solid var(--color-line);
+  }
+  .fee-level:first-child {
+    border-top: 0;
+    padding-top: 0;
+  }
+  .fee-level:last-child {
+    padding-bottom: 0;
+  }
+  .fee-level__name {
+    grid-area: name;
+    display: grid;
+    gap: var(--space-1);
+  }
+  .fee-level__name h3 {
+    margin: 0;
+    font-size: var(--text-md);
+    font-weight: var(--weight-medium);
+  }
+  .fee-level__when,
+  .fee-level__said {
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+  .fee-level__figure {
+    grid-area: figure;
+    display: grid;
+    gap: var(--space-1);
+  }
+  .fee-level__met {
+    font-size: var(--text-xl);
+    font-weight: var(--weight-bold);
+    line-height: var(--leading-tight);
+  }
+  .fee-level__met--none {
+    color: var(--color-text-muted);
+    font-weight: var(--weight-regular);
+  }
+  .fee-level__verdict {
+    grid-area: verdict;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    margin: 0;
+    font-weight: var(--weight-bold);
+  }
+  .fee-level--meets .fee-level__verdict {
+    color: var(--color-positive);
+  }
+  .fee-level--below .fee-level__verdict {
+    color: var(--color-negative);
+  }
+  .fee-level--too-few .fee-level__verdict {
+    color: var(--color-text-muted);
+    font-weight: var(--weight-medium);
+  }
+  .fee-level__icon {
+    width: 16px;
+    height: 16px;
+    flex: none;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .fee-level__detail {
+    grid-area: detail;
+    max-width: 44rem;
+    margin: 0;
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+
+  /* 0 to 100%: the interval a band, the share a mark in the verdict's colour, the target a line. */
+  .fee-meter {
+    grid-area: meter;
+    display: grid;
+    gap: var(--space-1);
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+  }
+  .fee-meter__target-label {
+    justify-self: start;
+    margin-left: var(--target);
+    transform: translateX(-50%);
+  }
+  .fee-meter__ends {
+    display: flex;
+    justify-content: space-between;
+  }
+  .fee-meter__track {
+    position: relative;
+    height: 12px;
+    border-radius: var(--radius-s);
+    box-shadow: inset 0 0 0 1px var(--color-line);
+    background: var(--color-surface-sunken);
+  }
+  .fee-level--too-few .fee-meter__track {
+    box-shadow: none;
+    outline: 1px dashed var(--color-line-strong);
+    outline-offset: -1px;
+  }
+  .fee-meter__band {
+    position: absolute;
+    inset-block: 0;
+    left: var(--lo);
+    width: max(2px, calc(var(--hi) - var(--lo)));
+    border-radius: var(--radius-s);
+    background: var(--color-line-strong);
+  }
+  .fee-meter__mark {
+    position: absolute;
+    inset-block: -4px;
+    left: clamp(0px, calc(var(--met) - 1.5px), calc(100% - 3px));
+    width: 3px;
+    border-radius: 1px;
+    background: var(--color-text);
+  }
+  .fee-level--meets .fee-meter__mark {
+    background: var(--color-positive);
+  }
+  .fee-level--below .fee-meter__mark {
+    background: var(--color-negative);
+  }
+  .fee-meter__target {
+    position: absolute;
+    inset-block: -6px;
+    left: calc(var(--target) - 0.5px);
+    border-left: 1px dashed var(--color-text);
+  }
+
+  /* Narrower: the name and the verdict on one line, the share beside its line, the detail under. */
+  @media (max-width: 65em) {
+    .fee-level {
+      grid-template-columns: minmax(7rem, auto) 1fr;
+      grid-template-areas:
+        "name verdict"
+        "figure meter"
+        "detail detail";
+    }
+    .fee-level__verdict {
+      justify-self: end;
+    }
+  }
+  @media (max-width: 40em) {
+    .fee-level {
+      grid-template-columns: 1fr auto;
+      grid-template-areas:
+        "name verdict"
+        "figure figure"
+        "meter meter"
+        "detail detail";
+    }
+  }
+}

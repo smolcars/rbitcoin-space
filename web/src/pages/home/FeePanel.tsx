@@ -1,6 +1,8 @@
 import { createMemo, For, Show } from "solid-js";
+import { Link } from "../../components/Link";
 import { SectionHeader } from "../../components/SectionHeader";
 import { formatFeeRateUp } from "../../lib/format";
+import { paths } from "../../lib/network";
 import { type FeeAnswer, type FeeGroup, groupLevels } from "./fees";
 
 /**
@@ -29,7 +31,10 @@ export function FeePanel(props: { answer: () => FeeAnswer | null | undefined }) 
         : undefined;
   return (
     <section class="home-fees" aria-labelledby="fees-title">
-      <SectionHeader title="Fee to pay now" id="fees-title" />
+      <SectionHeader title="Fee to pay now" id="fees-title">
+        {/* The evidence for these numbers, misses included. */}
+        <Link href={paths.feeScore()}>Track record</Link>
+      </SectionHeader>
       <Show
         when={props.answer() !== null}
         fallback={

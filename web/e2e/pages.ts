@@ -17,6 +17,7 @@ import { withInvoice } from "./decode-answers";
 import { chain, stubRetargets } from "./fixtures";
 import { KEPT, LARGE, stubLarge } from "./large-address";
 import { penalties } from "./lightning-answers";
+import { serveScore } from "./score-answers";
 
 /** The keys of BIP352's first test vector as a test network silent payments address. */
 export const SILENT_PAYMENT =
@@ -94,6 +95,12 @@ export const PAGES: { path: string; stub?: (page: Page) => Promise<void> }[] = [
   { path: "/regtest/mining", stub: stubRetargets },
   { path: "/regtest/mining/pool/unknown" },
   { path: "/regtest/mempool" },
+  // Regtest's own answer, then mainnet's recorded week: every level with its share and meter.
+  { path: "/regtest/fees/score" },
+  {
+    path: "/regtest/fees/score?window=1w",
+    stub: serveScore,
+  },
   // Empty, whichever test replaced a transaction first: its "none yet" once lay over the next part.
   { path: "/regtest/rbf", stub: noReplacements },
   { path: "/regtest/lightning", stub: lightning },

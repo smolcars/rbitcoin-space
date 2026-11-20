@@ -588,6 +588,27 @@ Decided while building it:
 - **Live without moving the reader.** A new story comes in at the top with the row flash; a reader scrolled into the list keeps the story they read where it was.
 - **Where it sits.** The header's Mempool is current on `/rbf`, which has a "← Mempool history" link above its title; the mempool's own pages are two, so they get no row of tabs (on a phone it would push the history chart off the first screen). The recent replacements panel, the newest five, is the home page's last panel, below everything the council placed, and the foot of `/mempool`, under its panel: the way to `/rbf` from both. On the narrowest phones its row gives way before its status does: the id's header reads "Tx", the id shortens, and the rate it rose to goes under the one it rose from, so "Not mined" is always whole.
 
+### Fee track record (not in the prototype)
+
+```text
+Fee track record                                          [24 h | 1 w | 1 m | All]
+How often a transaction paying the home page's rate would have been mined in time…
+┌ Mined in time ───────────────────────────────────────────────────────────────┐
+│ No rush       67.4%                       85%                                 │
+│ within a day  mined within the next 144   [·······▐█▌·······┊····]  × Below target │
+│               95% interval 63.3–71.5%. Under 85% across its whole interval.  │
+│ Low …                                                         ✓ Meets target │
+└──────────────────────────────────────────────────────────────────────────────┘
+What it cost              (table: overpaid when met, mean and median; short when missed)
+What the figures rest on  (table: answers judged, blocks, left out and why; samples not ours)
+> How the score is kept
+```
+
+- **The evidence is the page.** It exists so a reader can check the home page's numbers, misses included: a level under its target says "Below target" in the negative colour with a cross, never softened; one at or over it "Meets target" in the positive colour with a tick. Too few blocks is muted, with a dashed circle and no figure.
+- **One drawing, the meter:** 0 to 100% on a sunken track, the 95% interval a band in `--color-line-strong`, the share a mark in the verdict's colour, and the target a dashed line in the text colour with its figure above it. It repeats the figures beside it, so it is hidden from screen readers. A level without a share keeps the track, dashed, with only the target.
+- **Rows, not cards:** the four levels are rows of one panel, slowest first as the home panel lists them. On a desktop the name, the share, the meter and the verdict are one line with the detail under them; narrower, the name and verdict lead and the meter takes the full width.
+- **Plain words beside the tables:** one sentence each says what overpaid and short mean, and why answers were left out; the method is behind "How the score is kept".
+
 ### Lightning (not in the prototype)
 
 ```text
