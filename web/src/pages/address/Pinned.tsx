@@ -1,7 +1,7 @@
 // The address page as of a past block (`?at=<height>`): the block field that picks one, the band
 // that says which block the page shows, and the page itself, every read pinned to that block's
 // hash. Nothing live: no topic, no ledger, no refresh. docs/FRONTEND.md "An address as of a block".
-import { useLocation, useSearchParams } from "@solidjs/router";
+import { useSearchParams } from "@solidjs/router";
 import {
   createEffect,
   createMemo,
@@ -43,7 +43,12 @@ import { Totals } from "./Totals";
  * command palette reads one. A height goes into the URL as it is; a date is asked of the server
  * first, and its block's height goes in.
  */
-export function AsOfForm(props: { id: string; current?: number | undefined }) {
+export function AsOfForm(props: {
+  id: string;
+  /** The page it belongs to: its network and normalised address, as `AddressPage` keys it. */
+  page: string;
+  current?: number | undefined;
+}) {
   const network = useNetwork();
   const [, setSearch] = useSearchParams<{ at: string }>();
   const [note, setNote] = createSignal<string>();
@@ -51,17 +56,17 @@ export function AsOfForm(props: { id: string; current?: number | undefined }) {
   let ask: AbortController | undefined;
   onCleanup(() => ask?.abort());
   // A date's lookup belongs to the page that asked it: moving to another address or network
-  // (the router keeps this form mounted) drops it, so its height never lands on that page.
-  const location = useLocation();
-  createEffect(
-    () => location.pathname,
-    (_, before) => {
-      if (before === undefined) return;
-      ask?.abort();
-      setAsking(false);
-      setNote(undefined);
-    },
-  );
+  // (the router keeps this form mounted) drops it, so its height never lands on that page. Another
+  // spelling of the same address (upper-case Bech32) is the same page.
+  // A memo, so the key worked out again to the same value (a new spelling) is no change: an
+  // effect runs on every change to what it reads, equal or not.
+  const page = createMemo(() => props.page);
+  createEffect(page, (_, before) => {
+    if (before === undefined) return;
+    ask?.abort();
+    setAsking(false);
+    setNote(undefined);
+  });
   const noteId = `${props.id}-note`;
   const submit = async (e: SubmitEvent) => {
     e.preventDefault();
@@ -156,7 +161,7 @@ function DepthMark() {
   );
 }
 
-type Resolved = { kind: "block"; block: Pinned } | { kind: "future"; tip: number | undefined };
+type Resolved = { kind: "block"; block: Pinned } | { kind: "future"; tip: number };
 
 /** Height lookups that may answer 404 while the tip already reaches the height, before giving up. */
 const LOOKUPS = 3;
@@ -182,7 +187,12 @@ async function resolve(net: Network, height: number, signal: AbortSignal): Promi
         signal,
         fresh: true,
       }).then(readTip, () => undefined);
-      if (tip === undefined || tip < height) return { kind: "future", tip };
+      // Not mined only when a tip was read and falls short of the height; a tip that cannot be
+      // read says nothing, and is a failure to look the block up, with Try again.
+      if (tip === undefined) {
+        throw new Error(`The node did not say how far its chain reaches.`, { cause: error });
+      }
+      if (tip < height) return { kind: "future", tip };
       if (i + 1 >= LOOKUPS) {
         throw new Error(`The node does not answer for block ${height} yet.`, { cause: error });
       }
@@ -201,6 +211,7 @@ async function resolve(net: Network, height: number, signal: AbortSignal): Promi
  * left the best chain), so nothing from the last hash lingers.
  */
 export function PinnedBody(props: { address: string; isKey: boolean; at: At }) {
+  const network = useNetwork();
   const [round, setRound] = createSignal(1);
   return (
     <Show when={round()} keyed>
@@ -214,7 +225,10 @@ export function PinnedBody(props: { address: string; isKey: boolean; at: At }) {
             again={() => setRound((r) => r + 1)}
           />
         ) : (
-          <NotAHeight text={at.kind === "invalid" ? at.text : ""} />
+          <NotAHeight
+            text={at.kind === "invalid" ? at.text : ""}
+            page={`${network()} ${props.address}`}
+          />
         );
       }}
     </Show>
@@ -225,7 +239,12 @@ export function PinnedBody(props: { address: string; isKey: boolean; at: At }) {
  * The band's actions: back to the present, and another block. "Next" is always offered: a step
  * past the tip lands on "has not been mined yet", which names the newest block then.
  */
-function Actions(props: { height?: number | undefined }) {
+function Actions(props: {
+  page: string;
+  height?: number | undefined;
+  /** The newest block, read when the height asked is past it: a step straight back to it. */
+  newest?: number | undefined;
+}) {
   const [, setSearch] = useSearchParams<{ at: string }>();
   const [open, setOpen] = createSignal(false);
   const step = (h: number) => setSearch({ at: String(h) }, { scroll: false });
@@ -235,6 +254,11 @@ function Actions(props: { height?: number | undefined }) {
         <button class="btn btn--accent" type="button" onClick={() => setSearch({ at: undefined })}>
           Back to now
         </button>
+        <Show when={props.newest !== undefined}>
+          <button class="btn" type="button" onClick={() => step(props.newest ?? 0)}>
+            Show block {groupDigits(props.newest ?? 0)}
+          </button>
+        </Show>
         <Show when={props.height !== undefined}>
           <Show when={(props.height ?? 0) > 0}>
             <button class="btn" type="button" onClick={() => step((props.height ?? 1) - 1)}>
@@ -257,7 +281,7 @@ function Actions(props: { height?: number | undefined }) {
       </div>
       <div id="address-asof-other" hidden={!open()}>
         <Show when={open()}>
-          <AsOfForm id="address-asof-at" current={props.height} />
+          <AsOfForm id="address-asof-at" page={props.page} current={props.height} />
         </Show>
       </div>
     </>
@@ -265,7 +289,7 @@ function Actions(props: { height?: number | undefined }) {
 }
 
 /** `?at=` that is not a height: said, with the field to give one and the way back. */
-function NotAHeight(props: { text: string }) {
+function NotAHeight(props: { text: string; page: string }) {
   return (
     <section class="address-asof panel" aria-labelledby="address-asof-title">
       <DepthMark />
@@ -277,7 +301,7 @@ function NotAHeight(props: { text: string }) {
           The link asks for this address as of a block, but names none this page can read. Give a
           height in digits, or a date.
         </p>
-        <Actions />
+        <Actions page={props.page} />
       </div>
     </section>
   );
@@ -376,7 +400,11 @@ function PinnedAt(props: { address: string; isKey: boolean; height: number; agai
               {`The ${noun}'s figures, coins and history as they stood at this block. Later blocks and unconfirmed transactions are left out, and the page does not update.`}
             </p>
           </Show>
-          <Actions height={answer()?.kind === "future" ? undefined : height} />
+          <Actions
+            page={`${network()} ${address}`}
+            height={answer()?.kind === "future" ? undefined : height}
+            newest={tip()}
+          />
         </div>
       </section>
       <Switch>
@@ -389,19 +417,14 @@ function PinnedAt(props: { address: string; isKey: boolean; height: number; agai
         </Match>
         <Match when={answer()?.kind === "future"}>
           <Notice title={`Block ${groupDigits(height)} has not been mined yet`}>
-            <Show
-              when={tip()}
-              fallback="The chain does not reach that height yet. Pick a lower block."
-            >
-              {(t) => (
-                <p>
-                  The newest block is{" "}
-                  <Link class="num" href={paths.block(t())}>
-                    {groupDigits(t())}
-                  </Link>
-                  . Pick a block at or below it, or go back to now.
-                </p>
-              )}
+            <Show when={tip() !== undefined}>
+              <p>
+                The newest block is{" "}
+                <Link class="num" href={paths.block(tip() ?? 0)}>
+                  {groupDigits(tip() ?? 0)}
+                </Link>
+                . Show this {noun} as of it, pick a block at or below it, or go back to now.
+              </p>
             </Show>
           </Notice>
         </Match>
@@ -428,8 +451,8 @@ function PinnedAt(props: { address: string; isKey: boolean; height: number; agai
           </Notice>
         </Match>
         <Match when={failure() === "too-large"}>
-          <Notice title={`This server does not add this ${noun} up`}>
-            {`It has taken this ${noun} for one with too much history to add up, so it shows no totals, transactions or coins for it, as of a past block or otherwise.`}
+          <Notice title={`This ${noun} is not shown as of a past block`}>
+            {`This server does not add this ${noun} up, so at a past block it shows no totals, confirmed transactions or coins for it.`}
           </Notice>
         </Match>
         <Match when={kept()}>

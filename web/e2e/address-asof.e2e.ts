@@ -161,9 +161,15 @@ test("a large address, kept or not, says what it cannot show as of a block", asy
   const address = chain.addresses.p2pkh;
   await refuseTotals(page, address, 503, "address history too large for this server");
   await page.goto(`/regtest/address/${address}?at=108`);
-  await expect(page.getByText("This server does not add this address up")).toBeVisible();
-  // It says what the server established, not that the node refuses at every block.
-  await expect(page.getByText(/node will add up|at any block/)).toHaveCount(0);
+  await expect(page.getByText("This address is not shown as of a past block")).toBeVisible();
+  await expect(
+    page.getByText(
+      "This server does not add this address up, so at a past block it shows no totals, confirmed transactions or coins for it.",
+    ),
+  ).toBeVisible();
+  // It says what the server established at a past block: nothing of the node, nor of the live
+  // page, which lists the address's unconfirmed transactions.
+  await expect(page.getByText(/node will add up|at any block|otherwise/)).toHaveCount(0);
   await expect(page.locator(".address-stats")).toHaveCount(0);
 
   await page.unrouteAll();
@@ -339,6 +345,82 @@ test("next is offered at the tip, and a step past it says the block is not mined
   await expect(page).toHaveURL(new RegExp(`\\?at=${tip + 1}$`));
   await expect(page.getByText(`Block ${tip + 1} has not been mined yet`)).toBeVisible();
   await expect(page.getByText(`The newest block is ${tip}.`)).toBeVisible();
+  // Not a dead end: straight back to the address as of the newest block.
+  await band(page)
+    .getByRole("button", { name: `Show block ${tip}` })
+    .click();
+  await expect(page).toHaveURL(new RegExp(`\\?at=${tip}$`));
+  await expect(stat(page, "Balance")).toHaveText("1.49 BTC");
+});
+
+test("a height not found, with a tip that cannot be read, is a failed lookup with Try again", async ({
+  page,
+}) => {
+  let fail = true;
+  await page.route(
+    (url) => url.pathname === "/regtest/api/block-height/107",
+    (route) =>
+      fail ? route.fulfill({ status: 404, json: { error: "not found" } }) : route.continue(),
+  );
+  await page.route(
+    (url) => url.pathname === "/regtest/api/blocks/tip/height",
+    (route) =>
+      fail ? route.fulfill({ status: 502, json: { error: "upstream error" } }) : route.continue(),
+  );
+  await page.goto(`/regtest/address/${chain.addresses.p2tr}?at=107`);
+  await expect(page.getByText("Could not look up block 107")).toBeVisible();
+  await expect(page.getByText(/has not been mined yet/)).toHaveCount(0);
+  fail = false;
+  await page.getByRole("button", { name: "Try again" }).click();
+  await expect(stat(page, "Balance")).toHaveText("1.49 BTC");
+});
+
+test("a height that keeps missing while the tip reaches it is a failed lookup, not a future block", async ({
+  page,
+}) => {
+  let lookups = 0;
+  await page.route(
+    (url) => url.pathname === "/regtest/api/block-height/107",
+    (route) => {
+      lookups++;
+      return route.fulfill({ status: 404, json: { error: "not found" } });
+    },
+  );
+  await page.route(
+    (url) => url.pathname === "/regtest/api/blocks/tip/height",
+    (route) => route.fulfill({ contentType: "text/plain", body: "107" }),
+  );
+  await page.goto(`/regtest/address/${chain.addresses.p2tr}?at=107`);
+  await expect(page.getByText("Could not look up block 107")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Try again" })).toBeVisible();
+  await expect(page.getByText(/has not been mined yet/)).toHaveCount(0);
+  expect(lookups).toBe(3);
+});
+
+test("a date's lookup survives a move to another spelling of the same address", async ({
+  page,
+}) => {
+  const { open, shut } = gate();
+  await page.route(
+    (url) => url.pathname.startsWith("/regtest/api/v1/mining/blocks/timestamp/"),
+    async (route) => {
+      await shut;
+      await route.continue().catch(() => undefined);
+    },
+  );
+  const address = chain.addresses.p2tr;
+  await page.goto(`/regtest/address/${address.toUpperCase()}`);
+  await page.getByRole("button", { name: "As of a block" }).click();
+  await page.getByLabel("Block height or date").fill("2026-01-01 17:35");
+  await page.getByLabel("Block height or date").press("Enter");
+  await expect(page.getByRole("button", { name: "Looking up…" })).toBeVisible();
+  const search = page.getByRole("search").getByRole("combobox", { name: "Search" });
+  await search.fill(address);
+  await search.press("Enter");
+  await expect(page).toHaveURL(`/regtest/address/${address}`);
+  open();
+  // Block 105 is the newest by 17:35 on 1 Jan 2026.
+  await expect(page).toHaveURL(`/regtest/address/${address}?at=105`);
 });
 
 test("an empty history as of a block says only what had confirmed by it", async ({ page }) => {

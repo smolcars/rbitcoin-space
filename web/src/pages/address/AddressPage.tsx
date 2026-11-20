@@ -139,7 +139,7 @@ export default function AddressPage() {
                 See this {isKey() ? "key" : "address"} as it stood at a past block: its balance,
                 coins and history then.
               </p>
-              <AsOfForm id="address-asof-at-now" />
+              <AsOfForm id="address-asof-at-now" page={key() ?? ""} />
             </Show>
           </div>
         </Show>
