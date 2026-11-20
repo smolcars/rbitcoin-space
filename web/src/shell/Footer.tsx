@@ -24,6 +24,10 @@ export function Footer(props: {
             <Link class="tap" href={paths.decode()}>
               Decoder
             </Link>
+            {/* On the page's own network; the blocks it checks are always mainnet's. */}
+            <Link class="tap" href={paths.timestamp()}>
+              Timestamps
+            </Link>
             {/* On the page's own network, and only where the server sends transactions. */}
             <Show when={props.broadcast()}>
               <Link class="tap" href={paths.push()}>

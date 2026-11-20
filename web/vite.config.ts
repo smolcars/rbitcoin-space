@@ -35,6 +35,8 @@ function precompress(): Plugin {
 
 export default defineConfig({
   plugins: [solid(), precompress()],
+  // The timestamp page's tests read real proofs from fixtures/ots as bytes (`?inline`).
+  assetsInclude: ["**/*.ots"],
   // happy-dom gives component tests a DOM; pure-logic tests run in it unchanged.
   // The contrast test reads the tokens as text (src/styles/contrast.test.ts), and the palette's
   // test its stylesheet (src/palette/style.test.ts).

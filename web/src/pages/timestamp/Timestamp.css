@@ -1,0 +1,393 @@
+@layer pages {
+  .ots {
+    max-width: 52rem;
+    padding-block: var(--space-6) var(--space-8);
+  }
+  .ots h1 {
+    margin-block-end: var(--space-3);
+  }
+  .ots__lede {
+    max-width: 66ch;
+    margin: 0 0 var(--space-2);
+  }
+  .ots__lede--quiet {
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+
+  /* The two things the page needs. Empty, a slot is drawn as the site draws what is not settled
+     yet, a dashed outline; once it holds a file it is solid. */
+  .ots-inputs {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(18rem, 100%), 1fr));
+    gap: var(--space-4);
+    margin-top: var(--space-5);
+  }
+  .ots-slot {
+    display: grid;
+    align-content: start;
+    gap: var(--space-2);
+    min-width: 0;
+    padding: var(--panel-pad);
+    border: 1.5px dashed var(--color-line-strong);
+    border-radius: var(--radius-l);
+    background: var(--color-surface);
+    transition: border-color var(--dur-quick) var(--ease-out);
+  }
+  .ots-slot--full {
+    border-style: solid;
+    border-color: var(--color-line);
+    box-shadow: var(--shadow-panel);
+  }
+  .ots-slot--over {
+    border-style: solid;
+    border-color: var(--color-accent);
+    background: var(--color-accent-soft);
+  }
+  .ots-slot__title {
+    margin: 0;
+    font-size: var(--text-lg);
+  }
+  .ots-slot__hint {
+    margin: 0;
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+  .ots-slot__pick {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-3);
+    margin-top: var(--space-2);
+  }
+  .ots-slot__choose {
+    min-height: var(--touch);
+  }
+  .ots-slot__choose:focus-within {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+  .ots-slot__drop {
+    font-size: var(--text-sm);
+  }
+  @media (pointer: coarse) {
+    .ots-slot__drop {
+      display: none;
+    }
+  }
+  .ots-slot__chosen {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2) var(--space-3);
+    min-width: 0;
+    margin: 0;
+    font-size: var(--text-sm);
+  }
+  .ots-slot__name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: var(--weight-medium);
+  }
+  .ots-slot__chosen .muted {
+    white-space: nowrap;
+  }
+  .ots-slot__clear {
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    width: 28px;
+    height: 28px;
+    margin-inline-start: auto;
+    border: 1px solid var(--color-line-strong);
+    border-radius: var(--radius-m);
+    background: none;
+    color: var(--color-text-muted);
+    cursor: pointer;
+  }
+  .ots-slot__clear svg {
+    width: 14px;
+    height: 14px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+  }
+  @media (hover: hover) {
+    .ots-slot__clear:hover {
+      color: var(--color-text);
+    }
+  }
+  .ots-slot__note {
+    margin: 0;
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+  .ots-slot__note--bad {
+    color: var(--color-negative);
+  }
+  .ots-slot__note:empty {
+    display: none;
+  }
+
+  .ots-hex {
+    display: grid;
+    gap: var(--space-1);
+    margin-top: var(--space-2);
+  }
+  .ots-hex__label {
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+  .ots-hex__input {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: var(--touch);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--color-line-strong);
+    border-radius: var(--radius-m);
+    background: var(--color-surface-sunken);
+    color: var(--color-text);
+    font-size: var(--text-sm);
+  }
+  .ots-hex__input[aria-invalid="true"] {
+    border-color: var(--color-negative);
+  }
+
+  .ots-progress {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-3);
+  }
+  .ots-progress__bar {
+    flex: 1 1 100%;
+    height: 6px;
+    appearance: none;
+    border: 0;
+    border-radius: var(--radius-pill);
+    background: var(--color-surface-sunken);
+    overflow: hidden;
+  }
+  .ots-progress__bar::-webkit-progress-bar {
+    background: var(--color-surface-sunken);
+  }
+  .ots-progress__bar::-webkit-progress-value {
+    background: var(--color-text-muted);
+  }
+  .ots-progress__bar::-moz-progress-bar {
+    background: var(--color-text-muted);
+  }
+  .ots-progress__text {
+    font-size: var(--text-sm);
+  }
+  .ots-progress__cancel {
+    margin-inline-start: auto;
+  }
+
+  .ots-result {
+    margin-top: var(--space-6);
+    min-width: 0;
+  }
+  .ots-waiting {
+    margin: 0;
+    font-size: var(--text-sm);
+  }
+
+  /* The answer: a status in an icon and a word, then the sentence that says it. */
+  .ots-verdict {
+    display: grid;
+    gap: var(--space-3);
+    min-width: 0;
+    padding: var(--panel-pad);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-l);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-panel);
+  }
+  .ots-verdict__status {
+    display: inline-flex;
+    align-items: center;
+    justify-self: start;
+    gap: var(--space-2);
+    min-height: 28px;
+    margin: 0;
+    padding: 2px var(--space-3) 2px var(--space-2);
+    border: 1.5px solid currentColor;
+    border-radius: var(--radius-pill);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-bold);
+  }
+  .ots-verdict--positive .ots-verdict__status {
+    color: var(--color-positive);
+  }
+  .ots-verdict--caution .ots-verdict__status {
+    color: var(--color-caution);
+  }
+  .ots-verdict--negative .ots-verdict__status {
+    color: var(--color-negative);
+  }
+  .ots-verdict__icon {
+    width: 16px;
+    height: 16px;
+    flex: none;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .ots-verdict__title {
+    margin: 0;
+    font-size: clamp(var(--text-xl), 5vw, var(--text-3xl));
+    line-height: var(--leading-tight);
+    letter-spacing: var(--tracking-tight);
+    overflow-wrap: anywhere;
+  }
+  .ots-verdict__block {
+    white-space: nowrap;
+  }
+  .ots-verdict__body {
+    display: grid;
+    gap: var(--space-3);
+    min-width: 0;
+  }
+  .ots-verdict__body p {
+    max-width: 66ch;
+    margin: 0;
+  }
+  .ots-when {
+    font-size: var(--text-lg);
+  }
+  .ots-caveat {
+    color: var(--color-caution);
+  }
+  .ots-sub {
+    margin: var(--space-2) 0 0;
+    font-size: var(--text-md);
+  }
+  .ots-list {
+    display: grid;
+    gap: var(--space-1);
+    margin: 0;
+    padding-inline-start: var(--space-5);
+    font-size: var(--text-sm);
+  }
+  .ots-uri {
+    overflow-wrap: anywhere;
+  }
+  .ots-good {
+    color: var(--color-positive);
+  }
+  .ots-bad {
+    color: var(--color-negative);
+  }
+  .ots-pair {
+    display: grid;
+    gap: var(--space-1);
+    margin: 0;
+  }
+  .ots-pair dt {
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+  .ots-pair dd {
+    margin: 0 0 var(--space-2);
+  }
+  .ots-hex-value {
+    font-size: var(--text-sm);
+    overflow-wrap: anywhere;
+    word-break: break-all;
+  }
+
+  /* The path, drawn as a core: one line from the file at the top down to the block, a mark at
+     every step. */
+  .ots-steps {
+    display: grid;
+    margin: var(--space-2) 0 0;
+    padding: 0;
+    list-style: none;
+    color: var(--color-text);
+  }
+  .ots-step {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0 var(--space-3);
+    padding: var(--space-1) 0 var(--space-1) var(--space-5);
+    border-left: 1.5px solid var(--color-line-strong);
+    margin-left: 5px;
+  }
+  .ots-step::before {
+    content: "";
+    position: absolute;
+    left: -5px;
+    top: calc(var(--space-1) + 0.45em);
+    width: 8px;
+    height: 8px;
+    border-radius: var(--radius-s);
+    background: var(--color-line-strong);
+  }
+  .ots-step--end::before {
+    left: -7px;
+    width: 12px;
+    height: 12px;
+    top: calc(var(--space-1) + 0.3em);
+    background: var(--color-text);
+  }
+  .ots-step--end {
+    font-weight: var(--weight-medium);
+  }
+  .ots-step--mark {
+    display: block;
+    padding-block: var(--space-2);
+    color: var(--color-text-muted);
+  }
+  .ots-step--mark::before {
+    background: none;
+    border: 1.5px solid var(--color-line-strong);
+    box-sizing: border-box;
+  }
+  .ots-step:first-child {
+    border-image: linear-gradient(
+        transparent calc(var(--space-1) + 0.6em),
+        var(--color-line-strong) 0
+      )
+      1;
+  }
+  .ots-step:last-child {
+    border-image: linear-gradient(
+        var(--color-line-strong) calc(var(--space-1) + 0.6em),
+        transparent 0
+      )
+      1;
+  }
+  .ots-step__op {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .ots-step__arg {
+    color: var(--color-text-muted);
+  }
+  .ots-step__value {
+    justify-self: end;
+    white-space: nowrap;
+    color: var(--color-text-muted);
+  }
+  .ots-step--end .ots-step__value {
+    color: var(--color-text);
+  }
+  .ots-step__note {
+    grid-column: 1 / -1;
+    color: var(--color-text-muted);
+  }
+  @media (max-width: 40em) {
+    .ots-step {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .ots-step__value {
+      justify-self: start;
+    }
+  }
+}

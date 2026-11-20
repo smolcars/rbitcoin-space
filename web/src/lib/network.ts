@@ -117,6 +117,8 @@ export const paths = {
   /** The decoder, the pasted string in the fragment, which no server sees. On every network. */
   decode: (text?: string) =>
     text === undefined || text === "" ? "/decode" : `/decode#${encodeURIComponent(text)}`,
+  /** Checking an OpenTimestamps proof; the files stay in the page, so the path never names them. */
+  timestamp: () => "/timestamp",
   /** Recent replacements, newest first; only those that replaced without signalling when asked. */
   rbf: (fullRbf = false) => (fullRbf ? "/rbf?view=full-rbf" : "/rbf"),
 };

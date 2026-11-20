@@ -13,6 +13,7 @@ import { routes as mining } from "./pages/mining/routes";
 import { routes as notFound } from "./pages/not-found/routes";
 import { routes as projected } from "./pages/projected/routes";
 import { routes as push } from "./pages/push/routes";
+import { routes as timestamp } from "./pages/timestamp/routes";
 import { routes as tx } from "./pages/tx/routes";
 
 /** Every page, on every network: mainnet at the root, the others under their prefix. */
@@ -35,6 +36,7 @@ export const routes: RouteDefinition[] = [
       ...ark,
       ...mempool,
       ...fees,
+      ...timestamp,
       ...notFound,
     ],
   },

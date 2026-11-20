@@ -139,6 +139,11 @@ export function pages(offer: Offer): Page[] {
       words: ["decode", "invoice", "bolt11", "offer", "lnurl", "raw transaction", "hex"],
     },
     {
+      name: "Check a timestamp",
+      path: paths.timestamp(),
+      words: ["opentimestamps", "ots", "timestamp proof", "proof of existence", "verify file"],
+    },
+    {
       name: "Broadcast",
       path: paths.push(),
       words: ["push", "send transaction", "publish"],
