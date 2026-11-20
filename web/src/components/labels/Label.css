@@ -1,0 +1,126 @@
+@layer components {
+  /* The reader's own words: a tag, pointed at the thing it names. No part of the site's own
+     interface has this shape, so a label never passes for something the explorer says. */
+  .your-label {
+    display: inline-flex;
+    align-items: center;
+    min-width: 0;
+    max-width: 100%;
+    padding: 1px var(--space-2) 1px calc(var(--space-2) + 5px);
+    background: var(--color-line);
+    clip-path: polygon(7px 0, 100% 0, 100% 100%, 7px 100%, 0 50%);
+    border-radius: 0 var(--radius-m) var(--radius-m) 0;
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-regular);
+    line-height: var(--leading-snug);
+    vertical-align: middle;
+  }
+  .your-label__text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    /* Whatever direction its words run, they never reorder what is around it. */
+    unicode-bidi: isolate;
+  }
+  @media (forced-colors: active) {
+    .your-label {
+      clip-path: none;
+      border: 1px dashed CanvasText;
+    }
+  }
+
+  /* A label on its own line under what it names, in a list's row. */
+  .label-line {
+    display: flex;
+    min-width: 0;
+    max-width: 100%;
+    margin-block: 2px;
+  }
+
+  .label-control {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-3);
+    min-width: 0;
+  }
+  /* Quiet: a line of muted text with the tag's outline, not a button's box. */
+  .label-control__open {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    min-height: 28px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--color-text-muted);
+    font-size: var(--text-sm);
+    cursor: pointer;
+  }
+  @media (pointer: coarse) {
+    .label-control__open {
+      min-height: var(--touch);
+    }
+  }
+  @media (hover: hover) {
+    .label-control__open:hover {
+      color: var(--color-accent);
+    }
+  }
+  .label-control__open[aria-expanded="true"] {
+    color: var(--color-text);
+  }
+  .label-control__open svg {
+    width: 14px;
+    height: 14px;
+    flex: none;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.4;
+    stroke-linejoin: round;
+  }
+  .label-control__editor {
+    flex-basis: 100%;
+    min-width: 0;
+  }
+  .label-control__failed,
+  .label-editor__error {
+    color: var(--color-negative);
+    font-size: var(--text-sm);
+  }
+
+  .label-editor {
+    display: grid;
+    gap: var(--space-2);
+    max-width: 34rem;
+    padding: var(--space-4);
+    border-radius: var(--radius-m);
+    background: var(--color-surface-sunken);
+  }
+  .label-editor__name {
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+  }
+  .label-editor__field {
+    min-width: 0;
+    min-height: 36px;
+    padding: var(--space-1) var(--space-3);
+    border: 1px solid var(--color-line-strong);
+    border-radius: var(--radius-m);
+    background: var(--color-surface);
+    color: var(--color-text);
+    font: inherit;
+  }
+  .label-editor__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+  .label-editor__note {
+    color: var(--color-text-muted);
+    font-size: var(--text-sm);
+  }
+}

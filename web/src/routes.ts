@@ -7,6 +7,7 @@ import { routes as decode } from "./pages/decode/routes";
 import { routes as fees } from "./pages/fees/routes";
 import { routes as blocks } from "./pages/blocks/routes";
 import { routes as home } from "./pages/home/routes";
+import { routes as labels } from "./pages/labels/routes";
 import { routes as lightning } from "./pages/lightning/routes";
 import { routes as mempool } from "./pages/mempool/routes";
 import { routes as mining } from "./pages/mining/routes";
@@ -37,6 +38,7 @@ export const routes: RouteDefinition[] = [
       ...mempool,
       ...fees,
       ...timestamp,
+      ...labels,
       ...notFound,
     ],
   },

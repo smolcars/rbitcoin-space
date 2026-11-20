@@ -888,6 +888,7 @@
     grid-template-areas:
       "who amt open"
       "meta meta open"
+      "mine mine mine"
       "memo memo memo";
     align-items: center;
     column-gap: var(--space-3);
@@ -949,6 +950,13 @@
   .tx-hidden {
     color: var(--color-text-muted);
     letter-spacing: -0.1em;
+  }
+  /* The reader's own label: its line under the ledger row, before any text from the chain. */
+  .tx-flow__mine {
+    grid-area: mine;
+    display: flex;
+    min-width: 0;
+    margin-block: var(--space-1);
   }
   .tx-flow__amt {
     grid-area: amt;
@@ -1101,6 +1109,7 @@
         "amt ."
         "who who"
         "meta meta"
+        "mine mine"
         "memo memo";
       column-gap: var(--space-1);
       min-height: 0;

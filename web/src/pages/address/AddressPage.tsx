@@ -11,6 +11,7 @@ import {
   untrack,
 } from "solid-js";
 import { HashFull } from "../../components/Hash";
+import { LabelControl } from "../../components/labels/Label";
 import { QrButton } from "../../components/qr/QrButton";
 import { busyRetrying, createApi, createRequest, fetchApp } from "../../lib/api";
 import { fetchConfig } from "../../lib/config";
@@ -130,6 +131,15 @@ export default function AddressPage() {
                 <QrButton value={f().address} what="address" />
               </Show>
             </HashFull>
+          )}
+        </Show>
+        <Show when={found()} keyed>
+          {(f) => (
+            <LabelControl
+              type={f.type === "p2pk" ? "pubkey" : "addr"}
+              reference={f.address}
+              what={f.type === "p2pk" ? "this public key" : "this address"}
+            />
           )}
         </Show>
         <Show when={canPin()}>

@@ -16,6 +16,7 @@ import "../../components/Button.css";
 import { type Column, DataTable } from "../../components/DataTable";
 import { FeeRate } from "../../components/FeeRate";
 import { Hash } from "../../components/Hash";
+import { LabelOf } from "../../components/labels/Label";
 import { Pagination } from "../../components/Pagination";
 import "../../components/SectionHeader.css";
 import { Empty, ErrorState } from "../../components/States";
@@ -473,6 +474,7 @@ function Transactions(props: {
               copyLabel="Copy transaction ID"
               fit
             />
+            <LabelOf class="label-line" refs={[["tx", tx.txid]]} />
             {/* Phones drop the time column, so the time moves under the txid. */}
             <span class="address-txcell__when">
               <When tx={tx} />
@@ -624,6 +626,13 @@ function Unspent(props: {
               <Hash value={u.txid} href={paths.tx(u.txid)} copy={false} />
               <span class="address-outpoint__vout num">:{u.vout}</span>
             </span>
+            <LabelOf
+              class="label-line"
+              refs={[
+                ["output", `${u.txid}:${u.vout}`],
+                ["tx", u.txid],
+              ]}
+            />
             {/* Phones drop the confirmations column, so the count moves under the output. */}
             <span class="address-txcell__when">
               <Confirmations utxo={u} tip={tipHeight()} words />

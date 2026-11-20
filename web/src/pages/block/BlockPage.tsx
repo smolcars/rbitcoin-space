@@ -21,6 +21,7 @@ import { DataTable } from "../../components/DataTable";
 import { FeeKey, FeeRate } from "../../components/FeeRate";
 import { Goggles } from "../../components/Goggles";
 import { Hash, HashFull } from "../../components/Hash";
+import { LabelOf } from "../../components/labels/Label";
 import { Link } from "../../components/Link";
 import { Note } from "../../components/Note";
 import { SectionHeader } from "../../components/SectionHeader";
@@ -926,6 +927,7 @@ const columns = [
       tx ? (
         <span class="block-txcell">
           <Hash value={tx.txid} href={paths.tx(tx.txid)} copyLabel="Copy transaction ID" fit />
+          <LabelOf class="label-line" refs={[["tx", tx.txid]]} />
           {/* Phones drop the fee rate column, so the rate moves under the txid. */}
           <span class="block-txcell__rate">
             <RateCell tx={tx} unit />

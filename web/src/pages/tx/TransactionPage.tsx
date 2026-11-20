@@ -14,6 +14,7 @@ import { Amount, Sats } from "../../components/Amount";
 import { FeeRate } from "../../components/FeeRate";
 import { Note } from "../../components/Note";
 import { Hash, HashFull } from "../../components/Hash";
+import { LabelControl } from "../../components/labels/Label";
 import { Link } from "../../components/Link";
 import { More } from "../../components/More";
 import { SectionHeader } from "../../components/SectionHeader";
@@ -523,6 +524,7 @@ function TransactionView(props: { txid: string }) {
           </Show>
         </div>
         <HashFull value={props.txid} copyLabel="Copy transaction ID" />
+        <LabelControl type="tx" reference={props.txid} what="this transaction" />
       </header>
       <p class="visually-hidden" aria-live="polite">
         {announcement()}

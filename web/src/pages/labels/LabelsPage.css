@@ -1,0 +1,130 @@
+@layer pages {
+  .labels-page {
+    display: grid;
+    gap: var(--space-5);
+    padding-top: var(--space-5);
+    padding-bottom: var(--space-8);
+  }
+  .labels-page > * {
+    min-width: 0;
+  }
+  .labels-page__head {
+    display: grid;
+    gap: var(--space-2);
+    max-width: 44rem;
+  }
+  .labels-page__head h1,
+  .labels-page__head p {
+    margin: 0;
+  }
+
+  /* Where the labels live, said once, plainly, before anything that changes them. A well, not a
+     panel: it is about the page, not one of its lists. */
+  .labels-page__where {
+    display: grid;
+    gap: var(--space-1);
+    max-width: 44rem;
+    padding: var(--space-4);
+    border-left: 3px solid var(--color-line-strong);
+    border-radius: 0 var(--radius-m) var(--radius-m) 0;
+    background: var(--color-surface-sunken);
+  }
+  .labels-page__where h2 {
+    margin: 0;
+    font-size: var(--text-md);
+  }
+  .labels-page__where p {
+    margin: 0;
+    font-size: var(--text-sm);
+  }
+
+  .labels-page__list,
+  .labels-page__off {
+    display: grid;
+    gap: var(--space-3);
+  }
+  .labels-page__actions,
+  .labels-page__buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+  .labels-page__delete-all {
+    margin-inline-start: auto;
+  }
+  .btn--danger {
+    border-color: var(--color-negative);
+    color: var(--color-negative);
+  }
+  .labels-page__confirm,
+  .labels-page__import {
+    display: grid;
+    gap: var(--space-2);
+    justify-items: start;
+    padding: var(--space-4);
+    border-radius: var(--radius-m);
+    background: var(--color-surface-sunken);
+  }
+  .labels-page__confirm p,
+  .labels-page__import p {
+    margin: 0;
+  }
+  .labels-page__import progress {
+    width: min(100%, 24rem);
+    accent-color: var(--color-accent);
+  }
+  .labels-page__import--refused p,
+  .labels-page__problem {
+    color: var(--color-negative);
+  }
+  .labels-page__import-title {
+    font-weight: var(--weight-medium);
+    overflow-wrap: anywhere;
+  }
+  .labels-page__plan {
+    display: grid;
+    gap: var(--space-1);
+    margin: 0;
+    padding-left: var(--space-5);
+    font-size: var(--text-sm);
+  }
+  .labels-page__said:empty {
+    display: none;
+  }
+  .labels-page__said,
+  .labels-page__problem {
+    margin: 0;
+    font-size: var(--text-sm);
+    overflow-wrap: anywhere;
+  }
+
+  .labels-page__find {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-3);
+    font-size: var(--text-sm);
+  }
+  .labels-page__find input {
+    flex: 1 1 14rem;
+    max-width: 24rem;
+    min-height: 36px;
+    padding: var(--space-1) var(--space-3);
+    border: 1px solid var(--color-line-strong);
+    border-radius: var(--radius-m);
+    background: var(--color-surface-sunken);
+    color: var(--color-text);
+    font: inherit;
+  }
+  .labels-page__count {
+    color: var(--color-text-muted);
+  }
+  .labels-page__none,
+  .labels-page__empty {
+    color: var(--color-text-muted);
+  }
+  .labels-page__row-actions {
+    display: inline-flex;
+    gap: var(--space-2);
+  }
+}

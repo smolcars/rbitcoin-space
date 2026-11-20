@@ -3,6 +3,7 @@ import { render } from "@solidjs/web";
 import "../../design/tokens.css";
 import "./styles/global.css";
 import { watchFiles } from "./lib/chunks";
+import { startLabels } from "./lib/labels";
 import { routes } from "./routes";
 import { Shell } from "./shell/Shell";
 
@@ -50,7 +51,10 @@ if (root) {
             link.addEventListener("error", resolve, { once: true });
           }),
   );
-  void Promise.all([Promise.race([font, timeout]), ...styled]).then(([faces]) => {
+  // The reader's own labels, read before the first render so they never arrive under a page
+  // already drawn; within the font's wait, and nothing at all for a reader without labels.
+  const labels = Promise.race([startLabels(), timeout]);
+  void Promise.all([Promise.race([font, timeout]), labels, ...styled]).then(([faces]) => {
     if (!faces.some((f) => f.status === "loaded")) useFallbackFonts();
     // The browser restores scroll on back and forward, as it did before the router could.
     const Router = createRouter({ routes, scrollRestoration: false });

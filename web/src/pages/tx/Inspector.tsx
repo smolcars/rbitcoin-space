@@ -2,6 +2,7 @@ import { createMemo, createSignal, For, Match, Show, Switch } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { Amount } from "../../components/Amount";
 import { Hash } from "../../components/Hash";
+import { LabelControl } from "../../components/labels/Label";
 import { scriptKey } from "../../lib/address";
 import type { Outspend, Transaction, Vin, Vout } from "../../lib/esplora";
 import { formatSize, groupDigits } from "../../lib/format";
@@ -98,6 +99,14 @@ export function Inspector(props: {
           Close
         </button>
       </div>
+      {/* Keyed by the input or output, so an editor left open never carries over to another. */}
+      <Show when={`${props.tx.txid}:${props.selected.index}:${props.selected.side}`} keyed>
+        <LabelControl
+          type={props.selected.side === "in" ? "input" : "output"}
+          reference={`${props.tx.txid}:${props.selected.index}`}
+          what={title().toLowerCase()}
+        />
+      </Show>
       <Switch>
         <Match when={props.selected.side === "in" && props.tx.vin?.[props.selected.index]}>
           {(vin) => <InputDetails vin={vin()} tx={props.tx} lookalike={props.lookalike} />}

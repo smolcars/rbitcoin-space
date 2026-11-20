@@ -144,6 +144,11 @@ export function pages(offer: Offer): Page[] {
       words: ["opentimestamps", "ots", "timestamp proof", "proof of existence", "verify file"],
     },
     {
+      name: "Your labels",
+      path: paths.labels(),
+      words: ["labels", "bip329", "notes", "tags", "import labels", "export labels", "wallet"],
+    },
+    {
       name: "Broadcast",
       path: paths.push(),
       words: ["push", "send transaction", "publish"],

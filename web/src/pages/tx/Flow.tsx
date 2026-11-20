@@ -3,10 +3,12 @@ import type { JSX } from "@solidjs/web";
 import { Amount } from "../../components/Amount";
 import { FeeRate } from "../../components/FeeRate";
 import { Hash } from "../../components/Hash";
+import { LabelOf } from "../../components/labels/Label";
 import { Link } from "../../components/Link";
 import { scriptKey } from "../../lib/address";
 import type { Outspend, Transaction, Vout } from "../../lib/esplora";
 import { feeColor, groupDigits } from "../../lib/format";
+import type { Shown } from "../../lib/labels";
 import type { Lookalike } from "../../lib/lookalike";
 import { paths } from "../../lib/network";
 import type { TagPart } from "../block/chain";
@@ -260,6 +262,12 @@ export function Flow(props: {
   const payee = (out: Vout | null | undefined) =>
     out?.scriptpubkey_address ?? (out ? scriptKey(out.scriptpubkey) : undefined);
 
+  /** The reader's labels a payee can carry: its address's, or its key's. */
+  const payeeRefs = (out: Vout | null | undefined): [Shown, string | undefined][] => [
+    ["addr", out?.scriptpubkey_address],
+    ["pubkey", out ? scriptKey(out.scriptpubkey) : undefined],
+  ];
+
   /** The address, cut in the middle only as far as the card needs; or what the script is. */
   const who = (out: Vout | null | undefined): JSX.Element => (
     <Show
@@ -341,6 +349,15 @@ export function Flow(props: {
                     : ""}
                   <CardMarks marks={props.marks?.get(`in:${i()}`)} />
                 </span>
+                {/* The input's own label, else the coin's as the output it spends, else its payee's. */}
+                <LabelOf
+                  class="tx-flow__mine"
+                  refs={[
+                    ["input", `${props.tx.txid}:${i()}`],
+                    ["output", input.txid ? `${input.txid}:${input.vout}` : undefined],
+                    ...payeeRefs(input.prevout),
+                  ]}
+                />
                 <Memo t={inputText(input)} label />
                 {openButton("in", i())}
               </li>
@@ -405,6 +422,10 @@ export function Flow(props: {
                 />
                 <CardMarks marks={props.marks?.get(`out:${i()}`)} />
               </span>
+              <LabelOf
+                class="tx-flow__mine"
+                refs={[["output", `${props.tx.txid}:${i()}`], ...payeeRefs(out)]}
+              />
               <Memo t={outputText(out)?.parts ? outputText(out) : null} label={false} />
               {openButton("out", i())}
             </li>

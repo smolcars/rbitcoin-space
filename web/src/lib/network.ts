@@ -70,6 +70,8 @@ export const paths = {
   projected: (position: number) =>
     position <= 1 ? "/block/next" : `/block/next/${segment(position)}`,
   tx: (txid: string) => `/tx/${segment(txid)}`,
+  /** The reader's own labels, kept in this browser. */
+  labels: () => "/labels",
   /** Broadcasting a transaction pasted as hex. The hex is never in the path. */
   push: () => "/tx/push",
   /** An address, or the address as of the block at height `at` when given. */
