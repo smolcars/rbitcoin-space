@@ -15,15 +15,16 @@ import {
 } from "./privacy";
 
 // Mainnet transactions trimmed to what the rules read (fixtures/privacy/README.md).
-const RECORDED = import.meta.glob<Transaction[]>("../../../fixtures/privacy/mainnet.json", {
+const RECORDED = import.meta.glob<Transaction[]>("../../../fixtures/privacy/*.json", {
   eager: true,
   import: "default",
 });
-const MAINNET = Object.values(RECORDED)[0] ?? [];
+const MAINNET = RECORDED["../../../fixtures/privacy/mainnet.json"] ?? [];
+const SIGNET = RECORDED["../../../fixtures/privacy/signet.json"] ?? [];
 
 /** A recorded transaction by the start of its txid. */
 function recorded(prefix: string): Transaction {
-  const t = MAINNET.find((x) => x.txid.startsWith(prefix));
+  const t = [...MAINNET, ...SIGNET].find((x) => x.txid.startsWith(prefix));
   if (!t) throw new Error(`no fixture ${prefix}`);
   return t;
 }
@@ -141,7 +142,8 @@ function join(n: number, value: number, senders = n) {
 
 describe("fixtures", () => {
   it("every recorded transaction is there", () => {
-    expect(MAINNET).toHaveLength(28);
+    expect(MAINNET).toHaveLength(29);
+    expect(SIGNET).toHaveLength(1);
   });
 });
 
@@ -227,6 +229,59 @@ describe("change: pays back to an input's address", () => {
   it("does not fire when the only paying output pays back (a Runes mint, cbd57624)", () => {
     const r = checkPrivacy(recorded("cbd57624"));
     expect(kinds(r)).toStrictEqual(["reuse"]);
+  });
+});
+
+describe("change: pay-back outranks the other readings", () => {
+  it("reads as change by pay-back where unnecessary input pointed the other way (e19de13c, signet)", () => {
+    const r = checkPrivacy(recorded("e19de13c"));
+    expect(kinds(r)).not.toContain("change-disputed");
+    expect(finding(r, "change")).toMatchObject({ change: 1, payment: 0 });
+    // Script type agrees and stays as a further reason; unnecessary input pointed at 0 and is dropped.
+    expect(reasons(r)).toStrictEqual(["payback>1", "script>1"]);
+  });
+  it("reads as change by pay-back from one address's four coins (5ef71273)", () => {
+    const r = checkPrivacy(recorded("5ef71273"));
+    expect(kinds(r)).not.toContain("change-disputed");
+    expect(finding(r, "change")).toMatchObject({ change: 1, payment: 0 });
+    expect(reasons(r)).toStrictEqual(["payback>1"]);
+  });
+  it("lists another reading that agrees with pay-back (43c76933)", () => {
+    expect(reasons(checkPrivacy(recorded("43c76933")))).toStrictEqual(["payback>1", "round>1"]);
+  });
+  it("drops a reading that points away from the pay-back", () => {
+    // Output 1 pays back; output 1 is also round, so the round reading points at 0, and is dropped.
+    const r = checkPrivacy(
+      tx(
+        [{ value: 1_000_000, to: "me" }],
+        [
+          { value: 123_457, to: "x" },
+          { value: 500_000, to: "me" },
+        ],
+      ),
+    );
+    expect(finding(r, "change")).toMatchObject({ change: 1, payment: 0 });
+    expect(reasons(r)).toStrictEqual(["payback>1"]);
+  });
+  it("with no pay-back, readings that disagree stay disputed (b9b5d886)", () => {
+    const r = checkPrivacy(recorded("b9b5d886"));
+    expect(kinds(r)).toContain("change-disputed");
+    expect(reasons(r)).toStrictEqual(["round>0", "script>1", "unneeded>1"]);
+  });
+  it("with several outputs paying back, pay-back reads none as change and the other readings still run", () => {
+    const r = checkPrivacy(
+      tx(
+        [
+          { value: 800_000, to: "a" },
+          { value: 300_000, to: "b" },
+        ],
+        [
+          { value: 500_000, to: "a" },
+          { value: 578_901, to: "b" },
+        ],
+      ),
+    );
+    expect(reasons(r)).toStrictEqual(["round>1"]);
   });
 });
 

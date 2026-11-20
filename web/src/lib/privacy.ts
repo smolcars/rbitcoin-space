@@ -39,7 +39,10 @@ export interface ReusedAddress {
 
 /** Why one output reads as change. */
 export type ChangeReason =
-  /** It pays an address that these inputs spend from; no other output does. */
+  /**
+   * It pays an address that these inputs spend from; no other output does. It outranks the other
+   * readings: when it applies, the finding is change at its output, whatever they say.
+   */
   | { kind: "payback"; inputs: number[] }
   /** The other output is round (`value`); this one is not. */
   | { kind: "round"; roundOutput: number; value: number }
@@ -313,7 +316,11 @@ export function checkPrivacy(tx: Transaction): PrivacyReport {
   if (join) findings.push(join);
 
   // A CoinJoin has no single sender, so which output is change does not apply.
-  const readings = join ? [] : changeReadings(s, notRun);
+  const all = join ? [] : changeReadings(s, notRun);
+  // Pay-back outranks the rest: that output goes to someone who signed for an input, where the
+  // others guess at a wallet's habits. Readings that point elsewhere are dropped, not disputed.
+  const back = all.find((r) => r.reason.kind === "payback");
+  const readings = back ? all.filter((r) => r.change === back.change) : all;
   const pointed = new Set(readings.map((r) => r.change));
   const [change] = pointed;
   if (pointed.size === 1 && change !== undefined) {
