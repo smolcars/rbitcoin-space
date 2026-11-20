@@ -212,8 +212,8 @@ function Board(props: { score: Score }) {
           A block's clearing rate comes from the effective rates the server's last projection before
           the block gave the block's transactions: the rate of the group each was to be mined with,
           which can differ from what a single transaction paid on its own. It is the rate at the
-          cheapest 1% of them by size, so one transaction a miner let in for its own reasons does
-          not set it.
+          cheapest 1% of them by size, which limits the effect of a few small transactions a miner
+          let in for its own reasons; a cheap one larger than that 1% still sets it.
         </p>
         <p>
           Answers given just before the same block share its fate, so the evidence is the number of

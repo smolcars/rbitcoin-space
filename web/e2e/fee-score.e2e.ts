@@ -117,8 +117,11 @@ test("the palette opens the track record by name", async ({ page }) => {
     .waitFor();
   const apple = await page.evaluate(() => /Mac|iPhone|iPad|iPod/.test(navigator.userAgent));
   await page.keyboard.press(apple ? "Meta+k" : "Control+k");
-  await page.getByRole("combobox").last().fill("fee track");
-  // A click, not Enter: Enter opens whichever row is selected, which can still be moving.
-  await page.getByRole("option", { name: /Fee track record/ }).click();
+  const palette = page.getByRole("dialog", { name: "Go to" });
+  await palette.getByRole("combobox").fill("fee track");
+  await expect(palette.locator('[role="option"][aria-selected="true"]')).toContainText(
+    "Fee track record",
+  );
+  await page.keyboard.press("Enter");
   await expect(page).toHaveURL(/\/regtest\/fees\/score$/);
 });
