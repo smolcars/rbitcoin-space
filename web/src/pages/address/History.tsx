@@ -8,6 +8,7 @@ import {
   onCleanup,
   Show,
   Switch,
+  untrack,
 } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { Amount } from "../../components/Amount";
@@ -39,6 +40,7 @@ import {
 import { handoverState } from "../../lib/lookalike";
 import type { Lookalike } from "./lookalike";
 import { LookalikeWarning } from "./LookalikeWarning";
+import { pinnedPath } from "./asof";
 import { Skeleton, settled, UnconfirmedMark } from "./parts";
 
 /** Confirmed transactions per page of address history; the first page adds the unconfirmed ones. */
@@ -96,6 +98,14 @@ export function History(props: {
   /** Lookalike addresses by txid, worked out by the page from what this section reports loaded. */
   lookalike: ReadonlyMap<string, readonly Lookalike[]>;
   /**
+   * The block the page shows the address as of: `first` is its newest confirmed page from
+   * `/txs/chain?asof=`, later pages and the unspent outputs are pinned to the same hash, and an
+   * output's confirmations are counted at that block.
+   */
+  asof?: { hash: string; height: number };
+  /** Told when a pinned read finds its block no longer on the best chain (a 404). */
+  onGone?: () => void;
+  /**
    * Hands the page every transaction loaded, first page and later ones, and whether more could be
    * loaded, whenever either changes; and nothing once this section is gone.
    */
@@ -138,10 +148,11 @@ export function History(props: {
   onCleanup(() => controller.abort());
 
   const first = () => settled(props.first);
+  const pin = (p: string) => (props.asof === undefined ? p : pinnedPath(p, props.asof.hash));
   const total = () => {
     const s = settled(props.stats);
     if (!s) return undefined;
-    return props.kept === true
+    return props.kept === true || props.asof !== undefined
       ? s.chain_stats.tx_count
       : s.chain_stats.tx_count + s.mempool_stats.tx_count;
   };
@@ -217,8 +228,8 @@ export function History(props: {
         // oxlint-disable-next-line no-await-in-loop -- one page at a time, after the last row shown
         const page = await fetchApi<Transaction[]>(
           network(),
-          props.kept === true
-            ? `${path}/txs/chain/${encodeURIComponent(last.txid)}`
+          props.kept === true || props.asof !== undefined
+            ? pin(`${path}/txs/chain/${encodeURIComponent(last.txid)}`)
             : `${path}/txs?after_txid=${encodeURIComponent(last.txid)}`,
           // Past the browser's cache: an empty answer says the history has no more, so one kept
           // from before a reorg must not say it for the chain that followed.
@@ -240,6 +251,7 @@ export function History(props: {
       setLoadingMore(false);
     } catch (e) {
       if (controller.signal.aborted) return;
+      if (props.asof !== undefined && refusal(e) === "gone") props.onGone?.();
       setMoreError(e);
       setLoadingMore(false);
     }
@@ -253,16 +265,27 @@ export function History(props: {
   const opened = createMemo((was?: boolean) => was === true || view() === "unspent");
   const statsKnown = () => props.stats.state !== "unresolved" && props.stats.state !== "pending";
   const wantUtxos = () =>
-    props.held !== true && opened() && statsKnown() && statsFailure() !== "too-large";
+    props.held !== true &&
+    opened() &&
+    statsKnown() &&
+    statsFailure() !== "too-large" &&
+    statsFailure() !== "not-kept";
   const [utxos, { refetch: refetchUtxos }] = createApi<Utxo[]>(
-    () => wantUtxos() && `${path}/utxo`,
+    () => wantUtxos() && pin(`${path}/utxo`),
     {
       fresh: true,
     },
   );
+  // As of a block, confirmations are counted at it: the tip is not asked.
   const [tip, { refetch: refetchTip }] = createApi<string>(
-    () => wantUtxos() && "/blocks/tip/height",
+    () => wantUtxos() && props.asof === undefined && "/blocks/tip/height",
     { as: "text", fresh: true },
+  );
+  createEffect(
+    () => utxos.state === "errored" && refusal(utxos.error) === "gone",
+    (gone) => {
+      if (gone && props.asof !== undefined) props.onGone?.();
+    },
   );
   // A request still in flight is asked again, so its answer is as new as the change.
   const asked = (state: string) =>
@@ -332,6 +355,8 @@ export function History(props: {
                 statsFailure() === "too-large" ||
                 (props.first.state === "errored" && refusal(props.first.error) === "too-large")
               }
+              notKept={props.first.state === "errored" && refusal(props.first.error) === "not-kept"}
+              at={props.asof?.height}
               first={props.first}
               retryFirst={props.retryFirst}
               shown={shown()}
@@ -367,6 +392,12 @@ export function History(props: {
           }
         >
           <Switch>
+            <Match when={statsFailure() === "not-kept"}>
+              <Empty title="Unspent outputs are not available for this address">
+                The server keeps only running totals for an address with this much history, not its
+                coins.
+              </Empty>
+            </Match>
             <Match when={statsFailure() === "too-large"}>
               <Empty title="Unspent outputs are not available for this address">
                 The node refuses to list them for the same reason it refuses the totals: the address
@@ -377,6 +408,7 @@ export function History(props: {
               <Unspent
                 utxos={utxos}
                 tip={tip}
+                at={props.asof?.height}
                 retry={() => {
                   if (utxos.state === "errored") refetchUtxos();
                   if (tip.state === "errored") refetchTip();
@@ -404,6 +436,10 @@ function When(props: { tx: Transaction }) {
 function Transactions(props: {
   address: string;
   tooLarge: boolean;
+  /** As of a block the server keeps no history for, for an address this large. */
+  notKept: boolean;
+  /** The height the page is as of. */
+  at: number | undefined;
   first: ApiResource<Transaction[]>;
   retryFirst: () => void;
   shown: Transaction[] | undefined;
@@ -481,6 +517,12 @@ function Transactions(props: {
           has too much history.
         </Empty>
       </Match>
+      <Match when={props.notKept}>
+        <Empty title="Transactions at this block are not kept for this address">
+          For an address with this much history, the server keeps transactions as of a past block
+          only for its last 100 blocks.
+        </Empty>
+      </Match>
       <Match when={props.first.state === "errored"}>
         <ErrorState
           title="Could not load this address's transactions"
@@ -497,7 +539,11 @@ function Transactions(props: {
       <Match when={true}>
         <div class="address-txs" aria-busy={props.shown === undefined ? "true" : "false"}>
           <DataTable
-            caption="Transactions of this address, newest first"
+            caption={
+              props.at === undefined
+                ? "Transactions of this address, newest first"
+                : `Transactions of this address up to block ${groupDigits(props.at)}, newest first`
+            }
             columns={columns}
             rows={props.shown ?? placeholders(props.total)}
             rowHref={(t) => (t ? paths.tx(t.txid) : undefined)}
@@ -547,6 +593,8 @@ function Unspent(props: {
   utxos: ApiResource<Utxo[]>;
   tip: ApiResource<string>;
   retry: () => void;
+  /** The height the page is as of: confirmations are counted at it. */
+  at?: number | undefined;
 }) {
   const [page, setPage] = createSignal(1);
   // As for the transactions: an output the answer still lists, unchanged, keeps its row.
@@ -556,6 +604,7 @@ function Unspent(props: {
     return u ? sortUtxos(steadyUtxos(u)) : undefined;
   });
   const tipHeight = () => {
+    if (props.at !== undefined) return props.at;
     const t = Number(settled(props.tip));
     return Number.isSafeInteger(t) ? t : undefined;
   };
@@ -584,7 +633,9 @@ function Unspent(props: {
       cell: (u) => (u ? <Amount sats={u.value} unit={false} /> : <Skeleton width="10ch" />),
     },
     {
-      header: "Confirmations",
+      // As of a block, counted at that block. Fixed for the section's life: the page is made
+      // afresh for each block.
+      header: untrack(() => props.at) === undefined ? "Confirmations" : "Confirmations then",
       numeric: true,
       optional: true,
       cell: (u) => (u ? <Confirmations utxo={u} tip={tipHeight()} /> : <Skeleton width="4ch" />),
@@ -596,7 +647,7 @@ function Unspent(props: {
   const failed = (): unknown =>
     props.utxos.state === "errored"
       ? props.utxos.error
-      : props.tip.state === "errored"
+      : props.at === undefined && props.tip.state === "errored"
         ? props.tip.error
         : undefined;
 
@@ -610,15 +661,28 @@ function Unspent(props: {
         />
       </Match>
       <Match when={sorted()?.length === 0}>
-        <Empty title="No unspent outputs">
-          This address holds no coins: everything paid to it has been spent, or nothing has been
-          paid to it yet.
-        </Empty>
+        <Show
+          when={props.at === undefined}
+          fallback={
+            <Empty title="No unspent outputs at this block">
+              Everything paid to this address by then had already been spent.
+            </Empty>
+          }
+        >
+          <Empty title="No unspent outputs">
+            This address holds no coins: everything paid to it has been spent, or nothing has been
+            paid to it yet.
+          </Empty>
+        </Show>
       </Match>
       <Match when={true}>
         <div class="address-utxos" aria-busy={sorted() === undefined ? "true" : "false"}>
           <DataTable
-            caption="Unspent outputs of this address, newest first"
+            caption={
+              props.at === undefined
+                ? "Unspent outputs of this address, newest first"
+                : `Unspent outputs of this address at block ${groupDigits(props.at)}, newest first`
+            }
             columns={columns}
             rows={
               sorted()?.slice((current() - 1) * UTXO_STEP, current() * UTXO_STEP) ??

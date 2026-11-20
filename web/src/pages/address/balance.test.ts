@@ -179,6 +179,20 @@ describe("loadHistory", () => {
     expect(h.rows).toHaveLength(SUMMARY_PAGE);
   });
 
+  it("pins every request to the block it is given, the first page too, stamped or not", async () => {
+    const rows = Array.from({ length: 300 }, (_, i) => row(300 - i, 100));
+    const n = node(rows, 55_555, 300);
+    const pinned = "a".repeat(64);
+    const unstamped = (p: string) => n.fetch(p).then((r) => ({ ...r, tip: undefined }));
+    const h = await loadHistory(BASE, unstamped, 2, undefined, pinned);
+    expect(n.asked).toStrictEqual([
+      `${BASE}/txs/summary?asof=${pinned}`,
+      `${BASE}/txs/summary/${txid(276)}?asof=${pinned}`,
+      `${BASE}?asof=${pinned}`,
+    ]);
+    expect(h).toMatchObject({ complete: false, balance: 55_555, total: 300 });
+  });
+
   it("refuses to anchor a partial history to totals of an unknown block", async () => {
     const rows = Array.from({ length: 300 }, (_, i) => row(300 - i, 100));
     const n = node(rows);

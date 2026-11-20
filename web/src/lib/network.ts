@@ -72,7 +72,9 @@ export const paths = {
   tx: (txid: string) => `/tx/${segment(txid)}`,
   /** Broadcasting a transaction pasted as hex. The hex is never in the path. */
   push: () => "/tx/push",
-  address: (address: string) => `/address/${segment(address)}`,
+  /** An address, or the address as of the block at height `at` when given. */
+  address: (address: string, at?: number) =>
+    `/address/${segment(address)}${at === undefined ? "" : `?at=${segment(at)}`}`,
   /** The mining page, for a period such as `1m` when given. */
   mining: (period?: string) =>
     period === undefined ? "/mining" : `/mining?period=${encodeURIComponent(period)}`,

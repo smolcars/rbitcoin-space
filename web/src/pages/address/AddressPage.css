@@ -392,6 +392,154 @@
     font-weight: var(--weight-medium);
   }
 
+  /* As of a block (Pinned.tsx). Live, a quiet button at the end of the title's row opens the block
+     field under the address. Pinned, a band leads the page: its left edge drawn as settled layers,
+     a core sample read at one depth, so the page cannot be mistaken for the live one. */
+  .address-asof-open {
+    margin-inline-start: auto;
+  }
+  .address-asof-open svg {
+    width: 14px;
+    height: 14px;
+    flex: none;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+  }
+  .address-asof-pick {
+    /* Its field's own width (twenty characters) must not widen the header past a phone. */
+    min-width: 0;
+    max-width: 34rem;
+    padding: var(--space-4);
+    border-radius: var(--radius-m);
+    background: var(--color-surface-sunken);
+  }
+  .address-asof-pick__lead {
+    margin: 0 0 var(--space-3);
+    font-size: var(--text-sm);
+  }
+  .address-asof {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-4);
+    margin-top: var(--space-4);
+    /* The layers: three bands of the line colours, thickest at the bottom, as a tile's gauge. */
+    padding-inline-start: calc(var(--panel-pad) + 6px);
+    background:
+      linear-gradient(
+          var(--color-line) 0 22%,
+          var(--color-surface) 22% 26%,
+          var(--color-line-strong) 26% 48%,
+          var(--color-surface) 48% 52%,
+          var(--color-text-muted) 52% 100%
+        )
+        left / 6px 100% no-repeat,
+      var(--color-surface);
+  }
+  .address-asof__mark {
+    width: 28px;
+    height: 28px;
+    flex: none;
+    margin-top: 2px;
+    fill: var(--color-surface-sunken);
+    stroke: var(--color-line-strong);
+    stroke-width: 1.2;
+  }
+  .address-asof__mark .address-asof__cut {
+    stroke: var(--color-text);
+    stroke-width: 1.6;
+    stroke-dasharray: 2.5 1.5;
+  }
+  .address-asof__body {
+    display: grid;
+    gap: var(--space-1);
+    min-width: 0;
+  }
+  .address-asof__title {
+    margin: 0;
+    font-size: var(--text-xl);
+    font-weight: var(--weight-bold);
+    line-height: var(--leading-tight);
+    letter-spacing: var(--tracking-tight);
+    overflow-wrap: anywhere;
+  }
+  .address-asof__when {
+    margin: 0;
+    min-height: 1lh;
+    color: var(--color-text-muted);
+    font-size: var(--text-sm);
+  }
+  .address-asof__what {
+    max-width: 60ch;
+    margin: var(--space-1) 0 0;
+    font-size: var(--text-sm);
+  }
+  .address-asof__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+  }
+  .address-asof .address-asof-form {
+    margin-top: var(--space-4);
+  }
+  .address-asof-form {
+    display: grid;
+    gap: var(--space-2);
+    max-width: 30rem;
+  }
+  .address-asof-form__label {
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+  }
+  .address-asof-form__row {
+    display: flex;
+    gap: var(--space-2);
+  }
+  .address-asof-form__input {
+    flex: 1 1 auto;
+    width: 100%;
+    min-width: 0;
+    min-height: var(--touch);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--color-line-strong);
+    border-radius: var(--radius-m);
+    background: var(--color-surface);
+    color: var(--color-text);
+    font-size: var(--text-md);
+  }
+  .address-asof-form__input[aria-invalid="true"] {
+    border-color: var(--color-negative);
+  }
+  .address-asof-form__row .btn {
+    min-height: var(--touch);
+  }
+  .address-asof-form__hint,
+  .address-asof-form__note {
+    margin: 0;
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+  .address-asof-form__note {
+    color: var(--color-negative);
+  }
+  /* The figures as of a block: no unconfirmed one. */
+  .address-stats--asof {
+    grid-template-columns: minmax(22rem, auto) repeat(3, minmax(min-content, 1fr));
+  }
+  @media (max-width: 40em) {
+    .address-asof {
+      gap: var(--space-3);
+    }
+    .address-asof__mark {
+      display: none;
+    }
+    .address-asof__title {
+      font-size: var(--text-lg);
+    }
+  }
+
   /* Below this the four figures beside the balance get too narrow, so the balance takes a row,
      and the figures wrap when an exchange's millions do not fit four abreast. */
   @media (max-width: 80em) {

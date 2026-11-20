@@ -37,11 +37,22 @@ export const isCoinbase = (tx: Transaction): boolean => tx.vin?.[0]?.is_coinbase
  * Which refusal an API error is. The server's messages are fixed (docs/API.md, "Error bodies are
  * ours"), so they are matched as text.
  */
-export type Refusal = "too-large" | "no-index" | "wrong-network" | "invalid" | "failed";
+export type Refusal =
+  | "too-large"
+  | "not-kept"
+  | "gone"
+  | "no-index"
+  | "wrong-network"
+  | "invalid"
+  | "failed";
 
 export function refusal(error: unknown): Refusal {
   if (!(error instanceof ApiError)) return "failed";
   if (error.status === 503 && /too large/i.test(error.message)) return "too-large";
+  // A kept address as of a block the server keeps nothing for (docs/API.md, "Very large addresses").
+  if (error.status === 503 && /not kept/i.test(error.message)) return "not-kept";
+  // An `?asof=` block that is not on the best chain, or one never seen.
+  if (error.status === 404) return "gone";
   if (error.status === 503 && /index is disabled/i.test(error.message)) return "no-index";
   if (error.status === 400 && /another network/i.test(error.message)) return "wrong-network";
   if (error.status === 400) return "invalid";

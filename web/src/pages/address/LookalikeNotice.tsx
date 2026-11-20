@@ -1,7 +1,10 @@
-import { Show } from "solid-js";
+import { useSearchParams } from "@solidjs/router";
+import { createEffect, createMemo, createSignal, flush, Show, untrack } from "solid-js";
 import "../../components/Button.css";
+import type { Transaction } from "../../lib/esplora";
 import { groupDigits } from "../../lib/format";
-import type { LookalikeSummary } from "./lookalike";
+import { type Lookalike, type LookalikeSummary, lookalikes, summarize } from "./lookalike";
+import { lookalikeId } from "./LookalikeWarning";
 import { CautionIcon, Marked } from "../../components/Lookalike";
 
 /** The notice's heading, which is also what screen readers hear once when it first appears. */
@@ -103,4 +106,68 @@ export function LookalikeNotice(props: {
       </div>
     </section>
   );
+}
+
+/**
+ * The page's side of the lookalike check, for the live page and the page as of a block alike:
+ * what the history reports loaded (`onShown`, handed to `History`), the findings by txid for its
+ * rows, the notice at the top, and the one sentence screen readers hear when it first appears.
+ * `confirmedOnly` says the history lists confirmed transactions only.
+ */
+export function createLookalikes(
+  address: string,
+  confirmedOnly: (shown: Transaction[]) => boolean,
+) {
+  // Lookalike addresses in every history page loaded (lookalike.ts), worked out once here for the
+  // notice at the top and the rows' notes alike; History reports what it has loaded.
+  const [shownTxs, setShownTxs] = createSignal<Transaction[]>();
+  // Whether the history could load more: what it says of itself, never the totals, which are
+  // another answer and can be older or newer than the list.
+  const [moreTxs, setMoreTxs] = createSignal(false);
+  const onShown = (txs: Transaction[] | undefined, more: boolean) => {
+    setShownTxs(txs);
+    setMoreTxs(more);
+  };
+  const lookalike = createMemo(() => {
+    const list = shownTxs();
+    return list ? lookalikes(address, list) : new Map<string, Lookalike[]>();
+  });
+  const poison = createMemo(() => summarize(lookalike()));
+  // Said once to screen readers, when the notice first appears: not again as pages load or refresh.
+  const [announced, setAnnounced] = createSignal("");
+  createEffect(poison, (p) => {
+    if (p && untrack(announced) === "") setAnnounced(noticeTitle(p));
+  });
+  const [search, setSearch] = useSearchParams<{ view: string }>();
+  const jump = () => {
+    const txid = poison()?.first;
+    if (txid === undefined) return;
+    // The rows live in the transactions view.
+    if (search.view !== undefined) {
+      setSearch({ view: undefined }, { replace: true, scroll: false });
+      flush();
+    }
+    const note = document.getElementById(lookalikeId(txid));
+    if (!note) return;
+    const row = note.closest("tr")?.previousElementSibling ?? note;
+    const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    // The row and its note, clear of the sticky header (the root's scroll-padding-top).
+    row.scrollIntoView({ block: "start", behavior: reduced ? "auto" : "smooth" });
+    note.focus({ preventScroll: true });
+  };
+  const notice = () => (
+    <Show when={poison()}>
+      {(p) => (
+        <LookalikeNotice
+          summary={p()}
+          loaded={shownTxs()?.length ?? 0}
+          more={moreTxs()}
+          confirmedOnly={confirmedOnly(shownTxs() ?? [])}
+          address={address}
+          onJump={jump}
+        />
+      )}
+    </Show>
+  );
+  return { onShown, lookalike, notice, announced };
 }

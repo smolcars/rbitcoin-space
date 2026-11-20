@@ -63,16 +63,19 @@ const confirmed = (rows: readonly TxSummary[]) => rows.filter((r) => r.height > 
 /**
  * The newest history, at most `pages` pages, every page as of the first's block. When it stops
  * short of the first transaction (the cap, or a later page that failed), the address's totals as
- * of that block anchor it. `given` is the first page when it is already in.
+ * of that block anchor it. `given` is the first page when it is already in. `asof` pins every
+ * request, the first too, to that block hash.
  */
 export async function loadHistory(
   base: string,
   fetch: (path: string) => Promise<Stamped<unknown>>,
   pages = MAX_PAGES,
   given?: Stamped<unknown>,
+  asof?: string,
 ): Promise<History> {
-  const first = given ?? (await fetch(`${base}/txs/summary`));
-  const tip = first.tip?.hash;
+  const first =
+    given ?? (await fetch(`${base}/txs/summary${asof === undefined ? "" : `?asof=${asof}`}`));
+  const tip = asof ?? first.tip?.hash;
   const pin = tip === undefined ? "" : `?asof=${tip}`;
   let page = readRows(first.value);
   const rows = [...page];

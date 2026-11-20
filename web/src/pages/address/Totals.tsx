@@ -68,8 +68,15 @@ const EMPTY = {
   tx_count: 0,
 };
 
-/** Balance, received, sent, transaction count and the unconfirmed change. */
-export function Totals(props: { stats: ApiResource<AddressStats>; retry: () => void }) {
+/**
+ * Balance, received, sent, transaction count and the unconfirmed change. As of a block (`at`, its
+ * height; `stats` then asked with `?asof=`), the confirmed figures only: nothing waits at a past block.
+ */
+export function Totals(props: {
+  stats: ApiResource<AddressStats>;
+  retry: () => void;
+  at?: number;
+}) {
   const s = () => settled(props.stats);
   const chain = () => s()?.chain_stats ?? EMPTY;
   const pool = () => s()?.mempool_stats ?? EMPTY;
@@ -97,13 +104,13 @@ export function Totals(props: { stats: ApiResource<AddressStats>; retry: () => v
           />
         </Match>
         <Match when={true}>
-          <dl class="address-stats">
+          <dl class={["address-stats", { "address-stats--asof": props.at !== undefined }]}>
             <Stat
               class="address-stat--balance"
               label="Balance"
               ready={ready()}
               value={<Total sats={chain().funded_txo_sum - chain().spent_txo_sum} what="balance" />}
-              sub="Confirmed"
+              sub={props.at === undefined ? "Confirmed" : `At block ${groupDigits(props.at)}`}
             />
             <Stat
               label="Received"
@@ -120,23 +127,33 @@ export function Totals(props: { stats: ApiResource<AddressStats>; retry: () => v
             <Stat
               label="Transactions"
               ready={ready()}
-              value={<span class="num">{groupDigits(chain().tx_count + pool().tx_count)}</span>}
-              sub={`${groupDigits(chain().tx_count)} confirmed`}
-            />
-            <Stat
-              label="Unconfirmed"
-              ready={ready()}
               value={
-                <Show when={pool().tx_count} fallback={<span class="muted">None</span>}>
-                  <Amount sats={pool().funded_txo_sum - pool().spent_txo_sum} signed />
-                </Show>
+                <span class="num">
+                  {groupDigits(chain().tx_count + (props.at === undefined ? pool().tx_count : 0))}
+                </span>
               }
               sub={
-                <Show when={pool().tx_count} fallback="Nothing waiting">
-                  {(n) => <UnconfirmedMark label={plural(n(), "transaction", "transactions")} />}
-                </Show>
+                props.at === undefined
+                  ? `${groupDigits(chain().tx_count)} confirmed`
+                  : "Confirmed by then"
               }
             />
+            <Show when={props.at === undefined}>
+              <Stat
+                label="Unconfirmed"
+                ready={ready()}
+                value={
+                  <Show when={pool().tx_count} fallback={<span class="muted">None</span>}>
+                    <Amount sats={pool().funded_txo_sum - pool().spent_txo_sum} signed />
+                  </Show>
+                }
+                sub={
+                  <Show when={pool().tx_count} fallback="Nothing waiting">
+                    {(n) => <UnconfirmedMark label={plural(n(), "transaction", "transactions")} />}
+                  </Show>
+                }
+              />
+            </Show>
           </dl>
         </Match>
       </Switch>

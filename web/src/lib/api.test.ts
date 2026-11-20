@@ -189,6 +189,16 @@ describe("retries", () => {
       false,
     );
     expect(isBusy(new ApiError(503, "the mempool engine is off on this server", 1))).toBe(false);
+    // A kept address as of an old block: about the address, not the moment.
+    expect(
+      isBusy(
+        new ApiError(
+          503,
+          "Unspent outputs and older history are not kept for an address this large.",
+          1,
+        ),
+      ),
+    ).toBe(false);
     vi.useRealTimers();
   });
 

@@ -126,6 +126,14 @@ describe("refusal", () => {
       "too-large",
     ],
     [new ApiError(503, "Address index is disabled on this server."), "no-index"],
+    [
+      new ApiError(
+        503,
+        "Unspent outputs and older history are not kept for an address this large.",
+      ),
+      "not-kept",
+    ],
+    [new ApiError(404, "Not found."), "gone"],
     [new ApiError(400, "Address is for another network."), "wrong-network"],
     [new ApiError(400, "Invalid address."), "invalid"],
     [new ApiError(503, "Node unavailable."), "failed"],

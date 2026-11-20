@@ -80,6 +80,8 @@ export const PAGES: { path: string; stub?: (page: Page) => Promise<void> }[] = [
   { path: `/regtest/tx/${chain.txs.script_types}` },
   { path: `/regtest/tx/${chain.txs.cpfp_child}` },
   { path: `/regtest/address/${chain.addresses.p2tr}` },
+  // As of a block, with its band (docs/FRONTEND.md "An address as of a block").
+  { path: `/regtest/address/${chain.addresses.p2tr}?at=106` },
   { path: `/regtest/address/${LARGE}`, stub: (page) => stubLarge(page) },
   // Kept by the server's ledger, and being added up (docs/API.md, "Very large addresses").
   {

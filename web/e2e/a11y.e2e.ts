@@ -329,6 +329,11 @@ const PAGES: PageType[] = [
     ready: (p) => p.getByRole("button", { name: /show the exact amount/ }).first(),
   },
   {
+    name: "address as of a block",
+    path: `/regtest/address/${chain.addresses.p2wpkh}?at=106`,
+    ready: (p) => p.getByRole("button", { name: /show the exact amount/ }).first(),
+  },
+  {
     name: "address above the node's cap",
     path: `/regtest/address/${LARGE}`,
     ready: (p) => p.getByRole("table", { name: /^Unconfirmed transactions/ }).getByRole("link"),
@@ -608,6 +613,26 @@ test("the command palette has no checker finding, empty and with results, in eit
   expect.soft(await axe(page), "axe-core, the palette with results").toEqual([]);
   await page.emulateMedia({ colorScheme: "dark" });
   expect.soft(await axe(page, ["color-contrast"]), "contrast, dark").toEqual([]);
+});
+
+test("the block field has no checker finding, open and refusing what was typed, in either theme", async ({
+  page,
+}) => {
+  await page.goto(`/regtest/address/${chain.addresses.p2tr}`);
+  await page.getByRole("button", { name: "As of a block" }).click();
+  const field = page.getByLabel("Block height or date");
+  await expect(field).toBeVisible();
+  expect.soft(await axe(page), "axe-core, the field open").toEqual([]);
+  await field.fill("nonsense");
+  await field.press("Enter");
+  await expect(page.getByRole("alert")).toBeVisible();
+  expect.soft(await axe(page), "axe-core, the field refusing").toEqual([]);
+  await page.emulateMedia({ colorScheme: "dark" });
+  expect.soft(await axe(page, ["color-contrast"]), "contrast, dark").toEqual([]);
+  await page.goto(`/regtest/address/${chain.addresses.p2tr}?at=x`);
+  await expect(page.getByRole("heading", { name: "“x” is not a block height" })).toBeVisible();
+  await page.getByRole("button", { name: "Another block" }).click();
+  expect.soft(await axe(page), "axe-core, a parameter that is no height, dark").toEqual([]);
 });
 
 /** Content wider than the screen outside anything that scrolls, with every disclosure open. */

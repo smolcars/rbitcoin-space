@@ -3,7 +3,6 @@ import {
   createEffect,
   createMemo,
   createSignal,
-  flush,
   For,
   Match,
   onCleanup,
@@ -28,10 +27,10 @@ import { History } from "./History";
 import { LargeAddress } from "./Large";
 import { asksAgain, LEDGER_POLL_MS, readLedger, waiting } from "./ledger";
 import { AddingUp, KeptAddress } from "./Kept";
-import { type Lookalike, lookalikes, summarize } from "./lookalike";
-import { LookalikeNotice, noticeTitle } from "./LookalikeNotice";
-import { lookalikeId } from "./LookalikeWarning";
+import { readAt } from "./asof";
+import { createLookalikes } from "./LookalikeNotice";
 import { Notice, settled } from "./parts";
+import { AsOfForm, PinnedBody } from "./Pinned";
 import { SilentPaymentAddress } from "./SilentPayment";
 import { Totals } from "./Totals";
 import "./AddressPage.css";
@@ -81,6 +80,16 @@ export default function AddressPage() {
   };
   // A key has no address: the page is the key's, and says so.
   const isKey = () => found()?.type === "p2pk";
+  // `?at=<height>`: the page as of that block (Pinned.tsx), made afresh for each block asked.
+  const [search] = useSearchParams<{ at: string }>();
+  const at = createMemo(() => readAt(search.at));
+  const pinnedKey = () => {
+    const k = key();
+    return k !== undefined && at().kind !== "now" ? `${k} ${search.at ?? ""}` : undefined;
+  };
+  // The block field, opened from the header while the page is live.
+  const [picking, setPicking] = createSignal(false);
+  const canPin = () => key() !== undefined && found()?.type !== "sp" && at().kind === "now";
   usePageTitle(
     () => `${isKey() ? "Public key" : "Address"} ${truncateMiddle(found()?.address ?? input())}`,
   );
@@ -97,6 +106,21 @@ export default function AddressPage() {
               </span>
             )}
           </Show>
+          <Show when={canPin()}>
+            <button
+              class="btn address-asof-open"
+              type="button"
+              aria-expanded={picking() ? "true" : "false"}
+              aria-controls="address-asof-pick"
+              onClick={() => setPicking((p) => !p)}
+            >
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <circle cx="8" cy="8" r="6.25" />
+                <path d="M8 4.5V8l2.5 1.5" />
+              </svg>
+              As of a block
+            </button>
+          </Show>
         </div>
         <Show when={found()} fallback={<p class="address-head__raw">{input()}</p>}>
           {(f) => (
@@ -107,6 +131,17 @@ export default function AddressPage() {
               </Show>
             </HashFull>
           )}
+        </Show>
+        <Show when={canPin()}>
+          <div id="address-asof-pick" class="address-asof-pick" hidden={!picking()}>
+            <Show when={picking()}>
+              <p class="address-asof-pick__lead">
+                See this {isKey() ? "key" : "address"} as it stood at a past block: its balance,
+                coins and history then.
+              </p>
+              <AsOfForm id="address-asof-at-now" />
+            </Show>
+          </div>
         </Show>
       </header>
       <Switch>
@@ -119,6 +154,15 @@ export default function AddressPage() {
         {/* Read from the address alone: nothing is asked of the server for it. */}
         <Match when={found()?.type === "sp"}>
           <SilentPaymentAddress address={(found() as Recognised).address} network={network()} />
+        </Match>
+        <Match when={pinnedKey()} keyed>
+          {(k) => (
+            <PinnedBody
+              address={k.split(" ")[1] ?? ""}
+              isKey={found()?.type === "p2pk"}
+              at={untrack(at)}
+            />
+          )}
         </Match>
         <Match when={key()} keyed>
           {(k) => <AddressBody address={k.slice(k.indexOf(" ") + 1)} found={found()} />}
@@ -212,58 +256,11 @@ function AddressBody(props: { address: string; found: Recognised | null }) {
       (whole() ? `${path}/txs/chain` : !kept() && !large() && `${path}/txs`),
     { fresh: true },
   );
-  // Lookalike addresses in every history page loaded (lookalike.ts), worked out once here for the
-  // notice at the top and the rows' notes alike; History reports what it has loaded.
-  const [shownTxs, setShownTxs] = createSignal<Transaction[]>();
-  // Whether the history could load more: what it says of itself, never the totals, which are
-  // another answer and can be older or newer than the list.
-  const [moreTxs, setMoreTxs] = createSignal(false);
-  const onShown = (txs: Transaction[] | undefined, more: boolean) => {
-    setShownTxs(txs);
-    setMoreTxs(more);
-  };
-  const lookalike = createMemo(() => {
-    const list = shownTxs();
-    return list ? lookalikes(address, list) : new Map<string, Lookalike[]>();
-  });
-  const poison = createMemo(() => summarize(lookalike()));
-  // Said once to screen readers, when the notice first appears: not again as pages load or refresh.
-  const [announced, setAnnounced] = createSignal("");
-  createEffect(poison, (p) => {
-    if (p && untrack(announced) === "") setAnnounced(noticeTitle(p));
-  });
-  const [search, setSearch] = useSearchParams<{ view: string }>();
-  const jump = () => {
-    const txid = poison()?.first;
-    if (txid === undefined) return;
-    // The rows live in the transactions view.
-    if (search.view !== undefined) {
-      setSearch({ view: undefined }, { replace: true, scroll: false });
-      flush();
-    }
-    const note = document.getElementById(lookalikeId(txid));
-    if (!note) return;
-    const row = note.closest("tr")?.previousElementSibling ?? note;
-    const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
-    // The row and its note, clear of the sticky header (the root's scroll-padding-top).
-    row.scrollIntoView({ block: "start", behavior: reduced ? "auto" : "smooth" });
-    note.focus({ preventScroll: true });
-  };
-  const notice = () => (
-    <Show when={poison()}>
-      {(p) => (
-        <LookalikeNotice
-          summary={p()}
-          loaded={shownTxs()?.length ?? 0}
-          more={moreTxs()}
-          // By the rows themselves too: as an address becomes a kept one, the mixed list it
-          // had is still showing until the kept list answers.
-          confirmedOnly={whole() && (shownTxs() ?? []).every((t) => t.status.confirmed)}
-          address={address}
-          onJump={jump}
-        />
-      )}
-    </Show>
+  // As an address becomes a kept one, the mixed list it had is still showing until the kept list
+  // answers: confirmed only by the rows themselves too.
+  const { onShown, lookalike, notice, announced } = createLookalikes(
+    address,
+    (shown) => whole() && shown.every((t) => t.status.confirmed),
   );
   let refreshHistory = () => {
     // Replaced by History once it mounts.
