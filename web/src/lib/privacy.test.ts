@@ -268,7 +268,8 @@ describe("change: pay-back outranks the other readings", () => {
     expect(kinds(r)).toContain("change-disputed");
     expect(reasons(r)).toStrictEqual(["round>0", "script>1", "unneeded>1"]);
   });
-  it("with several outputs paying back, pay-back reads none as change and the other readings still run", () => {
+  it("with two outputs paying back, no change reading runs at all (R1)", () => {
+    // Round would point at output 1, but both outputs go back to someone who signed for an input.
     const r = checkPrivacy(
       tx(
         [
@@ -281,7 +282,8 @@ describe("change: pay-back outranks the other readings", () => {
         ],
       ),
     );
-    expect(reasons(r)).toStrictEqual(["round>1"]);
+    expect(kinds(r)).toStrictEqual(["reuse", "spent-together"]);
+    expect(reasons(r)).toStrictEqual([]);
   });
 });
 
@@ -691,7 +693,8 @@ describe("partly checked", () => {
     expect(finding(r, "reuse")?.addresses).toStrictEqual([
       expect.objectContaining({ inputs: [0, 2], outputs: [] }),
     ]);
-    expect(finding(r, "spent-together")).toMatchObject({ inputs: [0, 1, 2], addresses: 1 });
+    // Only the inputs seen are counted: the unknown one may be an anchor (R2).
+    expect(finding(r, "spent-together")).toMatchObject({ inputs: [0, 2], addresses: 1 });
     expect(r.unreliable).toContain("spent-together");
   });
   it("a CoinJoin with an unknown input is not called one, nor ruled out", () => {
@@ -701,9 +704,25 @@ describe("partly checked", () => {
     expect(r.notRun).toContain("coinjoin");
     expect(r.unreliable).toContain("coinjoin");
   });
-  it("a pruned transaction runs only what its outputs show", () => {
+  it("a pruned transaction whose inputs all carry their previous outputs is checked in full (R3)", () => {
+    // rbitcoin v0.9.2 marks a transaction pruned when its scripts and witnesses are gone; its
+    // input list is then whole or absent, never partial.
+    const r = checkPrivacy({ ...recorded("2a0a2891"), pruned: true });
+    expect(r.inputsMissing).toBe(false);
+    expect(r.notRun).toStrictEqual([]);
+    expect(r.unreliable).toStrictEqual([]);
+    expect(reasons(r)).toStrictEqual(["round>0", "script>0", "unneeded>0"]);
+  });
+  it("a transaction with no input list at all runs only what its outputs show", () => {
+    const { vin: _, ...t } = recorded("cc0f8bc1");
+    const r = checkPrivacy({ ...t, pruned: true });
+    expect(r.inputsMissing).toBe(true);
+    expect(r.notRun).toStrictEqual(["coinjoin", "payback", "script", "unneeded", "spent-together"]);
+    expect(reasons(r)).toStrictEqual(["round>1"]);
+  });
+  it("a transaction listing no inputs runs only what its outputs show", () => {
     const t = recorded("cc0f8bc1");
-    const r = checkPrivacy({ ...t, vin: [], pruned: true });
+    const r = checkPrivacy({ ...t, vin: [] });
     expect(r.inputsMissing).toBe(true);
     expect(r.notRun).toStrictEqual(["coinjoin", "payback", "script", "unneeded", "spent-together"]);
     expect(reasons(r)).toStrictEqual(["round>1"]);
@@ -712,6 +731,123 @@ describe("partly checked", () => {
     const r = checkPrivacy(recorded("2a0a2891"));
     expect(r.notRun).toStrictEqual([]);
     expect(r.unreliable).toStrictEqual([]);
+  });
+});
+
+describe("spent together with inputs it cannot see (R2)", () => {
+  it.each([
+    ["null", null],
+    ["absent", undefined],
+  ] as const)("one known input and one %s is not enough to say, so it does not run", (_, p) => {
+    const r = checkPrivacy(tx([{ value: 50_000, to: "a" }, p], [{ value: 40_000, to: "b" }]));
+    expect(kinds(r)).not.toContain("spent-together");
+    expect(r.notRun).toContain("spent-together");
+    expect(r.unreliable).toContain("spent-together");
+  });
+  it("an anchor and one ordinary input are not spent together", () => {
+    const r = checkPrivacy(
+      tx([ANCHOR_OUT, { value: 50_000, to: "a" }], [{ value: 40_000, to: "b" }]),
+    );
+    expect(kinds(r)).not.toContain("spent-together");
+    expect(r.notRun).not.toContain("spent-together");
+  });
+  it("two known inputs beside an unknown one are reported, and only the known ones", () => {
+    const r = checkPrivacy(
+      tx(
+        [{ value: 50_000, to: "a" }, null, { value: 60_000, to: "c" }],
+        [{ value: 40_000, to: "b" }],
+      ),
+    );
+    expect(finding(r, "spent-together")).toMatchObject({ inputs: [0, 2], addresses: 2 });
+    expect(r.unreliable).toContain("spent-together");
+  });
+});
+
+describe("amounts that are not valid (R4)", () => {
+  const AMOUNT_RULES = ["coinjoin", "round", "unneeded"];
+  /** Three outputs whose values claim to be equal, from three senders, with one reused address. */
+  const claimed = (values: number[]) =>
+    tx(
+      [
+        { value: 100_000, to: "i0" },
+        { value: 100_000, to: "i1" },
+        { value: 100_000, to: "i2" },
+      ],
+      values.map((value, k) => ({ value, to: `o${k}` })),
+    );
+  it("2^53 and 2^53 + 1, read as one number, are no CoinJoin", () => {
+    const r = checkPrivacy(claimed([2 ** 53, 2 ** 53 + 1, 2 ** 53]));
+    expect(kinds(r)).not.toContain("coinjoin");
+    // Three outputs: round and unnecessary input do not apply, so only the CoinJoin is held back.
+    expect(r.notRun).toStrictEqual(["coinjoin"]);
+    expect(r.unreliable).toContain("coinjoin");
+  });
+  it.each([
+    ["negative", -1],
+    ["fractional", 123_456.5],
+    ["not a number", Number.NaN],
+    ["over 21 million BTC", 21_000_000 * 100_000_000 + 1],
+  ])("a %s output is no ragged side of a round pair", (_, bad) => {
+    const r = checkPrivacy(pair(500_000, bad));
+    expect(reasons(r)).toStrictEqual([]);
+    expect(r.notRun).toStrictEqual(expect.arrayContaining(AMOUNT_RULES));
+    expect(r.unreliable).toContain("change");
+  });
+  it("21 million BTC exactly is a valid amount", () => {
+    const r = checkPrivacy(pair(500_000, 21_000_000 * 100_000_000, 21_000_000 * 100_000_000));
+    expect(r.notRun).toStrictEqual([]);
+  });
+  it("a bad input amount stops the amount rules too", () => {
+    const r = checkPrivacy(
+      tx(
+        [
+          { value: -5, to: "i0" },
+          { value: 1_000_001, to: "i1" },
+        ],
+        [
+          { value: 100_001, to: "a" },
+          { value: 300_001, to: "b" },
+        ],
+      ),
+    );
+    expect(reasons(r)).toStrictEqual([]);
+    expect(r.notRun).toStrictEqual(expect.arrayContaining(AMOUNT_RULES));
+  });
+  it("rules that read only addresses still run", () => {
+    const r = checkPrivacy(
+      tx(
+        [{ value: 50_000, to: "me" }],
+        [
+          { value: -7, to: "x" },
+          { value: 40_000, to: "me" },
+        ],
+      ),
+    );
+    expect(kinds(r)).toContain("reuse");
+    expect(finding(r, "change")).toMatchObject({ change: 1 });
+    expect(reasons(r)).toStrictEqual(["payback>1"]);
+  });
+});
+
+describe("unnecessary input states an inequality, not a proof (R5)", () => {
+  it("fires on 103,000 and 302,000 in, 100,001 and 300,001 out, though 302,000 alone pays 300,001", () => {
+    const r = checkPrivacy(
+      tx(
+        [
+          { value: 103_000, to: "i0" },
+          { value: 302_000, to: "i1" },
+        ],
+        [
+          { value: 100_001, to: "a" },
+          { value: 300_001, to: "b" },
+        ],
+      ),
+    );
+    expect(finding(r, "change")?.readings[0]?.reason).toStrictEqual({
+      kind: "unneeded",
+      inputs: [0],
+      value: 103_000,
+    });
   });
 });
 
@@ -724,6 +860,18 @@ describe("large transactions", () => {
     const took = performance.now() - start;
     expect(finding(r, "coinjoin")?.groups[0]?.outputs.length).toBe(5_000);
     expect(took).toBeLessThan(50);
+  });
+  it("5,000 outputs in 1,666 groups of three equal values, whose groups are sorted, take under 50 ms (R6)", () => {
+    const ins = Array.from({ length: 5_000 }, (_, k) => ({ value: 10_000_000, to: `in${k}` }));
+    const outs = Array.from({ length: 5_000 }, (_, k) => ({
+      value: 10_000 + Math.floor(k / 3),
+      to: `out${k}`,
+    }));
+    const t = tx(ins, outs);
+    const start = performance.now();
+    const r = checkPrivacy(t);
+    expect(performance.now() - start).toBeLessThan(50);
+    expect(finding(r, "coinjoin")?.groups).toHaveLength(1_666);
   });
   it("5,000 inputs from one address to 5,000 outputs paying it back are checked in under 50 ms", () => {
     const ins = Array.from({ length: 5_000 }, () => ({ value: 20_000, to: "same" }));

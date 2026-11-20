@@ -49,8 +49,10 @@ export type ChangeReason =
   /** Every input and this output, and no other, are of `scriptType`. */
   | { kind: "script"; scriptType: ScriptType }
   /**
-   * It could have been paid without `inputs`, the coins of the address whose inputs add up to the
-   * least (one input when every input has its own address); the other output could not.
+   * This output is less than `value`, the sum of `inputs` (the coins of the address whose inputs
+   * add up to the least; one input when every input has its own address), and the other output is
+   * not. That suggests which is the payment only if the wallet would not have added a coin it did
+   * not need; it does not prove the other output needed every coin.
    */
   | { kind: "unneeded"; inputs: number[]; value: number };
 
@@ -135,6 +137,10 @@ export function isRound(sats: number): boolean {
 }
 
 const isRagged = (sats: number) => sats % RAGGED_UNIT !== 0;
+/** Every bitcoin there will ever be, in sats: no amount can be more. */
+const MAX_SATS = 21_000_000 * 100_000_000;
+/** A whole, non-negative number of sats no larger than the supply, exactly as a number holds it. */
+const isAmount = (v: number) => Number.isSafeInteger(v) && v >= 0 && v <= MAX_SATS;
 const isAnchor = (o: Vout) => o.scriptpubkey.toLowerCase() === ANCHOR;
 /** An output that pays someone: not data, not an anchor for fee bumping. */
 const pays = (o: Vout) => o.scriptpubkey_type !== "op_return" && !isAnchor(o);
@@ -147,6 +153,10 @@ function push<K, V>(m: Map<K, V[]>, k: K, v: V) {
   if (xs) xs.push(v);
   else m.set(k, [v]);
 }
+
+const KINDS: FindingKind[] = ["reuse", "change", "change-disputed", "coinjoin", "spent-together"];
+/** Findings an invalid amount can make wrong or absent: through the amount rules, or the CoinJoin. */
+const AMOUNT_KINDS: FindingKind[] = ["change", "change-disputed", "coinjoin", "spent-together"];
 
 interface Item {
   i: number;
@@ -163,6 +173,8 @@ interface Shape {
   inputsBy: Map<string, number[]>;
   /** Every input's previous output is known. */
   complete: boolean;
+  /** Every amount, inputs' and outputs', is valid (`isAmount`): the rules that read one may run. */
+  amounts: boolean;
 }
 
 /** Every address that appears more than once among the funding inputs and paying outputs. */
@@ -261,24 +273,32 @@ function unneeded(s: Shape, a: Item, b: Item): ChangeReading | null {
   return { change: lo.i, reason: { kind: "unneeded", inputs, value: least[1] } };
 }
 
-/** The change readings that apply and can run; those that could not are added to `notRun`. */
+/**
+ * The change readings that apply and can run; those that could not are added to `notRun`. With
+ * several outputs paying back to the inputs' addresses, none runs: those outputs go back to people
+ * who signed, so no single sender's change is there to find.
+ */
 function changeReadings(s: Shape, notRun: PrivacyCheck[]): ChangeReading[] {
+  if (s.outs.filter(({ o }) => s.inputsBy.has(key(o))).length > 1) return [];
   const found: (ChangeReading | null)[] = [];
   if (s.complete) found.push(payback(s));
   else notRun.push("payback");
   const [a, b] = s.outs.length === 2 ? s.outs : [];
   if (a && b) {
-    found.push(round(a, b));
-    if (s.complete) found.push(script(s, a, b), unneeded(s, a, b));
-    else notRun.push("script", "unneeded");
+    if (s.amounts) found.push(round(a, b));
+    else notRun.push("round");
+    if (s.complete) found.push(script(s, a, b));
+    else notRun.push("script");
+    if (s.complete && s.amounts) found.push(unneeded(s, a, b));
+    else notRun.push("unneeded");
   }
   return found.filter((r) => r !== null);
 }
 
 /**
- * What the transaction shows. Linear in its inputs and outputs: each check is one pass with maps
- * keyed by script or value, and only the groups of equal outputs (at most a third of the outputs)
- * are sorted.
+ * What the transaction shows. At most n log n in its inputs and outputs: each check is one pass
+ * with maps keyed by script or value, and the groups of equal outputs (at most a third of the
+ * outputs) are sorted.
  */
 export function checkPrivacy(tx: Transaction): PrivacyReport {
   const vin = tx.vin ?? [];
@@ -286,7 +306,9 @@ export function checkPrivacy(tx: Transaction): PrivacyReport {
     coinbase: false,
     findings: [],
     unknownInputs: [],
-    inputsMissing: tx.pruned === true || vin.length === 0,
+    // Decided from the data, not the node's `pruned` flag: rbitcoin v0.9.2 sets that when the
+    // scripts and witnesses are gone, and then lists every input or none.
+    inputsMissing: vin.length === 0,
     notRun: [],
     unreliable: [],
   };
@@ -305,14 +327,16 @@ export function checkPrivacy(tx: Transaction): PrivacyReport {
   const inputsBy = new Map<string, number[]>();
   for (const { i, o } of funding) push(inputsBy, key(o), i);
   const complete = !report.inputsMissing && report.unknownInputs.length === 0;
-  const s: Shape = { funding, outs, inputsBy, complete };
+  const amounts =
+    tx.vout.every((o) => isAmount(o.value)) && funding.every(({ o }) => isAmount(o.value));
+  const s: Shape = { funding, outs, inputsBy, complete, amounts };
   const { findings, notRun } = report;
 
   const reused = reuse(s);
   if (reused.length > 0) findings.push({ kind: "reuse", addresses: reused });
 
-  const join = complete ? coinjoin(s) : null;
-  if (!complete) notRun.push("coinjoin");
+  const join = complete && amounts ? coinjoin(s) : null;
+  if (!complete || !amounts) notRun.push("coinjoin");
   if (join) findings.push(join);
 
   // A CoinJoin has no single sender, so which output is change does not apply.
@@ -328,20 +352,22 @@ export function checkPrivacy(tx: Transaction): PrivacyReport {
     findings.push({ kind: "change", change, payment: other?.i, readings });
   } else if (pointed.size > 1) findings.push({ kind: "change-disputed", readings });
 
-  // Several inputs spent together; anchors are left out, as they fund nothing.
+  // Several inputs spent together, counting only inputs seen to fund it: an unknown one may be an
+  // anchor, so it never makes up the number.
+  const unknown = report.unknownInputs.length;
   if (report.inputsMissing) notRun.push("spent-together");
-  else if (!join) {
-    const inputs = vin.flatMap((input, i) => (input.prevout && isAnchor(input.prevout) ? [] : [i]));
-    if (inputs.length > 1)
-      findings.push({
-        kind: "spent-together",
-        inputs,
-        addresses: inputsBy.size,
-        noChange: outs.length === 1,
-      });
-  }
+  else if (!join && funding.length > 1)
+    findings.push({
+      kind: "spent-together",
+      inputs: funding.map(({ i }) => i),
+      addresses: inputsBy.size,
+      noChange: outs.length === 1,
+    });
+  else if (!join && unknown > 0 && funding.length + unknown > 1) notRun.push("spent-together");
 
-  if (!complete)
-    report.unreliable = ["reuse", "change", "change-disputed", "coinjoin", "spent-together"];
+  const unreliable = new Set<FindingKind>();
+  if (!complete) for (const k of KINDS) unreliable.add(k);
+  if (!amounts) for (const k of AMOUNT_KINDS) unreliable.add(k);
+  report.unreliable = KINDS.filter((k) => unreliable.has(k));
   return report;
 }
