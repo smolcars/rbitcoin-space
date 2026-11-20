@@ -516,6 +516,20 @@ async fn every_kind_of_page_on_every_network_says_what_it_is() {
                 ),
             ),
             (
+                "/fees/score".into(),
+                "Fee track record".into(),
+                format!(
+                    "How often this server's recommended fees on {chain} were mined in time: each level against its 85% target, what it cost, and what the figures rest on."
+                ),
+            ),
+            (
+                "/fees/score?window=24h".into(),
+                "Fee track record".into(),
+                format!(
+                    "How often this server's recommended fees on {chain} were mined in time: each level against its 85% target, what it cost, and what the figures rest on."
+                ),
+            ),
+            (
                 "/lightning".into(),
                 "Lightning".into(),
                 format!(
@@ -842,6 +856,8 @@ async fn paths_that_do_not_parse_get_the_shell_as_built() {
         "/lightning/node/%E2%80%AE".to_owned(),
         "/regtestx/".to_owned(),
         "/mempool/extra".to_owned(),
+        "/fees".to_owned(),
+        "/fees/score/extra".to_owned(),
         format!("/ark/arkade/vtxo/{TXID}"),
         format!("/ark/arkade/vtxo/{TXID}:01"),
         format!("/ark/arkade/vtxo/{TXID}:4294967296"),

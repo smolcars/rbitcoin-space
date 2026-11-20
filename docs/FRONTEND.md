@@ -394,7 +394,7 @@ How this server's own fee recommendations fared against the blocks that followed
 - **No share without evidence.** A level the route marks `enough: false` shows no percentage, says how many blocks are needed and how many it has, and, when most of its answers are still waiting, that they are. A figure the route sends when `enough` is false is dropped, never shown.
 - **States.** A `503` saying the mempool engine is off is not retried (`isBusy` already exempts it) and says the server keeps no record; `503 not ready yet` is retried as every busy answer is, then says the record is not ready with "Try again"; a window with no sample says nothing was recorded then and links to everything; an answer that does not read as the route's is an error, never drawn. A test network says beside the figures that a block with room reads as a miss for an answer at the minimum.
 - **Fresh.** The server rebuilds the answer after every 30 s sample; the page asks again each minute while it is visible.
-- **No link preview of its own.** The server's head table (`crates/server/src/pages.rs`) has no entry for this path, so a pasted link shows the site's title; the page sets its own once loaded.
+- **Its link preview** is the server's head for `/fees/score` on every network (`crates/server/src/pages.rs`): "Fee track record", and a line saying how often this server's recommended fees on the network were mined in time, against the 85% target. The window in the query is not part of it. `preview.e2e.ts` holds the title equal to the page's.
 
 #### Lightning pages
 

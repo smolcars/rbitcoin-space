@@ -40,6 +40,7 @@ const PAGES = [
   "/regtest/mining",
   "/regtest/mempool",
   "/regtest/rbf",
+  "/regtest/fees/score",
   "/regtest/lightning",
   "/regtest/lightning/channel/1x2x3",
   "/regtest/lightning/search",

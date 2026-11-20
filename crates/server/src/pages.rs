@@ -236,6 +236,12 @@ impl Pages {
                     "Transactions replaced on {on}'s mempool, newest first: what replaced what, how much the fee rate rose, and which was mined, live."
                 ),
             },
+            [_, Some("fees"), Some("score"), None] => Head {
+                title: "Fee track record".into(),
+                description: format!(
+                    "How often this server's recommended fees on {on} were mined in time: each level against its 85% target, what it cost, and what the figures rest on."
+                ),
+            },
             [_, Some("lightning"), None, None] => Head {
                 title: "Lightning".into(),
                 description: format!(
