@@ -49,6 +49,8 @@ export const mainnet = (): Record<string, unknown> => ({
   [`nodes/${ACINQ}`]: recorded("node-acinq"),
   [`nodes/${ACINQ}/history`]: recorded("node-acinq-history"),
   [`nodes/${ACINQ}/channels?status=closed`]: recorded("node-acinq-closed"),
+  // Recorded 2026-11-20 from a copy of a mainnet server's store, its first 8 days of closes.
+  [`nodes/${ACINQ}/closes`]: recorded("node-acinq-closes"),
   // Recorded 2026-11-15, from a server with the fee history.
   [`nodes/${ACINQ}/fees`]: recorded("node-acinq-fees"),
   [`nodes/${ONE}`]: recorded("node-one"),

@@ -348,6 +348,12 @@ const PAGES: PageType[] = [
     before: (p) => serve(p, mainnet()),
   },
   {
+    name: "Lightning node's closes",
+    path: `/regtest/lightning/node/${ACINQ}?view=closed`,
+    ready: (p) => p.getByRole("heading", { name: "With whom" }),
+    before: (p) => serve(p, mainnet()),
+  },
+  {
     name: "Lightning channel",
     path: "/regtest/lightning/channel/811984x2037x0",
     ready: (p) => p.getByRole("table").first(),
