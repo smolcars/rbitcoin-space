@@ -26,6 +26,21 @@ afterEach(() => {
 
 const text = (el: Element | null | undefined) => el?.textContent ?? "";
 const rows = (el: HTMLElement) => [...el.querySelectorAll<HTMLElement>(".fee-level")];
+/** A header's full words: without its phone form and its unit line. */
+const headerText = (th: Element) => {
+  const copy = th.cloneNode(true) as Element;
+  for (const x of copy.querySelectorAll(".table__short, .table__sub")) x.remove();
+  return text(copy).trim();
+};
+/** A table's row named `name`, each cell under its column's header. */
+const tableRow = (table: Element | undefined, name: string): Record<string, string> => {
+  const headers = [...(table?.querySelectorAll("thead th") ?? [])].map((th) => headerText(th));
+  const row = [...(table?.querySelectorAll("tbody tr") ?? [])].find(
+    (r) => text(r.querySelector("th, td")).trim() === name,
+  );
+  const cells = [...(row?.querySelectorAll("th, td") ?? [])].map((c) => text(c).trim());
+  return Object.fromEntries(headers.map((h, i) => [h, cells[i] ?? ""]));
+};
 const refused = (error: string) => () =>
   Response.json({ error }, { status: 503, headers: { "Retry-After": "1" } });
 
@@ -104,6 +119,40 @@ describe("fee track record page", () => {
     [...el.querySelectorAll("button")].find((b) => text(b) === "Try again")?.click();
     await vi.advanceTimersByTimeAsync(100);
     await vi.waitFor(() => expect(rows(el)).toHaveLength(4));
+  });
+
+  it("puts each recorded figure under its own column", async () => {
+    replies["/app/fees/score?window=1w"] = () => Response.json(MAINNET_1W);
+    const el = mount(() => <FeeScorePage />, "/fees/score");
+    await vi.waitFor(() => expect(rows(el)).toHaveLength(4));
+    const [cost, evidence] = [...el.querySelectorAll("table")];
+    expect(tableRow(cost, "No rush")).toStrictEqual({
+      Level: "No rush",
+      "Overpaid when met, mean": "0.04",
+      "Overpaid when met, median": "under 0.01",
+      "Short when missed, mean": "0.01",
+    });
+    expect(tableRow(cost, "High")).toStrictEqual({
+      Level: "High",
+      "Overpaid when met, mean": "1.06",
+      "Overpaid when met, median": "0.98",
+      "Short when missed, mean": "0.75",
+    });
+    expect(tableRow(evidence, "High")).toStrictEqual({
+      Level: "High",
+      "Answers judged": "19\u202F521",
+      "Blocks that decided them": "1\u202F035",
+      "Left out: not finished": "34",
+      "Left out: outage": "0",
+      "Left out: no clearing rate": "4",
+    });
+  });
+
+  it("refuses an answer for another window than the one asked", async () => {
+    replies["/app/fees/score?window=24h"] = () => Response.json(MAINNET_1W);
+    const el = mount(() => <FeeScorePage />, "/fees/score?window=24h");
+    await vi.waitFor(() => expect(text(el)).toContain("Could not load the fee track record"));
+    expect(rows(el)).toHaveLength(0);
   });
 
   it("refuses an answer it cannot read rather than show it", async () => {

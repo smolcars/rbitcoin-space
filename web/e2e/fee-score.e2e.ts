@@ -54,6 +54,32 @@ test("a level under its target says so plainly, beside those that meet theirs", 
   await expect(page.getByText(/^In 539 samples from this period/)).toBeVisible();
 });
 
+test("switching the window replaces every figure with that window's", async ({ page }) => {
+  const answers: Record<string, unknown> = { "1w": MAINNET_1W, "24h": MAINNET_24H };
+  await page.route(/\/regtest\/app\/fees\/score\?window=(\w+)$/, (r) =>
+    r.fulfill({ json: answers[new URL(r.request().url()).searchParams.get("window") ?? ""] }),
+  );
+  await page.goto("/regtest/fees/score?window=1w");
+  const met = (name: string) =>
+    page
+      .getByRole("listitem")
+      .filter({ has: page.getByRole("heading", { name }) })
+      .locator(".fee-level__met");
+  const evidence = page.getByRole("table", { name: /The answers and blocks behind/ });
+  const highJudged = evidence.getByRole("row", { name: /^High/ }).getByRole("cell").nth(1);
+  await expect(met("No rush")).toHaveText("67.4%");
+  await expect(met("High")).toHaveText("88.5%");
+  await expect(highJudged).toHaveText("19\u202F521");
+  await page
+    .getByRole("navigation", { name: "Period" })
+    .getByRole("link", { name: /the last 24 hours/ })
+    .click();
+  await expect(page).toHaveURL(/window=24h$/);
+  await expect(met("No rush")).toHaveText("–");
+  await expect(met("High")).toHaveText("86.3%");
+  await expect(highJudged).toHaveText("2\u202F846");
+});
+
 test("a level with too few blocks shows no share", async ({ page }) => {
   await serveScore(page, MAINNET_24H);
   await page.goto("/regtest/fees/score?window=24h");
@@ -92,7 +118,7 @@ test("the palette opens the track record by name", async ({ page }) => {
   const apple = await page.evaluate(() => /Mac|iPhone|iPad|iPod/.test(navigator.userAgent));
   await page.keyboard.press(apple ? "Meta+k" : "Control+k");
   await page.getByRole("combobox").last().fill("fee track");
-  await expect(page.getByRole("option", { name: /Fee track record/ })).toBeVisible();
-  await page.keyboard.press("Enter");
+  // A click, not Enter: Enter opens whichever row is selected, which can still be moving.
+  await page.getByRole("option", { name: /Fee track record/ }).click();
   await expect(page).toHaveURL(/\/regtest\/fees\/score$/);
 });

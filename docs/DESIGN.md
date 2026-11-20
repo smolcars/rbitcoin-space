@@ -592,7 +592,7 @@ Decided while building it:
 
 ```text
 Fee track record                                          [24 h | 1 w | 1 m | All]
-How often a transaction paying the home page's rate would have been mined in time…
+How this server's fee recommendations, the numbers behind the home page's fees, fared…
 ┌ Mined in time ───────────────────────────────────────────────────────────────┐
 │ No rush       67.4%                       85%                                 │
 │ within a day  mined within the next 144   [·······▐█▌·······┊····]  × Below target │

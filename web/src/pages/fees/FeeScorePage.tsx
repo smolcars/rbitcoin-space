@@ -61,7 +61,9 @@ function FeeScore(props: { network: Network }) {
     async (id, signal) => {
       const v = await fetchApp<unknown>(props.network, `/fees/score?window=${id}`, { signal });
       const score = readScore(v);
-      if (!score) throw new ApiError(200, "The server sent a reply that could not be read.");
+      // An answer for another window than the one asked would be drawn under the wrong tab.
+      if (!score || score.window !== id)
+        throw new ApiError(200, "The server sent a reply that could not be read.");
       return score;
     },
   );
@@ -85,16 +87,16 @@ function FeeScore(props: { network: Network }) {
       </header>
       <div class="fee-score__intro">
         <p>
-          How often a transaction paying the rate on the home page's{" "}
-          <Link href={paths.home()}>Fee to pay now</Link> would have been mined in time, judged
-          against the blocks that came after each answer. Every level is held to {TARGET_TEXT}.
+          How this server's fee recommendations, the numbers behind the home page's{" "}
+          <Link href={paths.home()}>Fee to pay now</Link>, fared against the blocks that followed
+          them. The home page rounds each one up, so a reader who paid what it showed did no worse.
+          Every level is held to {TARGET_TEXT}.
         </p>
         <Show when={props.network !== "mainnet"}>
           <p class="fee-score__caveat">
             On a test network most blocks have room to spare. A block with room is judged by the
-            cheapest transaction it took, so an answer at the network's minimum, which would have
-            got in too, counts as a miss: low shares here say more about the blocks than the
-            answers.
+            cheapest rates it took, so an answer at the network's minimum, which would have got in
+            too, counts as a miss: low shares here say more about the blocks than the answers.
           </p>
         </Show>
       </div>
@@ -186,7 +188,7 @@ function Board(props: { score: Score }) {
     const s = props.score;
     return s.from === null
       ? undefined
-      : `Answers given from ${formatUtc(s.from, false)} to ${formatUtc(s.to, false)}, one every 30 seconds.`;
+      : `The period these figures cover: ${formatUtc(s.from, false)} to ${formatUtc(s.to, false)}.`;
   };
   return (
     <>
@@ -203,13 +205,15 @@ function Board(props: { score: Score }) {
         <p>
           Every 30 seconds the server notes the four rates it is recommending. Each answer is then
           judged against the blocks that came after it: it is <strong>met</strong> when its rate was
-          at least 0.001 sat/vB above the rate that got into one of the blocks it promised, the next
+          at least 0.001 sat/vB above the clearing rate of one of the blocks it promised, the next
           block for High, the next 3 for Medium, the next 6 for Low and the next 144 for No rush.
         </p>
         <p>
-          The rate that got into a block is the lowest rate paid by the transactions in it that the
-          server had seen waiting, leaving out the cheapest 1% by size, so one transaction a miner
-          let in for its own reasons does not set it.
+          A block's clearing rate comes from the effective rates the server's last projection before
+          the block gave the block's transactions: the rate of the group each was to be mined with,
+          which can differ from what a single transaction paid on its own. It is the rate at the
+          cheapest 1% of them by size, so one transaction a miner let in for its own reasons does
+          not set it.
         </p>
         <p>
           Answers given just before the same block share its fate, so the evidence is the number of
@@ -355,12 +359,12 @@ function CostPanel(props: { views: LevelView[] }) {
       <SectionHeader title="What it cost" id="fee-score-cost" />
       <div class="fee-score__prose">
         <p>
-          <strong>Overpaid</strong> is how far an answer that was met paid above the cheapest rate
-          that got into one of its blocks: what a reader paid for the certainty.
+          <strong>Overpaid</strong> is how far an answer that was met paid above the lowest rate
+          that would have counted as getting in: 0.001 sat/vB over the cheapest clearing rate among
+          the blocks it promised.
         </p>
         <p>
-          <strong>Short</strong> is how far an answer that missed was below that rate: how much more
-          it would have taken.
+          <strong>Short</strong> is how far an answer that missed was below that same lowest rate.
         </p>
       </div>
       <DataTable
@@ -421,10 +425,11 @@ function EvidencePanel(props: { views: LevelView[]; score: Score }) {
         <p>
           Some answers are left out rather than judged. <strong>Not finished</strong>: the blocks
           they promised have not all come yet; No rush waits 144 blocks, about a day.{" "}
-          <strong>Outage</strong>: their blocks fell in a gap of over two hours with no block
-          recorded, or the half hour after it, when the server was not watching.{" "}
-          <strong>No clearing rate</strong>: none of their blocks has a rate that got in, because
-          the server had seen none of those blocks' transactions waiting, or missed the blocks.
+          <strong>Outage</strong>: their blocks reached into a gap of over two hours between
+          recorded blocks, which the server takes as an outage, or into the half hour after it,
+          while the mempool refills. <strong>No clearing rate</strong>: none of their blocks has a
+          rate that got in, because the server had seen none of those blocks' transactions waiting,
+          or missed the blocks.
         </p>
         <Show when={notOursSentence(props.score)}>{(text) => <p>{text()}</p>}</Show>
       </div>

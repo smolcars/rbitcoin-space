@@ -98,6 +98,17 @@ describe("readScore", () => {
     expect(noRush?.shortfall).toBeNull();
   });
 
+  it("refuses a level with enough evidence but no share or no interval", () => {
+    const noInterval = edited((v) => {
+      firstLevel(v)["interval"] = null;
+    });
+    expect(readScore(noInterval)).toBeUndefined();
+    const noShare = edited((v) => {
+      firstLevel(v)["met"] = null;
+    });
+    expect(readScore(noShare)).toBeUndefined();
+  });
+
   it("never shows a share the route did not mean to give", () => {
     const s = read(
       edited((v) => {
@@ -137,6 +148,43 @@ describe("readScore", () => {
   });
 });
 
+describe("figures at the target", () => {
+  /** What the page prints and says for a share with the interval `[lo, hi]`. */
+  const shown = (met: number, lo: number, hi: number) => {
+    const v = levelView(level({ met, interval: [lo, hi] }), 30);
+    return { met: v.met, interval: v.interval, verdict: v.verdict, detail: v.detail };
+  };
+
+  it("never prints a share under the target as the target", () => {
+    expect(percent(0.8499)).toBe("84.9%");
+    expect(percent(0.84996)).toBe("84.9%");
+    expect(percent(0.85)).toBe("85.0%");
+    expect(percent(0.85004)).toBe("85.0%");
+    expect(shown(0.8499, 0.8, 0.9)).toMatchObject({ met: "84.9%", verdict: "Below target" });
+    expect(shown(0.84996, 0.8, 0.9)).toMatchObject({ met: "84.9%", verdict: "Below target" });
+    expect(shown(0.85, 0.8, 0.9)).toMatchObject({ met: "85.0%", verdict: "Meets target" });
+    expect(shown(0.85004, 0.8, 0.9)).toMatchObject({ met: "85.0%", verdict: "Meets target" });
+  });
+
+  it("never prints an interval's upper bound under the target as the target", () => {
+    const under = "Under 85% across its whole interval.";
+    const reaches = "Its interval reaches 85%, so more blocks are needed to be sure.";
+    expect(shown(0.8, 0.75, 0.8499)).toMatchObject({ interval: "75.0–84.9%", detail: under });
+    expect(shown(0.8, 0.75, 0.84996)).toMatchObject({ interval: "75.0–84.9%", detail: under });
+    expect(shown(0.8, 0.75, 0.85)).toMatchObject({ interval: "75.0–85.0%", detail: reaches });
+    expect(shown(0.8, 0.75, 0.85004)).toMatchObject({ interval: "75.0–85.0%", detail: reaches });
+  });
+
+  it("never prints an interval's lower bound under the target as the target", () => {
+    const sure = "At or above 85% across its whole interval.";
+    const unsure = "Its interval reaches below 85%, so more blocks are needed to be sure.";
+    expect(shown(0.9, 0.8499, 0.95)).toMatchObject({ interval: "84.9–95.0%", detail: unsure });
+    expect(shown(0.9, 0.84996, 0.95)).toMatchObject({ interval: "84.9–95.0%", detail: unsure });
+    expect(shown(0.9, 0.85, 0.95)).toMatchObject({ interval: "85.0–95.0%", detail: sure });
+    expect(shown(0.9, 0.85004, 0.95)).toMatchObject({ interval: "85.0–95.0%", detail: sure });
+  });
+});
+
 describe("figures", () => {
   it("writes a share to a tenth, whole at the ends", () => {
     expect(percent(0.8846)).toBe("88.5%");
@@ -169,7 +217,7 @@ describe("levelView", () => {
       met: "90.0%",
       interval: "87.0–93.0%",
     });
-    expect(v.detail).toBe("Above 85% across its whole interval.");
+    expect(v.detail).toBe("At or above 85% across its whole interval.");
     expect(v.evidence).toBe("3\u202F000 answers decided by 150 blocks");
     expect(v.marks?.met).toBeCloseTo(90, 9);
     const unsure = levelView(level({ met: 0.86, interval: [0.8, 0.92] }), 30);
@@ -222,6 +270,31 @@ describe("levelView", () => {
       "A share is given from 30 blocks; 1 block has decided this level so far.",
     );
     expect(one.evidence).toBe("2 answers decided by 1 block");
+    // Most of the level's own samples were left out for an outage, not still waiting.
+    const outage = levelView(
+      level({
+        enough: false,
+        met: null,
+        interval: null,
+        outcomes: 3,
+        scored: 10,
+        leftOut: { outage: 100, unfinished: 20, noClearing: 0 },
+      }),
+      30,
+    );
+    expect(outage.detail).not.toContain("waiting");
+    const waiting = levelView(
+      level({
+        enough: false,
+        met: null,
+        interval: null,
+        outcomes: 3,
+        scored: 10,
+        leftOut: { outage: 5, unfinished: 20, noClearing: 0 },
+      }),
+      30,
+    );
+    expect(waiting.detail).toContain("Most of its answers are still waiting for the next block.");
   });
 });
 

@@ -119,6 +119,9 @@ function readLevel(v: unknown, blocks: number, name: LevelName): ScoreLevel | un
     if (!isShare(lo) || !isShare(hi) || lo > hi) return undefined;
     span = [lo, hi];
   }
+  // The server sends a share and its interval for every level with enough evidence: an answer
+  // without them would draw a share with no interval, so it is not the route's.
+  if (enough && (met === null || span === null)) return undefined;
   let paid: ScoreLevel["overpay"] = null;
   if (overpay !== null) {
     if (!isObject(overpay)) return undefined;
@@ -183,9 +186,16 @@ export function readScore(v: unknown): Score | undefined {
   };
 }
 
-/** A share as a percentage, to a tenth: `0.8847` → `88.5%`; whole at the ends, `0%` and `100%`. */
+/**
+ * A share as a percentage, to a tenth: `0.8847` → `88.5%`; whole at the ends, `0%` and `100%`.
+ * Rounded to the nearest tenth, except that a figure under the target never rounds up to it: it
+ * rounds away from the target, down to `84.9%`, so a share or bound below 85% never prints as 85%
+ * beside "Below target". At or over the target, rounding to the nearest cannot go under it.
+ */
 export function percent(share: number): string {
-  const tenths = Math.round(share * 1000);
+  const target = Math.round(TARGET * 1000);
+  const nearest = Math.round(share * 1000);
+  const tenths = share < TARGET && nearest >= target ? target - 1 : nearest;
   if (tenths <= 0) return "0%";
   if (tenths >= 1000) return "100%";
   return `${(tenths / 10).toFixed(1)}%`;
@@ -245,8 +255,10 @@ export function levelView(l: ScoreLevel, minBlocks: number): LevelView {
   const evidence = `${plural(l.scored, "answer", "answers")} decided by ${plural(l.outcomes, "block", "blocks")}`;
   const base = { level: l.name, name: names.name, when: names.when, horizon: horizon(l.blocks) };
   if (!l.enough || l.met === null) {
+    // All of the level's own samples: judged, and left out for each reason.
+    const own = l.scored + l.leftOut.unfinished + l.leftOut.outage + l.leftOut.noClearing;
     const waiting =
-      l.leftOut.unfinished > l.scored
+      l.leftOut.unfinished * 2 > own
         ? ` Most of its answers are still waiting for ${l.blocks === 1 ? "the next block" : `their ${groupDigits(l.blocks)}th block`}.`
         : "";
     return {
@@ -265,7 +277,7 @@ export function levelView(l: ScoreLevel, minBlocks: number): LevelView {
   const [lo, hi] = l.interval ?? [l.met, l.met];
   const detail = meets
     ? lo >= TARGET
-      ? `Above ${target} across its whole interval.`
+      ? `At or above ${target} across its whole interval.`
       : `Its interval reaches below ${target}, so more blocks are needed to be sure.`
     : hi < TARGET
       ? `Under ${target} across its whole interval.`
