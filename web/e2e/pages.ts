@@ -136,6 +136,8 @@ export const PAGES: { path: string; stub?: (page: Page) => Promise<void> }[] = [
     path: `/regtest/ark/arkade/address/${ARKADE_ADDRESS}?page=11#live`,
     stub: (page) => withArkadeAddress(page, true),
   },
+  // Waiting for its files: a proof's verdicts are drawn in timestamp.e2e.ts.
+  { path: "/regtest/timestamp" },
   // One page on every network: a named invoice with route hints.
   { path: "/decode#lnbc20m1example", stub: withInvoice },
   { path: "/regtest/no/such/page" },

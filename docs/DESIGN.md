@@ -665,6 +665,26 @@ Broadcast a transaction
 
 It is read as soon as it is pasted, so the answer comes before the button: what it pays and where its coins go. The button is the accent only when nothing needs a second thought; with a warning it is outlined and reads "Broadcast anyway". A transaction the node already has gets a positive notice and a link instead of a button. On a phone the fee and the size share a row and the amount has its own, as on the transaction page.
 
+### Timestamp proofs (not in the prototype)
+
+```text
+Check a timestamp
+What a proof is, in two sentences. Your file never leaves this page.
+┌ Proof ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─┐ ┌ Your file ─ ─ ─ ─ ─ ─ ─ ─ ─┐
+  [Choose a file] or drop it     [Choose a file] or drop it
+                                 Or its SHA-256, in hex [   ]
+└ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─┘ └ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─┘
+┌ (✓ Verified) ─────────────────────────────────────────────┐
+│ This file existed before block 449 397                     │
+│ Block 449 397 was mined on 21 Jan 2017, 23:47:07 UTC       │
+│ What it proves and what it does not                        │
+│ Also in this proof: other blocks, calendars (not checked)  │
+│ > Show the 47 steps from your file to the block            │
+└────────────────────────────────────────────────────────────┘
+```
+
+The two inputs are drawn as the site draws what has not settled: a dashed outline while empty, solid once each holds its file, as a projected tile sets when mined. The verdict is the answer: a status pill with an icon and a word (positive Verified, caution Pending or Not checked, negative for a different file or a proof that does not verify), then the sentence that says it as the page title's size, and below it the one paragraph that says what a timestamp does and does not prove. The steps are a core drawn down the page: one line from the file's digest at the top to the block's merkle root at the bottom, a small square at each step, larger ones at the two ends. Side by side above 40em; stacked on a phone.
+
 ### Ark (not in the prototype)
 
 ```text
