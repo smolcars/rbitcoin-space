@@ -19,14 +19,17 @@ const HOSTILE = [
   "W".repeat(5000),
 ];
 
-const settle = async () => {
-  for (let i = 0; i < 20; i++) {
-    await new Promise((resolve) => {
-      setTimeout(resolve, 0);
-    });
-    flush();
-  }
-};
+/** Waits, flushing, until `ok` holds: the editor's code and the store answer in later tasks. */
+const until = (ok: () => boolean): Promise<void> =>
+  new Promise((resolve) => {
+    const end = Date.now() + 5000;
+    const look = () => {
+      flush();
+      if (ok() || Date.now() > end) resolve();
+      else setTimeout(look, 0);
+    };
+    look();
+  });
 
 beforeEach(() => {
   showLabels(new Map());
@@ -99,14 +102,16 @@ describe("LabelControl", () => {
     const button = el.querySelector<HTMLButtonElement>(".label-control__open");
     expect(button?.textContent).toBe("Add a label");
     button?.click();
-    await settle();
+    await until(
+      () => el.querySelector("input") !== null && document.activeElement?.tagName === "INPUT",
+    );
     const field = el.querySelector<HTMLInputElement>("input");
     expect(document.activeElement).toBe(field);
     expect(el.querySelector("label")?.textContent).toBe("Your label for this transaction");
     if (!field) throw new Error("no field");
     field.value = "rent, March";
     el.querySelector("form")?.dispatchEvent(new Event("submit", { cancelable: true }));
-    await settle();
+    await until(() => el.querySelector("input") === null);
     expect(el.querySelector(".your-label__text")?.textContent).toBe("rent, March");
     expect(button?.textContent).toBe("Edit label");
     expect(document.activeElement).toBe(button);
@@ -114,19 +119,19 @@ describe("LabelControl", () => {
 
     // Escape closes without a change.
     button?.click();
-    await settle();
+    await until(() => el.querySelector("input") !== null);
     const again = el.querySelector<HTMLInputElement>("input");
     expect(again?.value).toBe("rent, March");
     again?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-    await settle();
+    await until(() => el.querySelector("input") === null);
     expect(el.querySelector("input")).toBeNull();
     expect(document.activeElement).toBe(button);
 
     button?.click();
-    await settle();
+    await until(() => el.querySelector("input") !== null);
     const remove = [...el.querySelectorAll("button")].find((b) => b.textContent === "Remove label");
     remove?.click();
-    await settle();
+    await until(() => el.querySelector(".your-label") === null);
     expect(el.querySelector(".your-label")).toBeNull();
     expect(button?.textContent).toBe("Add a label");
     expect(el.querySelector("[role=status]")?.textContent).toBe("Label removed");
@@ -137,12 +142,12 @@ describe("LabelControl", () => {
     reset();
     const el = mount(() => <LabelControl type="tx" reference={TXID} what="this transaction" />);
     el.querySelector<HTMLButtonElement>(".label-control__open")?.click();
-    await settle();
+    await until(() => el.querySelector("input") !== null);
     const field = el.querySelector<HTMLInputElement>("input");
     if (!field) throw new Error("no field");
     field.value = "x";
     el.querySelector("form")?.dispatchEvent(new Event("submit", { cancelable: true }));
-    await settle();
+    await until(() => el.querySelector("[role=alert]") !== null);
     expect(el.querySelector("[role=alert]")?.textContent).toMatch(/cannot be kept here/);
     expect(el.querySelector(".your-label")).toBeNull();
   });

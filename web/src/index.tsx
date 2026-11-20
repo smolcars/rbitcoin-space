@@ -3,7 +3,7 @@ import { render } from "@solidjs/web";
 import "../../design/tokens.css";
 import "./styles/global.css";
 import { watchFiles } from "./lib/chunks";
-import { startLabels } from "./lib/labels";
+import { startLabels } from "./lib/labels/store";
 import { routes } from "./routes";
 import { Shell } from "./shell/Shell";
 

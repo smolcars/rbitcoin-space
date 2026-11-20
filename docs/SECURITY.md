@@ -42,6 +42,10 @@ The server sits between the public internet and a Bitcoin node. A client must ne
 
 24. **The MCP endpoint adds no way to the node.** `POST /mcp` ([`MCP.md`](MCP.md)) is off by default, read-only and without a tool that writes. A tool asks only named routes of this server, through the same router and with the caller's address, so every rule here applies to it as it does to the route: the allow-list, the limits, the decoder's budget. Its arguments are parsed into types before a route's path is written from them. A browser may call it only from this site, by rule 21's check. Text a stranger wrote is named as such in the answer, and scripts and coinbase tags are left out ([`MCP.md`](MCP.md#text-someone-else-wrote)).
 
+### The reader's own data
+
+25. **A reader's labels never leave their browser.** Their text, which things carry one, and whether any exist are never sent: not in a URL, a header, a body or a socket message, and no request is made, added or changed because a label exists (the code that reads them is in the shell for that reason). Every label is untrusted text, rendered as a text node with control and invisible characters made visible, and cut. An `xpub` or a silent payments scan key in an imported file is never looked up. `e2e/labels.e2e.ts` proves it on every pull request ([`FRONTEND.md`](FRONTEND.md#your-labels)).
+
 ### Handling data
 
 12. **SQL is always parameterized.** Request handlers get read-only connections.

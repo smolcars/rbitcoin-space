@@ -70,36 +70,6 @@ export function showLabels(map: ReadonlyMap<string, string>): void {
   setIndex(map);
 }
 
-function hinted(): boolean {
-  try {
-    return localStorage.getItem(HINT) !== null;
-  } catch {
-    // Storage blocked: the database may still work, so ask it.
-    return true;
-  }
-}
-
-async function load(): Promise<void> {
-  try {
-    const db = await import("./labels/db");
-    await db.refresh();
-  } catch {
-    // No database here, or its code failed to download: pages show no labels, as before.
-  }
-}
-
-/**
- * Loads the labels this browser holds, before the first render where it can (index.tsx waits for
- * it as briefly as for the font). Without any it costs one `localStorage` read. Another tab's
- * change arrives as a `storage` event on the hint, and is read again.
- */
-export function startLabels(): Promise<void> {
-  addEventListener("storage", (e) => {
-    if (e.key === HINT || e.key === null) void load();
-  });
-  return hinted() ? load() : Promise.resolve();
-}
-
 const CONTROL = /[\p{Cc}\p{Zl}\p{Zp}]/gu;
 // Format characters, bidi overrides and isolates among them; a joiner inside an emoji stays.
 const FORMAT = /(?!\u{200D})\p{Cf}/gu;

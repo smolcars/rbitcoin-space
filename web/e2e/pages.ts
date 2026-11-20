@@ -16,6 +16,7 @@ import {
 import { withInvoice } from "./decode-answers";
 import { chain, stubRetargets } from "./fixtures";
 import { KEPT, LARGE, stubLarge } from "./large-address";
+import { labelled, seedLabels } from "./labels";
 import { penalties } from "./lightning-answers";
 import { serveScore } from "./score-answers";
 
@@ -141,4 +142,17 @@ export const PAGES: { path: string; stub?: (page: Page) => Promise<void> }[] = [
   // One page on every network: a named invoice with route hints.
   { path: "/decode#lnbc20m1example", stub: withInvoice },
   { path: "/regtest/no/such/page" },
+  // The reader's labels: the manager empty and full, and a transaction labelled (the fragment only
+  // tells the runs apart).
+  { path: "/regtest/labels" },
+  { path: "/regtest/labels#labelled", stub: seedSome },
+  { path: `/regtest/tx/${chain.txs.script_types}#labelled`, stub: seedSome },
 ];
+
+/** Labels on the scenario's transaction, its first output and two of the chain's addresses. */
+async function seedSome(page: Page) {
+  await seedLabels(
+    page,
+    labelled(chain.txs.script_types, [chain.addresses.p2wpkh, chain.addresses.p2tr]),
+  );
+}

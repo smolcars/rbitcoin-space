@@ -16,6 +16,7 @@ import {
 } from "./ark-answers";
 import { axe } from "./axe";
 import { chain, expect, stubRetargets, test } from "./fixtures";
+import { labelled, seedLabels } from "./labels";
 import { KEPT, LARGE, stubLarge } from "./large-address";
 import { ACINQ, mainnet, penalties, serve } from "./lightning-answers";
 import { serveScore } from "./score-answers";
@@ -329,6 +330,31 @@ const PAGES: PageType[] = [
     name: "timestamp",
     path: "/regtest/timestamp",
     ready: (p) => p.getByRole("heading", { level: 2, name: "Proof" }),
+  },
+  {
+    name: "labels",
+    path: "/regtest/labels",
+    ready: (p) => p.getByRole("button", { name: "Import a file" }),
+  },
+  {
+    name: "labels, with labels",
+    path: "/regtest/labels",
+    ready: (p) => p.getByRole("cell").first(),
+    before: (p) =>
+      seedLabels(
+        p,
+        labelled(chain.txs.script_types, [chain.addresses.p2wpkh, chain.addresses.p2tr]),
+      ),
+  },
+  {
+    name: "transaction, labelled",
+    path: `/regtest/tx/${chain.txs.script_types}`,
+    ready: (p) => p.locator(".tx-flow .your-label"),
+    before: (p) =>
+      seedLabels(
+        p,
+        labelled(chain.txs.script_types, [chain.addresses.p2wpkh, chain.addresses.p2tr]),
+      ),
   },
   {
     name: "not found",

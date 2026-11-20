@@ -22,8 +22,6 @@ export interface LabelRecord {
 export const MAX_LINE = 64 * 1024;
 /** The largest file read at all, in bytes. Larger is refused before it is read. */
 export const MAX_FILE = 20 * 1024 * 1024;
-/** The most records this browser keeps, after an import. */
-export const MAX_RECORDS = 250_000;
 /** The longest label typed in the editor: BIP329's suggested limit. Longer imported ones are kept. */
 export const MAX_LABEL = 255;
 
