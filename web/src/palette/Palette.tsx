@@ -3,7 +3,7 @@
 import { useLocation, useNavigate } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, For, onCleanup, onSettled, Show } from "solid-js";
 import type { JSX } from "@solidjs/web";
-import { ApiError, fetchApi, isNotFound } from "../lib/api";
+import { ApiError, fetchApi } from "../lib/api";
 import { type AppConfig, loadConfig } from "../lib/config";
 import { formatBtcShort, groupDigits, truncateMiddle } from "../lib/format";
 import { NETWORK_NAMES, type Network, onNetwork, paths, stripNetwork } from "../lib/network";
@@ -24,6 +24,7 @@ import {
   readDate,
   readPools,
 } from "./match";
+import { blockAt, type Dated } from "./block-at";
 import "./Palette.css";
 
 /** How long typing pauses before the server is asked: the header search's own pause. */
@@ -108,27 +109,6 @@ function loadPools(network: Network): Promise<Pool[]> {
   }
   return list;
 }
-
-interface Found {
-  height: number;
-  hash: string;
-}
-
-/** What a date's lookup came to: its block, or why there is none to show. */
-type Dated =
-  | { kind: "found"; found: Found }
-  /** The server's block history has nothing at or before then: too early, or not indexed. */
-  | { kind: "none" }
-  | { kind: "failed"; message: string };
-
-const isFound = (v: unknown): v is Found =>
-  typeof v === "object" &&
-  v !== null &&
-  "height" in v &&
-  typeof v.height === "number" &&
-  "hash" in v &&
-  typeof v.hash === "string" &&
-  /^[0-9a-f]{64}$/.test(v.hash);
 
 export interface PaletteProps {
   /** What the field starts with: the header search's text when the palette is opened from it. */
@@ -265,24 +245,7 @@ export default function Palette(props: PaletteProps): JSX.Element {
   };
 
   let dateAsk: AbortController | undefined;
-  /** The block at a moment; rejects only when `signal` aborts. */
-  const askDate = async (moment: Moment, net: Network, signal: AbortSignal): Promise<Dated> => {
-    try {
-      const body = await fetchApi<unknown>(net, `/v1/mining/blocks/timestamp/${moment.at}`, {
-        signal,
-      });
-      return isFound(body)
-        ? { kind: "found", found: body }
-        : { kind: "failed", message: "The server's answer could not be read" };
-    } catch (error) {
-      if (signal.aborted) throw error;
-      if (isNotFound(error)) return { kind: "none" };
-      return {
-        kind: "failed",
-        message: error instanceof ApiError ? error.message : "The lookup could not finish",
-      };
-    }
-  };
+  const askDate = blockAt;
   const dateText = (answer: Dated, net: Network): string =>
     answer.kind === "found"
       ? `Block ${groupDigits(answer.found.height)}, the newest by then`
