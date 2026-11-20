@@ -172,31 +172,42 @@ const LOOKUPS = 3;
  * answers, and the height is looked up again.
  */
 async function resolve(net: Network, height: number, signal: AbortSignal): Promise<Resolved> {
-  const lookup = () =>
-    fetchApi<string>(net, `/block-height/${height}`, { as: "text", signal, fresh: true });
-  let hash: string | undefined;
-  for (let i = 0; hash === undefined; i++) {
+  /** The height's hash, or undefined when the node does not know the height (404). */
+  const lookup = async (): Promise<string | undefined> => {
     try {
-      // oxlint-disable-next-line no-await-in-loop -- each lookup follows the tip read before it
-      hash = (await lookup()).trim();
-    } catch (error) {
-      if (!isNotFound(error)) throw error;
-      // oxlint-disable-next-line no-await-in-loop -- only after a 404
-      const tip = await fetchApi<string>(net, "/blocks/tip/height", {
+      const h = await fetchApi<string>(net, `/block-height/${height}`, {
         as: "text",
         signal,
         fresh: true,
-      }).then(readTip, () => undefined);
-      // Not mined only when a tip was read and falls short of the height; a tip that cannot be
-      // read says nothing, and is a failure to look the block up, with Try again.
-      if (tip === undefined) {
-        throw new Error(`The node did not say how far its chain reaches.`, { cause: error });
-      }
-      if (tip < height) return { kind: "future", tip };
-      if (i + 1 >= LOOKUPS) {
-        throw new Error(`The node does not answer for block ${height} yet.`, { cause: error });
-      }
+      });
+      return h.trim();
+    } catch (error) {
+      if (isNotFound(error)) return undefined;
+      throw error;
     }
+  };
+  let hash = await lookup();
+  for (let i = 1; hash === undefined; i++) {
+    // oxlint-disable-next-line no-await-in-loop -- only after a 404
+    const tip = await fetchApi<string>(net, "/blocks/tip/height", {
+      as: "text",
+      signal,
+      fresh: true,
+    }).then(readTip, () => undefined);
+    // Not mined only when a tip was read and falls short of the height; a tip that cannot be
+    // read says nothing, and is a failure to look the block up, with Try again.
+    if (tip === undefined) throw new Error("The node did not say how far its chain reaches.");
+    if (tip < height) {
+      // The tip may come from the server's one-second cache, from before the block was found:
+      // the height is looked up once more, so "not mined" is true as of the page's last lookup.
+      // oxlint-disable-next-line no-await-in-loop -- once, and the loop ends after it
+      hash = await lookup();
+      if (hash === undefined) return { kind: "future", tip };
+      break;
+    }
+    if (i >= LOOKUPS) throw new Error(`The node does not answer for block ${height} yet.`);
+    // oxlint-disable-next-line no-await-in-loop -- each lookup follows the tip read before it
+    hash = await lookup();
   }
   const block = /^[0-9a-f]{64}$/.test(hash)
     ? await fetchApi<unknown>(net, `/block/${hash}`, { signal })

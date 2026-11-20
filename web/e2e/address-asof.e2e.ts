@@ -337,6 +337,10 @@ test("next is offered at the tip, and a step past it says the block is not mined
   page,
 }) => {
   const tip = chain.tip.height;
+  let lookups = 0;
+  page.on("request", (r) => {
+    if (new URL(r.url()).pathname === `/regtest/api/block-height/${tip + 1}`) lookups++;
+  });
   await page.goto(`/regtest/address/${chain.addresses.p2tr}?at=${tip}`);
   await expect(stat(page, "Balance")).toHaveText("1.49 BTC");
   await band(page)
@@ -344,6 +348,8 @@ test("next is offered at the tip, and a step past it says the block is not mined
     .click();
   await expect(page).toHaveURL(new RegExp(`\\?at=${tip + 1}$`));
   await expect(page.getByText(`Block ${tip + 1} has not been mined yet`)).toBeVisible();
+  // The lookup, then once more after a tip short of it: never more.
+  expect(lookups).toBe(2);
   await expect(page.getByText(`The newest block is ${tip}.`)).toBeVisible();
   // Not a dead end: straight back to the address as of the newest block.
   await band(page)
@@ -486,4 +492,28 @@ test("every address read carries the one resolved hash, paged and after a change
 
   expect(seen.filter((s) => s.want === at108).length).toBeGreaterThan(3);
   expect(seen.filter((s) => s.asof !== s.want)).toStrictEqual([]);
+});
+
+test("a block found between its lookup and a cached tip short of it is shown, not called unmined", async ({
+  page,
+}) => {
+  // The first lookup misses; the tip, as the server's one-second cache may give it, is one below;
+  // the block is there by the next lookup.
+  let lookups = 0;
+  await page.route(
+    (url) => url.pathname === "/regtest/api/block-height/107",
+    (route) =>
+      ++lookups === 1
+        ? route.fulfill({ status: 404, json: { error: "not found" } })
+        : route.continue(),
+  );
+  await page.route(
+    (url) => url.pathname === "/regtest/api/blocks/tip/height",
+    (route) => route.fulfill({ contentType: "text/plain", body: "106" }),
+  );
+  await page.goto(`/regtest/address/${chain.addresses.p2tr}?at=107`);
+  await expect(band(page).getByRole("heading")).toHaveText("As of block 107");
+  await expect(stat(page, "Balance")).toHaveText("1.49 BTC");
+  await expect(page.getByText(/has not been mined yet/)).toHaveCount(0);
+  expect(lookups).toBe(2);
 });
