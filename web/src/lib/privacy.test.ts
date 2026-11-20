@@ -695,7 +695,8 @@ describe("partly checked", () => {
     ]);
     // Only the inputs seen are counted: the unknown one may be an anchor (R2).
     expect(finding(r, "spent-together")).toMatchObject({ inputs: [0, 2], addresses: 1 });
-    expect(r.unreliable).toContain("spent-together");
+    // One paying output can be no CoinJoin, so the unknown input cannot undo it (R9).
+    expect(r.unreliable).toStrictEqual(["reuse"]);
   });
   it("a CoinJoin with an unknown input is not called one, nor ruled out", () => {
     const t = join(3, 100_000);
@@ -759,11 +760,58 @@ describe("spent together with inputs it cannot see (R2)", () => {
       ),
     );
     expect(finding(r, "spent-together")).toMatchObject({ inputs: [0, 2], addresses: 2 });
-    expect(r.unreliable).toContain("spent-together");
+    // One paying output can be no CoinJoin, so the unknown input cannot undo it (R9).
+    expect(r.unreliable).toStrictEqual(["reuse"]);
   });
 });
 
-describe("amounts that are not valid (R4)", () => {
+describe("unreliable names only what missing data could change (R9)", () => {
+  it("two known pay-backs settle the change question, whatever the unknown input holds", () => {
+    const r = checkPrivacy(
+      tx(
+        [{ value: 800_000, to: "a" }, { value: 300_000, to: "b" }, null],
+        [
+          { value: 500_000, to: "a" },
+          { value: 578_901, to: "b" },
+        ],
+      ),
+    );
+    expect(r.notRun).toStrictEqual(["coinjoin"]);
+    expect(r.unreliable).toStrictEqual(["reuse"]);
+  });
+  it("two known pay-backs settle it beside an invalid amount, with every input known", () => {
+    const r = checkPrivacy(
+      tx(
+        [
+          { value: 800_000, to: "a" },
+          { value: 300_000, to: "b" },
+        ],
+        [
+          { value: -1, to: "a" },
+          { value: 578_901, to: "b" },
+        ],
+      ),
+    );
+    expect(r.notRun).toStrictEqual(["coinjoin"]);
+    expect(r.unreliable).toStrictEqual([]);
+  });
+  it("an unknown input leaves change unreliable when no pay-back is known", () => {
+    const r = checkPrivacy(
+      tx(
+        [{ value: 800_000, to: "a" }, null],
+        [
+          { value: 500_000, to: "x" },
+          { value: 278_901, to: "y" },
+        ],
+      ),
+    );
+    // Two paying outputs can never be a CoinJoin, so that is not unreliable.
+    expect(r.unreliable).toStrictEqual(["reuse", "change", "change-disputed", "spent-together"]);
+  });
+});
+
+describe("amounts that are not valid (R4, R8)", () => {
+  const SUPPLY = 21_000_000 * 100_000_000;
   const AMOUNT_RULES = ["coinjoin", "round", "unneeded"];
   /** Three outputs whose values claim to be equal, from three senders, with one reused address. */
   const claimed = (values: number[]) =>
@@ -793,8 +841,59 @@ describe("amounts that are not valid (R4)", () => {
     expect(r.notRun).toStrictEqual(expect.arrayContaining(AMOUNT_RULES));
     expect(r.unreliable).toContain("change");
   });
-  it("21 million BTC exactly is a valid amount", () => {
-    const r = checkPrivacy(pair(500_000, 21_000_000 * 100_000_000, 21_000_000 * 100_000_000));
+  it("21 million BTC exactly, in and out, is valid", () => {
+    // The outputs add up to the whole supply and the fee is zero.
+    const r = checkPrivacy(pair(500_000, SUPPLY - 500_000, SUPPLY));
+    expect(r.notRun).toStrictEqual([]);
+    expect(r.unreliable).toStrictEqual([]);
+  });
+  it("outputs adding up to one sat over the supply are no CoinJoin (R8)", () => {
+    const r = checkPrivacy(
+      claimed([700_000_000_000_001, 700_000_000_000_001, 700_000_000_000_001]),
+    );
+    expect(kinds(r)).not.toContain("coinjoin");
+    expect(r.notRun).toStrictEqual(["coinjoin"]);
+    expect(r.unreliable).toContain("coinjoin");
+  });
+  it("a round pair over the supply gives no round reading, with an input unknown (R8)", () => {
+    const r = checkPrivacy(
+      tx(
+        [null],
+        [
+          { value: 2_000_000_000_000_000, to: "a" },
+          { value: 100_000_000_000_001, to: "b" },
+        ],
+      ),
+    );
+    expect(reasons(r)).toStrictEqual([]);
+    expect(r.notRun).toContain("round");
+    expect(r.unreliable).toContain("change");
+  });
+  it("known inputs that do not cover the outputs are no CoinJoin (R8)", () => {
+    const r = checkPrivacy(
+      tx(
+        [
+          { value: 10_000, to: "i0" },
+          { value: 10_000, to: "i1" },
+          { value: 10_000, to: "i2" },
+        ],
+        [
+          { value: 11_000, to: "o0" },
+          { value: 11_000, to: "o1" },
+          { value: 11_000, to: "o2" },
+        ],
+      ),
+    );
+    expect(kinds(r)).not.toContain("coinjoin");
+    expect(r.notRun).toStrictEqual(["coinjoin"]);
+  });
+  it("a transaction paying exactly what its inputs hold, fee zero, is valid (R8)", () => {
+    const r = checkPrivacy(pair(500_000, 123_457, 623_457));
+    expect(r.notRun).toStrictEqual([]);
+    expect(reasons(r)).toStrictEqual(["round>1"]);
+  });
+  it("a zero-value output is a valid amount", () => {
+    const r = checkPrivacy(pair(500_000, 0, 600_000));
     expect(r.notRun).toStrictEqual([]);
   });
   it("a bad input amount stops the amount rules too", () => {

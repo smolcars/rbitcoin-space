@@ -141,6 +141,18 @@ const isRagged = (sats: number) => sats % RAGGED_UNIT !== 0;
 const MAX_SATS = 21_000_000 * 100_000_000;
 /** A whole, non-negative number of sats no larger than the supply, exactly as a number holds it. */
 const isAmount = (v: number) => Number.isSafeInteger(v) && v >= 0 && v <= MAX_SATS;
+/**
+ * The total of valid amounts, or null once it passes the supply. Each is a safe integer no larger
+ * than the supply, so the sum stays exact until it stops.
+ */
+function total(values: number[]): number | null {
+  let sum = 0;
+  for (const v of values) {
+    sum += v;
+    if (sum > MAX_SATS) return null;
+  }
+  return sum;
+}
 const isAnchor = (o: Vout) => o.scriptpubkey.toLowerCase() === ANCHOR;
 /** An output that pays someone: not data, not an anchor for fee bumping. */
 const pays = (o: Vout) => o.scriptpubkey_type !== "op_return" && !isAnchor(o);
@@ -155,8 +167,6 @@ function push<K, V>(m: Map<K, V[]>, k: K, v: V) {
 }
 
 const KINDS: FindingKind[] = ["reuse", "change", "change-disputed", "coinjoin", "spent-together"];
-/** Findings an invalid amount can make wrong or absent: through the amount rules, or the CoinJoin. */
-const AMOUNT_KINDS: FindingKind[] = ["change", "change-disputed", "coinjoin", "spent-together"];
 
 interface Item {
   i: number;
@@ -256,10 +266,10 @@ function script(s: Shape, a: Item, b: Item): ChangeReading | null {
 }
 
 /**
- * The smaller output could have been paid without the smallest address's coins, and the larger
- * could not: exactly when smaller < those coins <= larger, whatever the fee. An address's inputs
- * count as one coin, as a wallet that spends every coin of an address together adds none it did
- * not need.
+ * The smaller output is less than the smallest address's coins and the larger is not: smaller <
+ * those coins <= larger. That is all it states; it does not prove the larger output needed every
+ * coin. An address's inputs count as one coin, as a wallet that spends every coin of an address
+ * together adds none it did not need.
  */
 function unneeded(s: Shape, a: Item, b: Item): ChangeReading | null {
   if (s.inputsBy.size < 2) return null;
@@ -327,8 +337,17 @@ export function checkPrivacy(tx: Transaction): PrivacyReport {
   const inputsBy = new Map<string, number[]>();
   for (const { i, o } of funding) push(inputsBy, key(o), i);
   const complete = !report.inputsMissing && report.unknownInputs.length === 0;
-  const amounts =
-    tx.vout.every((o) => isAmount(o.value)) && funding.every(({ o }) => isAmount(o.value));
+  // Every amount valid alone, the outputs together within the supply, and, when every input's
+  // value is known (anchors included), the inputs covering the outputs.
+  const known = vin.flatMap((input) => (input.prevout ? [input.prevout.value] : []));
+  const outValues = tx.vout.map((o) => o.value);
+  let amounts = outValues.every((v) => isAmount(v)) && known.every((v) => isAmount(v));
+  const outTotal = amounts ? total(outValues) : null;
+  if (outTotal === null) amounts = false;
+  else if (complete) {
+    const inTotal = total(known);
+    if (inTotal === null || inTotal < outTotal) amounts = false;
+  }
   const s: Shape = { funding, outs, inputsBy, complete, amounts };
   const { findings, notRun } = report;
 
@@ -365,9 +384,25 @@ export function checkPrivacy(tx: Transaction): PrivacyReport {
     });
   else if (!join && unknown > 0 && funding.length + unknown > 1) notRun.push("spent-together");
 
+  // Unreliable: only what the missing or invalid data could change. Two known pay-backs, or one
+  // pay-back with every input known, settle the change question; a CoinJoin is ruled out by a
+  // repeated input address, a known pay-back or fewer paying outputs than it needs.
+  const knownBack = outs.filter(({ o }) => inputsBy.has(key(o))).length;
+  const changeSettled = knownBack > 1 || (complete && knownBack === 1 && outs.length > 1);
+  const joinSettled =
+    outs.length < JOIN_COUNT || knownBack > 0 || [...inputsBy.values()].some((xs) => xs.length > 1);
+  const joinOpen = (!complete || !amounts) && !joinSettled;
   const unreliable = new Set<FindingKind>();
-  if (!complete) for (const k of KINDS) unreliable.add(k);
-  if (!amounts) for (const k of AMOUNT_KINDS) unreliable.add(k);
+  if (!complete) unreliable.add("reuse");
+  const changeOpen = (!complete && outs.length > 1) || (!amounts && outs.length === 2);
+  if (changeOpen && !changeSettled) {
+    unreliable.add("change");
+    unreliable.add("change-disputed");
+  }
+  if (joinOpen) unreliable.add("coinjoin");
+  const togetherShown = findings.some((f) => f.kind === "spent-together");
+  if (notRun.includes("spent-together") || (togetherShown && joinOpen))
+    unreliable.add("spent-together");
   report.unreliable = KINDS.filter((k) => unreliable.has(k));
   return report;
 }
