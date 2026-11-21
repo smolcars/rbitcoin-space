@@ -40,21 +40,16 @@
     margin-block: 2px;
   }
 
-  .label-control {
-    display: grid;
-    gap: var(--space-2);
-    min-width: 0;
-  }
   /* One line, never wrapping: the control keeps its width and the label gives way, cut with an
-     ellipsis. Its height is the control's, with a label or without. */
-  .label-control__row {
+     ellipsis. This line is all the room the control takes: its editor opens over the page. */
+  .label-control {
     display: flex;
     flex-wrap: nowrap;
     align-items: center;
     gap: var(--space-3);
     min-width: 0;
   }
-  .label-control__row .your-label {
+  .label-control .your-label {
     flex: 0 1 auto;
   }
   /* Quiet: a line of muted text with the tag's outline, not a button's box. */
@@ -94,10 +89,23 @@
     stroke-width: 1.4;
     stroke-linejoin: round;
   }
-  .label-control__editor {
-    min-width: 0;
+  /* The editor over the page, beside its button (EditorPop), as the QR code's pop-up is. */
+  .label-pop {
+    position: fixed;
+    top: var(--y, 0);
+    left: var(--x, 0);
+    z-index: var(--z-tooltip);
+    box-sizing: border-box;
+    width: min(24rem, calc(100% - 16px));
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-l);
+    background: var(--color-surface-raised);
+    box-shadow: var(--shadow-pop);
   }
-  .label-control__failed,
+  .label-pop .label-editor {
+    max-width: none;
+    background: none;
+  }
   .label-editor__error {
     color: var(--color-negative);
     font-size: var(--text-sm);

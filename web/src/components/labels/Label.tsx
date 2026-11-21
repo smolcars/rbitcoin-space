@@ -2,6 +2,7 @@
 // "Your labels"). In the shell's group: small, and on most pages that show a hash. The editor it
 // opens loads on first use.
 import { type Component, createSignal, createUniqueId, Show } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import { labelOf, type Shown, shownLabel } from "../../lib/labels";
 import "../Button.css";
 import "./Label.css";
@@ -66,80 +67,100 @@ export interface EditorProps {
   done: (said?: string) => void;
 }
 
+interface EditorModule {
+  LabelEditor: Component<EditorProps>;
+  EditorPop: Component<{
+    id: string;
+    anchor: HTMLElement;
+    onClose: () => void;
+    children: JSX.Element;
+  }>;
+}
+
 /**
- * A subject's label and the quiet button that adds, edits or removes it. `what` names the subject
- * in the editor's words: "this transaction", "output 3".
+ * A subject's label and the quiet button that adds, edits or removes it, on one line. The editor
+ * opens over the page (`EditorPop`), so this line is the only room the control ever takes: no
+ * label, editor or error can move what follows it. `what` names the subject in the editor's
+ * words: "this transaction", "output 3".
  */
 export function LabelControl(props: { type: Shown; reference: string; what: string }) {
   const id = createUniqueId();
   const label = () => labelOf(props.type, props.reference);
-  const [editor, setEditor] = createSignal<{ C: Component<EditorProps> } | undefined>();
+  const [editor, setEditor] = createSignal<EditorModule | undefined>();
   const [open, setOpen] = createSignal(false);
   const [failed, setFailed] = createSignal(false);
   const [said, setSaid] = createSignal("");
   let button: HTMLButtonElement | undefined;
+  // Each opening is a session: a save that ends after its editor was closed, or after another
+  // was opened, acts on nothing.
+  let session = 0;
   const start = () => {
     setSaid("");
     setFailed(false);
+    session++;
     if (open()) {
       setOpen(false);
       return;
     }
     import("./LabelEditor")
       .then((m) => {
-        setEditor({ C: m.LabelEditor });
+        setEditor({ LabelEditor: m.LabelEditor, EditorPop: m.EditorPop });
         setOpen(true);
       })
       .catch(() => setFailed(true));
   };
-  const done = (words?: string) => {
+  const finish = () => {
+    session++;
     setOpen(false);
-    if (words !== undefined) setSaid(words);
-    button?.focus();
   };
   return (
     <div class="label-control">
-      {/* One line at every width, the same height with a label or without one: a label never
-          moves what follows the page's head, nor anything the page loads when it comes near. */}
-      <div class="label-control__row">
-        <Show when={label()}>{(l) => <YourLabel text={l()} max={LABEL_IN_HEAD} />}</Show>
-        <button
-          ref={button}
-          type="button"
-          class="label-control__open"
-          aria-expanded={open() ? "true" : "false"}
-          aria-controls={id}
-          onClick={start}
-        >
-          <svg viewBox="0 0 16 16" aria-hidden="true">
-            <path d="M2.5 2.5h5.2l6 6-5.2 5.2-6-6z" />
-            <circle cx="5.3" cy="5.3" r="0.9" />
-          </svg>
-          {label() === undefined ? "Add a label" : "Edit label"}
-        </button>
-      </div>
+      <Show when={label()}>{(l) => <YourLabel text={l()} max={LABEL_IN_HEAD} />}</Show>
+      <button
+        ref={button}
+        type="button"
+        class="label-control__open"
+        aria-expanded={open() ? "true" : "false"}
+        aria-controls={id}
+        onClick={start}
+      >
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M2.5 2.5h5.2l6 6-5.2 5.2-6-6z" />
+          <circle cx="5.3" cy="5.3" r="0.9" />
+        </svg>
+        {/* A failed download says so in the button itself, on its one line. */}
+        {failed()
+          ? "Editor not loaded, try again"
+          : label() === undefined
+            ? "Add a label"
+            : "Edit label"}
+      </button>
       <span class="visually-hidden" role="status">
         {said()}
       </span>
-      <div id={id} class="label-control__editor" hidden={!open() && !failed()}>
-        <Show when={failed()}>
-          <p class="label-control__failed">The editor could not be loaded. Try again.</p>
-        </Show>
-        <Show when={open() && editor()}>
-          {(e) => {
-            const C = e().C;
-            return (
-              <C
+      <Show when={open() && button !== undefined && editor()}>
+        {(m) => {
+          const mine = session;
+          const { LabelEditor, EditorPop } = m();
+          const done = (words?: string) => {
+            if (mine !== session) return;
+            finish();
+            if (words !== undefined) setSaid(words);
+            button?.focus();
+          };
+          return (
+            <EditorPop id={id} anchor={button as HTMLElement} onClose={finish}>
+              <LabelEditor
                 type={props.type}
                 reference={props.reference}
                 what={props.what}
                 current={label()}
                 done={done}
               />
-            );
-          }}
-        </Show>
-      </div>
+            </EditorPop>
+          );
+        }}
+      </Show>
     </div>
   );
 }

@@ -4,7 +4,7 @@
 import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
-import type { Browser, BrowserContext, Locator, Page } from "@playwright/test";
+import type { Browser, BrowserContext, Page } from "@playwright/test";
 import { chain, expect, test } from "./fixtures";
 import { bip329, labelled, type Line, seedLabels } from "./labels";
 
@@ -734,66 +734,104 @@ test.describe("the manager", () => {
 
 // ---- A label moves nothing the page loads ----
 
-test("a page's head is as tall with a long label as with none, its editor closed or open, at every width", async ({
+test("nothing a label adds moves what loads by position: the head's height and the chart's top are constant", async ({
   page,
+  browser,
+  baseURL,
+  extraHTTPHeaders,
 }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(180_000);
   const address = chain.addresses.p2tr;
-  const long = "w".repeat(255);
-  /** The head's height and what follows it, with the editor closed and then open. */
-  const heights = async (head: string, after: Locator, hasLabel: boolean) => {
-    const control = page.locator(`${head} .label-control__open`);
-    await expect(control).toHaveText(hasLabel ? "Edit label" : "Add a label");
-    if (hasLabel) await expect(page.locator(`${head} .your-label`)).toBeVisible();
-    const closed = {
-      head: (await page.locator(head).boundingBox())?.height,
-      after: (await after.boundingBox())?.y,
-    };
-    await control.click();
-    await expect(page.locator(`${head} .label-editor__field`)).toBeFocused();
-    const open = {
-      head: (await page.locator(head).boundingBox())?.height,
-      after: (await after.boundingBox())?.y,
-    };
-    await page.keyboard.press("Escape");
-    await expect(page.locator(`${head} .label-editor`)).toHaveCount(0);
-    return { closed, open };
-  };
-  const measure = async (width: number, hasLabel: boolean) => {
-    await page.setViewportSize({ width, height: 900 });
-    await page.goto(`/regtest/address/${address}`);
-    // The chart loads its history when it nears the view: it must sit where it sits without labels.
-    const chart = page.getByRole("region", { name: "Balance over time" });
-    await expect(chart).toBeVisible();
-    const addressPage = await heights(".address-head", chart, hasLabel);
-    await page.goto(`/regtest/tx/${TX}`);
-    await expect(page.getByRole("list", { name: "Outputs" })).toBeVisible();
-    const txPage = await heights(
-      ".tx-head",
-      page.getByRole("region", { name: "Inputs and outputs" }),
-      hasLabel,
-    );
-    return { addressPage, txPage };
-  };
-  const results: Record<string, Awaited<ReturnType<typeof measure>>> = {};
-  for (const [name, label] of [
-    ["none", undefined],
-    ["short", "rent"],
-    ["255 characters", long],
-  ] as const) {
-    if (label !== undefined)
-      await seedLabels(page, [
-        { type: "addr", ref: address, label },
-        { type: "tx", ref: TX, label },
-      ]);
-    for (const width of [320, 360, 1280])
-      results[`${name} ${width}`] = await measure(width, label !== undefined);
-  }
-  for (const width of [320, 360, 1280])
-    for (const name of ["short", "255 characters"])
-      expect(results[`${name} ${width}`], `${name} at ${width} px`).toEqual(
-        results[`none ${width}`],
+  const WIDTHS = [320, 360, 1280];
+  // A record so near the line cap that any longer label is refused: the save fails and says so.
+  const near = (type: string, ref: string) => ({
+    type,
+    ref,
+    label: "a",
+    note: "y".repeat(64 * 1024 - 200),
+  });
+
+  type State = "none" | "short" | "long" | "editor open" | "save refused" | "no storage";
+  /** The head's height and the top of what follows it, on both pages, in one state. */
+  const measure = async (p: Page, width: number, state: State) => {
+    await p.setViewportSize({ width, height: 900 });
+    const out: number[] = [];
+    for (const [path, head, below] of [
+      [
+        `/regtest/address/${address}`,
+        ".address-head",
+        p.getByRole("region", { name: "Balance over time" }),
+      ],
+      [`/regtest/tx/${TX}`, ".tx-head", p.getByRole("region", { name: "Inputs and outputs" })],
+    ] as const) {
+      await p.goto(path);
+      await expect(below).toBeVisible();
+      // Measured once the page has its data: a panel still loading is another height.
+      await expect(p.locator('.state--loading, [aria-busy="true"]')).toHaveCount(0);
+      const control = p.locator(`${head} .label-control__open`);
+      const hasLabel = state === "short" || state === "long" || state === "save refused";
+      await (hasLabel
+        ? expect(p.locator(`${head} .your-label`)).toBeVisible()
+        : expect(control).toHaveText("Add a label"));
+      if (state === "editor open" || state === "save refused" || state === "no storage") {
+        await control.click();
+        const field = p.locator(".label-pop .label-editor__field");
+        await expect(field).toBeFocused();
+        if (state !== "editor open") {
+          await field.fill("z".repeat(255));
+          await p.keyboard.press("Enter");
+          await expect(p.locator(".label-pop [role=alert]")).toBeVisible();
+        }
+      }
+      out.push(
+        (await p.locator(head).boundingBox())?.height ?? Number.NaN,
+        (await below.boundingBox())?.y ?? Number.NaN,
       );
+      if (state === "editor open" || state === "save refused" || state === "no storage") {
+        await p.keyboard.press("Escape");
+        await expect(p.locator(".label-pop")).toHaveCount(0);
+      }
+    }
+    return out;
+  };
+
+  const results = new Map<string, number[]>();
+  const run = async (state: State, p: Page) => {
+    for (const w of WIDTHS) results.set(`${state} ${w}`, await measure(p, w, state));
+  };
+  await run("none", page);
+  await run("editor open", page);
+  await seedLabels(page, [
+    { type: "addr", ref: address, label: "rent" },
+    { type: "tx", ref: TX, label: "rent" },
+  ]);
+  await run("short", page);
+  await seedLabels(page, [
+    { type: "addr", ref: address, label: "w".repeat(255) },
+    { type: "tx", ref: TX, label: "w".repeat(255) },
+  ]);
+  await run("long", page);
+  await seedLabels(page, [near("addr", address), near("tx", TX)]);
+  await run("save refused", page);
+  const blocked = await browser.newContext({
+    ...(baseURL === undefined ? {} : { baseURL }),
+    ...(extraHTTPHeaders === undefined ? {} : { extraHTTPHeaders }),
+  });
+  await blocked.addInitScript(() => {
+    const refuse = () => {
+      throw new DOMException("blocked", "SecurityError");
+    };
+    Object.defineProperty(window, "indexedDB", { get: refuse });
+    Object.defineProperty(window, "localStorage", { get: refuse });
+  });
+  try {
+    await run("no storage", await blocked.newPage());
+  } finally {
+    await blocked.close();
+  }
+  for (const w of WIDTHS)
+    for (const state of ["short", "long", "editor open", "save refused", "no storage"])
+      expect(results.get(`${state} ${w}`), `${state} at ${w} px`).toEqual(results.get(`none ${w}`));
 });
 
 test("a mainnet address's label is not shown above another network's answer", async ({ page }) => {
