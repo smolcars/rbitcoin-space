@@ -31,6 +31,8 @@ export function hostile(): Record<string, Answer> {
       description_hash: null,
       hints: [[{ ...hop, node: named }, ...(invoice.hints[0] ?? []).slice(1)], ...invoice.hints],
     },
+    // Over a bitcoin with a fraction of a sat: sats to the msat, the longest a JSON number keeps.
+    "a long fractional invoice": { ...invoice, amount_msat: 9_007_199_254_739_001 },
     "a long offer": { ...offer, description, issuer: `${EMOJI}${WORD}` },
     "a long LNURL": { ...ANSWERS["lnurl"], url, host, tag: "login", k1: "ab".repeat(32) },
     "a long address": {

@@ -127,6 +127,27 @@ export async function amountsIntact(page: Page, label: string) {
           ? 2
           : 1;
       if (lines > most) out.push(`"${text}" wraps onto ${lines} lines`);
+      // Nor under a flow card's details icon, the one thing its button draws.
+      const open = el.closest(".tx-flow__item")?.querySelector(".tx-flow__open svg");
+      if (open) {
+        const b = open.getBoundingClientRect();
+        // Its visible text only: a unit kept for screen readers is drawn nowhere.
+        const seen: DOMRect[] = [];
+        const texts = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+        for (let t = texts.nextNode(); t; t = texts.nextNode()) {
+          if (t.parentElement?.closest(".visually-hidden")) continue;
+          const part = document.createRange();
+          part.selectNodeContents(t);
+          seen.push(...part.getClientRects());
+        }
+        const under = seen.some(
+          (r) =>
+            r.width > 0 &&
+            Math.min(r.right, b.right) - Math.max(r.left, b.left) > 0.5 &&
+            Math.min(r.bottom, b.bottom) - Math.max(r.top, b.top) > 0.5,
+        );
+        if (under) out.push(`"${text}" runs under its card's details icon`);
+      }
       const cell = el.closest("td, th, dd, li") ?? el.parentElement;
       if (!cell) continue;
       const r = el.getBoundingClientRect();

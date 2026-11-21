@@ -24,7 +24,13 @@ import { SectionHeader } from "../../components/SectionHeader";
 import { Empty, ErrorState, Loading } from "../../components/States";
 import { type ApiRequest, createRequest } from "../../lib/api";
 import { useNow } from "../../lib/clock";
-import { formatBtcShort, formatPowerOfTen, formatUtc, groupDigits } from "../../lib/format";
+import {
+  formatBtc,
+  formatBtcShort,
+  formatPowerOfTen,
+  formatUtc,
+  groupDigits,
+} from "../../lib/format";
 import { type Network, paths } from "../../lib/network";
 import { useNetwork, usePageTitle } from "../../lib/page";
 import {
@@ -81,6 +87,8 @@ const CLOSE_DAYS = 30;
 /** A figure's unit kept with it: the last plain space becomes a no-break one. */
 const whole = (s: string) => s.replace(/ (?=[^ ]+$)/, "\u00A0");
 const btc = (sats: number) => whole(`${formatBtcShort(sats)} BTC`);
+/** A chart's readout of one point is exact, its axis compact (a mean may be a fraction of a sat). */
+const btcExact = (sats: number) => formatBtc(Math.round(sats));
 
 /** "12 Nov": the year only when it is not the year of `ref`, the newest moment beside it. */
 function day(t: number, ref: number): string {
@@ -519,7 +527,7 @@ function HistoryChart(props: { s: Series; period: Period; figure: Figure }) {
               name: f().label,
               values: col(f().key),
               draw: "line",
-              format: f().axis,
+              format: f().unit === "BTC" ? btcExact : f().axis,
               ...(f().unit === undefined ? {} : { unit: f().unit }),
               ...(f().raw === undefined ? {} : { rawUnit: f().raw }),
               marks: true,
@@ -533,7 +541,7 @@ function HistoryChart(props: { s: Series; period: Period; figure: Figure }) {
                   {
                     name: "Mean",
                     values: col(m.key),
-                    format: m.fmt,
+                    format: f().unit === "BTC" ? (n: number) => `${btcExact(n)} BTC` : m.fmt,
                     ...(f().raw === undefined ? {} : { rawUnit: f().raw }),
                   },
                 ];

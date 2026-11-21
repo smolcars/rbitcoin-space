@@ -1105,9 +1105,13 @@
         "meta meta";
     }
     /* The full amount always shows: one wider than the card breaks after its point (Amount's
-       `wrap`). */
+       `wrap`), and one whose whole bitcoins alone outgrow the card's line (a million and more on a
+       phone at a large text size) is set smaller to fit, about 0.65em a character. */
     .tx-flow__amt {
       white-space: normal;
+    }
+    .tx-flow__amt .amount {
+      font-size: min(1em, calc((100cqi - 1rem - 24px) / (var(--amount-whole, 1) * 0.65)));
     }
     /* A narrow card's lines are short: one more of them for the text. */
     .tx-flow__memo {

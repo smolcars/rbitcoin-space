@@ -18,7 +18,7 @@ import { type Column, DataTable } from "../../components/DataTable";
 import { More } from "../../components/More";
 import { SectionHeader } from "../../components/SectionHeader";
 import { Empty, ErrorState, Loading } from "../../components/States";
-import { formatBtcShort, groupDigits } from "../../lib/format";
+import { formatBtc, groupDigits } from "../../lib/format";
 import { Link } from "../../components/Link";
 import { type Network, paths } from "../../lib/network";
 import { TimeAgo } from "../../components/Time";
@@ -118,8 +118,8 @@ export function NodeHistory(props: { history: ApiResource<HistoryAnswer>; retry:
                         draw: "step",
                         axis: "right",
                         tone: 2,
-                        // In magnitude, as the glance and header read it: whole at any size.
-                        format: formatBtcShort,
+                        // A point's readout is exact; the axis stays compact.
+                        format: (n: number) => formatBtc(Math.round(n)),
                         unit: "BTC",
                         rawUnit: "sat",
                       },

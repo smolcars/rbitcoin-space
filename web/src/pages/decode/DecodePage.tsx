@@ -269,11 +269,29 @@ function Figure(props: { msat: number | null }) {
           </p>
         }
       >
-        <p class="dec-figure num">
-          {sats(props.msat ?? 0)} <span class="dec-figure__unit">sats</span>
+        <p class="dec-figure dec-figure--sats num">
+          <SatsText text={sats(props.msat ?? 0)} /> <span class="dec-figure__unit">sats</span>
         </p>
       </Show>
     </Show>
+  );
+}
+
+/** Sats to the msat, free to break after its point (`1 000 000 000.` `001`) where it must. */
+function SatsText(props: { text: string }) {
+  const parts = () => props.text.split(".");
+  return (
+    <>
+      {parts()[0]}
+      <Show when={parts()[1]}>
+        {(rest) => (
+          <>
+            .<wbr />
+            {rest()}
+          </>
+        )}
+      </Show>
+    </>
   );
 }
 

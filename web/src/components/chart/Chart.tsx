@@ -671,7 +671,9 @@ export default function Chart(props: ChartProps) {
                   <span class={`chart__key chart__key--${r().kind}`} style={r().style} />
                 </Show>
                 <span class="chart__name">{r().short ?? r().name}</span>
-                <span class="chart__figure num">{r().value}</span>
+                <span class="chart__figure num">
+                  <Figure text={r().value} />
+                </span>
               </li>
             )}
           </For>
@@ -957,4 +959,19 @@ function feeStrip(sy: Scale): { band: number; y: number; h: number }[] {
     const y = sy(b);
     return [{ band: k + 1, y, h: sy(a) - y }];
   });
+}
+
+/**
+ * A reading's figure, free to break after its point where the readout is too narrow for it whole
+ * (an exact amount at a phone's largest text size): never inside a group of its digits.
+ */
+function Figure(props: { text: string }) {
+  const at = () => props.text.indexOf(".");
+  return (
+    <Show when={at() >= 0} fallback={props.text}>
+      {props.text.slice(0, at() + 1)}
+      <wbr />
+      {props.text.slice(at() + 1)}
+    </Show>
+  );
 }

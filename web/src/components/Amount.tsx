@@ -42,6 +42,8 @@ export function Amount(props: {
         >
           <span
             class={["amount num", { "amount--wrap": props.wrap }]}
+            // The characters it cannot break inside, for a field that sizes it to fit (a flow card).
+            style={props.wrap ? { "--amount-whole": p().whole.length + 1 } : undefined}
             title={`${formatSats(props.sats)} sats`}
           >
             {props.approx ? "~" : ""}

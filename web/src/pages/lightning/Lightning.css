@@ -1294,8 +1294,9 @@
    its digits (grouped with no-break spaces); where its room is too narrow it breaks before its unit
    (`Fig`), still exact. */
 @layer pages {
-  /* A chart's time is a phrase, free to wrap; a channel id wraps after an "x" (ChannelId). */
-  .ln-node-page .num:not(time, .ln-id, .chart__when, .amount--wrap) {
+  /* A chart's time is a phrase, free to wrap, and its readout's figure breaks where it must (Chart's
+     `Figure`); a channel id wraps after an "x" (ChannelId). */
+  .ln-node-page .num:not(time, .ln-id, .chart__when, .chart__figure, .amount--wrap) {
     white-space: nowrap;
   }
   /* A card and the glance, overviews of a node's channels, switch their longest figures

@@ -127,6 +127,12 @@
   .dec-figure.num {
     white-space: nowrap;
   }
+  /* Sats to the msat may outgrow a phone at a large text size: it breaks before its unit or after
+     its point, never inside its groups. */
+  .dec-figure--sats.num {
+    white-space: normal;
+    overflow-wrap: normal;
+  }
   .dec-figure .unit {
     font-size: 0.8em;
     font-weight: 400;

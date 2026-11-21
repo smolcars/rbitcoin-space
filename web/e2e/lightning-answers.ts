@@ -103,7 +103,8 @@ export const pageFaults = (page: Page, scope = "main") =>
       }
     }
     // A figure is one piece with its unit ("1 sat", never "1" then "sat"); a time is a phrase. A
-    // long exact one (`Fig`) breaks before its unit only where its room lets it.
+    // long exact one (`Fig`, an amount that may wrap, an invoice's sats) breaks before its unit, or
+    // after its point, only where its room lets it.
     for (const el of document.querySelectorAll<HTMLElement>(`${within} .num`)) {
       // A channel id wraps after an "x" by design (ChannelId).
       // A chart's reading of its time is a phrase too.
@@ -125,7 +126,7 @@ export const pageFaults = (page: Page, scope = "main") =>
       tops.sort((a, b) => a - b);
       const exact = el.querySelector(".ln-fig__exact");
       const breaks =
-        el.classList.contains("amount--wrap") ||
+        el.matches(".amount--wrap, .dec-figure--sats, .chart__figure") ||
         (exact !== null && getComputedStyle(exact).whiteSpace !== "nowrap");
       if (!breaks && tops.some((t, i) => i > 0 && t - (tops[i - 1] ?? t) > half))
         out.push(`unit apart: ${el.textContent ?? ""}`);
