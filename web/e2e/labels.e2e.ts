@@ -320,6 +320,69 @@ test.describe("the manager", () => {
   });
 });
 
+test("an import over long kept records works a few at a time, never holding the page", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  // 245 kept outputs of about 58 800 characters each, 14.4 million in all: each merge below reads
+  // one of these lines to carry its label and spendable into the file's.
+  const N = 245;
+  const filler = "x".repeat(58_700);
+  await seedLabels(
+    page,
+    Array.from({ length: N }, (_, i) => ({
+      type: "output",
+      ref: `${TX}:${i}`,
+      label: `coin ${i}`,
+      spendable: true,
+      note: filler,
+    })),
+  );
+  await page.goto("/regtest/labels");
+  await expect(page.getByRole("button", { name: "Import a file" })).toBeEnabled();
+  const lines = Array.from({ length: N }, (_, i) =>
+    JSON.stringify({ type: "output", ref: `${TX}:${i}`, value: 1000 + i }),
+  );
+  const buffer = Buffer.from(`${lines.join("\n")}\n`);
+  expect(buffer.length).toBeLessThan(30 * 1024);
+  const watchGaps = () =>
+    page.evaluate(() => {
+      const w = window as unknown as { longest: number; watching: number };
+      w.longest = 0;
+      w.watching = (w.watching ?? 0) + 1;
+      const run = w.watching;
+      let last = performance.now();
+      const tick = (t: number) => {
+        if (w.watching !== run) return;
+        w.longest = Math.max(w.longest, t - last);
+        last = t;
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+  const longest = () =>
+    page.evaluate(() => Math.round((window as unknown as { longest: number }).longest));
+  await watchGaps();
+  await page
+    .locator('input[type="file"]')
+    .setInputFiles({ name: "values.jsonl", mimeType: "application/jsonl", buffer });
+  const confirm = page.getByRole("button", { name: `Import ${N} labels` });
+  await expect(confirm).toBeVisible({ timeout: 60_000 });
+  const preview = await longest();
+  await watchGaps();
+  await confirm.click();
+  await expect(page.getByText(new RegExp(`^Imported ${N} labels\\.`))).toBeVisible({
+    timeout: 60_000,
+  });
+  const saving = await longest();
+  test.info().annotations.push({
+    type: "long kept records",
+    description: `longest gap between frames: ${preview} ms previewing, ${saving} ms confirming`,
+  });
+  expect(preview).toBeLessThan(100);
+  expect(saving).toBeLessThan(100);
+});
+
 test("hostile labels from a file are shown as inert, marked text", async ({ page }) => {
   let dialogs = 0;
   page.on("dialog", (d) => {

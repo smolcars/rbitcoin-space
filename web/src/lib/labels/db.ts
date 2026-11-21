@@ -319,8 +319,13 @@ interface Work {
   bytes: number;
 }
 
-/** Records worked through between two turns of the page. */
+/** Records worked through between two turns of the page, at most. */
 const PLAN_SLICE = 2000;
+/**
+ * And the most time one slice may take, in milliseconds: a slice of long records (a wallet's
+ * fields near the line limit) stops early, well inside a frame, and goes on at the next turn.
+ */
+const PLAN_SLICE_MS = 8;
 
 /**
  * Works out an import against what the store holds, a slice at a time: BIP329's rule for each
@@ -344,7 +349,8 @@ function planner(incoming: readonly LabelRecord[], held: readonly Stored[], meta
       return true;
     }
     const end = Math.min(incoming.length, i + PLAN_SLICE);
-    for (; i < end; i++) {
+    const until = performance.now() + PLAN_SLICE_MS;
+    for (; i < end && performance.now() < until; i++) {
       const r = incoming[i] as LabelRecord;
       const old = byKey.get(r.key);
       if (old) {
