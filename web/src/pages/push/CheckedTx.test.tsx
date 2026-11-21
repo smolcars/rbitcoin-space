@@ -175,15 +175,45 @@ describe("the notice before sending", () => {
   });
 });
 
-/** Presses the open details' Close button. */
+/** Presses the open details' Close button, failing when the details or the button are not there. */
 function closeDetails(el: HTMLElement) {
   const close = [...el.querySelectorAll<HTMLButtonElement>("#tx-inspector button")].find(
     (b) => b.textContent === "Close",
   );
-  expect(close).toBeDefined();
-  close?.click();
+  if (!close) throw new Error("no details open, or no Close button in them");
+  close.click();
   flush();
 }
+
+/** 300 outputs, the last paying the inputs' address back: its number is far down the flow. */
+function farPayback() {
+  const c = checked();
+  const [, back] = c.tx.vout;
+  c.tx.vout = Array.from({ length: 300 }, (_, i) =>
+    i === 299 && back
+      ? { ...back, value: 500 }
+      : {
+          scriptpubkey: `0014${i.toString(16).padStart(40, "0")}`,
+          scriptpubkey_asm: "",
+          scriptpubkey_type: "v0_p2wpkh" as const,
+          scriptpubkey_address: `bcrt1qfar${i}`,
+          value: 500 + i,
+        },
+  );
+  return c;
+}
+/** Follows output 299's first number, which opens its details; gives the number. */
+function openFar(el: HTMLElement): HTMLAnchorElement {
+  const chip = el.querySelector<HTMLAnchorElement>('a[aria-label="Show output 299"]');
+  if (!chip) throw new Error("no number for output 299");
+  chip.click();
+  flush();
+  expect(el.querySelector("#tx-inspector")?.textContent).toContain("Output 299");
+  return chip;
+}
+const numbersFor299 = (el: HTMLElement) => [
+  ...el.querySelectorAll<HTMLAnchorElement>('a[href="#flow-out-299"]'),
+];
 
 describe("whether its outputs are spent", () => {
   const spendsAsked = () => asked.filter((u) => u.endsWith("/outspends"));
@@ -254,15 +284,11 @@ describe("whether its outputs are spent", () => {
     const c = checked();
     const el = mount(() => <CheckedTx c={c} hex="00" enabled />, "/regtest/tx/push");
     const open = el.querySelector<HTMLButtonElement>('button[aria-label="Details of output 0"]');
-    open?.focus();
-    open?.click();
+    if (!open) throw new Error("no details button for output 0");
+    open.click();
     flush();
-    const close = [...el.querySelectorAll<HTMLButtonElement>("#tx-inspector button")].find(
-      (b) => b.textContent === "Close",
-    );
-    close?.focus();
-    close?.click();
-    flush();
+    expect(el.querySelector("#tx-inspector")?.textContent).toContain("Output 0");
+    closeDetails(el);
     await vi.waitFor(() => expect(document.activeElement).toBe(open));
   });
 
@@ -270,43 +296,55 @@ describe("whether its outputs are spent", () => {
     const c = checked();
     const el = mount(() => <CheckedTx c={c} hex="00" enabled />, "/regtest/tx/push");
     const before = el.querySelector<HTMLButtonElement>('button[aria-label="Details of input 0"]');
-    const open = el.querySelector<HTMLButtonElement>('button[aria-label="Details of output 0"]');
-    before?.focus();
+    const open = el.querySelector<HTMLButtonElement>('button[aria-label="Details of output 1"]');
+    if (!before || !open) throw new Error("no details buttons");
+    before.focus();
     // A pointer that does not move the focus, as Safari's click on a button does not.
-    open?.click();
+    open.click();
     flush();
-    expect(document.activeElement).not.toBe(open);
+    expect(document.activeElement).toBe(before);
+    expect(el.querySelector("#tx-inspector")?.textContent).toContain("Output 1");
     closeDetails(el);
     await vi.waitFor(() => expect(document.activeElement).toBe(open));
   });
 
-  it("closed after the number that opened them is gone, details give the focus to that side's Show more", async () => {
-    // 300 outputs, the last paying the inputs' address back: its number is far down the flow.
-    const c = checked();
-    const [, back] = c.tx.vout;
-    c.tx.vout = Array.from({ length: 300 }, (_, i) =>
-      i === 299 && back
-        ? { ...back, value: 500 }
-        : {
-            scriptpubkey: `0014${i.toString(16).padStart(40, "0")}`,
-            scriptpubkey_asm: "",
-            scriptpubkey_type: "v0_p2wpkh" as const,
-            scriptpubkey_address: `bcrt1qfar${i}`,
-            value: 500 + i,
-          },
-    );
+  it("closed after the number that opened them is gone, details give the focus to another number for that output", async () => {
+    const c = farPayback();
     const el = mount(() => <CheckedTx c={c} hex="00" enabled />, "/regtest/tx/push");
-    const chip = el.querySelector<HTMLAnchorElement>('a[aria-label="Show output 299"]');
-    expect(chip).not.toBeNull();
-    chip?.click();
-    flush();
-    expect(el.querySelector("#tx-inspector")?.textContent).toContain("Output 299");
-    // The layout changed under it: the number that opened the details is no longer on the page.
-    chip?.remove();
+    const chip = openFar(el);
+    chip.remove();
+    const others = numbersFor299(el);
+    expect(others.length).toBeGreaterThan(0);
+    closeDetails(el);
+    await vi.waitFor(() => expect(others).toContain(document.activeElement));
+  });
+
+  it("closed with no number for that output left, details give the focus to that side's Show more", async () => {
+    const c = farPayback();
+    const el = mount(() => <CheckedTx c={c} hex="00" enabled />, "/regtest/tx/push");
+    openFar(el);
+    for (const a of numbersFor299(el)) a.remove();
     closeDetails(el);
     const more = el.querySelector(".tx-flow__col--out .tx-flow__more");
     expect(more).not.toBeNull();
     await vi.waitFor(() => expect(document.activeElement).toBe(more));
+  });
+
+  it("closed after Broadcast redrew the check, details give the focus to the new number, never to the page", async () => {
+    answer = refusal("min relay fee");
+    const c = farPayback();
+    const el = mount(() => <CheckedTx c={c} hex="00" enabled />, "/regtest/tx/push");
+    const chip = openFar(el);
+    press(el);
+    await vi.waitFor(() => expect(text(el)).not.toContain(NOT_SENT));
+    flush();
+    // The press redrew every finding: the number that opened the details is gone.
+    expect(chip.isConnected).toBe(false);
+    const now = numbersFor299(el);
+    expect(now.length).toBeGreaterThan(0);
+    closeDetails(el);
+    await vi.waitFor(() => expect(now).toContain(document.activeElement));
+    expect(document.activeElement).not.toBe(document.body);
   });
 
   it("a refusal, or a press with no answer, never makes it known", async () => {

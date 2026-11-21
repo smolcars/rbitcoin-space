@@ -1,7 +1,7 @@
 // Following a link inside the page (flash.ts): one outline at a time, gone after its fade, and
 // nothing left behind when the page goes.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { bringIntoView, clearFlash, nextFrame, OUTLINE_MS } from "./flash";
+import { bringIntoView, clearFlash, nextFrame, OUTLINE_MS, returnFocus, setOpener } from "./flash";
 
 /** A focusable element, and the spy on how it was scrolled into view. */
 const box = () => {
@@ -84,5 +84,40 @@ describe("bringing a target into view", () => {
     vi.advanceTimersByTime(100);
     expect(first).not.toHaveBeenCalled();
     expect(second).toHaveBeenCalledOnce();
+  });
+});
+
+describe("giving the focus back when details close", () => {
+  /** A flow's output column with output 0's card drawn, and a "Show N more" button. */
+  const flow = (drawn: boolean) => {
+    const list = document.createElement("ul");
+    list.className = "tx-flow__col tx-flow__col--out";
+    if (drawn) {
+      const card = document.createElement("li");
+      card.id = "flow-out-0";
+      card.innerHTML = '<button type="button" class="tx-flow__open">Details</button>';
+      list.append(card);
+    }
+    const more = document.createElement("button");
+    more.className = "tx-flow__more";
+    list.append(more);
+    document.body.append(list);
+    return { list, more, open: list.querySelector<HTMLButtonElement>(".tx-flow__open") };
+  };
+
+  it("never takes the page itself as what opened them", () => {
+    const { open } = flow(true);
+    setOpener(document.body);
+    returnFocus("out", 0);
+    expect(document.activeElement).toBe(open);
+  });
+
+  it("with nothing else left, the list of cards takes it, out of the tab order", () => {
+    const { list, more } = flow(false);
+    more.remove();
+    setOpener(null);
+    returnFocus("out", 0);
+    expect(document.activeElement).toBe(list);
+    expect(list.tabIndex).toBe(-1);
   });
 });
