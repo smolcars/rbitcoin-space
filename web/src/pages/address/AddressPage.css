@@ -404,7 +404,7 @@
   .address-asof-open {
     margin-inline-start: auto;
   }
-  .address-asof-open svg {
+  .address-asof__clock {
     width: 14px;
     height: 14px;
     flex: none;
@@ -605,17 +605,53 @@
   .address-asof-form__note {
     color: var(--color-negative);
   }
+  /* Why a step is missing or waiting, under the band's sentence. */
+  .address-asof__note {
+    margin: 0;
+    color: var(--color-text-muted);
+    font-size: var(--text-sm);
+  }
+  .address-asof__retry {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--color-text);
+    font: inherit;
+    font-weight: var(--weight-medium);
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+    cursor: pointer;
+  }
+  .address-asof__onward {
+    margin-top: var(--space-1);
+  }
   /* The figures as of a block: no unconfirmed one. */
   .address-stats--asof {
     grid-template-columns: minmax(22rem, auto) repeat(3, minmax(min-content, 1fr));
   }
   @media (max-width: 40em) {
+    /* One row even at 320 px in a wide font: the gaps and the accent button's sides tighten. */
     .address-asof__actions {
       justify-content: flex-start;
+      gap: var(--space-1);
     }
-    /* "‹ Previous" and "Next ›", so the four controls take two rows; their names keep "change". */
-    .address-asof__long {
+    .address-asof__actions > .btn--accent {
+      padding-inline: var(--space-2);
+    }
+    /* The steps as their arrows alone, 44 px square and named in full, so the four controls
+       share one row; "Mined" and "it never updates" go too. */
+    .address-asof__long,
+    .address-asof__label {
       display: none;
+    }
+    .address-asof__step {
+      justify-content: center;
+      min-width: var(--touch);
+      padding-inline: 0;
+      font-size: var(--text-md);
+    }
+    .address-asof {
+      padding-inline: var(--space-3);
     }
     .address-asof__title {
       font-size: var(--text-lg);

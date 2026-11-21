@@ -30,7 +30,7 @@ import { AddingUp, KeptAddress } from "./Kept";
 import { readAt } from "./asof";
 import { createLookalikes } from "./LookalikeNotice";
 import { Notice, settled } from "./parts";
-import { AsOfPicker, PinnedBody } from "./Pinned";
+import { AsOfPicker, ClockIcon, PinnedBody } from "./Pinned";
 import { SilentPaymentAddress } from "./SilentPayment";
 import { Totals } from "./Totals";
 import "./AddressPage.css";
@@ -325,12 +325,10 @@ function AddressBody(props: { address: string; found: Recognised | null }) {
         page={`${network()} ${address}`}
         title={`This ${props.found?.type === "p2pk" ? "key" : "address"} at a past block`}
         class="address-asof-open"
+        arrival
         label={
           <>
-            <svg viewBox="0 0 16 16" aria-hidden="true">
-              <circle cx="8" cy="8" r="6.25" />
-              <path d="M8 4.5V8l2.5 1.5" />
-            </svg>
+            <ClockIcon />
             As of a block
           </>
         }

@@ -6,7 +6,7 @@ import { chain, expect, test } from "./fixtures";
 import { freshAddress, gate } from "./regtest";
 
 // Refusals and failures these tests make on purpose.
-test.use({ consoleErrorsAllowed: [/status of (404|502|503|504)/] });
+test.use({ consoleErrorsAllowed: [/status of (404|429|500|502|503|504)/] });
 
 const stat = (page: Page, label: string) =>
   page
@@ -54,7 +54,8 @@ test("the address as of a block shows its figures, history and coins then", asyn
   await page.getByRole("tab", { name: "Unspent outputs" }).click();
 
   // The next change spent it, and the view stays as the reader left it.
-  await band(page).getByRole("button", { name: "Next change: block 107" }).click();
+  await band(page).getByRole("button", { name: "Next change: block 107" }).press("Enter");
+  await expect(band(page).getByRole("heading")).toBeFocused();
   await expect(page).toHaveURL(/\?at=107&view=unspent$/);
   await expect(band(page).getByRole("heading")).toHaveText("As of block 107");
   await expect(page.getByText("No unspent outputs at this block")).toBeVisible();
@@ -78,7 +79,12 @@ test("the address as of a block shows its figures, history and coins then", asyn
   await expect(band(page).getByRole("button", { name: /^‹|Previous change|Before/ })).toHaveCount(
     0,
   );
-  await band(page).getByRole("button", { name: "First used at block 106" }).click();
+  // Forward from the notice too, and focus lands on the band's heading, read as the new page.
+  await page
+    .locator(".address-notice")
+    .getByRole("button", { name: "First used at block 106" })
+    .click();
+  await expect(band(page).getByRole("heading")).toBeFocused();
   await expect(page).toHaveURL(/\?at=106/);
 });
 
@@ -116,9 +122,11 @@ test("nothing live reaches the page as of a block, but one look at the address n
   expect(unpinned).toContain(now[0]);
 
   // Back to now: the live page, which follows the address and shows what waits.
-  await band(page).getByRole("button", { name: "Back to now" }).click();
+  await band(page).getByRole("button", { name: "Back to now" }).press("Enter");
   await expect(page).toHaveURL(`/regtest/address/${address}`);
   await expect(page.getByText("Live", { exact: true })).toBeVisible();
+  // Its button went with the past page: focus goes to the way back there.
+  await expect(page.getByRole("button", { name: "As of a block" })).toBeFocused();
   await expect(rows(page).first()).toContainText("Unconfirmed");
 });
 
@@ -161,10 +169,19 @@ test("a block is picked by height or date, kept in the URL and across a reload",
     "That is neither a block height nor a date. Try 840000 or 2024-04-20.",
   );
   await expect(field).toHaveAttribute("aria-invalid", "true");
+  // A day still to come is said as a height past the tip is, naming the newest block.
+  await field.fill("2030-01-01");
+  await field.press("Enter");
+  await expect(page.getByRole("alert")).toHaveText(
+    new RegExp(`^1 Jan 2030 has not come yet\\. The newest block is ${chain.tip.height}\\.$`),
+  );
+  await expect(page.getByRole("button", { name: `Show block ${chain.tip.height}` })).toBeVisible();
   await field.fill("106");
-  await page.getByRole("button", { name: "Show", exact: true }).click();
+  await field.press("Enter");
   await expect(page).toHaveURL(`/regtest/address/${p2tr}?at=106`);
   await expect(stat(page, "Balance")).toHaveText("1.00 000 000 BTC");
+  // The field went with the live page: focus is on the band's heading, not lost to the body.
+  await expect(band(page).getByRole("heading")).toBeFocused();
   await page.reload();
   await expect(band(page).getByRole("heading")).toHaveText("As of block 106");
   await expect(stat(page, "Balance")).toHaveText("1.00 000 000 BTC");
@@ -181,6 +198,7 @@ test("a block is picked by height or date, kept in the URL and across a reload",
   await page.getByLabel("Block height or date").press("Enter");
   await expect(page).toHaveURL(`/regtest/address/${p2tr}?at=105`);
   await expect(page.getByText("Not used yet at block 105")).toBeVisible();
+  await expect(band(page).getByRole("heading")).toBeFocused();
 });
 
 test("a height past the tip and a parameter that is no height are said plainly", async ({
@@ -348,7 +366,7 @@ test.describe("in the wide stand-in font", () => {
       await expect(page.getByLabel("Block height or date")).toBeFocused();
       expect(await wide(page)).toBe(false);
 
-      // All four controls, both steps known (the miner changes in every block), in two rows.
+      // All four controls, both steps known (the miner changes in every block), in one row.
       await page.goto(`/regtest/address/${chain.addresses.miner}?at=107`);
       await expect(band(page).getByRole("button", { name: /^Next change/ })).toBeEnabled();
       await expect(band(page).getByRole("button", { name: /^Previous change/ })).toBeEnabled();
@@ -356,7 +374,9 @@ test.describe("in the wide stand-in font", () => {
       for (const button of await band(page).getByRole("button").all()) {
         tops.add(Math.round((await button.boundingBox())?.y ?? 0));
       }
-      expect(tops.size).toBeLessThanOrEqual(2);
+      expect(tops.size).toBe(1);
+      // A short band: the heading, the block's time, one line and the controls.
+      expect((await band(page).boundingBox())?.height ?? Infinity).toBeLessThanOrEqual(190);
     }
   });
 
@@ -374,19 +394,6 @@ test.describe("in the wide stand-in font", () => {
     // The controls beside the heading, at the band's right.
     expect(Math.abs(last.y + last.height / 2 - (box.y + box.height / 2))).toBeLessThan(12);
     expect(box.x + box.width - (last.x + last.width)).toBeLessThan(40);
-    // "Next change" with one word space: the word a phone hides sits right after "Next", which
-    // the button's flex gap must not push apart.
-    const gap = await band(page)
-      .locator(".address-asof__long")
-      .first()
-      .evaluate((long) => {
-        const word = long.previousSibling;
-        if (word === null) return Number.NaN;
-        const range = document.createRange();
-        range.selectNodeContents(word);
-        return long.getBoundingClientRect().left - range.getBoundingClientRect().right;
-      });
-    expect(Math.abs(gap)).toBeLessThan(1);
   });
 });
 
@@ -644,4 +651,62 @@ test("a block found between its lookup and a cached tip short of it is shown, no
   await expect(stat(page, "Balance")).toHaveText("1.49 000 000 BTC");
   await expect(page.getByText(/has not been mined yet/)).toHaveCount(0);
   expect(lookups).toBe(2);
+});
+
+test("a step the server refuses to work out says so, and comes once it answers", async ({
+  page,
+}) => {
+  // P2SH: paid in block 106, spent in 107, so as of 106 its next change is 107.
+  const address = chain.addresses.p2sh;
+  const summary = (url: URL) => url.pathname === `/regtest/api/address/${address}/txs/summary`;
+  // Busy (429): asked again as the server says, while the band says why the step waits.
+  await page.route(summary, (route) =>
+    route.fulfill({ status: 429, headers: { "retry-after": "1" }, json: { error: "slow down" } }),
+  );
+  await page.goto(`/regtest/address/${address}?at=106`);
+  const next = band(page).getByRole("button", { name: /^Next change/ });
+  await expect(next).toHaveAttribute("aria-disabled", "true");
+  await expect(band(page)).toContainText(
+    "The server is busy, so the next change is still being looked up.",
+  );
+  await page.unroute(summary);
+  // Its next ask comes after a back-off of a few seconds (lib/api.ts, retryDelay).
+  await expect(band(page).getByRole("button", { name: "Next change: block 107" })).toBeEnabled({
+    timeout: 15_000,
+  });
+  await expect(band(page).getByText(/still being looked up/)).toHaveCount(0);
+
+  // Failed outright: said, with a way to ask again, never a button greyed for good.
+  await page.route(summary, (route) =>
+    route.fulfill({ status: 500, json: { error: "upstream error" } }),
+  );
+  await page.goto(`/regtest/address/${address}?at=106`);
+  await expect(band(page)).toContainText("The next change could not be looked up: Upstream error");
+  await expect(band(page).getByRole("button", { name: /^Next change/ })).toHaveCount(0);
+  await page.unroute(summary);
+  await band(page).getByRole("button", { name: "Try again" }).click();
+  await expect(band(page).getByRole("button", { name: "Next change: block 107" })).toBeEnabled();
+});
+
+test("before a long history's first transaction, its first use is found from the chart's pages", async ({
+  page,
+}) => {
+  // The miner is paid in nearly every block: more history than one page of 25.
+  const address = chain.addresses.miner;
+  const pages: string[] = [];
+  page.on("request", (r) => {
+    const u = new URL(r.url());
+    if (u.pathname.startsWith(`/regtest/api/address/${address}/txs/summary`))
+      pages.push(u.pathname);
+  });
+  await page.goto(`/regtest/address/${address}?at=0`);
+  await expect(page.getByText("Not used yet at block 0")).toBeVisible();
+  const first = page
+    .locator(".address-notice")
+    .getByRole("button", { name: /^First used at block \d+$/ });
+  await expect(first).toBeVisible();
+  expect(pages.length).toBeGreaterThan(1);
+  await first.click();
+  await expect(page.getByText(/Not used yet/)).toHaveCount(0);
+  await expect(stat(page, "Transactions")).toHaveText("1");
 });

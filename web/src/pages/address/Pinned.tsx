@@ -19,7 +19,14 @@ import { openPop } from "../../components/pop";
 import { Link } from "../../components/Link";
 import { ErrorState } from "../../components/States";
 import { TimeAgo, TimeUtc } from "../../components/Time";
-import { createApi, createRequest, fetchApi, isNotFound } from "../../lib/api";
+import {
+  busyRetrying,
+  createApi,
+  createRequest,
+  fetchApi,
+  fetchStamped,
+  isNotFound,
+} from "../../lib/api";
 import type { AddressStats, Transaction } from "../../lib/esplora";
 import { groupDigits } from "../../lib/format";
 import { NETWORK_NAMES, type Network, paths } from "../../lib/network";
@@ -35,15 +42,34 @@ import {
   readTyped,
   nextChange,
   previousChange,
+  PAGE_ROWS,
   type Step,
   unusedThen,
 } from "./asof";
-import { readRows } from "./balance";
+import { loadHistory, MAX_PAGES, readRows } from "./balance";
 import { BalanceChart } from "./BalanceChart";
 import { History } from "./History";
 import { createLookalikes } from "./LookalikeNotice";
 import { Notice, Skeleton, settled } from "./parts";
 import { Totals } from "./Totals";
+
+/**
+ * Where focus goes once a page this file navigated to arrives: the control the reader pressed is
+ * gone with the page it was on, and focus would fall to the body with no word that the page
+ * changed. To the band's heading for a block (read out as the page's new subject), or to "As of
+ * a block" back on the live page. Named by its `at`, so a navigation that changed nothing (the
+ * same block asked again) leaves nothing to take focus later.
+ */
+let arriving: { at: string | undefined } | undefined;
+function arrive(at: string | undefined): void {
+  arriving = { at };
+}
+/** Takes focus, a frame later, when it is the page the last navigation from here was to. */
+function takeFocus(el: HTMLElement, at: string | undefined): void {
+  if (arriving === undefined || arriving.at !== at) return;
+  arriving = undefined;
+  requestAnimationFrame(() => el.focus());
+}
 
 /**
  * The block field: a height, or a date (UTC) for the newest block by the end of that day, as the
@@ -61,6 +87,12 @@ export function AsOfForm(props: {
   const network = useNetwork();
   const [, setSearch] = useSearchParams<{ at: string }>();
   const [note, setNote] = createSignal<string>();
+  /** The newest block, named when the reader asked for a day still to come. */
+  const [newest, setNewest] = createSignal<number>();
+  const show = (height: number) => {
+    arrive(String(height));
+    setSearch({ at: String(height) });
+  };
   const [asking, setAsking] = createSignal(false);
   let ask: AbortController | undefined;
   onCleanup(() => ask?.abort());
@@ -85,6 +117,7 @@ export function AsOfForm(props: {
     const typed = readTyped(typeof value === "string" ? value : "", Date.now() / 1000);
     ask?.abort();
     setAsking(false);
+    setNewest(undefined);
     if (typed.kind === "empty") {
       setNote("Type a block height, such as 840000, or a date, such as 2024-04-20.");
       return;
@@ -95,7 +128,7 @@ export function AsOfForm(props: {
     }
     if (typed.kind === "height") {
       setNote(undefined);
-      setSearch({ at: String(typed.height) });
+      show(typed.height);
       return;
     }
     const net = network();
@@ -104,9 +137,23 @@ export function AsOfForm(props: {
     setAsking(true);
     setNote(undefined);
     try {
+      // A day still to come has no block: said as a height past the tip is, naming the newest.
+      if (typed.kind === "future") {
+        const tip = await fetchApi<string>(net, "/blocks/tip/height", {
+          as: "text",
+          signal: controller.signal,
+          fresh: true,
+        }).then(readTip, () => undefined);
+        if (controller.signal.aborted) return;
+        setNewest(tip);
+        setNote(
+          `${typed.label} has not come yet.${tip === undefined ? "" : ` The newest block is ${groupDigits(tip)}.`}`,
+        );
+        return;
+      }
       const answer = await blockAt(typed.moment, net, controller.signal);
       if (controller.signal.aborted) return;
-      if (answer.kind === "found") setSearch({ at: String(answer.found.height) });
+      if (answer.kind === "found") show(answer.found.height);
       else if (answer.kind === "none") {
         setNote(
           `This server's ${NETWORK_NAMES[net]} history has no block by ${typed.moment.label}.`,
@@ -144,7 +191,10 @@ export function AsOfForm(props: {
           }}
           aria-invalid={note() === undefined ? "false" : "true"}
           aria-describedby={`${props.id}-hint${note() === undefined ? "" : ` ${noteId}`}`}
-          onInput={() => setNote(undefined)}
+          onInput={() => {
+            setNote(undefined);
+            setNewest(undefined);
+          }}
         />
         <button class="btn btn--accent" type="submit" aria-disabled={asking() ? "true" : "false"}>
           {asking() ? "Looking up…" : "Show"}
@@ -160,7 +210,26 @@ export function AsOfForm(props: {
           </p>
         )}
       </Show>
+      <Show when={newest()}>
+        {(n) => (
+          <p>
+            <button class="btn" type="button" onClick={() => show(n())}>
+              Show block {groupDigits(n())}
+            </button>
+          </p>
+        )}
+      </Show>
     </form>
+  );
+}
+
+/** A clock: the way to choose the block a page is read at. */
+export function ClockIcon() {
+  return (
+    <svg class="address-asof__clock" viewBox="0 0 16 16" aria-hidden="true">
+      <circle cx="8" cy="8" r="6.25" />
+      <path d="M8 4.5V8l2.5 1.5" />
+    </svg>
   );
 }
 
@@ -192,6 +261,10 @@ export function AsOfPicker(props: {
   label: JSX.Element;
   class?: string;
   current?: number | undefined;
+  /** Takes focus when the reader came back here from a past block ("Back to now"). */
+  arrival?: boolean;
+  /** Its name, where its label may be hidden (a phone shows the icon alone). */
+  name?: string;
 }) {
   const [open, setOpen] = createSignal(false);
   let button: HTMLButtonElement | undefined;
@@ -234,11 +307,15 @@ export function AsOfPicker(props: {
   return (
     <>
       <button
-        ref={button}
+        ref={(el) => {
+          button = el;
+          if (props.arrival === true) takeFocus(el, undefined);
+        }}
         class={`btn address-asof-picker ${props.class ?? ""}`}
         type="button"
         aria-expanded={open() ? "true" : "false"}
         aria-controls={props.id}
+        aria-label={props.name}
         onClick={() => (open() ? shut() : show())}
       >
         {props.label}
@@ -382,82 +459,85 @@ function Actions(props: {
   next?: Step | Pending | undefined;
 }) {
   const [, setSearch] = useSearchParams<{ at: string }>();
-  const go = (h: number) => setSearch({ at: String(h) }, { scroll: false });
-  const stepTo = (s: Step | Pending | undefined) =>
+  const go = (h: number) => {
+    arrive(String(h));
+    setSearch({ at: String(h) }, { scroll: false });
+  };
+  const target = (s: Step | Pending | undefined) =>
     s !== undefined && s.kind !== "none" && s.kind !== "pending" ? s.height : undefined;
+  /** What a step is called, with its block once known: its name, and its label on a desktop. */
+  const name = (s: Step | Pending | undefined, back: boolean): string => {
+    const h = target(s);
+    const block = h === undefined ? "" : `: block ${groupDigits(h)}`;
+    if (s?.kind === "before-first") return `Before first use${block}`;
+    if (s?.kind === "first") return `First used at block ${groupDigits(h ?? 0)}`;
+    return `${back ? "Previous" : "Next"} change${block}`;
+  };
+  const label = (s: Step | Pending | undefined, back: boolean): string => {
+    if (s?.kind === "before-first") return "Before first use";
+    if (s?.kind === "first") return name(s, back);
+    return back ? "Previous change" : "Next change";
+  };
+  const shown = (s: Step | Pending | undefined) => s !== undefined && s.kind !== "none";
   return (
     <div class="address-asof__actions">
-      <button class="btn btn--accent" type="button" onClick={() => setSearch({ at: undefined })}>
+      <button
+        class="btn btn--accent"
+        type="button"
+        onClick={() => {
+          arrive(undefined);
+          setSearch({ at: undefined });
+        }}
+      >
         Back to now
       </button>
       <Show when={props.newest}>
         {(n) => (
-          <button class="btn" type="button" onClick={() => go(n())}>
-            Show block {groupDigits(n())}
+          <button
+            class="btn"
+            type="button"
+            aria-label={`Show block ${groupDigits(n())}`}
+            onClick={() => go(n())}
+          >
+            Show <span class="address-asof__long">block </span>
+            {groupDigits(n())}
           </button>
         )}
       </Show>
-      <Show when={props.previous !== undefined && props.previous.kind !== "none"}>
+      {/* On a phone the steps are their arrows alone, 44 px square, named in full. */}
+      <Show when={shown(props.previous)}>
         <button
-          class="btn"
+          class="btn address-asof__step"
           type="button"
           aria-disabled={props.previous?.kind === "pending" ? "true" : "false"}
-          aria-label={
-            props.previous?.kind === "before-first"
-              ? `Before first use: block ${groupDigits(stepTo(props.previous) ?? 0)}`
-              : stepTo(props.previous) === undefined
-                ? undefined
-                : `Previous change: block ${groupDigits(stepTo(props.previous) ?? 0)}`
-          }
-          title={
-            stepTo(props.previous) === undefined
-              ? undefined
-              : `Block ${groupDigits(stepTo(props.previous) ?? 0)}`
-          }
+          aria-label={name(props.previous, true)}
+          title={name(props.previous, true)}
           onClick={() => {
-            const h = stepTo(props.previous);
+            const h = target(props.previous);
             if (h !== undefined) go(h);
           }}
         >
-          <span aria-hidden="true">‹</span>{" "}
-          {props.previous?.kind === "before-first" ? (
-            "Before first use"
-          ) : (
-            // One flex item, so the button's gap does not fall between the words.
-            <span>
-              Previous<span class="address-asof__long"> change</span>
-            </span>
-          )}
+          <span aria-hidden="true">‹</span>
+          <span class="address-asof__label" aria-hidden="true">
+            {label(props.previous, true)}
+          </span>
         </button>
       </Show>
-      <Show when={props.next !== undefined && props.next.kind !== "none"}>
+      <Show when={shown(props.next)}>
         <button
-          class="btn"
+          class="btn address-asof__step"
           type="button"
           aria-disabled={props.next?.kind === "pending" ? "true" : "false"}
-          aria-label={
-            props.next?.kind === "change"
-              ? `Next change: block ${groupDigits(props.next.height)}`
-              : undefined
-          }
-          title={
-            stepTo(props.next) === undefined
-              ? undefined
-              : `Block ${groupDigits(stepTo(props.next) ?? 0)}`
-          }
+          aria-label={name(props.next, false)}
+          title={name(props.next, false)}
           onClick={() => {
-            const h = stepTo(props.next);
+            const h = target(props.next);
             if (h !== undefined) go(h);
           }}
         >
-          {props.next?.kind === "first" ? (
-            `First used at block ${groupDigits(props.next.height)}`
-          ) : (
-            // One flex item, so the button's gap does not fall between the words.
-            <span>
-              Next<span class="address-asof__long"> change</span>
-            </span>
-          )}{" "}
+          <span class="address-asof__label" aria-hidden="true">
+            {label(props.next, false)}
+          </span>
           <span aria-hidden="true">›</span>
         </button>
       </Show>
@@ -465,7 +545,16 @@ function Actions(props: {
         id="address-asof-other"
         page={props.page}
         title="Show another block"
-        label="Another block"
+        name="Another block"
+        class="address-asof__step"
+        label={
+          <>
+            <ClockIcon />
+            <span class="address-asof__label" aria-hidden="true">
+              Another block
+            </span>
+          </>
+        }
         current={props.height}
       />
     </div>
@@ -479,7 +568,12 @@ function NotAHeight(props: { text: string; page: string }) {
       <div class="address-asof__body">
         <div class="address-asof__head">
           <DepthMark />
-          <h2 class="address-asof__title" id="address-asof-title">
+          <h2
+            class="address-asof__title"
+            id="address-asof-title"
+            tabindex="-1"
+            ref={(el) => takeFocus(el, props.text)}
+          >
             {`“${props.text}” is not a block height`}
           </h2>
         </div>
@@ -494,6 +588,7 @@ function NotAHeight(props: { text: string; page: string }) {
 
 function PinnedAt(props: { address: string; isKey: boolean; height: number; again: () => void }) {
   const network = useNetwork();
+  const [, setSearch] = useSearchParams<{ at: string }>();
   const address = untrack(() => props.address);
   const height = untrack(() => props.height);
   const noun = untrack(() => (props.isKey ? "key" : "address"));
@@ -542,18 +637,37 @@ function PinnedAt(props: { address: string; isKey: boolean; height: number; agai
   // How it stands now, and where its next change is: the unpinned totals and newest history page,
   // asked once the pinned totals answered, so an address refused those asks nothing more. One
   // page each, never a walk of the history.
-  const [now] = createApi<AddressStats>(() => settled(stats) !== undefined && path);
+  const [now, { refetch: refetchNow }] = createApi<AddressStats>(
+    () => settled(stats) !== undefined && path,
+  );
   const later = () => {
     const n = settled(now);
     const t = settled(stats);
     return n && t ? n.chain_stats.tx_count - t.chain_stats.tx_count : undefined;
   };
-  const [recent] = createApi<unknown>(() => {
-    const l = later();
-    return (
-      ((l !== undefined && l > 0) || (kept() && hash() !== undefined)) && `${path}/txs/summary`
-    );
-  });
+  // Its history now, newest first: one page, or, before its first transaction, as much as the
+  // live page's chart reads (MAX_PAGES), which this page then spends instead: it draws no chart,
+  // list or coins. Either way within what the address routes allow one page view.
+  const [recent, { refetch: refetchRecent }] = createRequest(
+    () => {
+      const l = later();
+      const asks = (l !== undefined && l > 0) || (kept() && hash() !== undefined);
+      return asks && `${network()} ${unused() ? "whole" : "page"}`;
+    },
+    async (key, signal): Promise<{ heights: number[]; whole: boolean }> => {
+      const net = untrack(network);
+      const read = (p: string) => fetchStamped<unknown>(net, p, { signal });
+      if (key.endsWith("whole")) {
+        const h = await loadHistory(path, read, MAX_PAGES);
+        return { heights: h.rows.map((r) => r.height), whole: h.complete };
+      }
+      const rows = readRows((await read(`${path}/txs/summary`)).value);
+      return {
+        heights: rows.flatMap((r) => (r.height > 0 ? [r.height] : [])),
+        whole: rows.length < PAGE_ROWS,
+      };
+    },
+  );
   const previous = createMemo((): Step | Pending | undefined => {
     if (unused()) return undefined; // Every block before shows the same: nothing.
     const rows = settled(first);
@@ -568,22 +682,28 @@ function PinnedAt(props: { address: string; isKey: boolean; height: number; agai
       ),
     );
   });
+  /** The look at the present failed (refused, or the server stayed busy past its retries). */
+  const nowFailed = () =>
+    now.state === "errored" ? now.error : recent.state === "errored" ? recent.error : undefined;
+  const retryNow = () => {
+    if (now.state === "errored") refetchNow();
+    else refetchRecent();
+  };
   const next = createMemo((): Step | Pending | undefined => {
     if (later() === 0) return { kind: "none" };
-    if (recent.state === "errored" || now.state === "errored") return undefined;
-    const page = settled(recent);
-    if (page === undefined) {
+    if (nowFailed() !== undefined) return undefined;
+    const r = settled(recent);
+    if (r === undefined) {
       // Not asked: a refusal or failure of the totals leaves nothing to step by.
       return stats.state === "errored" && !kept() ? undefined : { kind: "pending" };
     }
-    try {
-      const rows = readRows(page);
-      const heights = rows.flatMap((r) => (r.height > 0 ? [r.height] : []));
-      return nextChange(heights, rows.length, height, !unused());
-    } catch {
-      return undefined;
-    }
+    return nextChange(r.heights, r.whole, height, !unused());
   });
+  /** Its first block, when it had none by this one and its history reaches back to it. */
+  const firstUse = () => {
+    const n = next();
+    return n?.kind === "first" ? n.height : undefined;
+  };
   /** Under the balance at the block, how it stands now. */
   const since = () => {
     const n = settled(now);
@@ -613,7 +733,12 @@ function PinnedAt(props: { address: string; isKey: boolean; height: number; agai
         <div class="address-asof__body">
           <div class="address-asof__head">
             <DepthMark />
-            <h2 class="address-asof__title" id="address-asof-title">
+            <h2
+              class="address-asof__title"
+              id="address-asof-title"
+              tabindex="-1"
+              ref={(el) => takeFocus(el, String(height))}
+            >
               As of block {/* A link only to a block there is: not one past the tip. */}
               <Show
                 when={answer()?.kind !== "future"}
@@ -635,7 +760,9 @@ function PinnedAt(props: { address: string; isKey: boolean; height: number; agai
                 <Match when={block()}>
                   {(b) => (
                     <>
-                      Mined <TimeUtc time={b().time} seconds={false} />, <TimeAgo time={b().time} />
+                      {/* A phone drops the word: under "As of block N" a time is the block's. */}
+                      <span class="address-asof__long">Mined </span>
+                      <TimeUtc time={b().time} seconds={false} />, <TimeAgo time={b().time} />
                     </>
                   )}
                 </Match>
@@ -656,8 +783,30 @@ function PinnedAt(props: { address: string; isKey: boolean; height: number; agai
           {/* A block not mined yet has no "then". */}
           <Show when={answer()?.kind !== "future"}>
             <p class="address-asof__what">
-              Later blocks and unconfirmed transactions are left out; it never updates.
+              Later blocks and unconfirmed transactions are left out
+              {/* A phone keeps the first half: the heading and "At block N" say it is the past. */}
+              <span class="address-asof__long">; it never updates</span>.
             </p>
+          </Show>
+          {/* A step that cannot be worked out yet, or at all, says why rather than sit greyed. */}
+          <Show when={block() !== undefined && !gone()}>
+            <Switch>
+              <Match when={nowFailed()}>
+                {(error) => (
+                  <p class="address-asof__note" role="status">
+                    {`The next change could not be looked up${error() instanceof Error ? `: ${(error() as Error).message}` : "."}`}{" "}
+                    <button class="address-asof__retry" type="button" onClick={retryNow}>
+                      Try again
+                    </button>
+                  </p>
+                )}
+              </Match>
+              <Match when={next()?.kind === "pending" && busyRetrying()}>
+                <p class="address-asof__note" role="status">
+                  The server is busy, so the next change is still being looked up.
+                </p>
+              </Match>
+            </Switch>
           </Show>
         </div>
         <Actions
@@ -742,6 +891,44 @@ function PinnedAt(props: { address: string; isKey: boolean; height: number; agai
                 </p>
               )}
             </Show>
+            {/* Where to go from here: its first use when its history reaches it, else now. */}
+            <Switch>
+              <Match when={firstUse()}>
+                {(h) => (
+                  <p class="address-asof__onward">
+                    <button
+                      class="btn"
+                      type="button"
+                      onClick={() => {
+                        arrive(String(h()));
+                        setSearch({ at: String(h()) }, { scroll: false });
+                      }}
+                    >
+                      {`First used at block ${groupDigits(h())}`}
+                    </button>
+                  </p>
+                )}
+              </Match>
+              <Match
+                when={
+                  settled(now) !== undefined && next() === undefined && nowFailed() === undefined
+                }
+              >
+                <p>{`Its first transaction is further back than the newest ${groupDigits(MAX_PAGES * PAGE_ROWS)} this page reads.`}</p>
+                <p class="address-asof__onward">
+                  <button
+                    class="btn"
+                    type="button"
+                    onClick={() => {
+                      arrive(undefined);
+                      setSearch({ at: undefined });
+                    }}
+                  >
+                    {`Show the ${noun} now`}
+                  </button>
+                </p>
+              </Match>
+            </Switch>
           </Notice>
         </Match>
         <Match when={true}>
