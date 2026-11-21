@@ -1089,6 +1089,31 @@ describe("a node's close record", () => {
     expect(chips).not.toContain("10 000");
   });
 
+  it("never gives a capped record's count as the list's total, on a filtered load either", async () => {
+    replies[node] = json({ error: "node not found" }, 404);
+    const r = closeRecord(tally({ cooperative: 10_000, force: 0, penalty: 0, other: 0 }));
+    replies[record] = json({ ...r, capped: true });
+    // Opened on a filter: the unfiltered list is never asked for.
+    replies[`${node}/channels?status=closed&kind=cooperative`] = closedList(11_000);
+    const el = open(`/lightning/node/${ACINQ}?view=closed&kind=cooperative`);
+    await shows(el, "11 000 closes match");
+    const list = el.querySelector<HTMLElement>("[aria-labelledby=ln-node-closed-title]");
+    expect(text(list ?? el)).not.toContain("10 000");
+    // Not known: the "All" chip has no count.
+    const all = [...(list?.querySelectorAll(".ln-node-chip") ?? [])][0];
+    expect(text(all as HTMLElement)).toBe("All");
+  });
+
+  it("lists a held node's closes when its answer says none but a capped record has some", async () => {
+    replies[node] = json(acinq());
+    const r = closeRecord(tally({ cooperative: 10_000, force: 0, penalty: 0, other: 0 }));
+    replies[record] = json({ ...r, capped: true });
+    replies[`${node}/channels?status=closed&kind=cooperative`] = closedList(11_000);
+    const el = open(`/lightning/node/${ACINQ}?view=closed&kind=cooperative`);
+    await shows(el, "11 000 closes match");
+    expect(text(el)).not.toContain("No close seen");
+  });
+
   it("gives a peer's force closes and penalties together, and every channel's count as a count", async () => {
     replies[node] = json(closedCounts({ closed: 40, cooperative: 20, penalty: 20 }));
     replies[`${node}/channels?status=closed`] = closedList(40);
@@ -1113,6 +1138,26 @@ describe("a node's close record", () => {
     expect(t).not.toMatch(/\D0% force/);
     expect(t).toContain("all 14 closes");
     expect(t).toContain("all 5 closes");
+  });
+
+  it("works a peer's share out from its counts, not by adding two rounded shares", async () => {
+    replies[node] = json(closedCounts({ closed: 21, cooperative: 19, force: 1, penalty: 1 }));
+    replies[`${node}/channels?status=closed`] = closedList(21);
+    // 2 of 21 is 9.5%; the server's 4.8% and 4.8% added would say 9.6%.
+    const peer = recordPeer(1, {
+      cooperative: 19,
+      force: 1,
+      penalty: 1,
+      closed: 21,
+      shares: { cooperative: 90.5, force: 4.8, penalty: 4.8, other: 0 },
+    });
+    replies[record] = json(
+      closeRecord(tally({ cooperative: 19, force: 1, penalty: 1, other: 0 }), [peer]),
+    );
+    const el = open(`/lightning/node/${ACINQ}?view=closed`);
+    await shows(el, "With whom");
+    expect(sectionText(el)).toContain("9.5% force or penalty");
+    expect(sectionText(el)).not.toContain("9.6%");
   });
 
   it("gives counts and no share below the minimum, and names a penalty without saying by whom", async () => {

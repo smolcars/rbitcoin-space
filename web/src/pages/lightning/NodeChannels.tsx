@@ -908,16 +908,18 @@ export function ClosedList(props: { node: ClosedOf; network: Network; now: numbe
       if (n !== undefined) setWhole(n);
     },
   );
-  const total = () => whole() ?? props.node.channels.closed;
   // Counts that are a lower bound name every kind, with no count: a kind may be among the rest.
   const exact = () => props.node.exact !== false;
+  // The whole list's count: its own, or the node's where that is exact; otherwise not known, and
+  // then never given (a lower bound is not a total) and the list never said to be empty.
+  const total = () => whole() ?? (exact() ? props.node.channels.closed : undefined);
   return (
     <section aria-labelledby="ln-node-closed-title" class="ln-node-list">
       <SectionHeader title="Closed channels" id="ln-node-closed-title">
         Seen by this server
       </SectionHeader>
       <Show
-        when={total() > 0}
+        when={(total() ?? 1) > 0}
         fallback={
           <Empty title="No close seen">
             None of its channels closed while this server watched.
@@ -941,7 +943,15 @@ export function ClosedList(props: { node: ClosedOf; network: Network; now: numbe
               aria-current={l.view().kind === null ? "true" : "false"}
               noscroll
             >
-              All <span class="num muted">{groupDigits(total())}</span>
+              All
+              <Show when={total()}>
+                {(n) => (
+                  <>
+                    {" "}
+                    <span class="num muted">{groupDigits(n())}</span>
+                  </>
+                )}
+              </Show>
             </Link>
             <For each={CLOSE_KINDS}>
               {(k) => (
@@ -978,11 +988,23 @@ export function ClosedList(props: { node: ClosedOf; network: Network; now: numbe
         <p class="ln-node-total" aria-live="polite" ref={l.mark}>
           <Show when={page()}>
             {(p) => (
-              <Show when={filtered()} fallback={<>{count(total(), "close")}</>}>
-                <span>
-                  <strong class="num">{groupDigits(p().total)}</strong> of {count(total(), "close")}{" "}
-                  match
-                </span>
+              <Show when={filtered()} fallback={<>{count(total() ?? p().total, "close")}</>}>
+                <Show
+                  when={total()}
+                  fallback={
+                    <span>
+                      <strong class="num">{groupDigits(p().total)}</strong>{" "}
+                      {p().total === 1 ? "close matches" : "closes match"}
+                    </span>
+                  }
+                >
+                  {(n) => (
+                    <span>
+                      <strong class="num">{groupDigits(p().total)}</strong> of {count(n(), "close")}{" "}
+                      match
+                    </span>
+                  )}
+                </Show>
               </Show>
             )}
           </Show>

@@ -1693,32 +1693,37 @@ export function peersInWords(r: NodeCloses): string {
       : force === 0
         ? count(penalty, "penalty", "penalties")
         : `${count(force, "force close")} and ${count(penalty, "penalty", "penalties")}`;
-  const forced = r.node.force + r.node.penalty;
-  if (forced === 0) return "None of its channels ended in a force close or a penalty.";
+  /** `n` closes on a channel whose two ends are this node: counted in its figures, no peer's. */
+  const own = (force: number, penalty: number) => {
+    const n = force + penalty;
+    return `${words(force, penalty)} ${n === 1 ? "was on a channel" : "were on channels"} whose two ends are this node.`;
+  };
+  const { force, penalty } = r.node;
+  if (force + penalty === 0) return "None of its channels ended in a force close or a penalty.";
   const listed = r.peers.list;
-  // A close whose two ends are the node itself lists no peer: then nothing is said of peers.
-  if (listed.length === 0) return `The record holds ${words(r.node.force, r.node.penalty)}.`;
-  // With every peer listed, the peers' own counts say how many were with a peer, and the rest
-  // were on a channel whose two ends are this node; with some left out, the node's counts stand.
-  const all = r.peers.more === 0;
-  const force = all ? listed.reduce((a, p) => a + p.force, 0) : r.node.force;
-  const penalty = all ? listed.reduce((a, p) => a + p.penalty, 0) : r.node.penalty;
-  const withPeers = force + penalty;
-  const self = Math.max(0, forced - withPeers);
-  const what = words(force, penalty);
-  const peers = r.peers.forced;
+  // The route lists every peer with a force close or a penalty up to its limit: none listed means
+  // every one of them was on a channel whose two ends are this node.
+  if (listed.length === 0) return `The ${own(force, penalty)}`;
+  const lf = listed.reduce((a, p) => a + p.force, 0);
+  const lp = listed.reduce((a, p) => a + p.penalty, 0);
   const top = listed[0];
   const most = top === undefined ? 0 : top.force + top.penalty;
+  // Some peers left out: their closes and any on a channel whose two ends are this node cannot be
+  // told apart, so the record's totals are said, and the listed peers' apart, and no more.
+  if (r.peers.more > 0)
+    return `The record holds ${words(force, penalty)}. The ${count(listed.length, "peer")} with the most had ${words(lf, lp)}, at most ${groupDigits(most)} with any one.`;
+  const peers = r.peers.forced;
   // True folded or open: the peer is in the list under the sentence, which may be folded away.
   const sentence =
-    withPeers === 1
-      ? `The ${what} was on a channel with one peer.`
+    lf + lp === 1
+      ? `The ${words(lf, lp)} was on a channel with one peer.`
       : peers === 1
-        ? `The ${what} were all on channels with one peer.`
-        : `The ${what} were on channels with ${groupDigits(peers)} different peers, at most ${groupDigits(most)} with any one.`;
-  return self === 0
-    ? sentence
-    : `${sentence} ${groupDigits(self)} more ${self === 1 ? "was" : "were"} on a channel whose two ends are this node.`;
+        ? `The ${words(lf, lp)} were all on channels with one peer.`
+        : `The ${words(lf, lp)} were on channels with ${groupDigits(peers)} different peers, at most ${groupDigits(most)} with any one.`;
+  // Every peer listed: what their counts do not add up to was on channels with no other end.
+  const rf = Math.max(0, force - lf);
+  const rp = Math.max(0, penalty - lp);
+  return rf + rp === 0 ? sentence : `${sentence} ${own(rf, rp)}`;
 }
 
 /** Peers listed before the reader asks for the rest. */

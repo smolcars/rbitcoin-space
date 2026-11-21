@@ -580,9 +580,13 @@ function Peers(props: { record: NodeCloses }) {
   const [all, setAll] = createSignal(false);
   const shown = () => peersShown(props.record.peers.list, all());
   const anyPenalty = () => props.record.peers.list.some((p) => p.penalty > 0);
-  // A breach moves a close from force to penalty: the two together are the closes not mutual.
+  // A breach moves a close from force to penalty: the two together are the closes not mutual,
+  // worked out from the counts (two rounded shares added can be a tenth off). Given where the
+  // server gives the peer's shares, from the minimum of closes.
   const share = (p: RecordPeer) =>
-    p.shares === null ? null : shareText(p.shares.force + p.shares.penalty, p.force + p.penalty);
+    p.shares === null || p.closed === 0
+      ? null
+      : shareText(((p.force + p.penalty) * 100) / p.closed, p.force + p.penalty);
   const columns = (): Column<RecordPeer>[] => [
     {
       header: "Peer",

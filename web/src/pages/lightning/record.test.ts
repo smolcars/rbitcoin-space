@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 import {
   CLOSE_WORDS,
+  type RecordPeer,
   isNodeCloses,
   kindsIn,
   peersInWords,
@@ -115,40 +116,103 @@ describe("a node's close record", () => {
     ]);
   });
 
-  it("says who its force closes were with, and never who closed", () => {
-    const words = (force: number, penalty: number, peers: ReturnType<typeof recordPeer>[]) =>
-      peersInWords(closeRecord(tally({ cooperative: 5, force, penalty, other: 0 }), peers));
-    expect(words(0, 0, [])).toBe("None of its channels ended in a force close or a penalty.");
-    expect(words(1, 0, [recordPeer(1)])).toBe("The 1 force close was on a channel with one peer.");
-    // A close whose two ends are the node lists no peer: nothing is said of one.
-    expect(words(1, 0, [])).toBe("The record holds 1 force close.");
-    expect(words(0, 1, [recordPeer(1, { force: 0, penalty: 1 })])).toBe(
-      "The 1 penalty was on a channel with one peer.",
-    );
-    // Ten with one flaky peer reads apart from one each with ten.
-    expect(words(10, 0, [recordPeer(1, { force: 10, closed: 10 })])).toBe(
-      "The 10 force closes were all on channels with one peer.",
-    );
-    const ten = Array.from({ length: 10 }, (_, i) => recordPeer(i));
-    expect(words(10, 0, ten)).toBe(
-      "The 10 force closes were on channels with 10 different peers, at most 1 with any one.",
-    );
-    expect(
-      words(3, 2, [
-        recordPeer(1, { force: 3, penalty: 1 }),
-        recordPeer(2, { penalty: 1, force: 0 }),
-      ]),
-    ).toBe(
-      "The 3 force closes and 2 penalties were on channels with 2 different peers, at most 4 with any one.",
-    );
-    // A close on a channel whose two ends are the node counts in its figures and lists no peer:
-    // the sentence says of the peers only theirs, and of the rest apart.
-    expect(words(2, 0, [recordPeer(1)])).toBe(
-      "The 1 force close was on a channel with one peer. 1 more was on a channel whose two ends are this node.",
-    );
-    expect(words(3, 0, [recordPeer(1), recordPeer(2)])).toBe(
-      "The 2 force closes were on channels with 2 different peers, at most 1 with any one. 1 more was on a channel whose two ends are this node.",
-    );
+  it("says who its force closes were with, true of its record in every case, and never who closed", () => {
+    const peer = (n: number, force: number, penalty: number) =>
+      recordPeer(n, { force, penalty, closed: force + penalty });
+    const many = (n: number, force: number, penalty: number) =>
+      Array.from({ length: n }, (_, i) => peer(i + 1, force, penalty));
+    // The node's force closes and penalties, its listed peers, and how many peers were left out.
+    const words = (force: number, penalty: number, peers: RecordPeer[], more = 0) => {
+      const r = closeRecord(tally({ cooperative: 5, force, penalty, other: 0 }), peers);
+      return peersInWords({ ...r, peers: { ...r.peers, forced: peers.length + more, more } });
+    };
+    const cases: [string, string, string][] = [
+      [
+        "no force close or penalty",
+        words(0, 0, []),
+        "None of its channels ended in a force close or a penalty.",
+      ],
+      // Every peer listed, no close on a channel whose two ends are the node.
+      [
+        "one force close, one peer",
+        words(1, 0, [peer(1, 1, 0)]),
+        "The 1 force close was on a channel with one peer.",
+      ],
+      [
+        "one penalty, one peer",
+        words(0, 1, [peer(1, 0, 1)]),
+        "The 1 penalty was on a channel with one peer.",
+      ],
+      [
+        "ten with one peer",
+        words(10, 0, [peer(1, 10, 0)]),
+        "The 10 force closes were all on channels with one peer.",
+      ],
+      [
+        "one each with ten",
+        words(10, 0, many(10, 1, 0)),
+        "The 10 force closes were on channels with 10 different peers, at most 1 with any one.",
+      ],
+      [
+        "both, two peers",
+        words(3, 2, [peer(1, 3, 1), peer(2, 0, 1)]),
+        "The 3 force closes and 2 penalties were on channels with 2 different peers, at most 4 with any one.",
+      ],
+      // Every peer listed, and closes on a channel whose two ends are the node, named by kind.
+      [
+        "one of its own",
+        words(2, 0, [peer(1, 1, 0)]),
+        "The 1 force close was on a channel with one peer. 1 force close was on a channel whose two ends are this node.",
+      ],
+      [
+        "two of its own",
+        words(3, 0, [peer(1, 1, 0)]),
+        "The 1 force close was on a channel with one peer. 2 force closes were on channels whose two ends are this node.",
+      ],
+      [
+        "a peer's penalty, its own force close",
+        words(1, 1, [peer(1, 0, 1)]),
+        "The 1 penalty was on a channel with one peer. 1 force close was on a channel whose two ends are this node.",
+      ],
+      [
+        "both, and both of its own",
+        words(4, 2, [peer(1, 2, 1), peer(2, 1, 0)]),
+        "The 3 force closes and 1 penalty were on channels with 2 different peers, at most 3 with any one. 1 force close and 1 penalty were on channels whose two ends are this node.",
+      ],
+      [
+        "its own penalties only",
+        words(1, 2, [peer(1, 1, 0)]),
+        "The 1 force close was on a channel with one peer. 2 penalties were on channels whose two ends are this node.",
+      ],
+      // No peer: every one on a channel whose two ends are the node.
+      [
+        "one, all its own",
+        words(1, 0, []),
+        "The 1 force close was on a channel whose two ends are this node.",
+      ],
+      [
+        "both, all its own",
+        words(2, 1, []),
+        "The 2 force closes and 1 penalty were on channels whose two ends are this node.",
+      ],
+      // Peers left out: the record's totals and the listed peers' apart, nothing attributed.
+      [
+        "51 with 51 peers and one of its own, 50 listed",
+        words(51, 1, many(50, 1, 0), 1),
+        "The record holds 51 force closes and 1 penalty. The 50 peers with the most had 50 force closes, at most 1 with any one.",
+      ],
+      [
+        "penalties only, cut off",
+        words(0, 52, many(50, 0, 1), 2),
+        "The record holds 52 penalties. The 50 peers with the most had 50 penalties, at most 1 with any one.",
+      ],
+      [
+        "both, cut off",
+        words(60, 12, [peer(1, 5, 2), ...many(49, 1, 0)], 3),
+        "The record holds 60 force closes and 12 penalties. The 50 peers with the most had 54 force closes and 2 penalties, at most 7 with any one.",
+      ],
+    ];
+    for (const [name, got, want] of cases) expect({ name, got }).toStrictEqual({ name, got: want });
     for (const w of [
       ...Object.values(RECORD_WORDS),
       ...Object.values(CLOSE_WORDS).map((c) => c.why),
