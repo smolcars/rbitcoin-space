@@ -92,6 +92,46 @@ test("a taproot address shows its totals, history and unspent outputs from the c
   );
 });
 
+// An exact readout's length varies from point to point; its room is held for the widest, so
+// stepping through the chart never moves it from under the pointer.
+test("a balance chart's readout keeps its lines at every point, however long its figures", async ({
+  page,
+  browserName,
+}) => {
+  test.skip(browserName !== "chromium", "only Chromium lets a test set the browser's text size");
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Page.setFontSizes", { fontSizes: { standard: 32, fixed: 26 } });
+  // Its +0.5 and −0.5 BTC as +1 000.00 000 002 and −0.00 000 002: one long enough to wrap.
+  await page.route(/\/regtest\/api\/address\/[^/]+\/txs\/summary/, async (route) => {
+    const reply = await route.fetch();
+    const rows = (await reply.json()) as { value: number }[];
+    for (const r of rows) r.value = r.value > 0 ? 100_000_000_002 : -2;
+    await route.fulfill({ response: reply, json: rows });
+  });
+  await page.setViewportSize({ width: 320, height: 900 });
+  await page.goto(`/regtest/address/${chain.addresses.p2sh}`);
+  // In the wide stand-in font.
+  await page.evaluate(() => {
+    document.documentElement.style.setProperty("--font-sans", '"DejaVu Sans", Verdana, sans-serif');
+  });
+  // The chart loads as it nears the view.
+  await page.getByRole("heading", { name: "Balance over time" }).scrollIntoViewIfNeeded();
+  const chart = page.getByRole("slider", { name: "Confirmed balance after each block" });
+  await expect(chart).toHaveAttribute("aria-valuemax", "1");
+  const moved: string[] = [];
+  for (let width = 320; width <= 440; width += 4) {
+    await page.setViewportSize({ width, height: 900 });
+    await chart.press("Home");
+    await expect(chart).toHaveAttribute("aria-valuetext", /Change \+1\s000\.00/);
+    const first = await chart.evaluate((el) => el.getBoundingClientRect().top);
+    await chart.press("End");
+    await expect(chart).toHaveAttribute("aria-valuetext", /Change −0\.00/);
+    const last = await chart.evaluate((el) => el.getBoundingClientRect().top);
+    if (Math.abs(first - last) > 0.5) moved.push(`${width} px: ${first} then ${last}`);
+  }
+  expect(moved).toStrictEqual([]);
+});
+
 test("a spend and a receive net out per transaction", async ({ page }) => {
   await page.goto(`/regtest/address/${chain.addresses.p2sh}`);
   await expect(stat(page, "Balance")).toHaveText("0.00 000 000 BTC");

@@ -83,12 +83,18 @@
   /* The figure shown over the reading's widest, unseen, which holds its room (Chart's `widest`),
      breaking where the figure would (after its point). */
   .chart__now,
+  .chart__figure::before,
   .chart__figure::after {
     grid-area: 1 / 1;
   }
+  .chart__figure::before,
   .chart__figure::after {
     content: attr(data-widest);
     visibility: hidden;
+  }
+  /* The same with its sign the other way: `+` and `−` differ in width in some fonts. */
+  .chart__figure::before {
+    content: attr(data-widest-signed);
   }
   .chart__key {
     flex: none;
