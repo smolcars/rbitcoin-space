@@ -242,6 +242,7 @@ export default function TimestampPage() {
             setProofIn(undefined);
           }}
           clearLabel="Remove the proof"
+          changeLabel="the proof"
         />
         <Slot
           title="Your file"
@@ -254,6 +255,7 @@ export default function TimestampPage() {
             setFile(undefined);
           }}
           clearLabel="Remove the file"
+          changeLabel="your file"
           filled={readDigest(hex(), algorithm()) !== null}
         >
           <Show when={running()}>
@@ -317,6 +319,8 @@ function Slot(props: {
   onChoose: (f: File | undefined) => void;
   onClear: () => void;
   clearLabel: string;
+  /** Said after "Change" to a screen reader: which file it changes. */
+  changeLabel: string;
   /** Holds what it needs another way (a digest typed in): drawn as settled. */
   filled?: boolean;
   children?: JSX.Element;
@@ -348,7 +352,13 @@ function Slot(props: {
       <p class="ots-slot__hint">{props.hint}</p>
       <div class="ots-slot__pick">
         <label class="btn ots-slot__choose">
-          {props.chosen === undefined ? "Choose a file" : "Change"}
+          {props.chosen === undefined ? (
+            "Choose a file"
+          ) : (
+            <>
+              Change<span class="visually-hidden"> {props.changeLabel}</span>
+            </>
+          )}
           <input
             ref={input}
             class="visually-hidden"
@@ -365,9 +375,11 @@ function Slot(props: {
       </div>
       <Show when={props.chosen}>
         {(name) => (
-          <p class="ots-slot__chosen">
-            <bdi class="ots-slot__name">{name()}</bdi>
-            <span class="muted num">{props.detail}</span>
+          <>
+            <p class="ots-slot__chosen">
+              <bdi class="ots-slot__name">{name()}</bdi>
+              <span class="muted num">{props.detail}</span>
+            </p>
             <button
               class="ots-slot__clear tap"
               type="button"
@@ -381,7 +393,7 @@ function Slot(props: {
                 <path d="M4 4l8 8M12 4l-8 8" />
               </svg>
             </button>
-          </p>
+          </>
         )}
       </Show>
       {props.children}
@@ -422,7 +434,17 @@ function DigestField(props: {
           aria-invalid={props.problem ? "true" : "false"}
           aria-describedby="ots-hex-hint ots-hex-problem"
           value={props.value}
+          enterkeyhint="done"
           onInput={(e) => props.onInput(e.currentTarget.value)}
+          onKeyDown={(e) => {
+            // Enter is done typing: a digest holds no line breaks, and the verdict, if one has
+            // come, is brought into view as it would be for a file.
+            if (e.key !== "Enter") return;
+            e.preventDefault();
+            const article = document.querySelector<HTMLElement>(".ots-verdict");
+            const heading = article?.querySelector<HTMLElement>(".ots-verdict__title");
+            if (article && heading) reveal(article, heading, true);
+          }}
         />
         <Show when={props.value !== ""}>
           <button
@@ -528,10 +550,10 @@ function NotAProof(props: { error: ProofError }) {
  * brought into view where it is not (a phone, under the two slots), at once under reduced motion.
  * Never while the reader is typing a digest: the field keeps focus and the page stays put.
  */
-export function reveal(article: HTMLElement, heading: HTMLElement): void {
+export function reveal(article: HTMLElement, heading: HTMLElement, asked = false): void {
   const active = document.activeElement;
-  if (active instanceof HTMLTextAreaElement) return;
-  if (active instanceof HTMLInputElement && active.type !== "file") return;
+  if (!asked && active instanceof HTMLTextAreaElement) return;
+  if (!asked && active instanceof HTMLInputElement && active.type !== "file") return;
   heading.focus({ preventScroll: true });
   const r = heading.getBoundingClientRect();
   if (r.top >= 0 && r.bottom <= window.innerHeight) return;

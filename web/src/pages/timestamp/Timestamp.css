@@ -16,6 +16,7 @@
   .ots-inputs {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(min(18rem, 100%), 1fr));
+    align-items: start;
     gap: var(--space-4);
     margin-top: var(--space-5);
   }
@@ -75,40 +76,44 @@
 
   /* Filled, a slot is one row: its name, the file's name and size, Change, and remove. */
   .ots-slot--chosen {
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
     align-items: center;
     gap: var(--space-2) var(--space-3);
     padding-block: var(--space-3);
   }
-  .ots-slot--chosen .ots-slot__title {
+  .ots-slot--chosen > * {
     grid-row: 1;
-    grid-column: 1;
+  }
+  .ots-slot--chosen .ots-slot__title {
     font-size: var(--text-md);
   }
   .ots-slot--chosen .ots-slot__hint,
   .ots-slot--chosen .ots-slot__drop {
     display: none;
   }
-  .ots-slot--chosen .ots-slot__chosen {
-    grid-row: 1;
-    grid-column: 2;
-  }
   .ots-slot--chosen .ots-slot__pick {
-    grid-row: 1;
-    grid-column: 3;
     margin: 0;
   }
-  .ots-slot--chosen .ots-slot__clear {
-    margin-inline-start: 0;
-  }
-  .ots-slot--chosen > :not(.ots-slot__title, .ots-slot__hint, .ots-slot__pick, .ots-slot__chosen) {
+  .ots-slot--chosen
+    > :not(
+      .ots-slot__title,
+      .ots-slot__hint,
+      .ots-slot__pick,
+      .ots-slot__chosen,
+      .ots-slot__clear
+    ) {
+    grid-row: auto;
     grid-column: 1 / -1;
   }
-  /* A phone's row: the file's name gives way first; its size goes under it when it must. */
+  /* A phone: the slot's name, Change and remove on the first line, the file under them. */
   @media (max-width: 40em) {
+    .ots-slot--chosen {
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      row-gap: var(--space-1);
+    }
     .ots-slot--chosen .ots-slot__chosen {
-      flex-wrap: wrap;
-      row-gap: 0;
+      grid-row: 2;
+      grid-column: 1 / -1;
     }
   }
   .ots-slot__chosen {
@@ -187,6 +192,14 @@
   .ots-hex__field,
   .ots-hex .ots-slot__note {
     grid-column: 1 / -1;
+  }
+  @media (max-width: 40em) {
+    .ots-hex {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .ots-hex__hint {
+      text-align: start;
+    }
   }
   .ots-hex__field {
     display: flex;
@@ -320,12 +333,9 @@
     max-width: 66ch;
     margin: 0;
   }
+  /* Focused by the page when the verdict arrives, for screen readers; never a Tab stop. */
   .ots-verdict__title:focus {
     outline: none;
-  }
-  .ots-verdict__title:focus-visible {
-    outline: 2px solid var(--color-focus);
-    outline-offset: 4px;
   }
   /* The block and its time in the summary style: a label, a value, one muted line. */
   .ots-figures {
