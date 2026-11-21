@@ -485,8 +485,15 @@
     .fee-level__figure {
       justify-items: start;
     }
+    /* Running text, its mark at the start of the first line, so words that wrap stay with it. */
     .fee-level__verdict {
+      display: block;
       justify-self: start;
+    }
+    .fee-level__verdict .fee-level__icon {
+      display: inline-block;
+      margin-inline-end: var(--space-1);
+      vertical-align: -0.1em;
     }
     .fee-meter {
       grid-template-columns: minmax(0, 1fr);
