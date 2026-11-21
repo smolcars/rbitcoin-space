@@ -46,11 +46,16 @@ pub(crate) struct Overview {
 /// Works the figures out every [`EVERY`] once the graph is indexed, until the peer stops.
 pub(crate) async fn keep(store: Arc<Store>, l: Arc<Lightning>) {
     loop {
-        let wait = match l.index() {
-            Some(index) if compute(&store, &l, Arc::clone(&index)).await => EVERY,
-            _ => RETRY,
-        };
-        tokio::time::sleep(wait).await;
+        match l.index() {
+            Some(index) if compute(&store, &l, Arc::clone(&index)).await => {
+                tokio::time::sleep(EVERY).await;
+            }
+            Some(_) => tokio::time::sleep(RETRY).await,
+            // No index yet: start as soon as one is set, not up to a retry later.
+            None => {
+                let _ = tokio::time::timeout(RETRY, l.indexed.notified()).await;
+            }
+        }
     }
 }
 

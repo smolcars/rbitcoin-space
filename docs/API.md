@@ -1115,29 +1115,30 @@ GET /app/lightning/nodes/03864ef0…3f8f/channels?sort=out&state=here&q=lnd
 
 ###### A node's close record
 
-`GET /app/lightning/nodes/:key/closes` says how the node's channels this server watched ended, beside every channel's over the same span ([`LIGHTNING.md`](LIGHTNING.md#a-nodes-close-record)). It takes no parameters. A node with a stored close answers even once it has left the graph; one with neither a stored close nor an open channel is `404 node not found`.
+`GET /app/lightning/nodes/:key/closes` says how the node's channels this server watched ended, from at most its newest 10,000 closes, beside every channel's as the overview last worked them out ([`LIGHTNING.md`](LIGHTNING.md#a-nodes-close-record)). It takes no parameters. A node with a stored close answers even once it has left the graph; one with neither a stored close nor an open channel is `404 node not found`.
 
 ```json
 GET /app/lightning/nodes/03864ef0…3f8f/closes
-{"id": "03864ef0…3f8f", "from": 1794502800, "time": 1795216305, "minimum": 20,
+{"id": "03864ef0…3f8f", "from": 1794502800, "time": 1795220043, "minimum": 20, "cap": 10000, "capped": false,
  "node": {"closed": 79, "cooperative": 54, "force": 25, "penalty": 0, "other": 0,
           "shares": {"cooperative": 68.4, "force": 31.6, "penalty": 0.0, "other": 0.0},
           "fees": {"cooperative": {"sum": 16886, "known": 54}, "force": {"sum": 15323, "known": 25}, …},
           "weeks": [{"time": 1794182400, "cooperative": 20, "force": 20, "penalty": 0, "other": 0}, …]},
  "peers": {"count": 64, "forced": 25, "more": 0, "list": [
-   {"id": "0200dc…dd97", "alias": null, "closed": 1, "cooperative": 0, "force": 1, "penalty": 0, "other": 0, "shares": null, "open": 0}, …]},
- "network": {"time": 1795216304, "closed": 1802, "cooperative": 1638, "force": 158, "penalty": 0, "other": 6,
+   {"id": "0200dc…dd97", "alias": null, "held": false, "closed": 1, "cooperative": 0, "force": 1, "penalty": 0, "other": 0, "shares": null, "open": 0}, …]},
+ "network": {"time": 1795220043, "closed": 1802, "cooperative": 1638, "force": 158, "penalty": 0, "other": 6,
              "shares": {…}, "fees": {…}, "weeks": […]}}
 ```
 
-- **Each closed channel counts once, in one kind,** and in both its nodes' records: `penalty` is a force close later found to be a breach, never also `force`. `closed` is their sum.
-- **`from`** is when the record runs from: the history's start (the first statistics snapshot) or the oldest stored close if older; `null` before either exists. `weeks` start on a Monday, 00:00 UTC, oldest first, every week from `from`'s to now present (at most the newest 520).
+- **Each closed channel counts once, in one kind,** and in both its nodes' records: `penalty` is a force close whose commitment this server later saw swept with its revocation key, never also `force`. `closed` is their sum. A stored row whose two ends are the same node counts once and lists no peer.
+- **At most `cap` closes are read** (10,000), the node's newest. `capped` is `true` when it has more: the record is then of those newest closes only, and `from` is the oldest of them.
+- **`from`** is when the record runs from: with every close read, the history's start (the first statistics snapshot) or the oldest stored close if older; `null` before either exists. `weeks` start on a Monday, 00:00 UTC, oldest first, every week from `from`'s to now present, at most the newest 520: past that, the first week listed also counts every older close, so it is not one week's.
 - **`shares`** are each kind's percent of `closed` to one decimal, `null` below `minimum` closes (20), for the node, each peer and the network alike: a share of a handful of closes is not a rate.
 - **`fees`** sum the closing transactions' fees, sats, over the `known` closes whose fee the node gave. Who paid them the chain does not say.
-- **`peers`**: `count` the peers it closed a channel with, `forced` those with a force close or penalty, `list` up to 50 of these, most force closes and penalties first, then most closes, then by key, `more` those left out. A peer's `open` is the node's channels with it open now; its `alias` is `null` when the graph holds none.
-- **`network`** is every stored close over the same span, worked out with the overview every ten minutes (`time`), `null` until the first computation after a start.
+- **`peers`** are the other ends of its closed channels: `count` how many, `forced` those whose channels with it ended in a force close or penalty, `list` up to 50 of these, most force closes and penalties first, then most closes, then by key, `more` how many more there are. A peer's `open` is the node's channels with it open now, `held` whether the graph holds it (it has a page), and its `alias` is `null` when the graph holds none.
+- **`network`** is every stored close as the overview last worked them out (`time`), every ten minutes, from when the history starts; `null` until the first computation after a start. It is not of the same moment as the node's part: a close or sweep since `time` is in the node's figures and not in the network's, and a node's week after `time` has no network week.
 
-**Cost.** One indexed read of the node's closed rows (both node indexes of `0017`) and a pass over them, plus the node's open channels in the index: on mainnet's store of 2026-11-20 (37,822 rows, 1,802 closed), 0.55 ms median for the read of the node with the most closes (403), the whole answer 0.2 to 0.8 ms over loopback. `Cache-Control: public, max-age=10`.
+**Cost, bounded.** One read of at most 10,001 entries of each of the node's two closed-row indexes, newest close first (`0022`), whatever the node's history, a pass over at most 10,000 rows, and the node's open channels in the index. On mainnet's store of 2026-11-20 (37,822 rows, 1,802 closed) the read for the node with the most closes (403) takes 0.55 ms median, the whole answer 0.2 to 0.8 ms over loopback. On a synthetic store, one request for a node of 50,000 closes across 5,000 peers takes 14 ms and 4.9 MB more peak memory, and for one of 200,000 the same, 14 ms and 5.3 MB, where reading every row took 40 ms and 21 MB, and 157 ms and 77 MB ([`LIGHTNING.md`](LIGHTNING.md#a-nodes-close-record)). `Cache-Control: public, max-age=10`.
 
 ###### Fee history
 

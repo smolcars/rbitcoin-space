@@ -1,8 +1,8 @@
 // A node's close record (docs/FRONTEND.md "Lightning pages"): how its channels this server watched
-// ended, beside every channel's over the same span, by week, and with whom. A record, not a
+// ended, beside every channel's as last worked out, by week, and with whom. A record, not a
 // verdict: kinds keep their icon and word in the muted tone, and a force close is never the node's.
 import { createSignal, For, Show } from "solid-js";
-import { formatDay } from "../../components/chart/scale";
+import { formatDay, formatMoment } from "../../components/chart/scale";
 import { type Column, DataTable } from "../../components/DataTable";
 import { Link } from "../../components/Link";
 import { More } from "../../components/More";
@@ -46,7 +46,9 @@ export function CloseRecord(props: { network: Network; id: string; gone?: boolea
     <Show when={shown()}>
       <section aria-labelledby="ln-record-title" class="ln-record">
         <SectionHeader title="Close record" id="ln-record-title">
-          <Show when={answer.latest?.from}>{(f) => <>Since {formatDay(f())}</>}</Show>
+          <Show when={answer.latest} keyed>
+            {(r) => <Span record={r} />}
+          </Show>
         </SectionHeader>
         <Show
           when={answer.latest}
@@ -64,7 +66,7 @@ export function CloseRecord(props: { network: Network; id: string; gone?: boolea
             </Show>
           }
         >
-          {(r) => <Body record={r} network={props.network} />}
+          {(r) => <Body record={r} gone={props.gone === true} />}
         </Show>
       </section>
     </Show>
@@ -95,12 +97,32 @@ function Share(props: { share: number; count: number; whose: "node" | "all" }) {
   );
 }
 
+/**
+ * From when the node's record runs and as of when every channel's figures were worked out: the
+ * network's come from a pass every ten minutes, the node's from the request, so they differ.
+ */
+function Span(props: { record: NodeCloses }) {
+  const n = () => props.record.network;
+  return (
+    <>
+      <Show when={props.record.from}>{(f) => <>Since {formatDay(f())}</>}</Show>
+      <Show when={n()}>
+        {(x) => (
+          <>
+            {props.record.from === null ? "" : "; "}all channels as of {formatMoment(x().time)}
+          </>
+        )}
+      </Show>
+    </>
+  );
+}
+
 /** Peers listed before the reader asks for the rest. */
 const PEERS_SHOWN = 10;
 
 const sats = (n: number | null) => (n === null ? MISSING : groupDigits(n));
 
-function Body(props: { record: NodeCloses; network: Network }) {
+function Body(props: { record: NodeCloses; gone: boolean }) {
   const r = () => props.record;
   const net = () => r().network;
   const rated = () => r().node.shares !== null;
@@ -155,25 +177,28 @@ function Body(props: { record: NodeCloses; network: Network }) {
             when={r().node.closed > 0}
             fallback={<>None of its channels closed in the {span()} this server has watched.</>}
           >
-            <strong class="num">{count(r().node.closed, "channel")}</strong> closed in the {span()}{" "}
-            this server has watched. Each close is in the record of both nodes of its channel.
+            <strong class="num">{count(r().node.closed, "channel")}</strong> closed{" "}
+            {r().capped
+              ? `in the ${span() ?? ""} up to now: its newest closes, the most this record reads. It has older ones too.`
+              : `in the ${span() ?? ""} this server has watched.`}{" "}
+            Each close is in the record of both nodes of its channel.
           </Show>
         </p>
       </Show>
       <Show when={r().node.closed > 0}>
         <DataTable
-          caption="How its channels ended, beside every channel's over the same span"
+          caption="How its channels ended, beside every channel's as of the time above"
           columns={columns()}
           rows={kinds()}
         />
         <p class="ln-record__note">
           {rated()
-            ? "A force close counts for both of its channel's nodes: the chain shows that one end broadcast its commitment, not which end or why."
-            : `Shares are given from ${groupDigits(r().minimum)} closes; with ${groupDigits(r().node.closed)}, the counts say more than a share would. A force close counts for both of its channel's nodes: the chain does not say which end broadcast it.`}
+            ? "A force close counts for both of its channel's nodes: the chain shows that one end broadcast a commitment transaction, not which end or why."
+            : `Shares are given from ${groupDigits(r().minimum)} closes; with ${groupDigits(r().node.closed)}, the counts say more than a share would. A force close counts for both of its channel's nodes: the chain does not say which end broadcast its commitment transaction.`}
         </p>
         <Fees record={r()} />
         <Weeks record={r()} />
-        <Peers record={r()} network={props.network} />
+        <Peers record={r()} gone={props.gone} />
       </Show>
       <More label="How this record is made">
         <p>
@@ -181,7 +206,10 @@ function Body(props: { record: NodeCloses; network: Network }) {
           the kind its closing transaction shows, from{" "}
           {r().from === null ? "when this server's record starts" : formatDay(r().from ?? 0)}.
           Channels that closed before then, private channels, and a channel the server stopped
-          watching are not in it. "All channels" is every close the server saw in the same span.
+          watching are not in it. A node with more than {groupDigits(r().cap)} closes has a record
+          of its newest {groupDigits(r().cap)}. "All channels" is every close the server had stored
+          when it last worked them out, at the time above, from when its history starts: a close or
+          a sweep seen since is in this node's figures and not yet in theirs.
         </p>
         <ul>
           <For each={["cooperative", "force", "penalty", "other"] as const}>
@@ -194,13 +222,13 @@ function Body(props: { record: NodeCloses; network: Network }) {
           </For>
         </ul>
         <p>
-          A penalty is seen only when its sweep confirms within 2,016 blocks of the force close; the
-          record holds the sweep, not which end broadcast the revoked state. Fees are those of the
-          closing transactions: the chain does not say which end paid them, a force close's leaves
-          out what was spent later to speed it or sweep its outputs, and an "other" close's covers
-          every input of its transaction. What opening the channels cost is not shown: the server
-          does not hold the funding transactions' fees, and one funding transaction can open several
-          channels.
+          A penalty is seen only when its sweep confirms within 2,016 blocks of the force close, so
+          a force close may yet have been a revoked state; the record holds the sweep it saw, not
+          which end broadcast the commitment. Fees are those of the closing transactions: the chain
+          does not say which end paid them, a force close's leaves out what was spent later to speed
+          it or sweep its outputs, and an "other" close's covers every input of its transaction.
+          What opening the channels cost is not shown: the server does not hold the funding
+          transactions' fees, and one funding transaction can open several channels.
         </p>
       </More>
     </>
@@ -291,7 +319,7 @@ function Weeks(props: { record: NodeCloses }) {
   );
 }
 
-function Peers(props: { record: NodeCloses; network: Network }) {
+function Peers(props: { record: NodeCloses; gone: boolean }) {
   const base = () => paths.lightningNode(props.record.id);
   const [all, setAll] = createSignal(false);
   const shown = () =>
@@ -305,14 +333,27 @@ function Peers(props: { record: NodeCloses; network: Network }) {
       header: "Peer",
       cell: (p) => (
         <span class="ln-node-row2">
-          <Link
-            class="ln-node-peer"
-            href={`${base()}?view=closed&peer=${p.id}`}
-            noscroll
-            title="Show only closes with this peer"
+          {/* A node the graph no longer holds has no closed list to filter: its peers lead to
+              their own pages, or are text where they have left too. */}
+          <Show
+            when={!props.gone}
+            fallback={
+              <Show when={p.held} fallback={<Alias alias={p.alias} max={24} />}>
+                <Link class="ln-node-peer" href={paths.lightningNode(p.id)}>
+                  <Alias alias={p.alias} max={24} />
+                </Link>
+              </Show>
+            }
           >
-            <Alias alias={p.alias} max={24} />
-          </Link>
+            <Link
+              class="ln-node-peer"
+              href={`${base()}?view=closed&peer=${p.id}`}
+              noscroll
+              title="Show only closes with this peer"
+            >
+              <Alias alias={p.alias} max={24} />
+            </Link>
+          </Show>
           <span class="ln-key" title={p.id}>
             {truncateMiddle(p.id, 6, 4)}
           </span>
@@ -350,7 +391,7 @@ function Peers(props: { record: NodeCloses; network: Network }) {
       <p class="ln-record__lead">{peersInWords(props.record)}</p>
       <Show when={props.record.peers.list.length > 0}>
         <DataTable
-          caption="The peers its force closes and penalties were with, most first"
+          caption="The other ends of its channels that ended in a force close or a penalty, most first"
           columns={columns()}
           rows={shown()}
         />
@@ -363,8 +404,8 @@ function Peers(props: { record: NodeCloses; network: Network }) {
         </Show>
         <Show when={props.record.peers.more > 0}>
           <p class="ln-record__note">
-            And {count(props.record.peers.more, "more peer")} with fewer: filter its closed channels
-            below by peer to see them.
+            And {count(props.record.peers.more, "more peer")} with a force close or a penalty.
+            {props.gone ? "" : " Filter its closed channels below by peer to see them."}
           </p>
         </Show>
       </Show>

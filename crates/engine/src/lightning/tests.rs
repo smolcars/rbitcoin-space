@@ -1510,7 +1510,8 @@ mod close_record {
     }
 
     async fn of(s: &Store, node: [u8; 33]) -> record::NodeRecord {
-        let rows = node_closes(s, node).await.unwrap();
+        let (rows, more) = node_close_rows(s, node, record::MAX_CLOSES).await.unwrap();
+        assert!(!more);
         record::node(&node, &rows, MONDAY, MONDAY + WEEK + 3_600)
     }
 
@@ -1658,6 +1659,60 @@ mod close_record {
         assert_eq!((n.total.total(), n.weeks.len()), (0, 2));
     }
 
+    #[tokio::test]
+    async fn a_row_whose_two_ends_are_the_node_counts_once_and_lists_no_peer() {
+        let t = temp();
+        let s = &t.store;
+        history(s).await;
+        const S6: u64 = 800_000 << 40 | 6 << 16;
+        apply(
+            s,
+            vec![Change::Closed(
+                between(S6, X, X),
+                at(MONDAY + 30, Kind::Force, Some(700), 6),
+            )],
+        )
+        .await
+        .unwrap();
+        let x = of(s, X).await;
+        // One more force close and its fee, once; the peers as before.
+        assert_eq!(x.record.total.closes, [1, 2, 1, 0]);
+        assert_eq!(x.record.total.fees, [200, 3_700, 500, 0]);
+        assert!(x.peers.iter().all(|p| p.id != X));
+        assert_eq!(x.peers.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn a_record_reads_only_the_newest_closes_and_says_when_there_are_more() {
+        let t = temp();
+        let s = &t.store;
+        // Five closes of X, one a block, with Y and Z in turn; Y's end is node one on some.
+        let changes: Vec<Change> = (0..5u32)
+            .map(|i| {
+                let scid = (800_100 + u64::from(i)) << 40;
+                let o = if i % 2 == 0 {
+                    between(scid, X, Y)
+                } else {
+                    between(scid, Z, X)
+                };
+                let mut c = at(MONDAY + u64::from(i), Kind::Cooperative, Some(10), 1);
+                c.block.height = 900_000 + i;
+                Change::Closed(o, c)
+            })
+            .collect();
+        apply(s, changes).await.unwrap();
+        let (all, more) = node_close_rows(s, X, 5).await.unwrap();
+        assert_eq!((all.len(), more), (5, false));
+        let (newest, more) = node_close_rows(s, X, 3).await.unwrap();
+        assert!(more);
+        assert_eq!(
+            newest.iter().map(|r| r.time - MONDAY).collect::<Vec<_>>(),
+            [4, 3, 2],
+            "newest close first, across both ends"
+        );
+        assert_eq!(newest.iter().map(|r| r.peer).collect::<Vec<_>>(), [Y, Z, Y]);
+    }
+
     #[test]
     fn weeks_are_bounded_and_closes_outside_them_land_at_the_ends() {
         // Twenty years from a start to now: only the newest ten years of weeks are held, and a
@@ -1693,4 +1748,148 @@ mod close_record {
         assert_eq!(s, [90.9, 8.8, 0.0, 0.3]);
         assert_eq!(record::shares(&[0; 4]), None);
     }
+}
+
+/// What one close record costs for nodes with very long histories: 50,000 closes across 5,000
+/// peers, and 200,000 across 20,000. `before` reads every closed row and tallies them, as the
+/// route did before it read only the newest; `after` reads the newest `record::MAX_CLOSES`. Each
+/// case in a process of its own, so one's freed memory does not hide the other's peak. The store
+/// (about 150 MB) is built by the first run, in a directory on disk:
+///
+/// ```bash
+/// for case in build before:50k after:50k before:200k after:200k; do
+///   RECORD_BENCH_DIR=~/.cache/record-bench RECORD_BENCH=$case \
+///     cargo test -p engine --release --lib -- --ignored record_bench
+/// done; cat ~/.cache/record-bench/report.txt
+/// ```
+#[tokio::test]
+#[ignore]
+async fn record_bench() {
+    use std::collections::HashMap;
+    use std::io::Write;
+    use std::time::Instant;
+
+    use crate::lightning::record;
+
+    fn status(field: &str) -> u64 {
+        let s = std::fs::read_to_string("/proc/self/status").unwrap();
+        let line = s.lines().find(|l| l.starts_with(field)).unwrap();
+        line.split_whitespace().nth(1).unwrap().parse().unwrap()
+    }
+
+    let dir = PathBuf::from(std::env::var("RECORD_BENCH_DIR").expect("RECORD_BENCH_DIR"));
+    let case = std::env::var("RECORD_BENCH").expect("RECORD_BENCH");
+    let built = dir.join("regtest.sqlite").exists();
+    let store = Store::open(&dir, "regtest", Options::default()).unwrap();
+    const A: [u8; 33] = [0x31; 33];
+    const B: [u8; 33] = [0x32; 33];
+    let peer = |n: u32| {
+        let mut k = [0x02; 33];
+        k[1..5].copy_from_slice(&n.to_be_bytes());
+        k
+    };
+    // Either end, one close in ten a force close, a block a close.
+    let mut scid = 0u64;
+    for (node, closes, peers) in [(A, 50_000u32, 5_000u32), (B, 200_000, 20_000)] {
+        if built {
+            break;
+        }
+        for chunk in 0..closes / 10_000 {
+            let mut batch = Vec::new();
+            for i in chunk * 10_000..(chunk + 1) * 10_000 {
+                scid += 1;
+                let other = peer(i % peers + if node == A { 0 } else { 100_000 });
+                let (one, two) = if i % 2 == 0 {
+                    (node, other)
+                } else {
+                    (other, node)
+                };
+                batch.push((scid, one, two, i));
+            }
+            store
+                .write(move |sql| {
+                    let mut ins = sql.prepare(
+                        "INSERT INTO ln_channels (scid, node_one, node_two, capacity, open_hash, \
+                         open_time, close_height, close_hash, close_time, close_txid, close_kind, \
+                         close_fee) VALUES (?1, ?2, ?3, 1000000, ?4, 1700000000, ?5, ?4, ?6, ?7, ?8, ?9)",
+                    )?;
+                    for (scid, one, two, i) in &batch {
+                        let i = i64::from(*i);
+                        ins.execute(crate::store::params![
+                            i64::try_from(*scid).unwrap(),
+                            one.to_vec(),
+                            two.to_vec(),
+                            vec![0u8; 32],
+                            700_000 + i / 3,
+                            1_700_000_000 + i * 60,
+                            scid.to_be_bytes().repeat(4),
+                            i64::from(i % 10 == 0),
+                            300 + i % 500
+                        ])?;
+                    }
+                    Ok(())
+                })
+                .await
+                .unwrap();
+        }
+    }
+    // Building is a run of its own: what it freed would hide a peak measured after it.
+    if case == "build" {
+        store.close().await;
+        return;
+    }
+    let now = 1_700_000_000 + 200_000 * 60;
+    let (way, size) = case.split_once(':').unwrap();
+    let node = if size == "50k" { A } else { B };
+    let base = status("VmRSS:");
+    let t = Instant::now();
+    let line = if way == "before" {
+        // Every closed row as a channel, then the tally and every peer sorted.
+        let rows = node_closes(&store, node).await.unwrap();
+        let mut kinds = [0u32; 4];
+        let mut weeks: HashMap<u64, [u32; 4]> = HashMap::new();
+        let mut peers: HashMap<[u8; 33], [u32; 4]> = HashMap::new();
+        for c in &rows {
+            let close = c.close.unwrap();
+            let k = close.kind as usize;
+            kinds[k] += 1;
+            weeks.entry(record::week_of(close.block.time)).or_default()[k] += 1;
+            let p = if c.open.node_one == node {
+                c.open.node_two
+            } else {
+                c.open.node_one
+            };
+            peers.entry(p).or_default()[k] += 1;
+        }
+        let mut list: Vec<_> = peers.into_iter().collect();
+        list.sort_unstable_by(|a, b| {
+            (b.1[1] + b.1[2])
+                .cmp(&(a.1[1] + a.1[2]))
+                .then(a.0.cmp(&b.0))
+        });
+        format!("{} rows, {} peers", rows.len(), list.len())
+    } else {
+        let (rows, more) = node_close_rows(&store, node, record::MAX_CLOSES)
+            .await
+            .unwrap();
+        let r = record::node(&node, &rows, now - 400 * DAY, now);
+        format!(
+            "{} rows (more: {more}), {} peers",
+            rows.len(),
+            r.peers.len()
+        )
+    };
+    let took = t.elapsed();
+    let peak = status("VmHWM:").saturating_sub(base);
+    store.close().await;
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join("report.txt"))
+        .unwrap();
+    writeln!(
+        f,
+        "{case}: {took:?}, peak resident +{peak} kB over the open store, {line}"
+    )
+    .unwrap();
 }

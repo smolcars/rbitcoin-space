@@ -93,7 +93,16 @@ const CLOSED = {
 };
 
 async function open(page: Page, key: string, answers: Record<string, unknown>) {
-  await serve(page, { ...mainnet(), [`nodes/${ONE}/channels?status=closed`]: CLOSED, ...answers });
+  const recordedClosed = recorded("node-acinq-closed") as { channels: unknown[] };
+  // The closed list filtered to the record's first peer, as following its link asks.
+  const onePeer = { ...recordedClosed, total: 1, channels: recordedClosed.channels.slice(0, 1) };
+  await serve(page, {
+    ...mainnet(),
+    [`nodes/${ONE}/channels?status=closed`]: CLOSED,
+    [`nodes/${ACINQ}/channels?status=closed&peer=0200dc8f9e63a75f803f52866fb6ad0095d2473a1d22164b819eda90f06954dd97`]:
+      onePeer,
+    ...answers,
+  });
   await page.goto(`/regtest/lightning/node/${key}?view=closed`);
   await expect(page.getByRole("heading", { name: "Close record" })).toBeVisible();
   await expect(page.locator(".ln-record .state--loading")).toHaveCount(0);
@@ -129,11 +138,14 @@ test("mainnet's record: shares beside every channel's, fees, weeks and peers, at
   await open(page, ACINQ, {});
   const record = page.locator(".ln-record");
   await expect(record).toContainText("79 channels closed in the 8 days this server has watched");
-  await expect(record).toContainText("Since 12 Nov 2026");
+  // The record's start, and as of when every channel's figures were worked out.
+  await expect(record).toContainText(
+    "Since 12 Nov 2026; all channels as of 21 Nov 2026, 00:14 UTC",
+  );
   await expect(record).toContainText("68%");
   await expect(record).toContainText("all 8.8%");
   await expect(record).toContainText(
-    "Its 25 force closes were with 25 different peers, at most 1 with any one.",
+    "The 25 force closes were on channels with 25 different peers, at most 1 with any one.",
   );
   await expect(record).toContainText("not which end or why");
   await expect(record.locator(".ln-record__part").last().locator("tbody tr")).toHaveCount(10);
@@ -141,13 +153,19 @@ test("mainnet's record: shares beside every channel's, fees, weeks and peers, at
   await expect(record.locator(".ln-record__part").last().locator("tbody tr")).toHaveCount(25);
   // No tone that reads as a verdict.
   await expect(record.locator(".ln-tag:not(.ln-tag--muted)")).toHaveCount(0);
-  // A peer leads to the node's closes with it.
-  await expect(record.locator(".ln-record__part").last().getByRole("link").first()).toHaveAttribute(
-    "href",
-    /view=closed&peer=0200dc/,
-  );
   await holds(page);
   if (SHOTS) await record.screenshot({ path: `${SHOTS}/e2e-acinq.png` });
+  // A peer leads to the node's closes with it: followed, the closed list asks for that peer's.
+  const asked: string[] = [];
+  page.on("request", (r) => {
+    if (r.url().includes("/channels?")) asked.push(new URL(r.url()).search);
+  });
+  await record.locator(".ln-record__part").last().getByRole("link").first().click();
+  await expect(page).toHaveURL(/view=closed&peer=0200dc/);
+  await expect(page.locator("[aria-labelledby=ln-node-closed-title]")).toContainText(
+    /1\s+of 34 closes match/,
+  );
+  expect(asked.some((q) => q.includes("peer=0200dc"))).toBe(true);
 });
 
 test("a record with penalties names them and says the record does not say by which end", async ({
@@ -157,7 +175,7 @@ test("a record with penalties names them and says the record does not say by whi
   const record = page.locator(".ln-record");
   await expect(record).toContainText("the record does not say by which end");
   await expect(record).toContainText(
-    "Its 22 force closes and 3 penalties were with 25 different peers",
+    "The 22 force closes and 3 penalties were on channels with 25 different peers",
   );
   await expect(record.getByRole("columnheader", { name: "Penalty", exact: true })).toHaveCount(2);
   await holds(page);
@@ -195,9 +213,22 @@ test("a node with no close says so in one line", async ({ page }) => {
 test.describe("a node that left the graph", () => {
   // Its node answer is a 404, which the browser logs.
   test.use({ consoleErrorsAllowed: [/status of 404/] });
-  test("shows its record under the page that says so", async ({ page }) => {
+  test("shows its record under the page that says so, its peers leading to their own pages", async ({
+    page,
+  }) => {
     const gone = `02${"ab".repeat(32)}`;
-    await serve(page, { ...mainnet(), [`nodes/${gone}/closes`]: { ...few(), id: gone } });
+    const left = `03${"cd".repeat(32)}`;
+    const record = few();
+    // Two other ends: one the graph holds, which has a page; one that has left too.
+    record.peers = {
+      ...record.peers,
+      forced: 2,
+      list: [
+        { ...record.peers.list[0], id: ONE, alias: "FUNK-BTCPay", held: true },
+        { ...record.peers.list[0], id: left, alias: "gone too", held: false },
+      ],
+    };
+    await serve(page, { ...mainnet(), [`nodes/${gone}/closes`]: { ...record, id: gone } });
     await page.route(new RegExp(`/regtest/app/lightning/nodes/${gone}$`), (r) =>
       r.fulfill({ status: 404, json: { error: "node not found" } }),
     );
@@ -205,5 +236,12 @@ test.describe("a node that left the graph", () => {
     await expect(page.getByText("This server knows no such node")).toBeVisible();
     await expect(page.locator(".ln-record")).toContainText("3 channels closed");
     await holds(page);
+    const peers = page.locator(".ln-record .ln-record__part").last();
+    await expect(peers.getByRole("link")).toHaveCount(1);
+    await expect(peers).toContainText("gone too");
+    await expect(page.locator(".ln-record")).not.toContainText("Filter its closed channels");
+    await peers.getByRole("link", { name: "FUNK-BTCPay" }).click();
+    await expect(page).toHaveURL(new RegExp(`/regtest/lightning/node/${ONE}$`));
+    await expect(page.getByRole("heading", { name: "At a glance" })).toBeVisible();
   });
 });

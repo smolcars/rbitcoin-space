@@ -686,13 +686,14 @@ export const CLOSE_WORDS: Record<CloseKind, { name: string; sure: string; why: s
   force: {
     name: "Force close",
     sure: "Certain",
-    why: "The closing transaction is a commitment transaction, which only one end broadcasting the channel's latest state on its own produces. The chain does not say which end closed it or why.",
+    why: "The closing transaction is a commitment transaction: one end broadcast a state of the channel on its own. The chain does not say which end, or why. Had that state been revoked, the close reads as a penalty once a sweep of it with the revocation key is seen.",
   },
   penalty: {
     name: "Penalty",
     sure: "Certain",
-    why: "One end broadcast an old, revoked state of the channel, and the other end swept its outputs with the revocation key, which only the cheated end holds.",
+    why: "The closing commitment was a revoked state of the channel: one of its outputs was swept with that state's revocation key, and this server saw the sweep. The chain does not say which end broadcast the commitment.",
   },
+
   other: {
     name: "Other",
     sure: "Certain it is not a plain close",
@@ -1500,7 +1501,7 @@ export function baseShort(msatValue: number): string {
 }
 
 // A node's close record (`/app/lightning/nodes/:key/closes`): how its channels this server watched
-// ended, by kind, week and peer, beside every channel's over the same span.
+// ended, by kind, week and peer, beside every channel's as last worked out.
 
 export type ByKind = Record<CloseKind, number>;
 
@@ -1521,6 +1522,8 @@ export interface RecordPeer extends ByKind {
   shares: ByKind | null;
   /** The node's channels with this peer open now. */
   open: number;
+  /** Whether the graph holds this peer: it has a page. */
+  held: boolean;
 }
 
 export interface NodeCloses {
@@ -1530,6 +1533,9 @@ export interface NodeCloses {
   time: number;
   /** The fewest closes a share is given for. */
   minimum: number;
+  /** The most closes a record reads, its newest; `capped` when the node has more. */
+  cap: number;
+  capped: boolean;
   node: RecordTally;
   /** `list`: the peers it had a force close or penalty with, most first; `more` left out. */
   peers: { count: number; forced: number; list: RecordPeer[]; more: number };
@@ -1565,6 +1571,7 @@ const isRecordPeer = (v: unknown): v is RecordPeer =>
   nullable(v["alias"], str) &&
   num(v["closed"]) &&
   num(v["open"]) &&
+  typeof v["held"] === "boolean" &&
   nullable(v["shares"], isByKind);
 
 export const isNodeCloses = (v: unknown): v is NodeCloses => {
@@ -1576,6 +1583,8 @@ export const isNodeCloses = (v: unknown): v is NodeCloses => {
     nullable(v["from"], num) &&
     num(v["time"]) &&
     num(v["minimum"]) &&
+    num(v["cap"]) &&
+    typeof v["capped"] === "boolean" &&
     isTally(v["node"]) &&
     num(p["count"]) &&
     num(p["forced"]) &&
@@ -1591,7 +1600,7 @@ export const isNodeCloses = (v: unknown): v is NodeCloses => {
  */
 export const RECORD_WORDS: Record<CloseKind, string> = {
   cooperative: "Likely a mutual close; a splice that took funds out looks the same",
-  force: "One end broadcast its commitment; the chain does not say which end",
+  force: "One end broadcast a commitment transaction; the chain does not say which end",
   penalty: "A revoked state was broadcast and swept; the record does not say by which end",
   other: "Not a close by either protocol: most likely a splice that added funds",
 };
@@ -1657,17 +1666,22 @@ export function weekRows(
     penalty: ws.reduce((a, w) => a + w.penalty, 0),
     other: ws.reduce((a, w) => a + w.other, 0),
   });
-  const netEarlier = earlier.map((w) => net.get(w.time)).filter((w) => w !== undefined);
-  return [...shown, row(add(earlier), null, network === null ? null : add(netEarlier))];
+  // Every channel's figure for those weeks only when it has all of them: a part would read as all.
+  const netEarlier = earlier.map((w) => net.get(w.time));
+  const whole = netEarlier.every((w) => w !== undefined);
+  return [
+    ...shown,
+    row(add(earlier), null, whole ? add(netEarlier.filter((w) => w !== undefined)) : null),
+  ];
 }
 
 /**
- * Who its force closes and penalties were with, in one sentence: how many, with how many peers,
- * and the most with any one. Never who closed: the chain does not say.
+ * The force closes and penalties of its channels, in one sentence: how many, on channels with how
+ * many peers, and the most with any one. Never who closed: the chain does not say.
  */
 export function peersInWords(r: NodeCloses): string {
   const forced = r.node.force + r.node.penalty;
-  if (forced === 0) return "None of its closes was a force close or a penalty.";
+  if (forced === 0) return "None of its channels ended in a force close or a penalty.";
   const what =
     r.node.penalty === 0
       ? count(r.node.force, "force close")
@@ -1677,8 +1691,7 @@ export function peersInWords(r: NodeCloses): string {
   const peers = r.peers.forced;
   const top = r.peers.list[0];
   const most = top === undefined ? 0 : top.force + top.penalty;
-  if (forced === 1)
-    return `Its one ${r.node.force === 1 ? "force close" : "penalty"} was with the peer below.`;
-  if (peers === 1) return `Its ${what} were all with one peer.`;
-  return `Its ${what} were with ${groupDigits(peers)} different peers, at most ${groupDigits(most)} with any one.`;
+  if (forced === 1) return `The ${what} was on a channel with the peer below.`;
+  if (peers === 1) return `The ${what} were all on channels with one peer.`;
+  return `The ${what} were on channels with ${groupDigits(peers)} different peers, at most ${groupDigits(most)} with any one.`;
 }

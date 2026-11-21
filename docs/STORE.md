@@ -471,7 +471,8 @@ So a reorg leaves the table as if the undone record had never arrived, and apply
 | `penalties(store, offset, limit)` | The breached rows, newest sweep first, and how many there are: through their partial index (`0019`), so it reads only them |
 | `channel(store, scid)` | One row, by its key |
 | `node_closed(store, node, offset, limit)` | A node's closed rows, newest close first, and how many it has: through the node indexes, so it reads that node's rows only (2.3 ms for ACINQ's 1,807) |
-| `node_closes(store, node)` | Every closed row of a node, newest close first, for its sorted and filtered list and its close record: through the closed rows' node indexes (`0017`), one per end, so it never reads the node's open rows (0.55 ms for the 403 closed rows of mainnet's node with the most) |
+| `node_closes(store, node)` | Every closed row of a node, newest close first, for its sorted and filtered list: through the closed rows' node indexes (`0022`), one per end, so it never reads the node's open rows |
+| `node_close_rows(store, node, limit)` | A node's newest `limit` closes as its close record reads them (the other end, closing time, kind and fee), and whether it has more: at most `limit` + 1 entries of each closed-row node index, which hold each end's closes by height (`0022`, replacing `0017`'s single-column ones), so the work is bounded whatever the node's history. A row whose two ends are the node is read once |
 | `continued(store, closed)`, `lineage(store, channel)` | The channel each close funded between the same two nodes, and for one channel the one whose close funded it: an indexed lookup on the funding or closing txid each, the lowest id where several |
 | `node_spans(store, node)` | A node's rows' funding and closing times and capacity, for its history ([`LIGHTNING.md`](LIGHTNING.md#routes)) |
 | `by_txids(store, txids)` | The rows each txid funded or closed: two index lookups per txid |

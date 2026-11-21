@@ -1685,6 +1685,11 @@ async fn a_node_s_close_record_comes_from_its_stored_closes() {
     // The history starts a day after T; every close is later.
     assert_eq!(v["from"], graph::T + graph::DAY);
     assert_eq!(v["minimum"], 20);
+    // Every close read: fewer than the cap.
+    assert_eq!(
+        (v["cap"].as_u64(), v["capped"].as_bool()),
+        (Some(10_000), Some(false))
+    );
     let n = &v["node"];
     assert_eq!(
         [
@@ -1758,6 +1763,11 @@ async fn a_node_s_close_record_comes_from_its_stored_closes() {
         (five["force"].as_u64(), five["open"].as_u64()),
         (Some(1), Some(0))
     );
+    // Whether each other end is in the graph, for a page to link it or not.
+    assert_eq!(
+        (three["held"].as_bool(), five["held"].as_bool()),
+        (Some(true), Some(false))
+    );
 
     // Node 5 is not in the graph, but its close is stored: its record still answers.
     let gone = record(5).await;
@@ -1778,12 +1788,15 @@ async fn a_node_s_close_record_comes_from_its_stored_closes() {
         ),
         (Some(0), Some(0))
     );
-    // The network's figures come with the overview's computation, each channel once.
-    for _ in 0..80 {
-        if !record(1).await.json()["network"].is_null() {
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    // The network's figures come with the overview's computation, each channel once, which starts
+    // when the index is set rather than at its next retry, five seconds on.
+    let waited = std::time::Instant::now();
+    while record(1).await.json()["network"].is_null() {
+        assert!(
+            waited.elapsed() < Duration::from_secs(2),
+            "the overview waited for its retry"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
     }
     let net = record(1).await.json()["network"].clone();
     assert_eq!(

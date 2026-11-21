@@ -1,12 +1,12 @@
-//! A node's close record, and the network's over the same span (`docs/LIGHTNING.md`, "A node's
+//! A node's close record, and the network's beside it (`docs/LIGHTNING.md`, "A node's
 //! close record"): how the channels this server watched ended, by kind, by week and by peer, and
 //! the fees of their closing transactions. Counted from stored rows only, each closed channel once,
-//! in one kind: a breach as a penalty, not a force close.
+//! in one kind: a force close whose revocation sweep was seen as a penalty, not a force close.
 
 use std::collections::HashMap;
 
 use super::overview::Row;
-use super::{Channel, DAY, Kind};
+use super::{DAY, Kind};
 
 /// The fewest closes over which a share is given: below it, counts only.
 pub const MINIMUM: u32 = 20;
@@ -14,8 +14,13 @@ pub const MINIMUM: u32 = 20;
 /// A week's length; weeks start on a Monday, 00:00 UTC.
 pub const WEEK: u64 = 7 * DAY;
 
-/// Weeks a record holds at most: its newest. Ten years of history.
+/// Weeks a record holds at most: its newest. Ten years of history. Past that, the first week held
+/// also counts every older close.
 pub const MAX_WEEKS: usize = 520;
+
+/// The most closed rows one node's record reads: its newest. A request's work is bounded by this,
+/// whatever the node's history; a node with more has a record of its newest closes only.
+pub const MAX_CLOSES: usize = 10_000;
 
 /// The Monday, 00:00 UTC, of the week holding `t`. 1 January 1970 was a Thursday.
 pub fn week_of(t: u64) -> u64 {
@@ -122,34 +127,26 @@ fn record(closes: impl Iterator<Item = (u64, Kind, Option<u64>)>, from: u64, now
     Record { total, weeks }
 }
 
-/// How a stored channel closed, a breach found later counted as one.
-fn kind(c: &Channel) -> Option<(u64, Kind, Option<u64>)> {
-    let x = c.close?;
-    let kind = if c.penalty.is_some() {
-        Kind::Penalty
-    } else {
-        x.kind
-    };
-    Some((x.block.time, kind, x.fee))
+/// One of a node's closed channels, as its record reads it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CloseRow {
+    /// The channel's other end; the node itself on a stored row whose two ends are the same.
+    pub peer: [u8; 33],
+    /// The closing block's time.
+    pub time: u64,
+    /// A force close whose revocation sweep was seen counted as a penalty.
+    pub kind: Kind,
+    pub fee: Option<u64>,
 }
 
-/// The record of `node` from its stored rows (any of them; open rows and rows of other nodes are
-/// skipped), weeks from `from` to `now`.
-pub fn node(node: &[u8; 33], rows: &[Channel], from: u64, now: u64) -> NodeRecord {
-    let mine = || {
-        rows.iter()
-            .filter(|c| c.open.node_one == *node || c.open.node_two == *node)
-    };
-    let record = record(mine().filter_map(kind), from, now);
+/// The record of `node` from its closed rows (`db::node_close_rows`), weeks from `from` to `now`,
+/// and its closes with each other end, every one of them. A row whose other end is the node itself
+/// counts in the record and lists no peer.
+pub fn node(node: &[u8; 33], rows: &[CloseRow], from: u64, now: u64) -> NodeRecord {
+    let record = record(rows.iter().map(|r| (r.time, r.kind, r.fee)), from, now);
     let mut peers: HashMap<[u8; 33], [u32; 4]> = HashMap::new();
-    for c in mine() {
-        let Some((_, k, _)) = kind(c) else { continue };
-        let peer = if c.open.node_one == *node {
-            c.open.node_two
-        } else {
-            c.open.node_one
-        };
-        if let Some(n) = peers.entry(peer).or_default().get_mut(k as usize) {
+    for r in rows.iter().filter(|r| r.peer != *node) {
+        if let Some(n) = peers.entry(r.peer).or_default().get_mut(r.kind as usize) {
             *n = n.saturating_add(1);
         }
     }
@@ -166,7 +163,7 @@ pub fn node(node: &[u8; 33], rows: &[Channel], from: u64, now: u64) -> NodeRecor
     NodeRecord { record, peers }
 }
 
-/// The network's record over the same span, from the overview's rows: each closed channel once.
+/// The network's record from `from` to `now`, from the overview's rows: each closed channel once.
 pub fn network(rows: &[Row], from: u64, now: u64) -> Record {
     record(
         rows.iter()

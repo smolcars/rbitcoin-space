@@ -78,6 +78,8 @@ pub struct Lightning {
     /// never keep a clone, so at shutdown the owning task gets it back whole.
     peer: RwLock<Option<Arc<Peer>>>,
     stop: Notify,
+    /// Told each time an index is set, so the overview's first computation need not wait out a retry.
+    indexed: Notify,
     task: Mutex<Option<JoinHandle<()>>>,
     /// History records stored since start, and the sequence number of the last.
     records: AtomicU64,
@@ -134,6 +136,7 @@ impl Lightning {
             phase: Mutex::new(Phase::Starting),
             peer: RwLock::new(None),
             stop: Notify::new(),
+            indexed: Notify::new(),
             task: Mutex::new(None),
             records: AtomicU64::new(0),
             seq: AtomicU64::new(0),
@@ -214,6 +217,7 @@ impl Lightning {
     #[doc(hidden)]
     pub fn set_index(&self, index: Index) {
         *self.index.write().unwrap_or_else(PoisonError::into_inner) = Some(Arc::new(index));
+        self.indexed.notify_one();
     }
 
     /// Replaces the fee history's heads, as the index task loads them at its first round. Tests

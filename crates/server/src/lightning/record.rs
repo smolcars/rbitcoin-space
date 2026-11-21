@@ -1,7 +1,8 @@
 //! A node's close record (`docs/API.md`, "A node's close record"): how its channels this server
-//! watched ended, by kind, by week and by peer, with their closing fees, beside the network's over
-//! the same span. The node's part is one indexed read of its closed rows per request; the
-//! network's is worked out with the overview, every ten minutes, and read from memory.
+//! watched ended, by kind, by week and by peer, with their closing fees, beside the network's. The
+//! node's part is one indexed read of at most its newest [`MAX_CLOSES`] closes per request; the
+//! network's is worked out with the overview, every ten minutes, and read from memory, so the two
+//! are not of one moment.
 
 use std::collections::HashMap;
 use std::sync::{Arc, PoisonError};
@@ -9,7 +10,7 @@ use std::sync::{Arc, PoisonError};
 use axum::Router;
 use axum::extract::{Path as UrlPath, State};
 use axum::routing::get;
-use engine::lightning::record::{self, MINIMUM, NodeRecord, Peer, Record, Tally};
+use engine::lightning::record::{self, MAX_CLOSES, MINIMUM, NodeRecord, Peer, Record, Tally};
 use engine::lightning::{self as store_ln, Index, Node};
 use serde_json::{Value, json};
 
@@ -93,6 +94,7 @@ fn peer_json(index: &Index, p: &Peer, open: &HashMap<[u8; 33], u32>) -> Value {
         o.insert("closed".into(), p.total().into());
         o.insert("shares".into(), shares_json(&p.closes));
         o.insert("open".into(), open.get(&p.id).copied().unwrap_or(0).into());
+        o.insert("held".into(), index.node(&p.id).is_some().into());
     }
     v
 }
@@ -108,16 +110,17 @@ fn peers_json(index: &Index, node: Option<&Node>, r: &NodeRecord) -> Value {
     })
 }
 
-/// `GET /app/lightning/nodes/:key/closes`: the node's record from its stored closes, which any
-/// node with a stored close has, held in the graph or not; the network's from memory, `null`
-/// until the overview's first computation.
+/// `GET /app/lightning/nodes/:key/closes`: the node's record from its newest [`MAX_CLOSES`]
+/// stored closes, which any node with a stored close has, held in the graph or not; the
+/// network's from memory, as of the overview's last computation (its `time`), `null` until the
+/// first.
 async fn app_node_closes(
     State(ctx): State<Arc<NetworkContext>>,
     UrlPath(key): UrlPath<String>,
 ) -> Answer {
     let id = pubkey(&key)?;
     let (index, l, store) = graph(&ctx)?;
-    let rows = store_ln::node_closes(store, id)
+    let (rows, capped) = store_ln::node_close_rows(store, id, MAX_CLOSES)
         .await
         .map_err(|e| store_error(&e))?;
     let held = index.node(&id);
@@ -130,19 +133,21 @@ async fn app_node_closes(
         .unwrap_or_else(PoisonError::into_inner)
         .clone();
     let now = store_ln::unix_now();
-    // From when the record runs: when our history starts, or the oldest close stored if older.
-    let oldest = rows
-        .iter()
-        .filter_map(|c| c.close.map(|x| x.block.time))
-        .min();
-    let from = [
-        index.start,
-        network.as_ref().and_then(|o| o.record_from),
-        oldest,
-    ]
-    .into_iter()
-    .flatten()
-    .min();
+    let oldest = rows.iter().map(|r| r.time).min();
+    // From when the record runs: its oldest close read when it holds only the newest; otherwise
+    // when our history starts, or the oldest close stored if older.
+    let from = if capped {
+        oldest
+    } else {
+        [
+            index.start,
+            network.as_ref().and_then(|o| o.record_from),
+            oldest,
+        ]
+        .into_iter()
+        .flatten()
+        .min()
+    };
     let mine = record::node(&id, &rows, from.unwrap_or(now), now);
     let network = network.map(|o| {
         let mut v = record_json(&o.network);
@@ -156,6 +161,8 @@ async fn app_node_closes(
         "from": from,
         "time": now,
         "minimum": MINIMUM,
+        "cap": MAX_CLOSES,
+        "capped": capped,
         "node": record_json(&mine.record),
         "peers": peers_json(&index, held, &mine),
         "network": network,

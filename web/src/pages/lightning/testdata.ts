@@ -426,6 +426,8 @@ export function closeRecord(
     from: 1_794_502_800,
     time: 1_795_215_000,
     minimum: 20,
+    cap: 10_000,
+    capped: false,
     node,
     peers: { count: peers.length + 3, forced: peers.length, list: peers, more: 0 },
     network: network === null ? null : { ...network, time: 1_795_214_000 },
@@ -443,6 +445,7 @@ export function recordPeer(n: number, more: Partial<RecordPeer> = {}): RecordPee
     closed: 1,
     shares: null,
     open: 0,
+    held: true,
     ...more,
   };
 }

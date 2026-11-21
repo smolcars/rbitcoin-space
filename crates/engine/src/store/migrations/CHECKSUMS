@@ -21,3 +21,4 @@
 0019_lightning_penalties.sql b85f793526bcd167
 0020_lightning_blocks.sql ef1b71c089090a34
 0021_replacement_outputs.sql a00b75d36c5c6293
+0022_lightning_closes_by_height.sql 05a96b93fedaa634

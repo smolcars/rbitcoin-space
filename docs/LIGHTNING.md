@@ -391,13 +391,24 @@ This is mempool.space's split as its public figures show it (2026-11-15). Certai
 
 ### A node's close record
 
-The node page's Closed view opens with the node's close record (`/app/lightning/nodes/:key/closes`, [`API.md`](API.md#a-nodes-close-record)): how its channels ended, by kind, by week and with which peers, the fees of their closing transactions, and the same for every channel over the same span. Code: `crates/engine/src/lightning/record.rs`, `crates/server/src/lightning/record.rs`.
+The node page's Closed view opens with the node's close record (`/app/lightning/nodes/:key/closes`, [`API.md`](API.md#a-nodes-close-record)): how its channels ended, by kind, by week and with which peers, the fees of their closing transactions, beside every channel's as the overview last worked them out. Code: `crates/engine/src/lightning/record.rs`, `crates/server/src/lightning/record.rs`.
 
-**What it counts.** Stored closes, each channel once, in one kind as the [classification](#how-a-close-is-classified) gives it, a breach as a penalty. A channel's close is in both its nodes' records. A force close is a commitment one end broadcast; the chain does not say which end, so it is never shown as the node's doing, and neither is a penalty: the sweep is stored, not which end broadcast the revoked state. A cooperative close may be a splice that took funds out, and "other" is most likely one that added funds.
+**What it counts.** Stored closes, each channel once, in one kind as the [classification](#how-a-close-is-classified) gives it, a penalty when a revocation sweep of its commitment was seen. A channel's close is in both its nodes' records. A force close is a commitment one end broadcast; the chain does not say which end, nor whether that state was the newest (a revoked one reads as a force close until a sweep of it is seen), so it is never shown as the node's doing, and neither is a penalty: the sweep is stored, not which end broadcast the commitment. A cooperative close may be a splice that took funds out, and "other" is most likely one that added funds. A row whose two ends are the same node (gossip refuses such a channel, so only stored data could hold one) counts once and is no one's peer.
 
 **What it does not.** Closes before this server's history starts, those lost to a [history gap](STORE.md#ln_channels), those of channels LDK pruned, and private channels. **Opening fees** are left out: the store holds each funding txid but not its fee, which would cost one more request per channel (`/tx/:txid`, about 38,000 on mainnet: 2.6 hours through the [gate](#load-on-the-node), then a few hundred a day), and a funding transaction that opens several channels, or pays for other outputs too, has one fee the chain does not divide among them.
 
 **The minimum.** A share is given only over 20 closes or more, for the node, a peer or the network: with fewer, one close moves it by five points or more, and a 95 % interval round a share of 30 % at 20 closes is still about ±20 points. Below it, counts. On mainnet's store of 2026-11-20, 34 of the 783 nodes with a close have 20 or more.
+
+**Bounded per request.** A record reads at most a node's newest 10,000 closes (`record::MAX_CLOSES`), through closed-row indexes that hold each end's closes by height (`0022`, which replaced `0017`'s), so a request's work and memory do not grow with a node's history: a node with more has a record of its newest 10,000, and the answer and the page say so. Measured on a synthetic store (`record_bench` in `crates/engine/src/lightning/tests.rs`, release build, each case in a process of its own; peak resident memory above the open store):
+
+| Node | Before: every closed row | After: the newest 10,000 |
+|---|---|---|
+| 50,000 closes, 5,000 peers | 40 ms, 21 MB | 14 ms, 4.9 MB |
+| 200,000 closes, 20,000 peers | 157 ms, 77 MB | 14 ms, 5.3 MB |
+
+The cap is 25 times the most closes any mainnet node had on 2026-11-20 (403). The node's closed list (`/nodes/:key/channels?status=closed`) still reads every closed row of the node.
+
+**Not one moment.** The node's part is read at the request; the network's is from the overview's last pass, up to ten minutes older, and from when the history starts. The answer carries the pass's `time`, and the page says as of when every channel's figures are rather than calling them the same span; a node's week past them has no network figure.
 
 **The network's part** is worked out with the overview, every ten minutes, from the same read of the table ([The overview](#the-overview)), which now also takes each closing fee: 0.2 ms more work and 16 bytes more a row while it runs (0.6 MB at mainnet's 37,822 rows, freed after), and a record of a few hundred bytes kept (at most 520 weeks, about 12 KB). The node's part is one indexed read of its closed rows per request; the 30-second index is unchanged.
 

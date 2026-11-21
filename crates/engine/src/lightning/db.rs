@@ -8,6 +8,7 @@ use std::collections::HashMap;
 
 use rusqlite::OptionalExtension;
 
+use super::record::CloseRow;
 use super::{
     Block, Change, Channel, Close, DAY, EVERY, HOUR, Interval, KEEP_HOURS, KEEP_MINUTES, Kind,
     Level, NodePast, Open, Past, Penalty, Point, Series, Span, Stats,
@@ -511,6 +512,52 @@ pub async fn node_closes(store: &Store, node: [u8; 33]) -> Result<Vec<Channel>, 
                 ))?
                 .query_map(params![node.to_vec()], row)?
                 .collect::<Result<Vec<_>, _>>()?)
+        })
+        .await
+}
+
+/// A node's newest `limit` closed rows, newest close first, and whether it has more: its close
+/// record's input. Through the closed rows' node indexes, which hold each end's closes by height
+/// (`0022`), so at most `limit` + 1 entries of each are read whatever the node's history. A row whose
+/// two ends are the node is read once.
+pub async fn node_close_rows(
+    store: &Store,
+    node: [u8; 33],
+    limit: usize,
+) -> Result<(Vec<CloseRow>, bool), Error> {
+    store
+        .read(Read::Lightning, move |sql| {
+            let mut rows = sql
+                .prepare(
+                    "SELECT peer, close_time, kind, fee FROM ( \
+                     SELECT * FROM (SELECT node_two AS peer, close_height, scid, close_time, \
+                     CASE WHEN penalty_txid IS NOT NULL THEN 2 ELSE close_kind END AS kind, close_fee AS fee \
+                     FROM ln_channels WHERE node_one = ?1 AND close_height IS NOT NULL \
+                     ORDER BY close_height DESC, scid DESC LIMIT ?2) \
+                     UNION ALL \
+                     SELECT * FROM (SELECT node_one, close_height, scid, close_time, \
+                     CASE WHEN penalty_txid IS NOT NULL THEN 2 ELSE close_kind END, close_fee \
+                     FROM ln_channels WHERE node_two = ?1 AND node_one <> ?1 AND close_height IS NOT NULL \
+                     ORDER BY close_height DESC, scid DESC LIMIT ?2)) \
+                     ORDER BY close_height DESC, scid DESC LIMIT ?2",
+                )?
+                .query_map(
+                    params![node.to_vec(), int(limit as u64).saturating_add(1)],
+                    |r| {
+                        Ok(CloseRow {
+                            peer: bytes(r, 0)?,
+                            time: get(r, 1)?,
+                            kind: Kind::from_code(r.get(2)?).unwrap_or(Kind::Other),
+                            fee: r
+                                .get::<_, Option<i64>>(3)?
+                                .and_then(|f| u64::try_from(f).ok()),
+                        })
+                    },
+                )?
+                .collect::<Result<Vec<_>, _>>()?;
+            let more = rows.len() > limit;
+            rows.truncate(limit);
+            Ok((rows, more))
         })
         .await
 }

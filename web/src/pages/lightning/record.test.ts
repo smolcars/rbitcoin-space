@@ -2,6 +2,7 @@
 // kinds shown, fees per close and the peers in one sentence.
 import { describe, expect, it } from "vitest";
 import {
+  CLOSE_WORDS,
   isNodeCloses,
   kindsIn,
   peersInWords,
@@ -38,6 +39,9 @@ describe("a node's close record", () => {
       { ...good, peers: { ...good.peers, list: [{ ...recordPeer(1), open: null }] } },
       { ...good, network: { ...good.network, time: undefined } },
       { ...good, minimum: "20" },
+      { ...good, capped: "no" },
+      { ...good, cap: undefined },
+      { ...good, peers: { ...good.peers, list: [{ ...recordPeer(1), held: 1 }] } },
       null,
       [],
     ]) {
@@ -93,6 +97,13 @@ describe("a node's close record", () => {
     // The first two weeks, summed: 0 + 1 cooperative, 2 force; and the network's two.
     expect(rows[8]).toMatchObject({ time: null, cooperative: 1, force: 2, closed: 3 });
     expect(rows[8]?.network).toStrictEqual({ closed: 224, forced: 24 });
+    // Every channel's figures lack one of the earlier weeks (worked out before it began, or from a
+    // later start): no figure for them, rather than a part of one read as the whole.
+    const partial = weekRows(weeks, network.slice(1));
+    expect(partial[8]?.network).toBeNull();
+    expect(partial[0]?.network).toStrictEqual({ closed: 112, forced: 12 });
+    // A week of the node's that every channel's figures do not reach: none, not zero.
+    expect(weekRows(weeks, network.slice(0, 9))[0]?.network).toBeNull();
     // No network yet: no figure beside each week. Eight weeks or fewer: no "Earlier" row.
     const two = weekRows(weeks.slice(0, 2), null);
     expect(two.map((w) => [w.time, w.network])).toStrictEqual([
@@ -104,18 +115,20 @@ describe("a node's close record", () => {
   it("says who its force closes were with, and never who closed", () => {
     const words = (force: number, penalty: number, peers: ReturnType<typeof recordPeer>[]) =>
       peersInWords(closeRecord(tally({ cooperative: 5, force, penalty, other: 0 }), peers));
-    expect(words(0, 0, [])).toBe("None of its closes was a force close or a penalty.");
-    expect(words(1, 0, [recordPeer(1)])).toBe("Its one force close was with the peer below.");
+    expect(words(0, 0, [])).toBe("None of its channels ended in a force close or a penalty.");
+    expect(words(1, 0, [recordPeer(1)])).toBe(
+      "The 1 force close was on a channel with the peer below.",
+    );
     expect(words(0, 1, [recordPeer(1, { force: 0, penalty: 1 })])).toBe(
-      "Its one penalty was with the peer below.",
+      "The 1 penalty was on a channel with the peer below.",
     );
     // Ten with one flaky peer reads apart from one each with ten.
     expect(words(10, 0, [recordPeer(1, { force: 10, closed: 10 })])).toBe(
-      "Its 10 force closes were all with one peer.",
+      "The 10 force closes were all on channels with one peer.",
     );
     const ten = Array.from({ length: 10 }, (_, i) => recordPeer(i));
     expect(words(10, 0, ten)).toBe(
-      "Its 10 force closes were with 10 different peers, at most 1 with any one.",
+      "The 10 force closes were on channels with 10 different peers, at most 1 with any one.",
     );
     expect(
       words(3, 2, [
@@ -123,10 +136,15 @@ describe("a node's close record", () => {
         recordPeer(2, { penalty: 1, force: 0 }),
       ]),
     ).toBe(
-      "Its 3 force closes and 2 penalties were with 2 different peers, at most 4 with any one.",
+      "The 3 force closes and 2 penalties were on channels with 2 different peers, at most 4 with any one.",
     );
-    for (const w of Object.values(RECORD_WORDS)) {
+    for (const w of [
+      ...Object.values(RECORD_WORDS),
+      ...Object.values(CLOSE_WORDS).map((c) => c.why),
+    ]) {
       expect(w).not.toMatch(/\b(it|this node) (forced|closed|cheated|initiated)/i);
+      // Neither which end acted nor that a force close was the latest state, which no kind establishes.
+      expect(w).not.toMatch(/cheated end|latest state|its commitment/i);
     }
   });
 });
