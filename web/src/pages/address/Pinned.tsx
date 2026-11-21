@@ -504,42 +504,52 @@ function Actions(props: {
           </button>
         )}
       </Show>
-      {/* On a phone the steps are their arrows alone, 44 px square, named in full. */}
-      <Show when={shown(props.previous)}>
-        <button
-          class="btn address-asof__step"
-          type="button"
-          aria-disabled={props.previous?.kind === "pending" ? "true" : "false"}
-          aria-label={name(props.previous, true)}
-          title={name(props.previous, true)}
-          onClick={() => {
-            const h = target(props.previous);
-            if (h !== undefined) go(h);
-          }}
-        >
-          <span aria-hidden="true">‹</span>
-          <span class="address-asof__label" aria-hidden="true">
-            {label(props.previous, true)}
+      {/* On a phone the steps are their arrows alone, 44 px square and named in full, under a
+          caption that says what they step between: one block rarely changes an address. */}
+      <Show when={shown(props.previous) || shown(props.next)}>
+        <div class="address-asof__steps" role="group" aria-labelledby="address-asof-steps">
+          <span class="address-asof__steps-label" id="address-asof-steps">
+            {props.next?.kind === "first" && !shown(props.previous) ? "First use" : "Changes"}
           </span>
-        </button>
-      </Show>
-      <Show when={shown(props.next)}>
-        <button
-          class="btn address-asof__step"
-          type="button"
-          aria-disabled={props.next?.kind === "pending" ? "true" : "false"}
-          aria-label={name(props.next, false)}
-          title={name(props.next, false)}
-          onClick={() => {
-            const h = target(props.next);
-            if (h !== undefined) go(h);
-          }}
-        >
-          <span class="address-asof__label" aria-hidden="true">
-            {label(props.next, false)}
-          </span>
-          <span aria-hidden="true">›</span>
-        </button>
+          <div class="address-asof__arrows">
+            <Show when={shown(props.previous)}>
+              <button
+                class="btn address-asof__step"
+                type="button"
+                aria-disabled={props.previous?.kind === "pending" ? "true" : "false"}
+                aria-label={name(props.previous, true)}
+                title={name(props.previous, true)}
+                onClick={() => {
+                  const h = target(props.previous);
+                  if (h !== undefined) go(h);
+                }}
+              >
+                <span aria-hidden="true">‹</span>
+                <span class="address-asof__label" aria-hidden="true">
+                  {label(props.previous, true)}
+                </span>
+              </button>
+            </Show>
+            <Show when={shown(props.next)}>
+              <button
+                class="btn address-asof__step"
+                type="button"
+                aria-disabled={props.next?.kind === "pending" ? "true" : "false"}
+                aria-label={name(props.next, false)}
+                title={name(props.next, false)}
+                onClick={() => {
+                  const h = target(props.next);
+                  if (h !== undefined) go(h);
+                }}
+              >
+                <span class="address-asof__label" aria-hidden="true">
+                  {label(props.next, false)}
+                </span>
+                <span aria-hidden="true">›</span>
+              </button>
+            </Show>
+          </div>
+        </div>
       </Show>
       <AsOfPicker
         id="address-asof-other"
@@ -783,9 +793,11 @@ function PinnedAt(props: { address: string; isKey: boolean; height: number; agai
           {/* A block not mined yet has no "then". */}
           <Show when={answer()?.kind !== "future"}>
             <p class="address-asof__what">
-              Later blocks and unconfirmed transactions are left out
-              {/* A phone keeps the first half: the heading and "At block N" say it is the past. */}
-              <span class="address-asof__long">; it never updates</span>.
+              {/* A phone says it in four words: what is shown is what had confirmed by then. */}
+              <span class="address-asof__long">
+                Later blocks and unconfirmed transactions are left out; it never updates.
+              </span>
+              <span class="address-asof__short">Confirmed through this block.</span>
             </p>
           </Show>
           {/* A step that cannot be worked out yet, or at all, says why rather than sit greyed. */}

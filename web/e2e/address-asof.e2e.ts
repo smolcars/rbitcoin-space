@@ -323,6 +323,18 @@ test("the copy and QR buttons keep working as of a block", async ({ page }) => {
 test.describe("in the wide stand-in font", () => {
   // CI draws text wider than a workstation (docs/FRONTEND.md "Checks").
   test.use({ prose: "wide" });
+  /** How many rows the band's controls take: their distinct foot lines. */
+  const rowsOf = (page: Page) =>
+    band(page)
+      .locator(".address-asof__actions button")
+      .evaluateAll(
+        (all) =>
+          new Set(
+            all
+              .filter((b) => b.getBoundingClientRect().width > 0 && !b.closest(".address-asof-pop"))
+              .map((b) => Math.round(b.getBoundingClientRect().bottom)),
+          ).size,
+      );
   const wide = (page: Page) =>
     page.evaluate(
       () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
@@ -370,14 +382,23 @@ test.describe("in the wide stand-in font", () => {
       await page.goto(`/regtest/address/${chain.addresses.miner}?at=107`);
       await expect(band(page).getByRole("button", { name: /^Next change/ })).toBeEnabled();
       await expect(band(page).getByRole("button", { name: /^Previous change/ })).toBeEnabled();
-      const tops = new Set<number>();
-      for (const button of await band(page).getByRole("button").all()) {
-        tops.add(Math.round((await button.boundingBox())?.y ?? 0));
-      }
-      expect(tops.size).toBe(1);
+      // The arrows say what they step between, in plain text over them, not one block.
+      const steps = band(page).getByRole("group", { name: "Changes" });
+      await expect(steps.getByText("Changes", { exact: true })).toBeVisible();
+      await expect(steps.getByRole("button")).toHaveCount(2);
+      expect(await rowsOf(page)).toBe(1);
       // A short band: the heading, the block's time, one line and the controls.
       expect((await band(page).boundingBox())?.height ?? Infinity).toBeLessThanOrEqual(190);
     }
+  });
+
+  test("with 24 px text on a 320 px phone the controls take two rows at most", async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 720 });
+    await page.goto(`/regtest/address/${chain.addresses.miner}?at=107`);
+    await page.addStyleTag({ content: "html { font-size: 24px; }" });
+    await expect(band(page).getByRole("button", { name: /^Next change/ })).toBeEnabled();
+    expect(await rowsOf(page)).toBeLessThanOrEqual(2);
+    expect(await wide(page)).toBe(false);
   });
 
   test("at a desktop's width the band is one row", async ({ page }) => {

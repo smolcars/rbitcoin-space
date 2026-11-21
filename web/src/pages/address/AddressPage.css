@@ -547,6 +547,24 @@
     justify-content: flex-end;
     gap: var(--space-2);
   }
+  /* The two steps, one group. On a desktop their own labels say "change", so the group's caption
+     is for assistive technology only; on a phone it shows above the arrows. */
+  .address-asof__steps,
+  .address-asof__arrows {
+    display: flex;
+    gap: var(--space-2);
+  }
+  .address-asof__steps-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .address-asof__short {
+    display: none;
+  }
   /* A step still being worked out holds its place, as a disabled button looks. */
   .address-asof__actions .btn[aria-disabled="true"] {
     cursor: default;
@@ -644,9 +662,37 @@
     .address-asof__label {
       display: none;
     }
+    .address-asof__short {
+      display: inline;
+    }
+    /* The arrows under their caption: plain muted text, no border, so it does not read as a
+       button. The other controls line up with the arrows' foot. */
+    .address-asof__actions {
+      align-items: flex-end;
+    }
+    .address-asof__steps {
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+    }
+    .address-asof__steps-label {
+      position: static;
+      width: auto;
+      height: auto;
+      overflow: visible;
+      clip-path: none;
+      color: var(--color-text-muted);
+      font-size: var(--text-xs);
+      line-height: var(--leading-tight);
+    }
+    .address-asof__arrows {
+      gap: var(--space-1);
+    }
     .address-asof__step {
       justify-content: center;
       min-width: var(--touch);
+      /* As tall as an arrow's line in larger text too, the clock's button with no text included. */
+      min-height: max(var(--touch), calc(1lh + 2 * var(--space-1) + 2px));
       padding-inline: 0;
       font-size: var(--text-md);
     }
