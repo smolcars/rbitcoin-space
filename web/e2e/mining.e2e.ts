@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test";
 import { chain, expect, stubRetargets, test } from "./fixtures";
-import { tapRow } from "./rows";
+import { tablesSettled, tapRow } from "./rows";
 
 // The scenario's blocks are stamped from 2026-01-01, ten minutes apart, by no pool on the list.
 
@@ -59,18 +59,30 @@ test.describe("in a wide prose font", () => {
       const names = table.locator(".mining-pool__name");
       // With no name found the check below would pass having checked nothing.
       await expect(names.first()).toBeVisible();
-      // One pixel of slack: the two widths are each rounded to a whole pixel.
+      // A cut name is clipped to one line, so its overflow is down as well as across. One pixel of
+      // slack: each size is rounded to a whole pixel.
       const cut = await names.evaluateAll((all) =>
-        all.filter((n) => n.scrollWidth > n.clientWidth + 1).map((n) => n.textContent),
+        all
+          .filter((n) => n.scrollWidth > n.clientWidth + 1 || n.scrollHeight > n.clientHeight + 1)
+          .map((n) => n.textContent),
       );
       expect(cut, `pool names cut at ${width} px`).toEqual([]);
     }
   });
 
   // Regtest's own "98 empty", and counts as large as mainnet's all-time ones from a routed answer.
-  // Under its name the note once ran on past its column and over the Share figure beside it.
+  // Under its name the note once ran on past its column and over the Share figure beside it. Last,
+  // the counts drawn larger than the text round them, as a browser's minimum font size draws them
+  // without changing what an em is: a column sized in em was then narrower than its count.
+  const sizes = [
+    { text: 16, width: 320 },
+    { text: 16, width: 360 },
+    { text: 24, width: 320 },
+    { text: 24, width: 360 },
+    { text: 16, width: 320, drawn: "28px" },
+  ];
   for (const counts of ["regtest's", "large"] as const) {
-    test(`each pool's empty count stays in its own cell, ${counts}, at 16 and 24 px text`, async ({
+    test(`each pool's empty count stays whole in its own cell, ${counts}, at 16 and 24 px text and drawn larger`, async ({
       page,
       browserName,
     }) => {
@@ -81,44 +93,80 @@ test.describe("in a wide prose font", () => {
       if (counts === "large") await routeLargeCounts(page);
       const cdp = await page.context().newCDPSession(page);
       const faults: string[] = [];
-      for (const text of [16, 24]) {
+      for (const { text, width, drawn } of sizes) {
         await cdp.send("Page.setFontSizes", {
           fontSizes: { standard: text, fixed: Math.round((text * 13) / 16) },
         });
-        for (const width of [320, 360]) {
-          await page.setViewportSize({ width, height: 900 });
-          await page.goto("/regtest/mining?period=all");
-          const notes = page.locator(".mining-pool__empty");
-          await expect(notes.first()).toBeVisible({ timeout: 30_000 });
-          await wideFaceDrawn(page);
-          const found = await notes.evaluateAll((all) =>
-            all.flatMap((note) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto("/regtest/mining?period=all");
+        const notes = page.locator(".mining-pool__empty");
+        // Regtest's answer in place of the routed one would pass having drawn no large count.
+        await expect(notes).toHaveText(
+          counts === "large"
+            ? [/^52\s560\sempty$/, /^12\s345\sempty$/, /^98\sempty$/]
+            : [/^98\sempty$/],
+          { timeout: 30_000 },
+        );
+        await wideFaceDrawn(page);
+        if (drawn !== undefined) {
+          await notes.evaluateAll((all, size) => {
+            for (const n of all) {
+              (n.querySelector(".mining-pool__count") as HTMLElement).style.fontSize = size;
+            }
+          }, drawn);
+        }
+        // The table drops its columns in the frames after a resize: measure what it settles on.
+        await tablesSettled(page);
+        const found = await notes.evaluateAll((all) => {
+          // The table scrolls inside its own panel: without it the page is no narrower.
+          const pageWidth = () => document.documentElement.scrollWidth;
+          const panel = all[0]?.closest<HTMLElement>(".table-scroll");
+          const withTable = pageWidth();
+          if (panel) panel.style.display = "none";
+          const without = pageWidth();
+          if (panel) panel.style.display = "";
+          const wide =
+            withTable > without
+              ? [`the table widens the page from ${without} to ${withTable} px`]
+              : [];
+          return [
+            ...wide,
+            ...all.flatMap((note) => {
               const cell = note.closest("td") as HTMLTableCellElement;
               const share = cell.nextElementSibling as HTMLElement;
               const edge =
                 cell.getBoundingClientRect().right -
                 Number.parseFloat(getComputedStyle(cell).paddingRight);
               const box = note.getBoundingClientRect();
-              const range = document.createRange();
-              range.selectNodeContents(share);
-              const figure = range.getBoundingClientRect();
+              const textOf = (el: Element) => {
+                const range = document.createRange();
+                range.selectNodeContents(el);
+                return range;
+              };
+              const count = textOf(note.querySelector(".mining-pool__count") as Element);
+              const figure = count.getBoundingClientRect();
+              const shareText = textOf(share).getBoundingClientRect();
               const what = `"${note.textContent?.trim() ?? ""}"`;
               return [
+                ...(count.getClientRects().length > 1 ? [`${what}: its count breaks`] : []),
                 // Half a pixel of slack for rounding.
-                ...(box.right > edge + 0.5
-                  ? [`${what} runs ${(box.right - edge).toFixed(1)} px past its cell`]
+                ...(box.right > edge + 0.5 || figure.right > edge + 0.5
+                  ? [
+                      `${what} runs ${(Math.max(box.right, figure.right) - edge).toFixed(1)} px past its cell`,
+                    ]
                   : []),
-                ...(box.right > figure.left &&
-                box.left < figure.right &&
-                box.bottom > figure.top &&
-                box.top < figure.bottom
+                ...(box.right > shareText.left &&
+                box.left < shareText.right &&
+                box.bottom > shareText.top &&
+                box.top < shareText.bottom
                   ? [`${what} covers the share "${share.textContent ?? ""}"`]
                   : []),
               ];
             }),
-          );
-          faults.push(...found.map((f) => `${width} px, ${text} px text: ${f}`));
-        }
+          ];
+        });
+        const at = `${width} px, ${text} px text${drawn === undefined ? "" : `, counts drawn at ${drawn}`}`;
+        faults.push(...found.map((f) => `${at}: ${f}`));
       }
       expect(faults).toStrictEqual([]);
     });

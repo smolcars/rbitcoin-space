@@ -41,7 +41,7 @@ export async function tablesFit(page: Page, label: string) {
  * ResizeObserver notice, so this waits for two frames in a row with no notice on what they
  * watch. Frames, not a clock: a busy runner's WebKit at phone width once took over 3 s for one.
  */
-function tablesSettled(page: Page): Promise<void> {
+export function tablesSettled(page: Page): Promise<void> {
   return page.evaluate(
     () =>
       new Promise<void>((resolve) => {

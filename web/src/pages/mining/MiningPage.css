@@ -560,10 +560,12 @@
     width: 100%;
     max-width: 0;
   }
-  /* A pool takes what is left, but never less than its name and empty count can be read in: at a
-     large text size the table drops columns, then scrolls, before it cuts them. */
+  /* A pool takes what is left, but never less than its empty count as drawn, whatever sets the
+     text's size (no max-width, so the cell's content holds it), nor less than a short name needs:
+     where that is too wide the table drops columns, then scrolls. */
   .mining-compact .table td:has(> .mining-pool) {
     min-width: 6.5em;
+    max-width: none;
   }
   .mining-pool {
     display: flex;
@@ -586,9 +588,15 @@
     column-gap: var(--space-2);
     min-width: 0;
   }
+  /* The name gives way: it may break anywhere, so it asks the column for no width of its own, and
+     shows one line, the rest cut with an ellipsis. */
   .mining-pool__name {
+    display: -webkit-box;
     overflow: hidden;
-    text-overflow: ellipsis;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 1;
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
   /* The note stays inside the column: it breaks between the figure and the word, and the word
      breaks where it must; the figure never does. */
