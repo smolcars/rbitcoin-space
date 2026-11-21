@@ -246,7 +246,11 @@ export default function TimestampPage() {
         />
         <Slot
           title="Your file"
-          hint={`Hashed here with ${HASH_NAMES[algorithm()]}, never uploaded`}
+          hint={
+            readDigest(hex(), algorithm()) === null
+              ? `Hashed here with ${HASH_NAMES[algorithm()]}, never uploaded`
+              : `Not needed: the ${HASH_NAMES[algorithm()]} below stands in for it`
+          }
           chosen={file()?.name}
           detail={file() && formatSize(file()?.size ?? 0, "B")}
           onChoose={chooseFile}
@@ -349,7 +353,10 @@ function Slot(props: {
       }}
     >
       <h2 class="ots-slot__title">{props.title}</h2>
-      <p class="ots-slot__hint">{props.hint}</p>
+      <p class="ots-slot__hint">
+        {props.hint}
+        <span class="ots-slot__drop"> · or drop it here</span>
+      </p>
       <div class="ots-slot__pick">
         <label class="btn ots-slot__choose">
           {props.chosen === undefined ? (
@@ -371,13 +378,14 @@ function Slot(props: {
             }}
           />
         </label>
-        <span class="ots-slot__drop muted">or drop it here</span>
       </div>
       <Show when={props.chosen}>
         {(name) => (
           <>
             <p class="ots-slot__chosen">
-              <bdi class="ots-slot__name">{name()}</bdi>
+              <bdi class="ots-slot__name" title={name()}>
+                {name()}
+              </bdi>
               <span class="muted num">{props.detail}</span>
             </p>
             <button

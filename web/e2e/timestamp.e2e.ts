@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import type { Page, Request } from "@playwright/test";
 import { axe } from "./axe";
 import { expect, test } from "./fixtures";
+import { smallTargets } from "./targets";
 
 const fixture = (name: string) => new URL(`../../fixtures/ots/${name}`, import.meta.url);
 const BLOCKS = JSON.parse(readFileSync(fixture("blocks.json"), "utf8")) as Record<
@@ -468,5 +469,132 @@ test.describe("on a phone", () => {
     await expect(heading).toBeFocused();
     await expect(heading).toBeInViewport();
     expect(await page.evaluate(() => scrollY)).toBeGreaterThan(0);
+  });
+});
+
+// A filled slot's row at every width, in CI's wider prose font: no two of its parts overlap, the
+// controls stay whole inside it, and a name that fits is not cut (council F-D6, N-D5).
+test.describe("a filled slot's row", () => {
+  test.use({ prose: "wide" });
+  const LONG = `${"a-very-long-file-name-".repeat(5)}that-goes-on.txt`.slice(0, 116) + ".ots";
+  for (const [label, name] of [
+    ["a short name", "hello-world.txt.ots"],
+    ["a 120-character name", LONG],
+  ] as const) {
+    test(`with ${label}, nothing overlaps at 320 to 1280 px`, async ({ page }) => {
+      expect(name.length).toBe(label === "a short name" ? 19 : 120);
+      await page.goto("/regtest/timestamp");
+      await proofInput(page).setInputFiles({
+        name,
+        mimeType: "application/octet-stream",
+        buffer: proof(sha256(Buffer.from("x")), pending(CALENDAR)),
+      });
+      await fileInput(page).setInputFiles({
+        name: name.replace(/\.ots$/, ""),
+        mimeType: "text/plain",
+        buffer: Buffer.from("x"),
+      });
+      await expect(page.locator(".ots-slot--chosen")).toHaveCount(2);
+      await page.evaluate(() => document.fonts.ready);
+      const faults: string[] = [];
+      for (const width of [320, 360, 700, 1040, 1280]) {
+        await page.setViewportSize({ width, height: 900 });
+        const found = await page.evaluate(() => {
+          const out: string[] = [];
+          for (const slot of document.querySelectorAll(".ots-slot--chosen")) {
+            const box = slot.getBoundingClientRect();
+            const parts = [
+              ".ots-slot__title",
+              ".ots-slot__chosen",
+              ".ots-slot__choose",
+              ".ots-slot__clear",
+            ].map((sel) => [sel, slot.querySelector(sel)?.getBoundingClientRect()] as const);
+            for (const [sel, r] of parts) {
+              if (!r) out.push(`${sel} missing`);
+              else if (r.left < box.left - 0.5 || r.right > box.right + 0.5)
+                out.push(`${sel} outside its slot`);
+            }
+            for (const [i, [a, ra]] of parts.entries())
+              for (const [b, rb] of parts.slice(i + 1))
+                if (
+                  ra &&
+                  rb &&
+                  ra.left < rb.right - 0.5 &&
+                  rb.left < ra.right - 0.5 &&
+                  ra.top < rb.bottom - 0.5 &&
+                  rb.top < ra.bottom - 0.5
+                )
+                  out.push(`${a} overlaps ${b}`);
+            // A name is cut only when it cannot fit.
+            const n = slot.querySelector<HTMLElement>(".ots-slot__name");
+            if (n && (n.textContent ?? "").length < 40 && n.scrollWidth > n.clientWidth + 1)
+              out.push(`"${n.textContent ?? ""}" is cut`);
+          }
+          return out;
+        });
+        for (const f of found) faults.push(`${width} px: ${f}`);
+      }
+      expect(faults).toStrictEqual([]);
+    });
+  }
+});
+
+// The two slots are one height in every state they can be in together (council F-D7, N-D6).
+test("the two slots are the same height empty, filled, and with a digest in place of the file", async ({
+  page,
+}) => {
+  await withMainnet(page);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto("/regtest/timestamp");
+  await expect(page.locator(".ots-slot")).toHaveCount(2);
+  const heights = () =>
+    page
+      .locator(".ots-slot")
+      .evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().height)));
+  const same = async (state: string) => {
+    const [a, b] = await heights();
+    expect(Math.abs((a ?? 0) - (b ?? -99)), `${state}: ${a} and ${b}`).toBeLessThanOrEqual(1);
+  };
+  await same("both empty");
+  await proofInput(page).setInputFiles(fileURLToPath(fixture("two-blocks.ots")));
+  await expect(page.locator(".ots-slot--chosen")).toHaveCount(1);
+  await same("proof, no file");
+  await digestBox(page).fill(TWO_BLOCKS);
+  await expect(page.getByText(/stands in for it/)).toBeVisible();
+  await same("proof and a digest");
+  // The file slot's hint now says the digest stands in: its input found by order.
+  await page
+    .locator("input[type=file]")
+    .nth(1)
+    .setInputFiles({
+      name: "f.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("f"),
+    });
+  await expect(page.locator(".ots-slot--chosen")).toHaveCount(2);
+  await same("proof and file");
+  await page.getByRole("button", { name: "Remove the proof" }).click();
+  await expect(page.locator(".ots-slot--chosen")).toHaveCount(1);
+  await same("file, no proof");
+});
+
+// On a touch screen every control of a filled slot and the digest's clear is a thumb's target
+// (council F-D8): the empty page in targets.e2e.ts has none of them.
+test.describe("the slots' controls on a touch screen", () => {
+  test.use({ hasTouch: true, isMobile: true, viewport: { width: 360, height: 780 } });
+  test("are each a thumb's target", async ({ page }) => {
+    await page.goto("/regtest/timestamp");
+    await proofInput(page).setInputFiles(fileURLToPath(fixture("two-blocks.ots")));
+    await digestBox(page).fill("ab");
+    await expect(page.getByRole("button", { name: "Clear the digest" })).toBeVisible();
+    const faults = await smallTargets(page, "main");
+    await fileInput(page).setInputFiles({
+      name: "f.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("f"),
+    });
+    await expect(page.getByRole("button", { name: "Remove the file" })).toBeVisible();
+    faults.push(...(await smallTargets(page, "main")));
+    expect(faults).toStrictEqual([]);
   });
 });
