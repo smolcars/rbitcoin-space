@@ -973,11 +973,23 @@
     scroll-margin: calc(var(--header-h, 0px) + var(--space-4)) 0 var(--space-4);
   }
   /* The summary's line to what an observer can read, on a narrow screen. */
+  /* The line to what an observer can read: a row of its own under the figures, so it never wraps
+     in a half-width cell; the eye on its first line, the whole a thumb's target. */
+  .tx-answer__cell--privacy {
+    flex-basis: 100%;
+    margin-top: calc(var(--space-4) * -1 + var(--space-1));
+  }
   .tx-answer__privacy {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-1);
+    display: inline-grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-content: center;
+    column-gap: var(--space-1);
     min-height: var(--touch);
+    color: var(--color-text-muted);
+    font-size: var(--text-sm);
+  }
+  .tx-answer__privacy > .pv-eye {
+    margin-top: calc((1lh - 14px) / 2);
   }
   .tx-flow__meta {
     grid-area: meta;

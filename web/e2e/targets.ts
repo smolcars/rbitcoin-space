@@ -4,6 +4,9 @@ import type { Page } from "@playwright/test";
 
 /** The least a target measures each way, `--touch`. */
 const TOUCH = 44;
+/** A number link in the privacy check's sentences: a link in running text, held to WCAG 2.2's
+ * 24 px rather than a thumb's 44 (docs/DESIGN.md "Transaction"). */
+const IN_TEXT = 24;
 
 /**
  * Every control in `scope` that is in sight and smaller than a thumb, in words, each scrolled to
@@ -12,7 +15,7 @@ const TOUCH = 44;
  */
 export function smallTargets(page: Page, scope: string, scroll = true): Promise<string[]> {
   return page.evaluate(
-    ({ within, touch, move }) => {
+    ({ within, touch, inText, move }) => {
       const CONTROL =
         "a[href], button, summary, input, select, textarea, [role='slider'], [role='tab']";
       const out: string[] = [];
@@ -86,11 +89,12 @@ export function smallTargets(page: Page, scope: string, scroll = true): Promise<
           continue;
         }
         // How far a tap still reaches it each way from its centre, and what a tap past that finds.
+        const need = c.matches(".pv-ref") ? inText : touch;
         const stops: string[] = [];
         const reach = (dx: number, dy: number) => {
           let n = 0;
-          while (n < touch && reaches(c, x + dx * (n + 1), y + dy * (n + 1))) n++;
-          if (n < touch) {
+          while (n < need && reaches(c, x + dx * (n + 1), y + dy * (n + 1))) n++;
+          if (n < need) {
             const past = document.elementFromPoint(x + dx * (n + 1), y + dy * (n + 1));
             stops.push(past ? said(past) : "the window's edge");
           }
@@ -99,13 +103,13 @@ export function smallTargets(page: Page, scope: string, scroll = true): Promise<
         // The centre's own pixel, and a pixel's grace for a box at a fraction of one.
         const w = reach(-1, 0) + reach(1, 0) + 2;
         const h = reach(0, -1) + reach(0, 1) + 2;
-        if (w < touch || h < touch) {
+        if (w < need || h < need) {
           out.push(`${said(c)} is ${w} × ${h} px, stopped by ${[...new Set(stops)].join(", ")}`);
         }
       }
       if (move) window.scrollTo(0, 0);
       return out;
     },
-    { within: scope, touch: TOUCH, move: scroll },
+    { within: scope, touch: TOUCH, inText: IN_TEXT, move: scroll },
   );
 }

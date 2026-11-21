@@ -19,10 +19,11 @@ const sideways = (page: Page) =>
  * when the first card appeared. */
 async function watchArrival(page: Page) {
   await page.addInitScript(() => {
-    const w = window as unknown as { arrival?: boolean };
+    const w = window as unknown as { arrival?: boolean; summary?: number };
     const seen = new MutationObserver(() => {
       if (!document.querySelector(".tx-flow__item:not(.tx-flow__item--ghost)")) return;
       w.arrival = document.querySelector("#pv-list") !== null;
+      w.summary = document.querySelector(".tx-answer")?.getBoundingClientRect().height ?? 0;
       seen.disconnect();
     });
     seen.observe(document, { childList: true, subtree: true });
@@ -77,9 +78,14 @@ test("a transaction with findings: marks on its cards and what an observer can r
   // It came with the first card: it never appears later.
   expect(await arrival(page)).toBe(true);
 
-  // Wide, it is a panel of its own under "Details", and the summary carries no line to it.
+  // The summary's line to it came with the first card too: the summary never grew after.
+  expect(
+    await page.evaluate(() => document.querySelector(".tx-answer")?.getBoundingClientRect().height),
+  ).toBe(await page.evaluate(() => (window as unknown as { summary?: number }).summary));
+
+  // Wide, it is a panel of its own under "Details", off the first screen: the summary leads to it.
   await expect(page.locator(".tx-rail > #pv-list")).toBeVisible();
-  await expect(page.locator(".tx-answer__privacy")).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "2 things an observer can read" })).toBeVisible();
 
   // Every card carries its number, as the sentences name it.
   await expect(inputs.locator(".tx-flow__index")).toHaveText(["#0", "#1"]);
@@ -131,6 +137,60 @@ const metaLines = (page: Page) =>
       ),
     ),
   );
+
+/**
+ * Each number link in the list that is not reached by a tap somewhere in the 24 px square around
+ * its centre (WCAG 2.2 target size), and the summary's line if it is on more than one line.
+ */
+const smallRefs = (page: Page) =>
+  page.evaluate(() => {
+    const out: string[] = [];
+    for (const a of document.querySelectorAll<HTMLElement>("#pv-list .pv-ref")) {
+      a.scrollIntoView({ block: "center" });
+      const r = a.getBoundingClientRect();
+      const x = r.left + r.width / 2;
+      const y = r.top + r.height / 2;
+      // Edge to edge 24 px, less a pixel's grace for a box at a fraction of one (as targets.ts).
+      for (const dx of [-11, 0, 11])
+        for (const dy of [-11, 0, 11]) {
+          const hit = document.elementFromPoint(x + dx, y + dy)?.closest("a");
+          if (hit !== a) {
+            out.push(
+              `${a.getAttribute("aria-label")} at ${dx},${dy}: ${hit?.getAttribute("aria-label") ?? hit?.textContent ?? "nothing"}`,
+            );
+            break;
+          }
+        }
+    }
+    window.scrollTo(0, 0);
+    return out;
+  });
+
+test.describe("in a wide prose font, on a phone", () => {
+  test.use({ prose: "wide" });
+  for (const width of [320, 360]) {
+    test(`at ${width} px every number in the list is a 24 px target and the summary's line is one row`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 780 });
+      await page.goto(`/regtest/tx/${chain.txs.consolidation}`);
+      const list = page.locator("#pv-list");
+      // "Inputs 0 and 1", "output 1", "output 0": numbers in a row and alone.
+      await expect(list.locator(".pv-ref")).not.toHaveCount(0);
+      await page.evaluate(() => document.fonts.ready);
+      expect(await smallRefs(page)).toStrictEqual([]);
+      const line = page.locator(".tx-answer__privacy span");
+      const box = await line.evaluate((el) => ({
+        lines: el.getClientRects().length,
+        row: el.closest(".tx-answer__cell")?.getBoundingClientRect().width ?? 0,
+        panel: el.closest(".tx-answer")?.getBoundingClientRect().width ?? 0,
+      }));
+      expect(box.lines).toBe(1);
+      // A row of its own, not a half-width cell.
+      expect(box.row).toBeGreaterThan(box.panel * 0.7);
+    });
+  }
+});
 
 // CI's prose font is wider than a Mac's: a status that fits beside a card's type there may wrap
 // onto a line of its own in it (docs/FRONTEND.md "Other systems' fonts").

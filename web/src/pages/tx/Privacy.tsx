@@ -63,6 +63,8 @@ export function CardMarks(props: {
             <a
               class={`pv-tag pv-tag--${m.tone}`}
               href={`#${findingId(m.kind)}`}
+              // A link within the page: never the router's "current page" (claims.js).
+              aria-current="false"
               aria-label={m.text}
               onClick={(e) => {
                 e.preventDefault();
@@ -95,6 +97,7 @@ function Words(props: { s: Sentence }) {
             <a
               class="pv-ref num"
               href={`#${cardId(side, index)}`}
+              aria-current="false"
               aria-label={`Show ${side === "in" ? "input" : "output"} ${index}`}
               onClick={(e) => {
                 e.preventDefault();

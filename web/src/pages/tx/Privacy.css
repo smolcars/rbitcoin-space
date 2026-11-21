@@ -68,9 +68,33 @@
     color: var(--color-text);
   }
 
-  /* An input's or output's number in a sentence: a link to its card. */
+  /* An input's or output's number in a sentence: a link to its card. A digit is 8 px wide, so the
+     link is a small chip at least 24 px wide, and its target reaches 24 px tall past the line
+     without changing the line's height (WCAG 2.2 target size); in "0, 3 and 4" neighbours' centres
+     stay 24 px or more apart. */
   .pv-ref {
+    position: relative;
+    display: inline-block;
+    min-width: 24px;
+    padding: 0 3px;
+    border-radius: var(--radius-s);
+    background: var(--color-surface-sunken);
     font-weight: var(--weight-medium);
+    line-height: inherit;
+    text-align: center;
+    text-decoration: none;
+  }
+  .pv-ref::after {
+    content: "";
+    position: absolute;
+    inset: 50% 0 auto;
+    height: 24px;
+    transform: translateY(-50%);
+  }
+  @media (hover: hover) {
+    .pv-ref:hover {
+      text-decoration: underline;
+    }
   }
 
   /* Where a link inside the page landed (flash.ts): outlined, fading. */
@@ -114,6 +138,12 @@
   }
   .pv-item > .pv-eye {
     margin-top: 0.2em;
+  }
+  /* Lines at least 24 px apart, every line alike: a number's 24 px target never reaches over one
+     on the line above or below. */
+  .pv-item__body,
+  .pv-partial {
+    line-height: max(24px, var(--leading-body) * 1em);
   }
   .pv-item__body {
     display: grid;

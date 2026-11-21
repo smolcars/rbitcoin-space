@@ -209,7 +209,10 @@ test("a confirmed transaction opens with its status, amount, fee and block", asy
   await expect(summary).toContainText("confirmations");
   await expect(summary).toContainText("Amount");
   await expect(summary).toContainText("sat/vB");
-  await expect(summary.getByRole("link")).toHaveAttribute("href", /\/regtest\/block\//);
+  await expect(summary.getByRole("link", { name: /^block / })).toHaveAttribute(
+    "href",
+    /\/regtest\/block\//,
+  );
   // The summary says what the steps would, so a settled transaction has none.
   await expect(page.getByRole("list", { name: "Status" })).toHaveCount(0);
 });

@@ -1178,22 +1178,6 @@ function Body(props: {
             <span class="tx-answer__sub num">
               {plural(ins(), "input")} to {plural(outs(), "output")}
             </span>
-            <Show when={stacked() && !privacy().coinbase && sayCount(privacy())}>
-              {(line) => (
-                <a
-                  class="tx-answer__sub tx-answer__privacy"
-                  href={`#${LIST_ID}`}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    const el = document.getElementById(LIST_ID);
-                    if (el) bringIntoView(el, el, "start");
-                  }}
-                >
-                  <Eye tone={countTone(privacy())} />
-                  {line()}
-                </a>
-              )}
-            </Show>
           </dd>
         </div>
         <div class="tx-answer__cell">
@@ -1216,6 +1200,30 @@ function Body(props: {
             </Show>
           </dd>
         </div>
+        {/* A row of its own, under the figures: the list is off the first screen at any width. */}
+        <Show when={!privacy().coinbase && sayCount(privacy())}>
+          {(line) => (
+            <div class="tx-answer__cell tx-answer__cell--privacy">
+              <dt class="visually-hidden">Privacy</dt>
+              <dd>
+                <a
+                  class="tx-answer__privacy"
+                  href={`#${LIST_ID}`}
+                  // A link within the page: never the router's "current page".
+                  aria-current="false"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    const el = document.getElementById(LIST_ID);
+                    if (el) bringIntoView(el, el, "start");
+                  }}
+                >
+                  <Eye tone={countTone(privacy())} />
+                  <span>{line()}</span>
+                </a>
+              </dd>
+            </div>
+          )}
+        </Show>
       </dl>
       {/* The sentences behind the figures, one disclosure for the lot. */}
       <Switch>
