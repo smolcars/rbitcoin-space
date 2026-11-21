@@ -26,8 +26,13 @@ export const LIMITS = {
   payload: 8192,
   /** A calendar's address in a pending attestation. */
   uri: 1000,
-  /** Bytes fed to hashes while playing the proof forward. */
-  work: 64 * 1024 * 1024,
+  /**
+   * Bytes fed to hashes while playing the proof forward. Under the bounds above a hash of a full
+   * 4,096-byte message needs a leaf of its own or seven hex steps before it, so a proof can ask for
+   * about 6 MiB at most; this bound is below that, so it is the one that refuses. A real proof
+   * hashes a few kilobytes.
+   */
+  work: 4 * 1024 * 1024,
 } as const;
 
 export type ProofErrorKind =
@@ -175,10 +180,12 @@ function readAttestation(r: Reader): Attestation {
 function readOp(r: Reader, tag: number): Op {
   const hashName = HASH_TAGS[tag];
   if (hashName) return { kind: hashName };
-  if (tag === APPEND)
-    return { kind: "append", arg: r.varbytes(LIMITS.message, "An appended value") };
-  if (tag === PREPEND)
-    return { kind: "prepend", arg: r.varbytes(LIMITS.message, "A prepended value") };
+  if (tag === APPEND || tag === PREPEND) {
+    const arg = r.varbytes(LIMITS.message, "An added value");
+    // Adding nothing is no step, and lets the same proof be written in endless ways.
+    if (arg.length === 0) throw new ProofError("malformed", "The proof adds an empty value.");
+    return { kind: tag === APPEND ? "append" : "prepend", arg };
+  }
   if (tag === REVERSE) return { kind: "reverse" };
   if (tag === HEXLIFY) return { kind: "hexlify" };
   throw new ProofError(
@@ -280,9 +287,14 @@ export interface Leaf {
 
 /**
  * Plays the proof forward from `digest` and lists every attestation with its message. Iterative:
- * the stack is the path, at most `LIMITS.depth` long. Throws only `ProofError`.
+ * the stack is the path, at most `LIMITS.depth` long. Throws only `ProofError`. `stats.hashed` is
+ * left holding the bytes hashed, for the tests that hold the bound.
  */
-export function walk(proof: Proof, digest: Uint8Array = proof.digest): Leaf[] {
+export function walk(
+  proof: Proof,
+  digest: Uint8Array = proof.digest,
+  stats?: { hashed: number },
+): Leaf[] {
   const leaves: Leaf[] = [];
   const path: Op[] = [];
   // Each frame is a stamp, its message, and how many of its branches have been followed.
@@ -303,6 +315,7 @@ export function walk(proof: Proof, digest: Uint8Array = proof.digest): Leaf[] {
     }
     top.next++;
     work += cost(branch.op, top.message);
+    if (stats) stats.hashed = work;
     if (work > LIMITS.work)
       throw new ProofError("too-large", "The proof asks for more hashing than this page does.");
     path.push(branch.op);

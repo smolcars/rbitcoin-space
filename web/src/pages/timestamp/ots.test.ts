@@ -205,3 +205,18 @@ describe("refusals", () => {
     expect(writeStamp({ att: [[1], [2]] })).toStrictEqual([0xff, 0, 1, 0, 2]);
   });
 });
+
+describe("empty arguments (review round 1, T5)", () => {
+  // The real proof with an append or a prepend of nothing put in front of its tree.
+  const withEmpty = (tag: number) => {
+    const b = fixture("two-blocks");
+    const at = MAGIC.length + 2 + 32;
+    return new Uint8Array([...b.subarray(0, at), tag, 0x00, ...b.subarray(at)]);
+  };
+  it("refuses an empty append or prepend as a damaged proof", () => {
+    expect(kind(withEmpty(0xf0))).toBe("malformed");
+    expect(kind(withEmpty(0xf1))).toBe("malformed");
+    // One byte is enough.
+    expect(kind(writeProof(D, chain([OP.append([0])], ATT.bitcoin(1))))).toBe("ok");
+  });
+});

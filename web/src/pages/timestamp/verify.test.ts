@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { fromHex, hash, reversed, toHex } from "./hashes";
-import { parseProof, type Proof, ProofError } from "./ots";
+import { ApiError } from "../../lib/api";
+import { parseProof, type Proof, ProofError, walk } from "./ots";
 import {
   ATT,
   BLOCKS,
@@ -8,10 +9,19 @@ import {
   fixture,
   OP,
   PENDING_DIGEST,
+  type Tree,
   TWO_BLOCKS_DIGEST,
   writeProof,
 } from "./testdata";
-import { type Block, type FetchBlock, MAX_CHECKS, readHeader, steps, verify } from "./verify";
+import {
+  type Block,
+  blockFetcher,
+  type FetchBlock,
+  MAX_CHECKS,
+  readHeader,
+  steps,
+  verify,
+} from "./verify";
 
 const hex = (s: string) => fromHex(s) ?? new Uint8Array();
 const signal = new AbortController().signal;
@@ -176,7 +186,7 @@ describe("steps", () => {
   it("marks the transaction and the merkle branch on a real path", async () => {
     const v = await run(parseProof(fixture("two-blocks")), hex(TWO_BLOCKS_DIGEST));
     if (v.kind !== "verified") throw new Error(v.kind);
-    const s = steps(hex(TWO_BLOCKS_DIGEST), v.check.leaf);
+    const s = steps(hex(TWO_BLOCKS_DIGEST), v.check.leaf, true);
     expect(toHex(s.at(-1)?.result ?? new Uint8Array())).toBe(toHex(v.check.block.merkleRoot));
     const tx = s.findIndex((x) => x.txid !== undefined);
     const branch = s.findIndex((x) => x.branch !== undefined);
@@ -193,7 +203,118 @@ describe("steps", () => {
     const d = new Uint8Array(32).fill(3);
     const p = parseProof(writeProof(d, chain([OP.sha256, OP.sha256], ATT.bitcoin(1))));
     const leaf = { attestation: { kind: "bitcoin" as const, height: 1 }, message: d, path: [] };
-    expect(steps(d, leaf)).toStrictEqual([]);
+    expect(steps(d, leaf, true)).toStrictEqual([]);
     expect(p.stamp.branches).toHaveLength(1);
+  });
+});
+
+describe("review round 1", () => {
+  const root = BLOCKS.get(449_397)?.merkleRoot ?? new Uint8Array();
+  const blockA = BLOCKS.get(449_397) as Block;
+  const blockB: Block = {
+    ...blockA,
+    hash: "ab".repeat(32),
+    merkleRoot: new Uint8Array(32).fill(1),
+  };
+
+  it("reads a height once and compares every path to it against that one header (T1)", async () => {
+    // Two paths to 449 397: the root itself, and its SHA-256. A node that answers A, then B.
+    const tree = {
+      att: [ATT.bitcoin(449_397)],
+      ops: [[OP.sha256, { att: [ATT.bitcoin(449_397)] }]] as [number[], { att: number[][] }][],
+    };
+    const p = parseProof(writeProof(root, tree));
+    const answers = [blockA, blockB];
+    const asked: number[] = [];
+    const fetchBlock: FetchBlock = (h) => {
+      asked.push(h);
+      return Promise.resolve(answers.shift() ?? null);
+    };
+    const v = await verify(p, root, { mainnet: true, fetchBlock, signal });
+    expect(asked).toStrictEqual([449_397]);
+    expect(v).toMatchObject({
+      kind: "verified",
+      check: { block: { hash: blockA.hash } },
+      checks: [
+        { kind: "verified", block: { hash: blockA.hash } },
+        { kind: "mismatch", block: { hash: blockA.hash } },
+      ],
+    });
+  });
+
+  it("limits distinct blocks, not paths: a ninth path to one block is still compared (T1)", async () => {
+    const wrong = Array.from(
+      { length: 8 },
+      (_, i) => [OP.append([i + 1]), { att: [ATT.bitcoin(449_397)] }] as [number[], Tree],
+    );
+    const right: [number[], Tree] = [OP.reverse, chain([OP.reverse], ATT.bitcoin(449_397))];
+    const p = parseProof(writeProof(root, { ops: [...wrong, right] }));
+    const n = node();
+    const v = await verify(p, root, { mainnet: true, fetchBlock: n.fetchBlock, signal });
+    expect(v.kind).toBe("verified");
+    expect(n.asked).toStrictEqual([449_397]);
+  });
+
+  it("keeps a verified attestation when a later lookup fails, and lists the failure (T3)", async () => {
+    const p = parseProof(fixture("two-blocks"));
+    const fetchBlock: FetchBlock = (h) =>
+      h === 449_397 ? Promise.resolve(blockA) : Promise.reject(new Error("503"));
+    const v = await verify(p, hex(TWO_BLOCKS_DIGEST), { mainnet: true, fetchBlock, signal });
+    expect(v).toMatchObject({
+      kind: "verified",
+      check: { height: 449_397 },
+      checks: [
+        { kind: "verified", height: 449_397 },
+        { kind: "failed", height: 449_399 },
+      ],
+    });
+  });
+
+  it("still rejects when no lookup succeeded, and when aborted (T3)", async () => {
+    const p = parseProof(fixture("two-blocks"));
+    const failing: FetchBlock = () => Promise.reject(new Error("offline"));
+    await expect(
+      verify(p, hex(TWO_BLOCKS_DIGEST), { mainnet: true, fetchBlock: failing, signal }),
+    ).rejects.toThrow("offline");
+    const c = new AbortController();
+    c.abort();
+    // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- fetch rejects with the abort reason, whatever it is
+    const aborted: FetchBlock = (_h, s) => Promise.reject(s.reason);
+    await expect(
+      verify(p, hex(TWO_BLOCKS_DIGEST), { mainnet: true, fetchBlock: aborted, signal: c.signal }),
+    ).rejects.toBe(c.signal.reason);
+  });
+
+  it("names no transaction on a path that did not verify (T7)", () => {
+    const d = new Uint8Array(32);
+    const p = parseProof(
+      writeProof(d, chain([OP.append(new Uint8Array(33)), OP.sha256, OP.sha256], ATT.bitcoin(1))),
+    );
+    const [leaf] = walk(p);
+    if (!leaf) throw new Error("no leaf");
+    expect(steps(d, leaf, false).some((s) => s.txid !== undefined)).toBe(false);
+    expect(steps(d, leaf, true).some((s) => s.txid !== undefined)).toBe(true);
+  });
+
+  it("checks the height's reply is a hash before asking for a header by it (T9)", async () => {
+    const asked: string[] = [];
+    const fetchBlock = blockFetcher((path) => {
+      asked.push(path);
+      return Promise.resolve(path.startsWith("/block-height/") ? "not-a-hash" : "");
+    });
+    await expect(fetchBlock(449_397, signal)).rejects.toThrow(/could not be read/);
+    expect(asked).toStrictEqual(["/block-height/449397"]);
+  });
+
+  it("reads a recorded block through the fetcher, and a 404 as no block", async () => {
+    const b = BLOCKS.get(449_397) as Block;
+    const header =
+      "0000002003c0fc517c1aef657a9671783d736fa2d9f35477b3a9d40200000000000000007c17a8a0d6bc1da3604ecd442fc38869983290dcbc4876bdf0fcf133791ff218fbf2835879430318d3e4b283";
+    const ok = blockFetcher((path) =>
+      Promise.resolve(path.startsWith("/block-height/") ? b.hash : header),
+    );
+    expect((await ok(449_397, signal))?.hash).toBe(b.hash);
+    const none = blockFetcher(() => Promise.reject(new ApiError(404, "Not found.")));
+    await expect(none(9, signal)).resolves.toBeNull();
   });
 });

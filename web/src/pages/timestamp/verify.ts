@@ -3,6 +3,8 @@
 // against the hash the node named, and whose merkle root is compared byte for byte with the
 // message the proof's path ends in. The header holds the root in the order the proof commits to;
 // the API's `merkle_root` text is the same 32 bytes reversed, so it is never used here.
+import { ApiError, isNotFound } from "../../lib/api";
+import { groupDigits } from "../../lib/format";
 import { hash, reversed, toHex } from "./hashes";
 import { type Attestation, type Leaf, type Op, playPath, type Proof, walk } from "./ots";
 
@@ -17,11 +19,40 @@ export interface Block {
 /** A block by height, or null when the node has none there. Rejects on any other failure. */
 export type FetchBlock = (height: number, signal: AbortSignal) => Promise<Block | null>;
 
+/**
+ * A block by height from a node's API: `get` answers a path such as `/block-height/5` as text and
+ * rejects with `ApiError`. The height's answer must be a block hash before a header is asked by it.
+ */
+export function blockFetcher(
+  get: (path: string, signal: AbortSignal) => Promise<string>,
+): FetchBlock {
+  return async (height, signal) => {
+    const unreadable = () =>
+      new ApiError(0, `The node's answer for block ${groupDigits(height)} could not be read.`);
+    let blockHash: string;
+    try {
+      blockHash = await get(`/block-height/${height}`, signal);
+    } catch (e) {
+      if (isNotFound(e)) return null;
+      throw e;
+    }
+    if (!/^[0-9a-f]{64}$/.test(blockHash)) throw unreadable();
+    const header = await get(`/block/${blockHash}/header`, signal);
+    const block = readHeader(height, blockHash, header);
+    if (!block) throw unreadable();
+    return block;
+  };
+}
+
 /** One Bitcoin attestation, checked. */
 export type Check =
   | { kind: "verified"; leaf: Leaf; height: number; block: Block }
   | { kind: "mismatch"; leaf: Leaf; height: number; block: Block }
-  | { kind: "missing"; leaf: Leaf; height: number };
+  | { kind: "missing"; leaf: Leaf; height: number }
+  /** The block could not be asked for: the request failed. */
+  | { kind: "failed"; leaf: Leaf; height: number; error: unknown }
+  /** Past `MAX_CHECKS` distinct blocks: not asked. */
+  | { kind: "skipped"; leaf: Leaf; height: number };
 
 export type Verdict =
   /** The digest leads to the merkle root of `check.block`, the earliest such. */
@@ -39,7 +70,7 @@ export type Verdict =
   /** The server has no mainnet, so no block can be asked for. */
   | { kind: "no-mainnet"; heights: number[]; others: Leaf[] };
 
-/** At most this many distinct Bitcoin attestations are asked about; real proofs have one to four. */
+/** At most this many distinct blocks are asked about; real proofs name one to four. */
 export const MAX_CHECKS = 8;
 
 const equal = (a: Uint8Array, b: Uint8Array): boolean =>
@@ -68,9 +99,11 @@ const isBitcoin = (l: Leaf): l is Leaf & { attestation: { kind: "bitcoin"; heigh
 
 /**
  * The verdict for `proof` and the reader's `digest`. `fetchBlock` is called only after the digest
- * matched, only for Bitcoin attestations, lowest height first, at most `MAX_CHECKS` times, one at a
- * time; never when `mainnet` is false. Rejects with `ProofError` if the proof cannot be played
- * forward, and with whatever `fetchBlock` rejects with.
+ * matched, only for the heights of Bitcoin attestations, each height once, lowest first, at most
+ * `MAX_CHECKS` heights, one at a time; never when `mainnet` is false. Every path to a height is
+ * compared with that one answer. A failed lookup is that height's result; `verify` rejects with it
+ * only when no height could be asked at all. Rejects with `ProofError` if the proof cannot be
+ * played forward, and when `signal` aborts.
  */
 export async function verify(
   proof: Proof,
@@ -107,19 +140,35 @@ export async function verify(
       heights: [...new Set(bitcoin.map((l) => l.attestation.height))],
       others,
     };
-  const checks: Check[] = [];
-  for (const leaf of bitcoin.slice(0, MAX_CHECKS)) {
-    const height = leaf.attestation.height;
-    // oxlint-disable-next-line no-await-in-loop -- one block at a time, to ask the node no more than needed
-    const block = await options.fetchBlock(height, options.signal);
-    if (block === null) checks.push({ kind: "missing", leaf, height });
-    else if (equal(leaf.message, block.merkleRoot))
-      checks.push({ kind: "verified", leaf, height, block });
-    else checks.push({ kind: "mismatch", leaf, height, block });
+  const heights = [...new Set(bitcoin.map((l) => l.attestation.height))];
+  const answers = new Map<number, { block: Block | null } | { error: unknown }>();
+  for (const height of heights.slice(0, MAX_CHECKS)) {
+    try {
+      // oxlint-disable-next-line no-await-in-loop -- one block at a time, to ask the node no more than needed
+      answers.set(height, { block: await options.fetchBlock(height, options.signal) });
+    } catch (error) {
+      if (options.signal.aborted) throw error;
+      answers.set(height, { error });
+    }
   }
+  const checks: Check[] = bitcoin.map((leaf): Check => {
+    const height = leaf.attestation.height;
+    const answer = answers.get(height);
+    if (answer === undefined) return { kind: "skipped", leaf, height };
+    if ("error" in answer) return { kind: "failed", leaf, height, error: answer.error };
+    const { block } = answer;
+    if (block === null) return { kind: "missing", leaf, height };
+    return equal(leaf.message, block.merkleRoot)
+      ? { kind: "verified", leaf, height, block }
+      : { kind: "mismatch", leaf, height, block };
+  });
   const verified = checks.find((c) => c.kind === "verified");
   if (verified) return { kind: "verified", check: verified, checks, others };
   if (checks.some((c) => c.kind === "mismatch")) return { kind: "broken", checks, others };
+  if (checks.some((c) => c.kind === "missing")) return { kind: "unknown-block", checks, others };
+  // Nothing was learned from the node: the first failure is the answer, to be asked again.
+  const failed = checks.find((c) => c.kind === "failed");
+  if (failed) throw failed.error;
   return { kind: "unknown-block", checks, others };
 }
 
@@ -127,7 +176,7 @@ export async function verify(
 export interface Step {
   op: Op;
   result: Uint8Array;
-  /** Set on the step whose result is the transaction that carries the commitment. */
+  /** Set on a verified path's step whose result has the form of a transaction id: the id. */
   txid?: string;
   /** Set on the first step of the block's merkle branch: how many levels it climbs. */
   branch?: number;
@@ -136,15 +185,16 @@ export interface Step {
 }
 
 /**
- * The path from the digest to `leaf`, with the transaction and the merkle branch marked where the
- * path has their shape: a message longer than 64 bytes hashed twice (a transaction, its id the
- * result reversed), then only pairs of a 32-byte prepend or append and a double SHA-256 up to the
- * end, each level of which is folded into one step. Marks are labels for the reader; the verdict
- * never rests on them.
+ * The path from the digest to `leaf`. Only on a path that `verified` against its block, the steps
+ * with the form of a transaction and of the climb to the block's merkle root are marked: a message
+ * longer than 64 bytes hashed twice (its id the result reversed), then only pairs of a 32-byte
+ * prepend or append and a double SHA-256 up to the end, each level folded into one step. The shape
+ * alone proves no transaction exists, so a path that did not verify is listed as computed.
  */
-export function steps(digest: Uint8Array, leaf: Leaf): Step[] {
+export function steps(digest: Uint8Array, leaf: Leaf, verified: boolean): Step[] {
   const results = playPath(digest, leaf.path);
   const out: Step[] = leaf.path.map((op, i) => ({ op, result: results[i] ?? new Uint8Array() }));
+  if (!verified) return out;
   const path = leaf.path;
   // The branch: from the end, triples of (prepend or append 32 bytes, sha256, sha256).
   let start = path.length;

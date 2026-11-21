@@ -47,7 +47,25 @@ const pending = (uri: string) =>
 const sha256 = (b: Buffer) => createHash("sha256").update(b).digest();
 
 /** The server's config with mainnet in it, and mainnet's recorded blocks; any other height is 404. */
-async function withMainnet(page: Page) {
+/**
+ * An 80-byte header with `root` as its merkle root and `time` as its time, and its hash as the node
+ * writes it: a made-up block, for a proof whose file the test knows.
+ */
+function madeBlock(root: Buffer, time: number): { hash: string; header: string } {
+  const header = Buffer.alloc(80);
+  header.writeUInt32LE(0x2000_0000, 0);
+  root.copy(header, 36);
+  header.writeUInt32LE(time, 68);
+  const id = sha256(sha256(header));
+  const hash = Buffer.from(id.map((_, i) => id[id.length - 1 - i] ?? 0)).toString("hex");
+  return { hash, header: header.toString("hex") };
+}
+
+async function withMainnet(
+  page: Page,
+  made: Record<string, { hash: string; header: string }> = {},
+) {
+  const blocks = { ...BLOCKS, ...made };
   await page.route(/\/app\/config$/, async (route) => {
     const res = await route.fetch();
     const config = (await res.json()) as { networks: string[] };
@@ -58,14 +76,14 @@ async function withMainnet(page: Page) {
   });
   await page.route(/^[^?]*\/\/[^/]+\/api\/block-height\/\d+$/, (route) => {
     const height = new URL(route.request().url()).pathname.split("/").pop() ?? "";
-    const b = BLOCKS[height];
+    const b = blocks[height];
     return b
       ? route.fulfill({ body: b.hash, contentType: "text/plain" })
       : route.fulfill({ status: 404, json: { error: "not found" } });
   });
   await page.route(/^[^?]*\/\/[^/]+\/api\/block\/[0-9a-f]{64}\/header$/, (route) => {
     const hash = new URL(route.request().url()).pathname.split("/")[3];
-    const b = Object.values(BLOCKS).find((x) => x.hash === hash);
+    const b = Object.values(blocks).find((x) => x.hash === hash);
     return b
       ? route.fulfill({
           body: b.header,
@@ -83,8 +101,10 @@ function watch(page: Page) {
   return {
     api: () => seen.map((r) => new URL(r.url()).pathname).filter((p) => /\/(api|app)\//.test(p)),
     clean: (secrets: string[]) => {
+      const origin = new URL(page.url()).origin;
       for (const r of seen) {
         expect(r.method(), r.url()).toBe("GET");
+        expect(new URL(r.url()).origin, r.url()).toBe(origin);
         const text = `${r.url()} ${r.postData() ?? ""}`.toLowerCase();
         for (const s of secrets) expect(text, r.url()).not.toContain(s.toLowerCase());
         const path = new URL(r.url()).pathname;
@@ -119,7 +139,7 @@ test("a real proof with two Bitcoin attestations verifies by the earlier block, 
   await digestBox(page).fill(TWO_BLOCKS.toUpperCase());
   const verdict = page.getByRole("article");
   await expect(
-    verdict.getByRole("heading", { name: "This file existed before block 449 397" }),
+    verdict.getByRole("heading", { name: "This digest is committed to by block 449 397" }),
   ).toBeVisible();
   await expect(verdict.getByText("Verified", { exact: true })).toBeVisible();
   await expect(verdict.getByText(/21 Jan 2017, 23:47:07 UTC/)).toBeVisible();
@@ -308,4 +328,46 @@ test("the keyboard reaches both file choosers and opens them", async ({ page }) 
   // Removing the proof puts focus back on its chooser.
   await page.getByRole("button", { name: "Remove the proof" }).click();
   await expect(proofChooser).toBeFocused();
+});
+
+test("a file the page hashed is said to have existed; the block's time is its header time", async ({
+  page,
+}) => {
+  const file = Buffer.from("A file this test wrote and timestamped against a made-up block.\n");
+  const digest = sha256(file);
+  // The proof's one step, then the block whose root that step reaches.
+  const reached = sha256(Buffer.concat([digest, Buffer.from([1, 2, 3, 4])]));
+  await withMainnet(page, { "100": madeBlock(reached, 1_700_000_000) });
+  const w = watch(page);
+  await page.goto("/regtest/timestamp");
+  await proofInput(page).setInputFiles({
+    name: "made.ots",
+    mimeType: "application/octet-stream",
+    buffer: proof(digest, bitcoin(100)),
+  });
+  await fileInput(page).setInputFiles({ name: "made.txt", mimeType: "text/plain", buffer: file });
+  const verdict = page.getByRole("article");
+  await expect(
+    verdict.getByRole("heading", { name: "This file existed before block 100" }),
+  ).toBeVisible();
+  await expect(verdict.getByText(/header time is 14 Nov 2023, 22:13:20 UTC/)).toBeVisible();
+  await expect(verdict.getByText(/two hours ahead/)).toBeVisible();
+  w.clean([digest.toString("hex")]);
+});
+
+test("a height's answer that is no hash is never asked about", async ({ page }) => {
+  await withMainnet(page);
+  await page.route(/\/api\/block-height\/449397$/, (route) =>
+    route.fulfill({ body: "not-a-hash", contentType: "text/plain" }),
+  );
+  const w = watch(page);
+  await page.goto("/regtest/timestamp");
+  await proofInput(page).setInputFiles(fileURLToPath(fixture("two-blocks.ots")));
+  await digestBox(page).fill(TWO_BLOCKS);
+  // The other block verifies; this one is listed as not checked, its header never asked for.
+  await expect(page.getByText(/449\s397: could not be checked/)).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "This digest is committed to by block 449 399" }),
+  ).toBeVisible();
+  expect(w.api().filter((p) => p.includes("not-a-hash"))).toStrictEqual([]);
 });

@@ -87,69 +87,86 @@ describe("fuzzing the proof reader", () => {
     let slowest = 0;
     const RANDOM = 20_000;
     const MUTATED = 30_000;
-    const { ms } = cost(() => {
-      for (let i = 0; i < RANDOM + MUTATED; i++) {
-        let bytes: Uint8Array;
-        if (i < RANDOM) {
-          // Random bytes, half of them behind a real header so the reader gets past the magic.
-          const body = Uint8Array.from({ length: Math.floor(r() * 400) }, () =>
-            Math.floor(r() * 256),
-          );
-          bytes = r() < 0.5 ? body : new Uint8Array([...MAGIC, 1, 0x08, ...body]);
-        } else {
-          bytes = mutate(r, SEEDS[i % SEEDS.length] ?? new Uint8Array());
-        }
-        const t = performance.now();
-        const outcome = attempt(bytes);
-        slowest = Math.max(slowest, performance.now() - t);
-        counts[outcome] = (counts[outcome] ?? 0) + 1;
+    let total = 0;
+    for (let i = 0; i < RANDOM + MUTATED; i++) {
+      let bytes: Uint8Array;
+      if (i < RANDOM) {
+        // Random bytes, half of them behind a real header so the reader gets past the magic.
+        const body = Uint8Array.from({ length: Math.floor(r() * 400) }, () =>
+          Math.floor(r() * 256),
+        );
+        bytes = r() < 0.5 ? body : new Uint8Array([...MAGIC, 1, 0x08, ...body]);
+      } else {
+        bytes = mutate(r, SEEDS[i % SEEDS.length] ?? new Uint8Array());
       }
-    });
+      // Processor time, not time passed: a busy machine pauses a run without the code working.
+      const { value: outcome, ms } = cost(() => attempt(bytes));
+      slowest = Math.max(slowest, ms);
+      total += ms;
+      counts[outcome] = (counts[outcome] ?? 0) + 1;
+    }
     // The generator is seeded, so how the 50,000 inputs end is fixed: the record of this run.
     expect(counts).toStrictEqual({
       "not-proof": 10_105,
-      "unknown-op": 22_458,
-      malformed: 5428,
+      "unknown-op": 22_425,
+      malformed: 5461,
       ok: 4701,
       "too-large": 657,
       truncated: 6589,
       version: 62,
     });
+    // Generous: under 2 ms of processor time each here, about 2 s in all.
     expect(slowest).toBeLessThan(250);
     expect(Object.values(counts).reduce((a, b) => a + b, 0)).toBe(RANDOM + MUTATED);
     expect(counts["truncated"]).toBeGreaterThan(0);
     expect(counts["malformed"]).toBeGreaterThan(0);
     expect(counts["ok"]).toBeGreaterThan(0);
-    // Generous: about 2 s of processor time here; a slow machine has room.
-    expect(ms).toBeLessThan(30_000);
+    expect(total).toBeLessThan(30_000);
   });
 
   it("bounds the worst work a proof can ask for", () => {
     // The most hashing per byte of proof: seven hex steps grow 32 bytes to 4,096, then SHA-256
-    // takes all of them back to 32, over and over: ten branches as deep as allowed, which together
-    // come near the bound on operations.
+    // takes all of them back to 32, over and over, in ten branches. `n` rounds a branch hash
+    // 10 × n × 4,096 bytes.
     const hex7 = Array.from({ length: 7 }, () => 0xf3);
-    const cycles = Math.floor((LIMITS.depth - hex7.length) / 8);
     const branch = (n: number) => [
       ...Array.from({ length: n }, () => [0x08, ...hex7]).flat(),
       0x00,
       ...ATT.bitcoin(1),
     ];
-    const tree = (n: number) => [
-      ...hex7,
-      ...Array.from({ length: 9 }, () => [0xff, ...branch(n)]).flat(),
-      ...branch(n),
-    ];
     const proof = (n: number) =>
-      new Uint8Array([...MAGIC, 1, 0x08, ...new Uint8Array(32), ...tree(n)]);
-    const bytes = proof(cycles);
-    const { value, ms } = cost(() => attempt(bytes));
-    // 9,927 operations hashing 38.75 MiB: about 120 ms of processor time here.
-    expect(80 * cycles * 4096).toBe(40_632_320);
-    expect(value).toBe("ok");
-    expect(ms).toBeLessThan(5000);
-    // A little deeper is refused before anything is played.
-    expect(attempt(proof(cycles + 1))).toBe("too-large");
+      new Uint8Array([
+        ...MAGIC,
+        1,
+        0x08,
+        ...new Uint8Array(32),
+        ...hex7,
+        ...Array.from({ length: 9 }, () => [0xff, ...branch(n)]).flat(),
+        ...branch(n),
+      ]);
+    // The most rounds the work bound allows: 4,177,920 bytes, 99.6% of it.
+    const most = Math.floor(LIMITS.work / (10 * 4096));
+    const stats = { hashed: 0 };
+    const { value, ms } = cost(() => walk(parseProof(proof(most)), undefined, stats).length);
+    expect({ rounds: most, hashed: stats.hashed, leaves: value }).toStrictEqual({
+      rounds: 102,
+      hashed: 4_177_920,
+      leaves: 10,
+    });
+    // A quarter to a third of a second of processor time on the dev machine.
+    expect(ms).toBeLessThan(2000);
+    // One round more in every branch is refused by the work bound, partway through.
+    let refused: unknown;
+    try {
+      walk(parseProof(proof(most + 1)));
+    } catch (e) {
+      refused = e;
+    }
+    expect(refused).toBeInstanceOf(ProofError);
+    expect((refused as ProofError).kind).toBe("too-large");
+    expect((refused as ProofError).message).toMatch(/hashing/);
+    // With the depth allowed, rounds that would hash 4.84 MiB are refused the same way.
+    expect(attempt(proof(124))).toBe("too-large");
   });
 
   it("follows the deepest path it allows and refuses one deeper, without recursing", () => {

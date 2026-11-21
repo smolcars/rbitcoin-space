@@ -9,7 +9,7 @@ import { Link } from "../../components/Link";
 import { More } from "../../components/More";
 import { ErrorState, Loading } from "../../components/States";
 import { TimeAgo, TimeUtc } from "../../components/Time";
-import { ApiError, createRequest, fetchApi, isNotFound } from "../../lib/api";
+import { ApiError, createRequest, fetchApi } from "../../lib/api";
 import { loadConfig, readConfig } from "../../lib/config";
 import { formatSize, groupDigits, truncateMiddle } from "../../lib/format";
 import { NETWORK_NAMES, paths } from "../../lib/network";
@@ -20,9 +20,9 @@ import { type Leaf, LIMITS, type Op, parseProof, type Proof, ProofError } from "
 import {
   attestationName,
   type Block,
+  blockFetcher,
   type Check,
   MAX_CHECKS,
-  readHeader,
   steps,
   type Verdict,
   verify,
@@ -40,26 +40,12 @@ type Hashing =
   | { kind: "failed" };
 
 /** A block by height from this server's mainnet: its hash, then its header, checked against it. */
-async function fetchBlock(height: number, signal: AbortSignal): Promise<Block | null> {
-  let blockHash: string;
-  try {
-    blockHash = await fetchApi<string>("mainnet", `/block-height/${height}`, {
-      as: "text",
-      signal,
-    });
-  } catch (e) {
-    if (isNotFound(e)) return null;
-    throw e;
-  }
-  const header = await fetchApi<string>("mainnet", `/block/${blockHash}/header`, {
-    as: "text",
-    signal,
-  });
-  const block = readHeader(height, blockHash, header);
-  if (!block)
-    throw new ApiError(0, `The node's answer for block ${groupDigits(height)} could not be read.`);
-  return block;
-}
+const fetchBlock = blockFetcher((path, signal) =>
+  fetchApi<string>("mainnet", path, { as: "text", signal }),
+);
+
+/** Where the digest came from: a file the page hashed, or hex the reader gave. */
+type From = "file" | "digest";
 
 async function readProofFile(file: File): Promise<ProofInput> {
   const base = { name: file.name, size: file.size };
@@ -84,6 +70,10 @@ export default function TimestampPage() {
   const [hex, setHex] = createSignal("");
   const [hashing, setHashing] = createSignal<Hashing | undefined>(undefined);
   let cancel: (() => void) | undefined;
+  // Each read and each hash answers only for the choice that started it: a later choice or a
+  // removal makes it moot, whenever it finishes.
+  let proofPick = 0;
+  let job: AbortController | undefined;
 
   const proof = (): Proof | undefined => {
     const p = proofIn();
@@ -104,24 +94,33 @@ export default function TimestampPage() {
     () => ({ f: file(), name: algorithm() }),
     ({ f, name }) => {
       if (!f) {
+        job = undefined;
         setHashing(undefined);
         return undefined;
       }
       const controller = new AbortController();
+      job = controller;
       cancel = () => controller.abort();
+      const current = () => job === controller;
       setHashing({ kind: "running", done: 0, total: f.size });
       hashFile(
         f,
         name,
         (done) => {
-          if (!controller.signal.aborted) setHashing({ kind: "running", done, total: f.size });
+          if (current() && !controller.signal.aborted)
+            setHashing({ kind: "running", done, total: f.size });
         },
         controller.signal,
       ).then(
         (digest) => {
-          if (!controller.signal.aborted) setHashing({ kind: "done", file: f, name, digest });
+          if (current() && !controller.signal.aborted)
+            setHashing({ kind: "done", file: f, name, digest });
         },
-        () => setHashing(controller.signal.aborted ? { kind: "cancelled" } : { kind: "failed" }),
+        () => {
+          // Only the reader's Stop ends the current job early; a replaced job ends unseen.
+          if (current())
+            setHashing(controller.signal.aborted ? { kind: "cancelled" } : { kind: "failed" });
+        },
       );
       return () => controller.abort();
     },
@@ -146,18 +145,23 @@ export default function TimestampPage() {
     () => {
       const p = proof();
       const d = digest();
-      return p && d ? { p, d } : false;
+      const from: From = file() ? "file" : "digest";
+      return p && d ? { p, d, from } : false;
     },
-    async ({ p, d }, signal): Promise<Verdict> => {
+    async ({ p, d, from }, signal): Promise<{ v: Verdict; d: Uint8Array; from: From }> => {
       const config = (await loadConfig()) ?? (await readConfig());
       if (config === null) throw new ApiError(0, "The server's networks could not be read.");
-      return verify(p, d, { mainnet: config.networks.includes("mainnet"), fetchBlock, signal });
+      const mainnet = config.networks.includes("mainnet");
+      return { v: await verify(p, d, { mainnet, fetchBlock, signal }), d, from };
     },
   );
 
   const chooseProof = (f: File | undefined) => {
     if (!f) return;
-    void readProofFile(f).then(setProofIn);
+    const pick = ++proofPick;
+    void readProofFile(f).then((p) => {
+      if (pick === proofPick) setProofIn(p);
+    });
   };
   const chooseFile = (f: File | undefined) => {
     if (!f) return;
@@ -191,7 +195,10 @@ export default function TimestampPage() {
           chosen={proofIn()?.name}
           detail={proofIn() && formatSize(proofIn()?.size ?? 0, "B")}
           onChoose={chooseProof}
-          onClear={() => setProofIn(undefined)}
+          onClear={() => {
+            proofPick++;
+            setProofIn(undefined);
+          }}
           clearLabel="Remove the proof"
         />
         <Slot
@@ -255,7 +262,7 @@ export default function TimestampPage() {
             <Loading label="Checking the block" />
           </Match>
           <Match when={verdict.latest}>
-            {(v) => <Result v={v()} digest={digest() ?? new Uint8Array()} proof={proof()} />}
+            {(r) => <Result v={r().v} digest={r().d} from={r().from} proof={proof()} />}
           </Match>
         </Switch>
       </section>
@@ -434,12 +441,15 @@ function Verdictbox(props: {
   );
 }
 
-function Result(props: { v: Verdict; digest: Uint8Array; proof: Proof | undefined }) {
+/** The reader's input as the verdict names it. */
+const GIVEN: Record<From, string> = { file: "your file", digest: "the digest you gave" };
+
+function Result(props: { v: Verdict; digest: Uint8Array; from: From; proof: Proof | undefined }) {
   return (
     <NetworkScope value="mainnet">
       <Switch>
         <Match when={props.v.kind === "verified" && props.v}>
-          {(v) => <Verified v={v()} digest={props.digest} proof={props.proof} />}
+          {(v) => <Verified v={v()} digest={props.digest} from={props.from} proof={props.proof} />}
         </Match>
         <Match when={props.v.kind === "wrong-file" && props.v}>
           {(v) => (
@@ -450,11 +460,11 @@ function Result(props: { v: Verdict; digest: Uint8Array; proof: Proof | undefine
             >
               <p>
                 The proof was made for a file whose {HASH_NAMES[props.proof?.fileHash ?? "sha256"]}{" "}
-                is not your file's. A single changed byte, another line ending or a re-saved copy
-                makes a different file.
+                is not {props.from === "file" ? "your file's" : "the digest you gave"}. A single
+                changed byte, another line ending or a re-saved copy makes a different file.
               </p>
               <dl class="ots-pair">
-                <dt>Your file</dt>
+                <dt>{props.from === "file" ? "Your file" : "The digest you gave"}</dt>
                 <dd class="mono ots-hex-value">{toHex(v().fileDigest)}</dd>
                 <dt>The proof's file</dt>
                 <dd class="mono ots-hex-value">{toHex(v().proofDigest)}</dd>
@@ -473,9 +483,9 @@ function Result(props: { v: Verdict; digest: Uint8Array; proof: Proof | undefine
                 title={`This proof does not lead to block ${groupDigits(bad()?.height ?? 0)}`}
               >
                 <p>
-                  Following the proof's steps from your file ends in a value that is not the merkle
-                  root of the block it names. The proof is damaged, or was made to look like a
-                  timestamp it is not. Your file matches the proof's start.
+                  Following the proof's steps from {GIVEN[props.from]} ends in a value that is not
+                  the merkle root of the block it names. The proof is damaged, or was made to look
+                  like a timestamp it is not. The start of the proof matches {GIVEN[props.from]}.
                 </p>
                 <Show when={bad()}>
                   {(c) => (
@@ -494,7 +504,15 @@ function Result(props: { v: Verdict; digest: Uint8Array; proof: Proof | undefine
                 </Show>
                 <Also checks={v().checks} others={v().others} except={bad()} />
                 <Show when={bad()}>
-                  {(c) => <Work digest={props.digest} leaf={c().leaf} block={c().block} />}
+                  {(c) => (
+                    <Work
+                      digest={props.digest}
+                      from={props.from}
+                      leaf={c().leaf}
+                      block={c().block}
+                      verified={false}
+                    />
+                  )}
                 </Show>
               </Verdictbox>
             );
@@ -505,14 +523,18 @@ function Result(props: { v: Verdict; digest: Uint8Array; proof: Proof | undefine
             <Verdictbox
               tone="caution"
               status="Not checked"
-              title={`This node has no block ${groupDigits(v().checks[0]?.height ?? 0)}`}
+              title={`This node has no block ${groupDigits(v().checks.find((c) => c.kind === "missing")?.height ?? 0)}`}
             >
               <p>
                 The proof names a block this server's node does not have: a height above its newest
                 block, or a block on a chain it does not follow. Nothing here says the proof is
                 wrong; check it again later, or on another node.
               </p>
-              <Also checks={v().checks} others={v().others} except={v().checks[0]} />
+              <Also
+                checks={v().checks}
+                others={v().others}
+                except={v().checks.find((c) => c.kind === "missing")}
+              />
             </Verdictbox>
           )}
         </Match>
@@ -520,8 +542,8 @@ function Result(props: { v: Verdict; digest: Uint8Array; proof: Proof | undefine
           {(v) => (
             <Verdictbox tone="caution" status="Pending" title="Not verified yet">
               <p>
-                This proof holds only a calendar's promise to put your file's digest into a Bitcoin
-                block. It has no Bitcoin attestation yet, so there is nothing to check.
+                This proof holds only a calendar's promise to put the digest into a Bitcoin block.
+                It has no Bitcoin attestation yet, so there is nothing to check.
               </p>
               <p>
                 A calendar usually gets it into a block within a few hours. Then upgrade the proof
@@ -571,8 +593,8 @@ function Result(props: { v: Verdict; digest: Uint8Array; proof: Proof | undefine
                   .heights.map((h) => groupDigits(h))
                   .join(", ")}
                 ), and this server has no mainnet node to look{" "}
-                {v().heights.length === 1 ? "it" : "them"} up on. Your file matches the proof's
-                start; check the block on an explorer or a node that follows mainnet.
+                {v().heights.length === 1 ? "it" : "them"} up on. The start of the proof matches{" "}
+                {GIVEN[props.from]}; check the block on an explorer or a node that follows mainnet.
               </p>
             </Verdictbox>
           )}
@@ -585,41 +607,74 @@ function Result(props: { v: Verdict; digest: Uint8Array; proof: Proof | undefine
 function Verified(props: {
   v: Verdict & { kind: "verified" };
   digest: Uint8Array;
+  from: From;
   proof: Proof | undefined;
 }) {
   const c = () => props.v.check;
-  const weak = () =>
-    props.proof?.fileHash === "sha1" || c().leaf.path.some((op) => op.kind === "sha1");
+  const name = () => HASH_NAMES[props.proof?.fileHash ?? "sha256"];
+  const block = () => (
+    <Link class="ots-verdict__block" href={paths.block(c().block.hash)}>
+      block <span class="num">{groupDigits(c().height)}</span>
+    </Link>
+  );
   return (
     <Verdictbox
       tone="positive"
       status="Verified"
       title={
-        <>
-          This file existed before{" "}
-          <Link class="ots-verdict__block" href={paths.block(c().block.hash)}>
-            block <span class="num">{groupDigits(c().height)}</span>
-          </Link>
-        </>
+        props.from === "file" ? (
+          <>This file existed before {block()}</>
+        ) : (
+          <>This digest is committed to by {block()}</>
+        )
       }
     >
+      <Show
+        when={props.from === "file"}
+        fallback={
+          <p>
+            Whatever has this {name()} existed before block {groupDigits(c().height)}. This page has
+            not seen a file: it checked only the digest you gave, and cannot say which file that is.
+          </p>
+        }
+      >
+        <p>
+          This proves the file existed by the time block {groupDigits(c().height)} was mined. It
+          does not say who made the file or who held it, and it does not say the file was new then:
+          it may be older.
+        </p>
+      </Show>
       <p class="ots-when">
-        Block {groupDigits(c().height)} was mined on <TimeUtc time={c().block.time} />,{" "}
+        Block {groupDigits(c().height)}'s header time is <TimeUtc time={c().block.time} />,{" "}
         <TimeAgo time={c().block.time} />.
       </p>
       <p>
-        This proves the file existed no later than that block. It does not say who made the file or
-        who held it, and it does not say the file was new then: it may be older. A block's time is
-        set by its miner and can be off by up to about two hours.
+        That time is its miner's claim, bound loosely: nodes accept it only if it is later than the
+        median time of the eleven blocks before it and no more than two hours ahead of their own
+        clocks, so it may run up to two hours ahead of when the block was mined, and behind it by as
+        much as that median trails.
       </p>
-      <Show when={weak()}>
+      <Show when={props.proof?.fileHash === "sha1"}>
         <p class="ots-caveat">
-          This proof relies on SHA-1, which is no longer safe against forged collisions: someone who
-          made two files with the same SHA-1 could timestamp one and claim the other.
+          This proof names the file by its SHA-1, and two different files can be made to share a
+          SHA-1: it holds for every file with this SHA-1, not for one of them alone.
+        </p>
+      </Show>
+      <Show when={c().leaf.path.some((op) => op.kind === "sha1")}>
+        <p class="ots-caveat">
+          A step inside the proof uses SHA-1. A collision between two values at that step could let
+          the proof be reused for another value: a narrower attack than two files sharing a digest,
+          but one SHA-1 no longer rules out.
         </p>
       </Show>
       <Also checks={props.v.checks} others={props.v.others} except={c()} />
-      <Work digest={props.digest} leaf={c().leaf} block={c().block} />
+      <Work
+        digest={props.digest}
+        from={props.from}
+        leaf={c().leaf}
+        block={c().block}
+        verified={true}
+      />
     </Verdictbox>
   );
 }
@@ -627,7 +682,7 @@ function Verified(props: {
 /** The proof's other attestations: other Bitcoin blocks as checked, the rest named as not checked. */
 function Also(props: { checks: Check[]; others: Leaf[]; except?: Check | undefined }) {
   const rest = () => props.checks.filter((c) => c !== props.except);
-  const skipped = () => props.checks.length >= MAX_CHECKS;
+  const skipped = () => props.checks.some((c) => c.kind === "skipped");
   return (
     <Show when={rest().length > 0 || props.others.length > 0}>
       <h3 class="ots-sub">Also in this proof</h3>
@@ -640,6 +695,13 @@ function Also(props: { checks: Check[]; others: Leaf[]; except?: Check | undefin
                 <span class="ots-good">also verified</span>
               ) : c.kind === "mismatch" ? (
                 <span class="ots-bad">does not lead to its merkle root</span>
+              ) : c.kind === "failed" ? (
+                <span>
+                  could not be checked
+                  {c.error instanceof ApiError ? `: ${c.error.message}` : ""}
+                </span>
+              ) : c.kind === "skipped" ? (
+                <span class="muted">not checked</span>
               ) : (
                 <span>not known to this node</span>
               )}
@@ -668,7 +730,7 @@ function Also(props: { checks: Check[]; others: Leaf[]; except?: Check | undefin
         </For>
       </ul>
       <Show when={skipped()}>
-        <p class="muted">This page checks at most {MAX_CHECKS} Bitcoin blocks of one proof.</p>
+        <p class="muted">This page asks about at most {MAX_CHECKS} blocks of one proof.</p>
       </Show>
     </Show>
   );
@@ -689,19 +751,30 @@ const argOf = (op: Op): Uint8Array | undefined =>
   op.kind === "append" || op.kind === "prepend" ? op.arg : undefined;
 
 /** The path from the digest to the block, step by step, behind a disclosure. */
-function Work(props: { digest: Uint8Array; leaf: Leaf; block: Block }) {
+function Work(props: {
+  digest: Uint8Array;
+  from: From;
+  leaf: Leaf;
+  block: Block;
+  /** Only a verified path's steps are named as a transaction and a merkle branch. */
+  verified: boolean;
+}) {
   const reaches = () => toHex(props.leaf.message) === toHex(props.block.merkleRoot);
-  const list = () => steps(props.digest, props.leaf);
+  const list = () => steps(props.digest, props.leaf, props.verified);
   const display = () => toHex(reversed(props.block.merkleRoot));
   return (
-    <More label={`Show the ${list().length} steps from your file to the block`}>
+    <More
+      label={`Show the ${list().length} steps from ${props.from === "file" ? "your file" : "the digest"} to the block`}
+    >
       <p>
         Each step works on the value before it: a hash, or bytes added before or after it. The
         values are shortened; hover or long-press one for all of it.
       </p>
       <ol class="ots-steps">
         <li class="ots-step ots-step--end">
-          <span class="ots-step__op">Your file's digest</span>
+          <span class="ots-step__op">
+            {props.from === "file" ? "Your file's digest" : "The digest you gave"}
+          </span>
           <span class="ots-step__value mono" title={toHex(props.digest)}>
             {truncateMiddle(toHex(props.digest))}
           </span>
@@ -712,9 +785,10 @@ function Work(props: { digest: Uint8Array; leaf: Leaf; block: Block }) {
               <Show when={s.branch}>
                 {(n) => (
                   <li class="ots-step ots-step--mark">
-                    Then up block {groupDigits(props.block.height)}'s merkle tree, {n()}{" "}
-                    {n() === 1 ? "level" : "levels"}: at each, the sibling is joined on its side and
-                    the pair hashed twice with SHA-256
+                    From here the steps have the form of the climb up block{" "}
+                    {groupDigits(props.block.height)}'s merkle tree, {n()}{" "}
+                    {n() === 1 ? "level" : "levels"}: at each, a sibling joined on its side and the
+                    pair hashed twice with SHA-256
                   </li>
                 )}
               </Show>
@@ -742,7 +816,7 @@ function Work(props: { digest: Uint8Array; leaf: Leaf; block: Block }) {
                 <Show when={s.txid}>
                   {(txid) => (
                     <span class="ots-step__note">
-                      This is the transaction that wrote the commitment:{" "}
+                      This value has the form of a transaction id:{" "}
                       <Link class="mono" href={paths.tx(txid())}>
                         {truncateMiddle(txid())}
                       </Link>
