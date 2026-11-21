@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
 import { chain, expect, test } from "./fixtures";
-import { qrY4m } from "./qr-images";
+import { qrPng, qrY4m } from "./qr-images";
 
 // The video is written before the browser starts, which reads it at launch.
 const dir = mkdtempSync(join(tmpdir(), "scan-camera-"));
@@ -120,13 +120,15 @@ test.describe("a camera with no code before it", () => {
   });
 });
 
-test("the browser's own reader is handed the camera's frames", async ({ page }) => {
+test("the browser's own reader is handed what the preview shows of each frame", async ({
+  page,
+}) => {
   await page.addInitScript((text) => {
     const given: string[] = [];
     function BarcodeDetector() {
       return {
-        detect: (source: unknown) => {
-          given.push(Object.prototype.toString.call(source));
+        detect: (source: HTMLCanvasElement) => {
+          given.push(`${Object.prototype.toString.call(source)} ${source.width}x${source.height}`);
           return Promise.resolve(given.length > 2 ? [{ rawValue: text }] : []);
         },
       };
@@ -142,6 +144,57 @@ test("the browser's own reader is handed the camera's frames", async ({ page }) 
   await openScanner(page);
   await expect(page).toHaveURL(`/regtest/tx/${chain.txs.payment}`);
   const given = await page.evaluate(() => (window as unknown as { scanGiven: string[] }).scanGiven);
-  expect(new Set(given)).toStrictEqual(new Set(["[object HTMLVideoElement]"]));
+  // The fake camera films 640 × 480; the square preview shows its middle 480 × 480, and only that
+  // is read, so no code the reader cannot see is followed.
+  expect(new Set(given)).toStrictEqual(new Set(["[object HTMLCanvasElement] 480x480"]));
   expect(jsqr).toStrictEqual([]);
+});
+
+test("a picture chosen while the camera runs has the say over the camera", async ({ page }) => {
+  // The camera's frames read as one transaction once the picture is being read; the picture,
+  // held until the test lets it go, as another.
+  await page.addInitScript(
+    ({ fromCamera, fromPicture }) => {
+      let release: (() => void) | undefined;
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const state = { picking: false, frames: 0, release: () => release?.() };
+      function BarcodeDetector() {
+        return {
+          detect: async (source: unknown) => {
+            if (source instanceof ImageBitmap) {
+              state.picking = true;
+              await held;
+              return [{ rawValue: fromPicture }];
+            }
+            if (state.picking) state.frames += 1;
+            return state.picking ? [{ rawValue: fromCamera }] : [];
+          },
+        };
+      }
+      BarcodeDetector.getSupportedFormats = () => Promise.resolve(["qr_code"]);
+      Object.assign(window, { BarcodeDetector, scanState: state });
+    },
+    { fromCamera: chain.txs.payment, fromPicture: chain.txs.consolidation },
+  );
+  await page.goto("/regtest/");
+  const dialog = await openScanner(page);
+  await expect(dialog.getByRole("status")).toHaveText("Hold the code inside the frame.");
+  const chooser = page.waitForEvent("filechooser");
+  await dialog.getByRole("button", { name: "Choose a picture" }).click();
+  await (await chooser).setFiles({ name: "code.png", mimeType: "image/png", buffer: qrPng("any") });
+  // Frames that find the camera's code while the picture is read open nothing.
+  await expect
+    .poll(async () =>
+      page.evaluate(
+        () => (window as unknown as { scanState: { frames: number } }).scanState.frames,
+      ),
+    )
+    .toBeGreaterThan(3);
+  await expect(page).toHaveURL("/regtest/");
+  await page.evaluate(() => {
+    (window as unknown as { scanState: { release: () => void } }).scanState.release();
+  });
+  await expect(page).toHaveURL(`/regtest/tx/${chain.txs.consolidation}`);
 });

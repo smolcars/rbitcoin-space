@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type Decoder, fitted, nativeDecoder, readPicture } from "./decode";
+import { type Decoder, fitted, nativeDecoder, readPicture, visibleSquare } from "./decode";
 
 /** A stand-in for the browser's BarcodeDetector: these formats, and these codes in every frame. */
 function detector(formats: string[] | Error, codes: string[] = [], seen: string[][] = []) {
@@ -28,9 +28,11 @@ describe("nativeDecoder", () => {
     await expect(reader?.detect(frame, 1, 1, 0)).resolves.toBe("bitcoin:bc1q");
   });
 
-  it("answers null for a frame with no code", async () => {
+  it("answers null for a frame with no code, or a code of nothing but spaces", async () => {
     const reader = await nativeDecoder({ BarcodeDetector: detector(["qr_code"]) });
     await expect(reader?.detect(frame, 1, 1, 0)).resolves.toBeNull();
+    const blank = await nativeDecoder({ BarcodeDetector: detector(["qr_code"], ["   "]) });
+    await expect(blank?.detect(frame, 1, 1, 0)).resolves.toBeNull();
   });
 
   it("is null without the class, without QR codes, or when asking for formats fails", async () => {
@@ -73,5 +75,13 @@ describe("readPicture", () => {
   it("answers null when no way reads", async () => {
     const decoder: Decoder = { kind: "native", attempts: 1, detect: () => Promise.resolve(null) };
     await expect(readPicture(decoder, frame, 10, 10)).resolves.toBeNull();
+  });
+});
+
+describe("visibleSquare", () => {
+  it("is the middle square the preview shows of a wide or tall frame", () => {
+    expect(visibleSquare(1280, 720)).toStrictEqual({ x: 280, y: 0, side: 720 });
+    expect(visibleSquare(720, 1280)).toStrictEqual({ x: 0, y: 280, side: 720 });
+    expect(visibleSquare(640, 640)).toStrictEqual({ x: 0, y: 0, side: 640 });
   });
 });

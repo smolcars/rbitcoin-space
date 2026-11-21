@@ -2,8 +2,8 @@
 // The browser's own BarcodeDetector where it reads QR codes (Chrome on Android and macOS);
 // elsewhere jsQR, a chunk of its own fetched only when the scanner opens.
 
-/** A video frame or a decoded picture, with its size in pixels. */
-export type Source = HTMLVideoElement | ImageBitmap;
+/** A camera frame (cut to what the preview shows) or a decoded picture, with its size in pixels. */
+export type Source = HTMLCanvasElement | ImageBitmap;
 
 /**
  * Reads the first QR code in a source: its text, or null when it holds none. `attempt` (from 0 to
@@ -49,7 +49,7 @@ export async function nativeDecoder(scope: object = globalThis): Promise<Decoder
       kind: "native",
       attempts: 1,
       detect: async (source) =>
-        (await detector.detect(source)).find((c) => c.rawValue !== "")?.rawValue ?? null,
+        (await detector.detect(source)).find((c) => c.rawValue.trim() !== "")?.rawValue ?? null,
     };
   } catch {
     return null;
@@ -70,6 +70,18 @@ export const WAYS: readonly { side: number; shift: number }[] = [
   { side: 400, shift: 0 },
   { side: 320, shift: 6 },
 ];
+
+/**
+ * The part of a camera frame the preview shows: its middle square, as the square well crops the
+ * video to cover it. Only that is read, so the scanner never follows a code the reader cannot see.
+ */
+export function visibleSquare(
+  width: number,
+  height: number,
+): { x: number; y: number; side: number } {
+  const side = Math.max(1, Math.min(width, height));
+  return { x: Math.floor((width - side) / 2), y: Math.floor((height - side) / 2), side };
+}
 
 /** The size a source is read at: its longer side scaled to `side`, never up, never to 0. */
 export function fitted(
@@ -106,7 +118,8 @@ export async function jsqrDecoder(): Promise<Decoder> {
       const { data } = context.getImageData(0, 0, canvas.width, canvas.height);
       // jsQR's default tries both ways: a code drawn light on dark reads only inverted.
       const text = jsQR(data, canvas.width, canvas.height)?.data;
-      return Promise.resolve(text === undefined || text === "" ? null : text);
+      // A code of nothing but spaces leads nowhere: as good as no code.
+      return Promise.resolve(text === undefined || text.trim() === "" ? null : text);
     },
   };
 }

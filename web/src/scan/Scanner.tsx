@@ -3,7 +3,7 @@
 // never shown here: the search reads it (search/query.ts), and it is attacker-controlled.
 import { createSignal, createUniqueId, onCleanup, onSettled, Show } from "solid-js";
 import { type CameraProblem, cameraProblem, facesReader, openCamera, stopStream } from "./camera";
-import { createDecoder, type Decoder, readPicture as readWays } from "./decode";
+import { createDecoder, type Decoder, readPicture as readWays, visibleSquare } from "./decode";
 import "./Scanner.css";
 
 export interface ScannerProps {
@@ -94,18 +94,26 @@ export default function Scanner(props: ScannerProps) {
     }
     // Each frame is read one of the decoder's ways, in turn: a frame is cheap, and the next comes.
     let frame = 0;
+    // The frame as the preview shows it, cut on a canvas of its own.
+    const shown = document.createElement("canvas");
+    const cut = shown.getContext("2d");
     const tick = async () => {
-      if (ended || stream !== live || !video) return;
+      if (ended || stream !== live || !video || !cut) return;
       if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth > 0) {
         let text: string | null = null;
         frame += 1;
         try {
-          text = await reader.detect(video, video.videoWidth, video.videoHeight, frame);
+          const { x, y, side } = visibleSquare(video.videoWidth, video.videoHeight);
+          shown.width = side;
+          shown.height = side;
+          cut.drawImage(video, x, y, side, side, 0, 0, side, side);
+          text = await reader.detect(shown, side, side, frame);
         } catch {
           // A frame that cannot be read: the next one is tried.
         }
         if (ended || stream !== live) return;
-        if (text !== null) {
+        // A picture being read has the say: the reader chose it over what the camera sees.
+        if (text !== null && !readingPicture) {
           finish(text);
           return;
         }
@@ -118,6 +126,8 @@ export default function Scanner(props: ScannerProps) {
   // Each camera request and each picture chosen is numbered: only the latest may act.
   let asked = 0;
   let chosen = 0;
+  // A picture is being read: the camera's frames wait (a variable, read the moment it changes).
+  let readingPicture = false;
 
   const startCamera = async () => {
     // A code read: its result is on its way, and nothing may cancel it.
@@ -157,27 +167,34 @@ export default function Scanner(props: ScannerProps) {
     const mine = chosen;
     // Only the latest picture speaks: one chosen after it replaces it.
     const current = () => !ended && mine === chosen;
+    setReaderFailed(false);
     setPicture("reading");
-    let bitmap: ImageBitmap;
+    readingPicture = true;
     try {
-      bitmap = await createImageBitmap(image);
-    } catch {
-      if (current()) setPicture("unreadable");
-      return;
-    }
-    try {
-      const reader = await decoder();
-      const text = await readWays(reader, bitmap, bitmap.width, bitmap.height);
+      let bitmap: ImageBitmap;
+      try {
+        bitmap = await createImageBitmap(image);
+      } catch {
+        if (current()) setPicture("unreadable");
+        return;
+      }
+      let text: string | null;
+      try {
+        text = await readWays(await decoder(), bitmap, bitmap.width, bitmap.height);
+      } catch {
+        if (current()) {
+          setPicture("idle");
+          setReaderFailed(true);
+        }
+        return;
+      } finally {
+        bitmap.close();
+      }
       if (!current()) return;
       if (text === null) setPicture("nothing");
       else finish(text);
-    } catch {
-      if (current()) {
-        setPicture("idle");
-        setReaderFailed(true);
-      }
     } finally {
-      bitmap.close();
+      if (mine === chosen) readingPicture = false;
     }
   };
 

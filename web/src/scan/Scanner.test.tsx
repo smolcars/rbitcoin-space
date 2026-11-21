@@ -189,6 +189,21 @@ describe("Scanner", () => {
     dispose();
   });
 
+  it("drops a failed reader's message once a picture is read again", async () => {
+    const { refuse } = camera();
+    const { el, status, dispose } = open();
+    refuse("NotFoundError");
+    vi.stubGlobal("createImageBitmap", () => Promise.resolve({ width: 4, height: 4, close() {} }));
+    read.fails = true;
+    choosePicture(el, null);
+    await settle(() => expect(status()).toMatch(/The code reader did not load/));
+    read.fails = false;
+    choosePicture(el, null);
+    await settle(() => expect(status()).toMatch(/No QR code found/));
+    vi.unstubAllGlobals();
+    dispose();
+  });
+
   it("answers only for the latest picture chosen", async () => {
     const { refuse } = camera();
     const { el, status, onResult, dispose } = open();
