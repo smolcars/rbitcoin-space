@@ -291,7 +291,7 @@ function payback(s: Shape): ChangeReading | null {
   };
 }
 
-/** One round amount beside one that is not. */
+/** One round amount beside one that is not even a multiple of `RAGGED_UNIT`. */
 function round(a: Item, b: Item): ChangeReading | null {
   const [r, other] =
     isRound(a.o.value) && isRagged(b.o.value)
