@@ -94,10 +94,16 @@ test("a clean transaction is one muted line", async ({ page, rpc, mine }) => {
 
   await page.goto(`/regtest/tx/${clean}`);
   await expect(page.getByText("Nothing in this transaction's shape stands out.")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "What an observer can read" })).toHaveCount(0);
+  // Wide, a panel of its own beside the flow, named like the others.
+  await expect(page.getByRole("heading", { name: "What an observer can read" })).toHaveCount(1);
   await expect(page.locator(".tx-flow .pv-tag")).toHaveCount(0);
   await expect(page.getByText("What this checks")).toBeVisible();
   expect(await axe(page)).toStrictEqual([]);
+  // Narrow, under the flow: one muted line, no heading, and nothing in the summary.
+  await page.setViewportSize({ width: 360, height: 780 });
+  await expect(page.locator(".tx-main__flow .pv-none")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "What an observer can read" })).toHaveCount(0);
+  await expect(page.locator(".tx-answer__privacy")).toHaveCount(0);
 });
 
 test.describe("past the check route's 100 lookups", () => {
