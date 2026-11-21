@@ -1057,13 +1057,13 @@ describe("what this checks", () => {
       {
         text: "Which output is change, from four readings:",
         readings: [
-          "The only output paying the same address an input spends from, which an observer may read as going back to the sender. This one decides.",
-          "One round amount beside one that is not: the round one suggests the payment.",
-          "The only one of two outputs checked of the inputs' script type: it suggests the change.",
-          "The smaller of two outputs checked being less than the least spent from any one funding address, while the larger is not: if the wallet would not add coins it did not need, the larger suggests the payment.",
+          "When it pays two or more outputs, the only one paying the same address an input spends from, which an observer may read as going back to the sender. This one decides.",
+          "Of the two outputs checked, a round amount (a multiple of 0.0001 BTC with at most two significant digits, such as 0.05 or 1.5 BTC) beside one that is not even a multiple of 0.00001 BTC: the round one suggests the payment.",
+          "Every input that funds it of one script type, and only one of the two outputs checked of that type: it suggests the change.",
+          "The smaller of the two outputs checked being less than the least spent from any one funding address, while the larger is not: if the wallet would not add coins it did not need, the larger suggests the payment.",
         ],
         after:
-          "Every output is checked but data outputs (OP_RETURN) and fee anchors. Readings that point at different outputs leave it unclear.",
+          "The last three look only at a transaction that pays exactly two outputs, the two outputs checked. Readings that point at different outputs leave it unclear, unless one is the pay-back, which decides.",
       },
       {
         text: "The shape of a CoinJoin, where several people pay into one transaction: among other conditions, three or more outputs of one amount, each to a different address, with the inputs that fund it from at least as many different addresses. Equal amounts alone do not tell which output is whose, though other things still may; on that shape, which output is change is not read.",
@@ -1267,5 +1267,230 @@ describe("a number or an address in a real sentence", () => {
   it("does the same for every finding the tests above say", () => {
     // Each `said` above records its finding; run with the file, this covers every form held.
     expect(seen.flatMap((x) => splits(x))).toStrictEqual([]);
+  });
+});
+
+// ---- "What this checks", line by line against the rules: each line's smallest case fires, and
+// the near miss it excludes does not. ----
+
+describe("what this checks says no more than the rules do", () => {
+  const op = (t: Transaction): Transaction => ({
+    ...t,
+    vout: [
+      ...t.vout,
+      { scriptpubkey: "6a00", scriptpubkey_asm: "", scriptpubkey_type: "op_return", value: 0 },
+    ],
+  });
+  const readings = (t: Transaction) =>
+    checkPrivacy(t).findings.flatMap((f) =>
+      f.kind === "change" || f.kind === "change-disputed"
+        ? f.readings.map((r) => r.reason.kind)
+        : [],
+    );
+  const kinds = (t: Transaction) => checkPrivacy(t).findings.map((f) => f.kind);
+  const has = (kind: PrivacyFinding["kind"]) => (t: Transaction) => kinds(t).includes(kind);
+  type Reason = ReturnType<typeof readings>[number];
+  const reads = (reason: Reason) => (t: Transaction) => readings(t).includes(reason);
+  const me = (value: number, type?: ScriptType) => ({ value, to: "me", ...(type ? { type } : {}) });
+
+  const rows: {
+    line: string;
+    fires: (t: Transaction) => boolean;
+    yes: Transaction;
+    no: Transaction[];
+  }[] = [
+    {
+      line: "Address reuse: an address more than once among funding inputs and paid outputs",
+      fires: has("reuse"),
+      yes: tx([me(100_000)], [{ value: 30_001, to: "you" }, me(60_001)]),
+      // Two fee anchor outputs share a script, but anchors are not outputs it pays.
+      no: [anchored(anchored(tx([me(100_000)], [{ value: 90_000, to: "you" }]), "out"), "out")],
+    },
+    {
+      line: "Pay-back: of two or more paid outputs, the only one paying an input's address",
+      fires: reads("payback"),
+      yes: tx([me(100_000)], [{ value: 30_001, to: "you" }, me(60_001)]),
+      no: [
+        // One output, paying back: reuse only.
+        tx([me(100_000)], [me(90_000)]),
+        // Two outputs paying back to two inputs' addresses: none is the only one.
+        tx(
+          [me(100_000), { value: 100_000, to: "him" }],
+          [me(90_001), { value: 90_001, to: "him" }],
+        ),
+        // A data output beside it is not an output it pays.
+        op(tx([me(100_000)], [me(90_000)])),
+      ],
+    },
+    {
+      line: "Round amount: one of 0.0001 BTC, two significant digits, beside one not a multiple of 0.00001 BTC",
+      fires: reads("round"),
+      yes: tx(
+        [{ value: 10_000_000, to: "a" }],
+        [
+          { value: 5_000_000, to: "x" },
+          { value: 4_987_654, to: "y" },
+        ],
+      ),
+      no: [
+        // 0.0005 beside 0.00149: the other is a multiple of 0.00001 BTC.
+        tx(
+          [{ value: 300_000, to: "a" }],
+          [
+            { value: 50_000, to: "x" },
+            { value: 149_000, to: "y" },
+          ],
+        ),
+        // 0.0123 BTC has three significant digits: not round.
+        tx(
+          [{ value: 10_000_000, to: "a" }],
+          [
+            { value: 1_230_000, to: "x" },
+            { value: 4_987_654, to: "y" },
+          ],
+        ),
+        // Three outputs it pays: the round reading looks only at two.
+        tx(
+          [{ value: 20_000_000, to: "a" }],
+          [
+            { value: 5_000_000, to: "x" },
+            { value: 4_987_654, to: "y" },
+            { value: 3_987_654, to: "z" },
+          ],
+        ),
+      ],
+    },
+    {
+      line: "The 1.5 BTC example is round",
+      fires: reads("round"),
+      yes: tx(
+        [{ value: 300_000_000, to: "a" }],
+        [
+          { value: 150_000_000, to: "x" },
+          { value: 149_987_654, to: "y" },
+        ],
+      ),
+      no: [],
+    },
+    {
+      line: "Script type: every funding input one type, only one of the two outputs of it",
+      fires: reads("script"),
+      yes: tx(
+        [{ value: 10_000_000, to: "a", type: "v1_p2tr" }],
+        [
+          { value: 5_000_001, to: "x", type: "v1_p2tr" },
+          { value: 4_987_654, to: "y" },
+        ],
+      ),
+      no: [
+        // Inputs of two types.
+        tx(
+          [
+            { value: 5_000_000, to: "a", type: "v1_p2tr" },
+            { value: 5_000_000, to: "b" },
+          ],
+          [
+            { value: 5_000_001, to: "x", type: "v1_p2tr" },
+            { value: 4_987_654, to: "y" },
+          ],
+        ),
+        // Both outputs of the inputs' type.
+        tx(
+          [{ value: 10_000_000, to: "a", type: "v1_p2tr" }],
+          [
+            { value: 5_000_001, to: "x", type: "v1_p2tr" },
+            { value: 4_987_654, to: "y", type: "v1_p2tr" },
+          ],
+        ),
+      ],
+    },
+    {
+      line: "Smallest coin: the smaller output under the least from one funding address, the larger not",
+      fires: reads("unneeded"),
+      yes: tx(
+        [
+          { value: 103_000, to: "i0" },
+          { value: 302_000, to: "i1" },
+        ],
+        [
+          { value: 100_001, to: "a" },
+          { value: 300_001, to: "b" },
+        ],
+      ),
+      no: [
+        // The smaller output is not under the least from one address.
+        tx(
+          [
+            { value: 103_000, to: "i0" },
+            { value: 302_000, to: "i1" },
+          ],
+          [
+            { value: 110_001, to: "a" },
+            { value: 290_001, to: "b" },
+          ],
+        ),
+      ],
+    },
+    {
+      line: "Readings that point at different outputs leave it unclear",
+      fires: has("change-disputed"),
+      yes: tx(
+        [
+          { value: 150_003, to: "a" },
+          { value: 4_990_003, to: "b" },
+        ],
+        [
+          { value: 5_000_000, to: "x" },
+          { value: 100_001, to: "y", type: "v1_p2tr" },
+        ],
+      ),
+      // Unless one is the pay-back, which decides: output 1 pays back and is the round one.
+      no: [tx([me(10_000_000)], [{ value: 4_987_654, to: "you" }, me(5_000_000)])],
+    },
+    {
+      line: "CoinJoin: three or more equal outputs to different addresses, as many funding addresses",
+      fires: has("coinjoin"),
+      yes: tx(
+        [0, 1, 2].map((k) => ({ value: 2_000_000, to: `i${k}` })),
+        [0, 1, 2].map((k) => ({ value: 1_000_000, to: `o${k}` })),
+      ),
+      no: [
+        // Two equal outputs.
+        tx(
+          [0, 1, 2].map((k) => ({ value: 2_000_000, to: `i${k}` })),
+          [
+            { value: 1_000_000, to: "o0" },
+            { value: 1_000_000, to: "o1" },
+            { value: 3_987_654, to: "o2" },
+          ],
+        ),
+        // Fewer funding addresses than equal outputs.
+        tx(
+          [0, 1].map((k) => ({ value: 3_000_000, to: `i${k}` })),
+          [0, 1, 2].map((k) => ({ value: 1_000_000, to: `o${k}` })),
+        ),
+      ],
+    },
+    {
+      line: "Coins spent together: two or more funding inputs",
+      fires: has("spent-together"),
+      yes: tx(
+        [
+          { value: 100_000, to: "a" },
+          { value: 100_000, to: "b" },
+        ],
+        [{ value: 190_000, to: "x" }],
+      ),
+      no: [
+        tx([{ value: 100_000, to: "a" }], [{ value: 90_000, to: "x" }]),
+        // A fee anchor's input does not fund it.
+        anchored(tx([{ value: 100_000, to: "a" }], [{ value: 90_000, to: "x" }]), "in"),
+      ],
+    },
+  ];
+
+  it.each(rows)("$line", ({ fires, yes, no }) => {
+    expect(fires(yes)).toBe(true);
+    for (const t of no) expect(fires(t)).toBe(false);
   });
 });

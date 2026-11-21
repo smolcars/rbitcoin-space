@@ -556,13 +556,13 @@ export const CHECKS: readonly Check[] = [
   {
     text: "Which output is change, from four readings:",
     readings: [
-      "The only output paying the same address an input spends from, which an observer may read as going back to the sender. This one decides.",
-      "One round amount beside one that is not: the round one suggests the payment.",
-      "The only one of two outputs checked of the inputs' script type: it suggests the change.",
-      "The smaller of two outputs checked being less than the least spent from any one funding address, while the larger is not: if the wallet would not add coins it did not need, the larger suggests the payment.",
+      "When it pays two or more outputs, the only one paying the same address an input spends from, which an observer may read as going back to the sender. This one decides.",
+      "Of the two outputs checked, a round amount (a multiple of 0.0001 BTC with at most two significant digits, such as 0.05 or 1.5 BTC) beside one that is not even a multiple of 0.00001 BTC: the round one suggests the payment.",
+      "Every input that funds it of one script type, and only one of the two outputs checked of that type: it suggests the change.",
+      "The smaller of the two outputs checked being less than the least spent from any one funding address, while the larger is not: if the wallet would not add coins it did not need, the larger suggests the payment.",
     ],
     after:
-      "Every output is checked but data outputs (OP_RETURN) and fee anchors. Readings that point at different outputs leave it unclear.",
+      "The last three look only at a transaction that pays exactly two outputs, the two outputs checked. Readings that point at different outputs leave it unclear, unless one is the pay-back, which decides.",
   },
   {
     text: "The shape of a CoinJoin, where several people pay into one transaction: among other conditions, three or more outputs of one amount, each to a different address, with the inputs that fund it from at least as many different addresses. Equal amounts alone do not tell which output is whose, though other things still may; on that shape, which output is change is not read.",
