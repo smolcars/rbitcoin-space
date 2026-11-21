@@ -588,15 +588,16 @@
     column-gap: var(--space-2);
     min-width: 0;
   }
-  /* The name gives way: it may break anywhere, so it asks the column for no width of its own, and
-     shows one line, the rest cut with an ellipsis. */
+  /* The name gives way: it may break between any two letters, so it asks the column for no width
+     of its own, and shows one line, the rest cut with an ellipsis. Any letter, not only at a space:
+     a break at the space left "SBI Crypto" as "SBI…" with the line half empty. */
   .mining-pool__name {
     display: -webkit-box;
     overflow: hidden;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 1;
     white-space: normal;
-    overflow-wrap: anywhere;
+    word-break: break-all;
   }
   /* The note stays inside the column: it breaks between the figure and the word, and the word
      breaks where it must; the figure never does. */

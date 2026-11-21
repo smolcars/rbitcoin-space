@@ -107,6 +107,8 @@ test.describe("in a wide prose font", () => {
             : [/^98\sempty$/],
           { timeout: 30_000 },
         );
+        // Hidden notes match their text and give no boxes, so every check below would pass on none.
+        for (const note of await notes.all()) await expect(note).toBeVisible();
         await wideFaceDrawn(page);
         if (drawn !== undefined) {
           await notes.evaluateAll((all, size) => {
@@ -148,7 +150,10 @@ test.describe("in a wide prose font", () => {
               const shareText = textOf(share).getBoundingClientRect();
               const what = `"${note.textContent?.trim() ?? ""}"`;
               return [
-                ...(count.getClientRects().length > 1 ? [`${what}: its count breaks`] : []),
+                // One line, drawn: no rectangle at all is a count not drawn, two a count broken.
+                ...(count.getClientRects().length !== 1 || figure.width <= 0
+                  ? [`${what}: its count is drawn as ${count.getClientRects().length} lines`]
+                  : []),
                 // Half a pixel of slack for rounding.
                 ...(box.right > edge + 0.5 || figure.right > edge + 0.5
                   ? [
@@ -171,6 +176,84 @@ test.describe("in a wide prose font", () => {
       expect(faults).toStrictEqual([]);
     });
   }
+
+  // A cut name once broke at its first space and left its line half empty: "SBI Crypto" read
+  // "SBI…", and "BTC Guild" and "BTC Nuggets" read the same. Names from the pool list, and six-digit
+  // block counts and match rates as mainnet's all of history has. The names are drawn at 20 px as
+  // well, larger than the em the column's floor is measured in, as a browser's minimum font size
+  // draws them: "BTC Guild" is cut only then.
+  test("a cut pool name fills its line, whatever spaces it has", async ({ page }) => {
+    const names = ["SBI Crypto", "BTC Guild", "BTC Nuggets", "ST Mining Corp", "AntPool"];
+    const pools = names.map((name, i) => ({
+      poolId: i + 1,
+      name,
+      link: "",
+      blockCount: 190_000 - i * 10_000,
+      rank: i + 1,
+      emptyBlocks: 0,
+      slug: name.toLowerCase().replaceAll(" ", ""),
+      avgMatchRate: 99.6 - i * 0.7,
+      avgFeeDelta: null,
+      poolUniqueId: i + 1,
+    }));
+    await page.route(/\/api\/v1\/mining\/pools\/all$/, (route) =>
+      route.fulfill({
+        json: {
+          pools,
+          blockCount: 900_000,
+          lastEstimatedHashrate: 1e18,
+          lastEstimatedHashrate1w: 1e18,
+        },
+      }),
+    );
+    await page.setViewportSize({ width: 320, height: 900 });
+    await page.goto("/regtest/mining?period=all");
+    const shown = page.locator(".mining-pool__name");
+    await expect(shown).toHaveText(names, { timeout: 30_000 });
+    await wideFaceDrawn(page);
+    await shown.evaluateAll((all) => {
+      for (const el of all) el.style.fontSize = "20px";
+    });
+    await tablesSettled(page);
+    // What each name shows: the characters on its first line, and how wide they are drawn.
+    const drawn = await shown.evaluateAll((all) =>
+      all.map((el) => {
+        const node = el.firstChild as Text;
+        const name = node.data;
+        const box = (from: number, to: number) => {
+          const range = document.createRange();
+          range.setStart(node, from);
+          range.setEnd(node, to);
+          return range.getBoundingClientRect();
+        };
+        const top = box(0, 1).top;
+        let line = 1;
+        while (line < name.length && Math.abs(box(line, line + 1).top - top) < 1) line += 1;
+        return {
+          name,
+          cut: el.scrollHeight > el.clientHeight + 1,
+          shows: name.slice(0, line),
+          width: box(0, line).width,
+          next: line < name.length ? box(line, line + 1).width : 0,
+          room: el.clientWidth,
+        };
+      }),
+    );
+    const cut = drawn.filter((d) => d.cut);
+    // Neither "BTC" pool fits here: with none cut the checks would pass having tested nothing.
+    expect(
+      cut.map((d) => d.name),
+      "the names cut at 320 px",
+    ).toEqual(expect.arrayContaining(["SBI Crypto", "BTC Guild", "BTC Nuggets"]));
+    // Filled: the line ends where the next character would not fit, not at a space short of it.
+    for (const d of cut) {
+      expect(d.room - d.width, `"${d.name}" shows "${d.shows}" in ${d.room} px`).toBeLessThan(
+        d.next + 0.5,
+      );
+    }
+    const btc = drawn.filter((d) => d.name.startsWith("BTC ")).map((d) => d.shows);
+    expect(new Set(btc).size, `the two BTC pools show ${JSON.stringify(btc)}`).toBe(2);
+  });
 });
 
 /** Waits until the wide stand-in face draws the page: it loads on its own time. */
