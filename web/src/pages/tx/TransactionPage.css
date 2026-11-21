@@ -970,6 +970,11 @@
     padding-block: 0;
     margin-block: 0;
   }
+  /* An output's meta line holds its spent link once the spends arrive: it has that link's height
+     from the start, so the link arriving later moves nothing. */
+  .tx-flow__col--out .tx-flow__item:not(.tx-flow__item--fee, .tx-flow__item--more) .tx-flow__meta {
+    line-height: 24px;
+  }
   /* A 24 px target (WCAG 2.2) in the meta line. */
   .tx-flow__spent {
     display: inline-flex;

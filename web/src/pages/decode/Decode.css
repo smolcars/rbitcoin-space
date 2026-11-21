@@ -51,7 +51,6 @@
     font-size: var(--text-xl);
   }
   .dec-result__to {
-    margin-inline-start: auto;
     font-size: var(--text-sm);
   }
   .dec-result > .push-result {

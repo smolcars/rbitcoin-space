@@ -160,18 +160,24 @@ function TxResult(props: { t: TxAnswer }) {
           <span class="dec-net" data-net={props.t.network}>
             {NETWORK_NAMES[props.t.network]}
           </span>
-          <Show when={props.t.broadcast && props.t.known === null}>
-            {/* The hex goes in the history entry's state, never in the URL. */}
-            <Link
-              class="dec-result__to"
-              href={paths.push()}
-              state={JSON.stringify({ hex: props.t.hex })}
-            >
-              Broadcast
-            </Link>
-          </Show>
         </header>
-        <CheckedTx c={props.t} hex={props.t.hex} enabled={false} />
+        <CheckedTx
+          c={props.t}
+          hex={props.t.hex}
+          enabled={false}
+          action={
+            props.t.broadcast && props.t.known === null ? (
+              // The hex goes in the history entry's state, never in the URL.
+              <Link
+                class="dec-result__to"
+                href={paths.push()}
+                state={JSON.stringify({ hex: props.t.hex })}
+              >
+                Broadcast
+              </Link>
+            ) : undefined
+          }
+        />
       </NetworkScope>
     </article>
   );

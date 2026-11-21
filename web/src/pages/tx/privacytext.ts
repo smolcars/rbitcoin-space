@@ -15,6 +15,25 @@ import {
 } from "../../lib/privacy";
 import type { ScriptType } from "../../lib/esplora";
 
+// Characters that would not show, or would reorder or disguise the text around them, as the block
+// page's tag defines them (pages/block/chain.ts): each is shown as a replacement character.
+const HIDDEN = /[\p{Cc}\p{Cf}\p{Co}\p{Cn}\p{Zl}\p{Zp}]/gu;
+/** An address's title is cut past this many characters. */
+export const TITLE_MAX = 128;
+
+/**
+ * An address as a sentence shows it: hidden characters made visible, cut to its first and last
+ * eight characters as the site shortens addresses, and its title whole up to `TITLE_MAX`.
+ */
+export function shownAddress(address: string): { short: string; title: string } {
+  // By code point, so a character outside the basic plane is never cut in half.
+  const seen = address.replaceAll(HIDDEN, "\uFFFD").match(/[\s\S]/gu) ?? [];
+  const short =
+    seen.length > 17 ? `${seen.slice(0, 8).join("")}…${seen.slice(-8).join("")}` : seen.join("");
+  const title = seen.length > TITLE_MAX ? `${seen.slice(0, TITLE_MAX).join("")}…` : seen.join("");
+  return { short, title };
+}
+
 /** Plain text, or an address the page shows shortened, whole in its title. */
 export type Piece = string | { address: string };
 export type Sentence = readonly Piece[];
@@ -71,6 +90,9 @@ const TYPE_NAMES: Partial<Record<ScriptType, string>> = {
 };
 const typeName = (t: ScriptType) => TYPE_NAMES[t] ?? t;
 
+/** Why a reused address links what it does: an inference, never who owns anything. */
+const ONE_OWNER = "An observer will usually read one address as one owner";
+
 /** One reused address, in a sentence or two. */
 function reusedSentence(a: ReusedAddress): Sentence {
   const { inputs, outputs } = a;
@@ -85,19 +107,19 @@ function reusedSentence(a: ReusedAddress): Sentence {
     return [
       `${cap(ins)} ${spends} from `,
       addr,
-      `, and ${outs} ${pays} the same address. An observer can tie ${thoseOut} to whoever controls ${thoseIn}.`,
+      `, and ${outs} ${pays} the same address, so the same locking script. ${ONE_OWNER}, which ties ${thoseOut} to ${thoseIn}.`,
     ];
   }
   if (inputs.length > 0)
     return [
       `${cap(listed("input", inputs))} ${inputs.length === 2 ? "both" : "all"} spend from `,
       addr,
-      ". An observer can tie those coins to one owner, with anything else paid to that address.",
+      `. ${ONE_OWNER}, which ties those coins together, and to anything else paid to that address.`,
     ];
   return [
     `${cap(listed("output", outputs))} ${outputs.length === 2 ? "both" : "all"} pay `,
     addr,
-    ". An observer can tie them to the same owner.",
+    `. ${ONE_OWNER}, which ties those outputs together.`,
   ];
 }
 
@@ -105,9 +127,8 @@ function reusedSentence(a: ReusedAddress): Sentence {
 function agreeing(r: ChangeReading): Sentence {
   const why = r.reason;
   if (why.kind === "payback") {
-    const one = why.inputs.length === 1;
     return [
-      `It pays back to the address ${listed("input", why.inputs)} ${one ? "spends" : "spend"} from, so it goes to whoever controls ${one ? "that input" : "those inputs"}.`,
+      `It pays the same address ${listed("input", why.inputs)} ${why.inputs.length === 1 ? "spends" : "spend"} from, which an observer will usually read as going back to the sender.`,
     ];
   }
   if (why.kind === "round") {
@@ -117,12 +138,12 @@ function agreeing(r: ChangeReading): Sentence {
   }
   if (why.kind === "script") {
     return [
-      `It is the only output of the inputs' type, ${typeName(why.scriptType)}, which suggests it goes back to the same wallet.`,
+      `Every input that funds it is ${typeName(why.scriptType)}, and of the two outputs only this one is, which suggests it is the change.`,
     ];
   }
   // unneeded
   return [
-    `It is less than ${smallest(why.inputs, why.value)}, and the other output is not. If the wallet would not add a coin it did not need, that suggests the other output is the payment.`,
+    `It is less than ${least(why.inputs, why.value)}, and the other output is not. If the wallet would not add coins it did not need, that suggests the other output is the payment.`,
   ];
 }
 
@@ -131,7 +152,7 @@ function stated(r: ChangeReading): Sentence {
   const why = r.reason;
   if (why.kind === "payback") {
     return [
-      `Output ${r.change} pays back to the address ${listed("input", why.inputs)} ${why.inputs.length === 1 ? "spends" : "spend"} from.`,
+      `Output ${r.change} pays the same address ${listed("input", why.inputs)} ${why.inputs.length === 1 ? "spends" : "spend"} from.`,
     ];
   }
   if (why.kind === "round") {
@@ -140,25 +161,32 @@ function stated(r: ChangeReading): Sentence {
     ];
   }
   if (why.kind === "script") {
-    return [`Only output ${r.change} is of the inputs' type, ${typeName(why.scriptType)}.`];
+    return [
+      `Every input that funds it is ${typeName(why.scriptType)}, and of the two outputs only output ${r.change} is.`,
+    ];
   }
   // unneeded
   return [
-    `Output ${r.change} is less than ${smallest(why.inputs, why.value)}, and the other output is not.`,
+    `Output ${r.change} is less than ${least(why.inputs, why.value)}, and the other output is not.`,
   ];
 }
 
-/** The smallest coin spent, with the inputs it is: one input, or one address's inputs together. */
-function smallest(inputs: readonly number[], value: number): string {
-  return inputs.length === 1
-    ? `${btc(value)}, the smallest coin spent (input ${inputs[0]})`
-    : `${btc(value)}, the least spent from one address (${listed("input", inputs)})`;
+/**
+ * What the smallest-coin reading compared: the total spent from each address, the least of them,
+ * and the input or inputs it is. Never "the smallest coin": a smaller single input may come from
+ * an address that spends more in all.
+ */
+function least(inputs: readonly number[], value: number): string {
+  return `${btc(value)}, the least spent from any one address (${listed("input", inputs)})`;
 }
 
+const NUMBERS = ["", "one", "two", "three", "four"];
 const readingCount = (n: number) =>
   n === 1
     ? "Suggested by one reading, which is not proof:"
-    : `Suggested by ${["", "", "two", "three", "four"][n] ?? groupDigits(n)} readings, none of them proof:`;
+    : n === 2
+      ? "Suggested by two readings, neither of them proof:"
+      : `Suggested by ${NUMBERS[n] ?? groupDigits(n)} readings, none of them proof:`;
 
 /** What a finding says. */
 export function sayFinding(f: PrivacyFinding): Said {
@@ -198,18 +226,24 @@ export function sayFinding(f: PrivacyFinding): Said {
       kind: f.kind,
       tone: "caution",
       title: "No output clearly reads as change",
-      body: [["These readings point at different outputs, so none of them is strong:"]],
+      body: [
+        [
+          f.readings.length === 2
+            ? "These two readings point at different outputs, so neither is strong:"
+            : "These readings point at different outputs, so none of them is strong:",
+        ],
+      ],
       reasons: f.readings.map((r) => stated(r)),
     };
   }
   if (f.kind === "coinjoin") {
     const [first] = f.groups;
     const equal = f.groups.reduce((n, g) => n + g.outputs.length, 0);
-    const senders = `the inputs come from ${groupDigits(f.senders)} different addresses`;
+    const senders = `the inputs that fund it come from ${groupDigits(f.senders)} different addresses`;
     const shape =
       f.groups.length === 1 && first
-        ? `${cap(listed("output", first.outputs))} each pay exactly ${btc(first.value)}, to different addresses, and ${senders}.`
-        : `${groupDigits(equal)} outputs fall into ${groupDigits(f.groups.length)} groups of equal amounts, the largest ${groupDigits(first?.outputs.length ?? 0)} of ${btc(first?.value ?? 0)}, each to a different address, and ${senders}.`;
+        ? `${cap(listed("output", first.outputs))} each pay exactly ${btc(first.value)}, each to a different address, and ${senders}.`
+        : `${groupDigits(equal)} outputs fall into ${groupDigits(f.groups.length)} groups of equal amounts, the largest ${groupDigits(first?.outputs.length ?? 0)} of ${btc(first?.value ?? 0)}. Within each group every output pays a different address, and ${senders}.`;
     return {
       kind: f.kind,
       tone: "neutral",
@@ -217,7 +251,7 @@ export function sayFinding(f: PrivacyFinding): Said {
       body: [
         [shape],
         [
-          "That is the shape of a CoinJoin, where several people pay into one transaction so an observer cannot tell which equal output is whose. The shape alone does not prove it is one, and which output is change is not read here.",
+          "That is the shape of a CoinJoin, where several people pay into one transaction. Because the amounts are equal, they alone do not tell an observer which equal output is whose; other things still may. The shape alone does not prove it is one, and which output is change is not read here.",
         ],
       ],
       reasons: [],
@@ -233,7 +267,7 @@ export function sayFinding(f: PrivacyFinding): Said {
       `${cap(listed("input", f.inputs))} are spent together${from}. An observer can read coins spent in one transaction as one owner's.`,
     ],
   ];
-  if (f.noChange) body.push(["There is one output and no change, so all of it goes to one place."]);
+  if (f.noChange) body.push(["Only one output is paid, so nothing in it reads as change."]);
   return { kind: f.kind, tone: "caution", title: "Coins spent together", body, reasons: [] };
 }
 
@@ -246,7 +280,7 @@ const CHECK_NAMES: Record<PrivacyCheck, string> = {
   payback: "outputs paying back to an input's address",
   round: "round amounts",
   script: "script types",
-  unneeded: "the smallest coin spent",
+  unneeded: "the least spent from one address",
   coinjoin: "the CoinJoin shape",
   "spent-together": "coins spent together",
 };
@@ -267,28 +301,46 @@ const andList = (xs: readonly string[]) =>
 export const isPartial = (r: PrivacyReport) =>
   r.inputsMissing || r.unknownInputs.length > 0 || r.notRun.length > 0 || r.unreliable.length > 0;
 
+/** Checks that need every input's coin, and checks that need valid amounts (lib/privacy.ts). */
+const NEEDS_INPUTS: readonly PrivacyCheck[] = [
+  "coinjoin",
+  "payback",
+  "script",
+  "unneeded",
+  "spent-together",
+];
+const NEEDS_AMOUNTS: readonly PrivacyCheck[] = ["coinjoin", "round", "unneeded"];
+
 /**
- * What could not be checked, and what that may leave incomplete, as the report states it. Empty
- * when everything was checked. `unreliable` is conservative, so it says "may".
+ * What could not be checked, and why: each cause with the checks it held back, then what that may
+ * leave incomplete. Empty when everything was checked. `unreliable` is conservative, so "may".
+ * Amounts are named as a cause only when the report shows it: a round reading held back (it needs
+ * only the outputs), or checks held back with every input known.
  */
 export function sayPartial(r: PrivacyReport, unsent: boolean): Sentence[] {
+  // An unsent-only check is named only where it would be shown.
+  const notRun = r.notRun.filter((c) => unsent || c !== "spent-together");
+  const known = !r.inputsMissing && r.unknownInputs.length === 0;
+  const amounts = r.notRun.includes("round") || (known && r.notRun.length > 0);
+  const held = (needs: readonly PrivacyCheck[]) => {
+    const xs = notRun.filter((c) => needs.includes(c));
+    return xs.length === 0
+      ? "."
+      : `, so ${xs.length === 1 ? "this was" : "these were"} not checked: ${andList(xs.map((c) => CHECK_NAMES[c]))}.`;
+  };
   const out: Sentence[] = [];
-  if (r.inputsMissing)
-    out.push([
-      "This transaction's inputs are not listed here, so only its outputs could be checked.",
-    ]);
+  if (isPartial(r)) out.push(["Only part of this transaction could be checked."]);
+  if (r.inputsMissing) out.push([`Its inputs are not listed here${held(NEEDS_INPUTS)}`]);
   else if (r.unknownInputs.length > 0) {
     const n = r.unknownInputs.length;
     out.push([
-      `What ${listed("input", r.unknownInputs)} ${n === 1 ? "spends" : "spend"} is not known here, so only part of this transaction could be checked.`,
+      `What ${listed("input", r.unknownInputs)} ${n === 1 ? "spends" : "spend"} is not known here${held(NEEDS_INPUTS)}`,
     ]);
-  } else if (r.notRun.length > 0)
+  }
+  if (amounts)
     out.push([
-      "Some of its amounts cannot be right (more than there will ever be, or more paid out than spent), so only part of it could be checked.",
+      `Some of its amounts cannot be right (more than there will ever be, or more paid out than spent)${held(NEEDS_AMOUNTS)}`,
     ]);
-  // An unsent-only check is named only where it would be shown.
-  const notRun = r.notRun.filter((c) => unsent || c !== "spent-together");
-  if (notRun.length > 0) out.push([`Not checked: ${andList(notRun.map((c) => CHECK_NAMES[c]))}.`]);
   const subjects = [
     ...new Set(r.unreliable.filter((k) => unsent || !UNSENT_ONLY.has(k)).map((k) => SUBJECTS[k])),
   ];
@@ -312,8 +364,8 @@ export const UNSENT_CLOSING =
 /** "What this checks": each check in a sentence, then what it does not do. */
 export const CHECKS: readonly string[] = [
   "Address reuse: an address that appears more than once among this transaction's inputs and outputs.",
-  "Which output is change, from four readings: one output paying back to an address an input spends from; one round amount beside one that is not; the only output of the inputs' script type; and the smaller output being less than the smallest coin spent while the larger is not. A pay-back decides; readings that point at different outputs leave it unclear.",
-  "The shape of a CoinJoin: three or more outputs of one amount, each to a different address, from at least as many different addresses.",
+  "Which output is change, from four readings: one output paying the same address an input spends from; one round amount beside one that is not; the only one of two outputs of the inputs' script type; and the smaller output being less than the least spent from any one address while the larger is not. A pay-back decides; readings that point at different outputs leave it unclear.",
+  "The shape of a CoinJoin: among other conditions, three or more outputs of one amount, each to a different address, with the inputs that fund it from at least as many different addresses.",
   "Coins spent together, which suggest one owner; shown only before a transaction is sent, while that can still change.",
 ];
 export const LIMITS: readonly string[] = [
@@ -355,6 +407,8 @@ export function cardMarks(findings: readonly PrivacyFinding[]): Map<string, Mark
   return marks;
 }
 
-/** A sentence as plain text, addresses shortened by `short`, for tests and screen-reader checks. */
-export const plain = (s: Sentence, short: (a: string) => string = (a) => a): string =>
-  s.map((p) => (typeof p === "string" ? p : short(p.address))).join("");
+/** A sentence as plain text, addresses shortened as the page shows them, for tests and checks. */
+export const plain = (
+  s: Sentence,
+  short: (a: string) => string = (a) => shownAddress(a).short,
+): string => s.map((p) => (typeof p === "string" ? p : short(p.address))).join("");

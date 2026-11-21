@@ -90,6 +90,11 @@ describe("the decoder page", () => {
     const to = [...el.querySelectorAll("a")].find((a) => a.textContent === "Broadcast");
     expect(to?.getAttribute("href")).toBe("/signet/tx/push");
     expect(to?.getAttribute("state")).toBe('{"hex":"02abcd"}');
+    // The way to send it comes after what sending it would show.
+    const notice = el.querySelector(".pv-send");
+    expect(notice).not.toBeNull();
+    const order = notice?.compareDocumentPosition(to ?? notice) ?? 0;
+    expect(order & Node.DOCUMENT_POSITION_FOLLOWING).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     // The flow's links stay on the network it was checked on.
     const hrefs = [...el.querySelectorAll("a")].map((a) => a.getAttribute("href"));
     expect(hrefs).toContain("/signet/address/tb1qexample");

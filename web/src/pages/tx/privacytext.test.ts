@@ -15,7 +15,9 @@ import {
   sayFinding,
   sayNothing,
   sayPartial,
+  shownAddress,
   shownFindings,
+  TITLE_MAX,
 } from "./privacytext";
 
 // ---- Transactions: each label is one address, a P2WPKH script unless a type is given. ----
@@ -68,6 +70,21 @@ function tx(ins: (Coin | null | undefined)[], outs: Coin[]): Transaction {
   };
 }
 
+/** Pay to anchor: one fixed script anyone can spend, left out of every rule. */
+const ANCHOR: Vout = {
+  scriptpubkey: "51024e73",
+  scriptpubkey_asm: "",
+  scriptpubkey_type: "unknown",
+  scriptpubkey_address: "bc1pfeessrawgf",
+  value: 240,
+};
+/** `t` with an anchor input or output added. */
+function anchored(t: Transaction, side: "in" | "out"): Transaction {
+  return side === "in"
+    ? { ...t, vin: [...(t.vin ?? []), { ...vin(undefined), prevout: ANCHOR }] }
+    : { ...t, vout: [...t.vout, ANCHOR] };
+}
+
 /** The one finding of `kind` the rules made for `t`, as the page says it. */
 function said(t: Transaction, kind: PrivacyFinding["kind"]): Said {
   const f = checkPrivacy(t).findings.find((x) => x.kind === kind);
@@ -107,7 +124,7 @@ describe("address reuse", () => {
     );
     expect(lines(said(t, "reuse"))).toStrictEqual([
       "Address reused",
-      "Input 0 spends from bcrt1qme, and output 1 pays the same address. An observer can tie that output to whoever controls that input.",
+      "Input 0 spends from bcrt1qme, and output 1 pays the same address, so the same locking script. An observer will usually read one address as one owner, which ties that output to that input.",
     ]);
   });
   it("several inputs and outputs on one address", () => {
@@ -123,7 +140,7 @@ describe("address reuse", () => {
     );
     expect(lines(said(t, "reuse"))).toStrictEqual([
       "Address reused",
-      "Inputs 0 and 1 spend from bcrt1qme, and outputs 0 and 1 pay the same address. An observer can tie those outputs to whoever controls those inputs.",
+      "Inputs 0 and 1 spend from bcrt1qme, and outputs 0 and 1 pay the same address, so the same locking script. An observer will usually read one address as one owner, which ties those outputs to those inputs.",
     ]);
   });
   it("inputs only", () => {
@@ -137,7 +154,7 @@ describe("address reuse", () => {
     );
     expect(lines(said(t, "reuse"))).toStrictEqual([
       "Address reused",
-      "Inputs 0, 1 and 2 all spend from bcrt1qme. An observer can tie those coins to one owner, with anything else paid to that address.",
+      "Inputs 0, 1 and 2 all spend from bcrt1qme. An observer will usually read one address as one owner, which ties those coins together, and to anything else paid to that address.",
     ]);
   });
   it("outputs only", () => {
@@ -150,7 +167,7 @@ describe("address reuse", () => {
     );
     expect(lines(said(t, "reuse"))).toStrictEqual([
       "Address reused",
-      "Outputs 0 and 1 both pay bcrt1qyou. An observer can tie them to the same owner.",
+      "Outputs 0 and 1 both pay bcrt1qyou. An observer will usually read one address as one owner, which ties those outputs together.",
     ]);
   });
   it("says three addresses and counts the rest", () => {
@@ -166,7 +183,7 @@ describe("address reuse", () => {
   it("counts many inputs instead of listing them", () => {
     const ins = Array.from({ length: 65 }, () => ({ value: 10_000, to: "me" }));
     expect(plain(said(tx(ins, [{ value: 600_000, to: "you" }]), "reuse").body[0] ?? [])).toBe(
-      "65 inputs all spend from bcrt1qme. An observer can tie those coins to one owner, with anything else paid to that address.",
+      "65 inputs all spend from bcrt1qme. An observer will usually read one address as one owner, which ties those coins together, and to anything else paid to that address.",
     );
   });
 });
@@ -183,7 +200,7 @@ describe("which output is change", () => {
     expect(lines(said(t, "change"))).toStrictEqual([
       "Output 1 reads as change, output 0 as the payment",
       "Suggested by one reading, which is not proof:",
-      "• It pays back to the address input 0 spends from, so it goes to whoever controls that input.",
+      "• It pays the same address input 0 spends from, which an observer will usually read as going back to the sender.",
     ]);
   });
   it("pay-back from several inputs, beside more than one other output: no payment named", () => {
@@ -201,7 +218,7 @@ describe("which output is change", () => {
     expect(lines(said(t, "change"))).toStrictEqual([
       "Output 2 reads as change",
       "Suggested by one reading, which is not proof:",
-      "• It pays back to the address inputs 0 and 1 spend from, so it goes to whoever controls those inputs.",
+      "• It pays the same address inputs 0 and 1 spend from, which an observer will usually read as going back to the sender.",
     ]);
   });
   it("round amount", () => {
@@ -229,7 +246,7 @@ describe("which output is change", () => {
     expect(lines(said(t, "change"))).toStrictEqual([
       "Output 1 reads as change, output 0 as the payment",
       "Suggested by one reading, which is not proof:",
-      "• It is the only output of the inputs' type, P2TR, which suggests it goes back to the same wallet.",
+      "• Every input that funds it is P2TR, and of the two outputs only this one is, which suggests it is the change.",
     ]);
   });
   it("the smallest coin, one input: states the comparison and nothing more", () => {
@@ -247,7 +264,7 @@ describe("which output is change", () => {
     expect(lines(s)).toStrictEqual([
       "Output 0 reads as change, output 1 as the payment",
       "Suggested by one reading, which is not proof:",
-      "• It is less than 0.00103 BTC, the smallest coin spent (input 0), and the other output is not. If the wallet would not add a coin it did not need, that suggests the other output is the payment.",
+      "• It is less than 0.00103 BTC, the least spent from any one address (input 0), and the other output is not. If the wallet would not add coins it did not need, that suggests the other output is the payment.",
     ]);
     // Input 1 alone would pay output 1: the words must never say it could not.
     expect(lines(s).join(" ")).not.toMatch(/could not|couldn't|needed every/);
@@ -265,8 +282,10 @@ describe("which output is change", () => {
       ],
     );
     expect(plain(said(t, "change").reasons[0] ?? [])).toBe(
-      "It is less than 0.00400003 BTC, the smallest coin spent (input 2), and the other output is not. If the wallet would not add a coin it did not need, that suggests the other output is the payment.",
+      "It is less than 0.00400003 BTC, the least spent from any one address (input 2), and the other output is not. If the wallet would not add coins it did not need, that suggests the other output is the payment.",
     );
+    // Input 0 is the smaller coin, but its address spends more in all: never "the smallest coin".
+    expect(plain(said(t, "change").reasons[0] ?? [])).not.toMatch(/smallest/);
     const one = tx(
       [
         { value: 150_001, to: "a" },
@@ -279,7 +298,34 @@ describe("which output is change", () => {
       ],
     );
     expect(plain(said(one, "change").reasons[0] ?? [])).toBe(
-      "It is less than 0.00400002 BTC, the least spent from one address (inputs 0 and 1), and the other output is not. If the wallet would not add a coin it did not need, that suggests the other output is the payment.",
+      "It is less than 0.00400002 BTC, the least spent from any one address (inputs 0 and 1), and the other output is not. If the wallet would not add coins it did not need, that suggests the other output is the payment.",
+    );
+  });
+  it("two readings agreeing: neither of them proof", () => {
+    const t = tx(
+      [{ value: 10_000_000, to: "me" }],
+      [
+        { value: 5_000_000, to: "you" },
+        { value: 4_987_654, to: "me" },
+      ],
+    );
+    expect(lines(said(t, "change"))).toStrictEqual([
+      "Output 1 reads as change, output 0 as the payment",
+      "Suggested by two readings, neither of them proof:",
+      "• It pays the same address input 0 spends from, which an observer will usually read as going back to the sender.",
+      "• Output 0 is a round 0.05 BTC and this one is not, which suggests output 0 is the payment.",
+    ]);
+  });
+  it("script type with an anchor input beside: says the inputs that fund it", () => {
+    const t = tx(
+      [{ value: 10_000_000, to: "me", type: "v1_p2tr" }],
+      [
+        { value: 4_123_457, to: "you" },
+        { value: 5_865_432, to: "new", type: "v1_p2tr" },
+      ],
+    );
+    expect(plain(said(anchored(t, "in"), "change").reasons[0] ?? [])).toBe(
+      "Every input that funds it is P2TR, and of the two outputs only this one is, which suggests it is the change.",
     );
   });
   it("several readings agreeing are each a reason", () => {
@@ -293,9 +339,9 @@ describe("which output is change", () => {
     expect(lines(said(t, "change"))).toStrictEqual([
       "Output 1 reads as change, output 0 as the payment",
       "Suggested by three readings, none of them proof:",
-      "• It pays back to the address input 0 spends from, so it goes to whoever controls that input.",
+      "• It pays the same address input 0 spends from, which an observer will usually read as going back to the sender.",
       "• Output 0 is a round 0.05 BTC and this one is not, which suggests output 0 is the payment.",
-      "• It is the only output of the inputs' type, P2TR, which suggests it goes back to the same wallet.",
+      "• Every input that funds it is P2TR, and of the two outputs only this one is, which suggests it is the change.",
     ]);
   });
   it("disputed: the readings as facts, no output named as change", () => {
@@ -310,9 +356,9 @@ describe("which output is change", () => {
     const s = said(t, "change-disputed");
     expect(lines(s)).toStrictEqual([
       "No output clearly reads as change",
-      "These readings point at different outputs, so none of them is strong:",
+      "These two readings point at different outputs, so neither is strong:",
       "• Output 0 is a round 0.05 BTC, and output 1 is not.",
-      "• Only output 0 is of the inputs' type, P2TR.",
+      "• Every input that funds it is P2TR, and of the two outputs only output 0 is.",
     ]);
     expect(lines(s).join(" ")).not.toMatch(/reads as change,|is the payment|is change/);
   });
@@ -329,9 +375,9 @@ describe("which output is change", () => {
     );
     expect(lines(said(t, "change-disputed"))).toStrictEqual([
       "No output clearly reads as change",
-      "These readings point at different outputs, so none of them is strong:",
-      "• Only output 1 is of the inputs' type, P2WSH.",
-      "• Output 0 is less than 0.0169945 BTC, the smallest coin spent (input 0), and the other output is not.",
+      "These two readings point at different outputs, so neither is strong:",
+      "• Every input that funds it is P2WSH, and of the two outputs only output 1 is.",
+      "• Output 0 is less than 0.0169945 BTC, the least spent from any one address (input 0), and the other output is not.",
     ]);
   });
 });
@@ -343,8 +389,8 @@ describe("a CoinJoin's shape", () => {
     const outs = [0, 1, 2].map((k) => ({ value: 1_000_000, to: `o${k}` }));
     expect(lines(said(tx(ins(3), outs), "coinjoin"))).toStrictEqual([
       "Shaped like a CoinJoin",
-      "Outputs 0, 1 and 2 each pay exactly 0.01 BTC, to different addresses, and the inputs come from 3 different addresses.",
-      "That is the shape of a CoinJoin, where several people pay into one transaction so an observer cannot tell which equal output is whose. The shape alone does not prove it is one, and which output is change is not read here.",
+      "Outputs 0, 1 and 2 each pay exactly 0.01 BTC, each to a different address, and the inputs that fund it come from 3 different addresses.",
+      "That is the shape of a CoinJoin, where several people pay into one transaction. Because the amounts are equal, they alone do not tell an observer which equal output is whose; other things still may. The shape alone does not prove it is one, and which output is change is not read here.",
     ]);
   });
   it("several groups", () => {
@@ -353,7 +399,13 @@ describe("a CoinJoin's shape", () => {
       ...[0, 1, 2].map((k) => ({ value: 50_000, to: `b${k}` })),
     ];
     expect(plain(said(tx(ins(7), outs), "coinjoin").body[0] ?? [])).toBe(
-      "7 outputs fall into 2 groups of equal amounts, the largest 4 of 0.01 BTC, each to a different address, and the inputs come from 7 different addresses.",
+      "7 outputs fall into 2 groups of equal amounts, the largest 4 of 0.01 BTC. Within each group every output pays a different address, and the inputs that fund it come from 7 different addresses.",
+    );
+  });
+  it("counts the inputs that fund it, not an anchor beside them", () => {
+    const outs = [0, 1, 2].map((k) => ({ value: 1_000_000, to: `o${k}` }));
+    expect(plain(said(anchored(tx(ins(3), outs), "in"), "coinjoin").body[0] ?? [])).toBe(
+      "Outputs 0, 1 and 2 each pay exactly 0.01 BTC, each to a different address, and the inputs that fund it come from 3 different addresses.",
     );
   });
   it("is neutral, not a caution", () => {
@@ -391,7 +443,21 @@ describe("coins spent together (before sending)", () => {
     expect(lines(said(t, "spent-together"))).toStrictEqual([
       "Coins spent together",
       "Inputs 0, 1 and 2 are spent together, all from one address. An observer can read coins spent in one transaction as one owner's.",
-      "There is one output and no change, so all of it goes to one place.",
+      "Only one output is paid, so nothing in it reads as change.",
+    ]);
+  });
+  it("one paid output beside an anchor: says only that one output is paid", () => {
+    const t = tx(
+      [
+        { value: 100_000, to: "a" },
+        { value: 100_000, to: "b" },
+      ],
+      [{ value: 190_000, to: "x" }],
+    );
+    expect(lines(said(anchored(t, "out"), "spent-together"))).toStrictEqual([
+      "Coins spent together",
+      "Inputs 0 and 1 are spent together, from 2 different addresses. An observer can read coins spent in one transaction as one owner's.",
+      "Only one output is paid, so nothing in it reads as change.",
     ]);
   });
   it("is not shown on the transaction page", () => {
@@ -412,13 +478,15 @@ describe("coins spent together (before sending)", () => {
 
 describe("when only part could be checked", () => {
   const partial = (r: PrivacyReport, unsent = false) => sayPartial(r, unsent).map((s) => plain(s));
+  const SUPPLY = 21_000_000 * 100_000_000;
+  const HEAD = "Only part of this transaction could be checked.";
   it("says nothing when everything was checked", () => {
     const r = checkPrivacy(tx([{ value: 100_000, to: "a" }], [{ value: 90_000, to: "b" }]));
     expect(isPartial(r)).toBe(false);
     expect(partial(r)).toStrictEqual([]);
     expect(sayNothing(false)).toBe("Nothing in this transaction's shape stands out.");
   });
-  it("one unknown input, two outputs", () => {
+  it("one unknown input, two outputs: what it held back, on each page", () => {
     const r = checkPrivacy(
       tx(
         [{ value: 800_000, to: "a" }, null],
@@ -429,17 +497,17 @@ describe("when only part could be checked", () => {
       ),
     );
     expect(partial(r)).toStrictEqual([
-      "What input 1 spends is not known here, so only part of this transaction could be checked.",
-      "Not checked: the CoinJoin shape, outputs paying back to an input's address, script types and the smallest coin spent.",
+      HEAD,
+      "What input 1 spends is not known here, so these were not checked: the CoinJoin shape, outputs paying back to an input's address, script types and the least spent from one address.",
       "What it shows about address reuse and which output is change may be incomplete.",
     ]);
     expect(partial(r, true)).toStrictEqual([
-      "What input 1 spends is not known here, so only part of this transaction could be checked.",
-      "Not checked: the CoinJoin shape, outputs paying back to an input's address, script types, the smallest coin spent and coins spent together.",
+      HEAD,
+      "What input 1 spends is not known here, so these were not checked: the CoinJoin shape, outputs paying back to an input's address, script types, the least spent from one address and coins spent together.",
       "What it shows about address reuse, which output is change and coins spent together may be incomplete.",
     ]);
   });
-  it("several unknown inputs, three outputs, past the lookup limit", () => {
+  it("one input past the lookup limit, three outputs", () => {
     const ins = [
       ...Array.from({ length: 100 }, (_, k) => ({ value: 10_000, to: `i${k}` })),
       undefined,
@@ -452,13 +520,15 @@ describe("when only part could be checked", () => {
       ]),
     );
     expect(partial(r)).toStrictEqual([
-      "What input 100 spends is not known here, so only part of this transaction could be checked.",
-      "Not checked: the CoinJoin shape and outputs paying back to an input's address.",
+      HEAD,
+      "What input 100 spends is not known here, so these were not checked: the CoinJoin shape and outputs paying back to an input's address.",
       "What it shows about address reuse, which output is change and the CoinJoin shape may be incomplete.",
     ]);
+  });
+  it("many unknown inputs are counted", () => {
     const many = checkPrivacy(tx([null, null, null, null, null, null], [{ value: 1, to: "x" }]));
-    expect(partial(many)[0]).toBe(
-      "What 6 inputs spend is not known here, so only part of this transaction could be checked.",
+    expect(partial(many)[1]).toBe(
+      "What 6 inputs spend is not known here, so these were not checked: the CoinJoin shape and outputs paying back to an input's address.",
     );
   });
   it("no inputs listed", () => {
@@ -469,10 +539,9 @@ describe("when only part could be checked", () => {
         { value: 4_987_654, to: "y" },
       ],
     );
-    const r = checkPrivacy({ ...t, pruned: true });
-    expect(partial(r)).toStrictEqual([
-      "This transaction's inputs are not listed here, so only its outputs could be checked.",
-      "Not checked: the CoinJoin shape, outputs paying back to an input's address, script types and the smallest coin spent.",
+    expect(partial(checkPrivacy({ ...t, pruned: true }))).toStrictEqual([
+      HEAD,
+      "Its inputs are not listed here, so these were not checked: the CoinJoin shape, outputs paying back to an input's address, script types and the least spent from one address.",
       "What it shows about address reuse and which output is change may be incomplete.",
     ]);
   });
@@ -487,9 +556,62 @@ describe("when only part could be checked", () => {
       ),
     );
     expect(partial(r)).toStrictEqual([
-      "Some of its amounts cannot be right (more than there will ever be, or more paid out than spent), so only part of it could be checked.",
-      "Not checked: the CoinJoin shape, round amounts and the smallest coin spent.",
+      HEAD,
+      "Some of its amounts cannot be right (more than there will ever be, or more paid out than spent), so these were not checked: the CoinJoin shape, round amounts and the least spent from one address.",
       "What it shows about which output is change may be incomplete.",
+    ]);
+  });
+  it("an unknown input and amounts that cannot be right: each cause with what it held back", () => {
+    const r = checkPrivacy(
+      tx(
+        [{ value: 800_000, to: "a" }, null],
+        [
+          { value: SUPPLY, to: "x" },
+          { value: 123_457, to: "y" },
+        ],
+      ),
+    );
+    expect(partial(r)).toStrictEqual([
+      HEAD,
+      "What input 1 spends is not known here, so these were not checked: the CoinJoin shape, outputs paying back to an input's address, script types and the least spent from one address.",
+      "Some of its amounts cannot be right (more than there will ever be, or more paid out than spent), so these were not checked: the CoinJoin shape, round amounts and the least spent from one address.",
+      "What it shows about address reuse and which output is change may be incomplete.",
+    ]);
+  });
+  it("no inputs listed and amounts that cannot be right", () => {
+    const t = tx(
+      [],
+      [
+        { value: SUPPLY, to: "x" },
+        { value: 123_457, to: "y" },
+      ],
+    );
+    expect(partial(checkPrivacy({ ...t, pruned: true }))).toStrictEqual([
+      HEAD,
+      "Its inputs are not listed here, so these were not checked: the CoinJoin shape, outputs paying back to an input's address, script types and the least spent from one address.",
+      "Some of its amounts cannot be right (more than there will ever be, or more paid out than spent), so these were not checked: the CoinJoin shape, round amounts and the least spent from one address.",
+      "What it shows about address reuse and which output is change may be incomplete.",
+    ]);
+  });
+  it("amounts that cannot be right beside three outputs, every input known", () => {
+    const r = checkPrivacy(
+      tx(
+        [
+          { value: 10_000, to: "a" },
+          { value: 10_000, to: "b" },
+          { value: 10_000, to: "c" },
+        ],
+        [
+          { value: 11_000, to: "x" },
+          { value: 11_000, to: "y" },
+          { value: 11_000, to: "z" },
+        ],
+      ),
+    );
+    expect(partial(r)).toStrictEqual([
+      HEAD,
+      "Some of its amounts cannot be right (more than there will ever be, or more paid out than spent), so this was not checked: the CoinJoin shape.",
+      "What it shows about the CoinJoin shape may be incomplete.",
     ]);
   });
   it("never says nothing stands out when only part was checked", () => {
@@ -499,7 +621,7 @@ describe("when only part could be checked", () => {
 });
 
 describe("hostile addresses", () => {
-  const HOSTILE = '<img src=x onerror="alert(1)">‮gnp.exe';
+  const HOSTILE = '<img src=x onerror="alert(1)">\u202Egnp.exe';
   it("stay one piece of the sentence, never markup or wording", () => {
     const t = tx(
       [{ value: 100_000, to: "me", address: HOSTILE }],
@@ -508,15 +630,30 @@ describe("hostile addresses", () => {
         { value: 60_001, to: "me", address: HOSTILE },
       ],
     );
-    const s = said(t, "reuse");
-    const sentence = s.body[0] ?? [];
+    const sentence = said(t, "reuse").body[0] ?? [];
     expect(sentence.filter((p) => typeof p !== "string")).toStrictEqual([{ address: HOSTILE }]);
     // The text around it is ours alone.
     expect(sentence.filter((p) => typeof p === "string").join("")).not.toMatch(/[<>]/);
-    // Shortened as the site shortens: eight and eight.
-    expect(plain(sentence, (a) => `${a.slice(0, 8)}…${a.slice(-8)}`)).toBe(
-      "Input 0 spends from <img src…‮gnp.exe, and output 1 pays the same address. An observer can tie that output to whoever controls that input.",
+    // Shown with its bidi override made visible, cut to eight and eight.
+    expect(plain(sentence)).toBe(
+      "Input 0 spends from <img src…\uFFFDgnp.exe, and output 1 pays the same address, so the same locking script. An observer will usually read one address as one owner, which ties that output to that input.",
     );
+  });
+  it("hidden and reordering characters are made visible, in the short form and the title", () => {
+    const hidden = "bc1q\u200Bab\u202Ecd\u2066ef\u0007gh\u2028ij\uE000kl";
+    const shown = shownAddress(hidden);
+    expect(shown.title).toBe("bc1q\uFFFDab\uFFFDcd\uFFFDef\uFFFDgh\uFFFDij\uFFFDkl");
+    expect(shown.short).toBe("bc1q\uFFFDab\uFFFD…gh\uFFFDij\uFFFDkl");
+    const kept = ["\u200B", "\u202E", "\u2066", "\u0007", "\u2028", "\uE000"].filter((c) =>
+      `${shown.short}${shown.title}`.includes(c),
+    );
+    expect(kept).toStrictEqual([]);
+  });
+  it("a title is cut past 128 characters; a short address is shown whole", () => {
+    const long = shownAddress("a".repeat(500));
+    expect(long.title).toBe(`${"a".repeat(TITLE_MAX)}…`);
+    expect(long.short).toBe("aaaaaaaa…aaaaaaaa");
+    expect(shownAddress("bcrt1qme")).toStrictEqual({ short: "bcrt1qme", title: "bcrt1qme" });
   });
 });
 
@@ -606,8 +743,8 @@ describe("what this checks", () => {
   it("names every check in a sentence, and what it does not do", () => {
     expect(CHECKS).toStrictEqual([
       "Address reuse: an address that appears more than once among this transaction's inputs and outputs.",
-      "Which output is change, from four readings: one output paying back to an address an input spends from; one round amount beside one that is not; the only output of the inputs' script type; and the smaller output being less than the smallest coin spent while the larger is not. A pay-back decides; readings that point at different outputs leave it unclear.",
-      "The shape of a CoinJoin: three or more outputs of one amount, each to a different address, from at least as many different addresses.",
+      "Which output is change, from four readings: one output paying the same address an input spends from; one round amount beside one that is not; the only one of two outputs of the inputs' script type; and the smaller output being less than the least spent from any one address while the larger is not. A pay-back decides; readings that point at different outputs leave it unclear.",
+      "The shape of a CoinJoin: among other conditions, three or more outputs of one amount, each to a different address, with the inputs that fund it from at least as many different addresses.",
       "Coins spent together, which suggest one owner; shown only before a transaction is sent, while that can still change.",
     ]);
     expect(LIMITS).toStrictEqual([

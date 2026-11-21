@@ -25,7 +25,14 @@ import "./Push.css";
  * What a checked transaction does: summary, warnings, inputs and outputs, and with `enabled` the
  * broadcast button. The broadcast page and the decoder both draw it.
  */
-export function CheckedTx(props: { c: Checked; hex: string; enabled: boolean }) {
+export function CheckedTx(props: {
+  c: Checked;
+  hex: string;
+  enabled: boolean;
+  /** Where the page's own action goes when it has no button here (the decoder's link): after the
+   * notices, so a reader reaches what sending would show before the way to send it. */
+  action?: JSX.Element;
+}) {
   const network = useNetwork();
   const tx = () => props.c.tx;
   // The next block's rate, to tell a fee rate that is far too high. Absent with the engine off.
@@ -35,18 +42,19 @@ export function CheckedTx(props: { c: Checked; hex: string; enabled: boolean }) 
     return typeof f === "number" && f > 0 ? f : undefined;
   };
   const warn = () => warnings(tx(), next());
-  // What sending it would show an observer: said while it can still change, so not for one the
-  // node already has, nor for a coinbase, which has no sender.
-  const privacy = createMemo(() => checkPrivacy(tx()));
-  const unsent = () => !props.c.known && !privacy().coinbase;
-  const privacyMarks = createMemo(() =>
-    unsent() ? cardMarks(shownFindings(privacy(), true)) : undefined,
-  );
   const rate = () => rateOf(tx());
   const v = () => vsize(tx());
   const [sending, setSending] = createSignal(false);
   /** The txid the node accepted. */
   const [sent, setSent] = createSignal<string>();
+  // What sending it would show an observer: said while it can still change, so not for one the
+  // node already has, nor for a coinbase, which has no sender.
+  const privacy = createMemo(() => checkPrivacy(tx()));
+  const shown = () => !props.c.known && !privacy().coinbase;
+  // Sent from this page, it is what the transaction page shows: nothing for an unsent one.
+  const privacyMarks = createMemo(() =>
+    shown() ? cardMarks(shownFindings(privacy(), sent() === undefined)) : undefined,
+  );
   // Nothing can spend a transaction the node does not have; one it has may be spent already.
   const [spends] = createApi<Outspend[]>(() =>
     props.c.known ? `/tx/${tx().txid}/outspends` : false,
@@ -221,8 +229,12 @@ export function CheckedTx(props: { c: Checked; hex: string; enabled: boolean }) 
         </Notice>
       </Show>
 
-      <Show when={unsent()}>
-        <UnsentPrivacy report={privacy()} />
+      <Show when={shown()}>
+        <UnsentPrivacy report={privacy()} sent={sent() !== undefined} />
+      </Show>
+
+      <Show when={props.action}>
+        <div class="push-action">{props.action}</div>
       </Show>
 
       <Show when={props.enabled && !props.c.known}>

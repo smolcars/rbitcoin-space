@@ -74,13 +74,37 @@ describe("the list under the flow", () => {
 
 describe("the notice before sending", () => {
   it("says what sending would show, and that the wallet can still change it", () => {
-    const el = mount(() => <UnsentPrivacy report={checkPrivacy(payback("bcrt1qme"))} />);
+    const el = mount(() => (
+      <UnsentPrivacy report={checkPrivacy(payback("bcrt1qme"))} sent={false} />
+    ));
     expect(el.querySelector("h2")?.textContent).toBe(
       "Once it is sent, anyone can read this from it",
     );
     expect(el.querySelector(".pv-closing")?.textContent).toBe(
       "It is not sent yet: a wallet can still change which coins it spends and where the change goes.",
     );
+  });
+});
+
+describe("the notice once sent, and with nothing to show", () => {
+  it("says what the transaction page says once sent: no 'not sent yet'", () => {
+    const el = mount(() => <UnsentPrivacy report={checkPrivacy(payback("bcrt1qme"))} sent />);
+    expect(el.querySelector("h2")?.textContent).toBe("What an observer can read");
+    expect(el.querySelector(".pv-closing")).toBeNull();
+    expect(el.textContent).toContain("Output 1 reads as change, output 0 as the payment");
+  });
+  it("is whole and quiet for a clean transaction not yet sent", () => {
+    const t = payback("bcrt1qme");
+    const clean: Transaction = { ...t, vout: [out("bcrt1qyou", 90_000, `0014${"22".repeat(20)}`)] };
+    const el = mount(() => <UnsentPrivacy report={checkPrivacy(clean)} sent={false} />);
+    expect(el.querySelector("h2")?.textContent).toBe(
+      "Once it is sent, anyone can read this from it",
+    );
+    expect(el.querySelector(".pv-none")?.textContent).toBe(
+      "Nothing in this transaction's shape stands out.",
+    );
+    expect(el.querySelector(".pv-closing")).not.toBeNull();
+    expect(el.querySelector("summary")?.textContent).toBe("What this checks");
   });
 });
 

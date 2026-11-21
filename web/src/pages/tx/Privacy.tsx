@@ -1,8 +1,7 @@
 // The privacy check on the page (docs/FRONTEND.md "Privacy check"): its marks on the flow's cards,
 // the list under the flow on the transaction page, and the notice on Broadcast and the decoder.
 // The words are all in privacytext.ts; this file only lays them out, as text nodes.
-import { For, Show } from "solid-js";
-import { Hash } from "../../components/Hash";
+import { createMemo, For, Show } from "solid-js";
 import { More } from "../../components/More";
 import type { PrivacyReport } from "../../lib/privacy";
 import {
@@ -16,6 +15,7 @@ import {
   sayFinding,
   sayNothing,
   sayPartial,
+  shownAddress,
   shownFindings,
   type Tone,
   UNSENT_CLOSING,
@@ -54,11 +54,24 @@ export function CardMarks(props: { marks: readonly Mark[] | undefined }) {
   );
 }
 
-/** A sentence: its text, and each address shortened as the site shortens one, whole in its title. */
+/**
+ * A sentence: its text, and each address as `shownAddress` gives it, hidden characters made
+ * visible, shortened as the site shortens one, its title bounded.
+ */
 function Words(props: { s: Sentence }) {
   return (
     <For each={props.s}>
-      {(piece) => (typeof piece === "string" ? piece : <Hash value={piece.address} copy={false} />)}
+      {(piece) => {
+        if (typeof piece === "string") return piece;
+        const a = shownAddress(piece.address);
+        return (
+          <span class="hash">
+            <span class="hash__text" title={a.title}>
+              {a.short}
+            </span>
+          </span>
+        );
+      }}
     </For>
   );
 }
@@ -104,88 +117,94 @@ function WhatThisChecks() {
   );
 }
 
-/** The findings, what could not be checked, or the one line when there is nothing to show. */
-function Findings(props: {
-  report: PrivacyReport;
-  unsent: boolean;
-  titleId: string;
-  /** Under the flow's own heading on the transaction page; beside it, as a section, elsewhere. */
-  level: 2 | 3;
-  title: string;
-}) {
-  const said = () => shownFindings(props.report, props.unsent).map((f) => sayFinding(f));
-  const partial = () => sayPartial(props.report, props.unsent);
+/** The findings to show and the lines on what could not be checked, each worked out once. */
+function useWords(report: () => PrivacyReport, unsent: () => boolean) {
+  const said = createMemo(() => shownFindings(report(), unsent()).map((f) => sayFinding(f)));
+  const partial = createMemo(() => sayPartial(report(), unsent()));
+  const nothing = createMemo(() => sayNothing(isPartial(report())));
+  return { said, partial, nothing };
+}
+
+function FindingList(props: { said: Said[] }) {
   return (
-    <>
-      <Show
-        when={said().length > 0}
-        fallback={
-          <p class="pv-none" id={props.titleId}>
-            <Eye tone="neutral" />
-            {sayNothing(isPartial(props.report))}
-          </p>
-        }
-      >
-        <Show
-          when={props.level === 2}
-          fallback={
-            <h3 class="pv-title" id={props.titleId}>
-              {props.title}
-            </h3>
-          }
-        >
-          <h2 class="pv-title" id={props.titleId}>
-            {props.title}
-          </h2>
-        </Show>
-        <ul class="pv-list">
-          <For each={said()}>{(s) => <Finding said={s} />}</For>
-        </ul>
-      </Show>
-      <Show when={partial().length > 0}>
-        <div class="pv-partial">
-          <For each={partial()}>
-            {(s) => (
-              <p>
-                <Words s={s} />
-              </p>
-            )}
-          </For>
-        </div>
-      </Show>
-    </>
+    <ul class="pv-list">
+      <For each={props.said}>{(s) => <Finding said={s} />}</For>
+    </ul>
   );
 }
 
-/** Under the flow on the transaction page: quiet, in the flow's own panel. */
+function Partial(props: { lines: Sentence[] }) {
+  return (
+    <Show when={props.lines.length > 0}>
+      <div class="pv-partial">
+        <For each={props.lines}>
+          {(s) => (
+            <p>
+              <Words s={s} />
+            </p>
+          )}
+        </For>
+      </div>
+    </Show>
+  );
+}
+
+/** Under the flow on the transaction page: quiet, in the flow's own panel. With nothing to show,
+ * one muted line and no heading. */
 export function TxPrivacy(props: { report: PrivacyReport }) {
+  const w = useWords(
+    () => props.report,
+    () => false,
+  );
   return (
     <section class="pv-under" aria-labelledby="pv-under-title">
-      <Findings
-        report={props.report}
-        unsent={false}
-        titleId="pv-under-title"
-        title={LIST_TITLE}
-        level={3}
-      />
+      <Show
+        when={w.said().length > 0}
+        fallback={
+          <p class="pv-none" id="pv-under-title">
+            <Eye tone="neutral" />
+            {w.nothing()}
+          </p>
+        }
+      >
+        <h3 class="pv-title" id="pv-under-title">
+          {LIST_TITLE}
+        </h3>
+        <FindingList said={w.said()} />
+      </Show>
+      <Partial lines={w.partial()} />
       <WhatThisChecks />
     </section>
   );
 }
 
-/** On Broadcast and the decoder, above the action: what sending it would show. */
-export function UnsentPrivacy(props: { report: PrivacyReport }) {
-  const said = () => shownFindings(props.report, true);
+/**
+ * On Broadcast and the decoder, before the action: what sending it would show, always whole
+ * (heading, findings or the one line, closing). Once sent it says what the transaction page says.
+ */
+export function UnsentPrivacy(props: { report: PrivacyReport; sent: boolean }) {
+  const w = useWords(
+    () => props.report,
+    () => !props.sent,
+  );
   return (
     <section class="pv-send" aria-labelledby="pv-send-title">
-      <Findings
-        report={props.report}
-        unsent
-        titleId="pv-send-title"
-        title={UNSENT_TITLE}
-        level={2}
-      />
-      <Show when={said().length > 0}>
+      <h2 class="pv-title" id="pv-send-title">
+        {props.sent ? LIST_TITLE : UNSENT_TITLE}
+      </h2>
+      <Show
+        when={w.said().length > 0}
+        fallback={
+          <p class="pv-none">
+            <Eye tone="neutral" />
+            {w.nothing()}
+          </p>
+        }
+      >
+        <FindingList said={w.said()} />
+      </Show>
+      <Partial lines={w.partial()} />
+      <Show when={!props.sent}>
         <p class="pv-closing">{UNSENT_CLOSING}</p>
       </Show>
       <WhatThisChecks />
