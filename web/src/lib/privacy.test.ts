@@ -989,32 +989,56 @@ describe("unnecessary input states an inequality, not a proof (R5)", () => {
   });
 });
 
+/** The app's types leave Node out; the speed limits are asked for through the environment. */
+declare const process: { env: Record<string, string | undefined> };
+/**
+ * The suite checks what the rules answer for three large shapes. How fast they answer is a time
+ * budget, and a time budget runs on request (docs/CI.md "Rules for tests"): on a slow runner one
+ * of these took 54 ms of processor time against a 4 ms norm, with nothing wrong in the code.
+ * `PRIVACY_BENCH=1 bunx vitest run src/lib/privacy.test.ts`
+ */
+const BENCH = process.env["PRIVACY_BENCH"] === "1";
+
+/** 5,000 equal outputs from 5,000 addresses: one group of every output. */
+const allEqual = (): Transaction => join(5_000, 100_000, 5_000);
+/** 5,000 outputs in 1,666 groups of three equal values: the most groups there can be to sort (R6). */
+const manyGroups = (): Transaction =>
+  tx(
+    Array.from({ length: 5_000 }, (_, k) => ({ value: 10_000_000, to: `in${k}` })),
+    Array.from({ length: 5_000 }, (_, k) => ({ value: 10_000 + Math.floor(k / 3), to: `out${k}` })),
+  );
+/** 5,000 inputs from one address to 5,000 outputs paying it back. */
+const oneAddress = (): Transaction =>
+  tx(
+    Array.from({ length: 5_000 }, () => ({ value: 20_000, to: "same" })),
+    Array.from({ length: 5_000 }, () => ({ value: 10_000, to: "same" })),
+  );
+
 describe("large transactions", () => {
-  // 5,000 outputs or inputs take well under 50 ms of processor time (lib/cost.ts, so a busy
-  // machine cannot fail these); a quadratic pass would take seconds.
-  it("5,000 outputs, all equal, are checked in under 50 ms", () => {
-    const t = join(5_000, 100_000, 5_000);
-    const { value: r, ms } = cost(() => checkPrivacy(t));
+  it("5,000 outputs, all equal, are one group", () => {
+    const r = checkPrivacy(allEqual());
     expect(finding(r, "coinjoin")?.groups[0]?.outputs.length).toBe(5_000);
-    expect(ms).toBeLessThan(50);
   });
-  it("5,000 outputs in 1,666 groups of three equal values, whose groups are sorted, take under 50 ms (R6)", () => {
-    const ins = Array.from({ length: 5_000 }, (_, k) => ({ value: 10_000_000, to: `in${k}` }));
-    const outs = Array.from({ length: 5_000 }, (_, k) => ({
-      value: 10_000 + Math.floor(k / 3),
-      to: `out${k}`,
-    }));
-    const t = tx(ins, outs);
-    const { value: r, ms } = cost(() => checkPrivacy(t));
-    expect(ms).toBeLessThan(50);
+  it("5,000 outputs in 1,666 groups of three equal values are every group (R6)", () => {
+    const r = checkPrivacy(manyGroups());
     expect(finding(r, "coinjoin")?.groups).toHaveLength(1_666);
   });
-  it("5,000 inputs from one address to 5,000 outputs paying it back are checked in under 50 ms", () => {
-    const ins = Array.from({ length: 5_000 }, () => ({ value: 20_000, to: "same" }));
-    const outs = Array.from({ length: 5_000 }, () => ({ value: 10_000, to: "same" }));
-    const t = tx(ins, outs);
-    const { value: r, ms } = cost(() => checkPrivacy(t));
-    expect(ms).toBeLessThan(50);
+  it("5,000 inputs from one address to 5,000 outputs paying it back are one reused address", () => {
+    const r = checkPrivacy(oneAddress());
     expect(finding(r, "reuse")?.addresses[0]?.outputs.length).toBe(5_000);
+  });
+});
+
+// Well under 50 ms of processor time each on a developer's machine (lib/cost.ts); a quadratic pass
+// would take seconds.
+describe.skipIf(!BENCH)("large transactions, their speed (on request)", () => {
+  it.each([
+    ["5,000 outputs, all equal", allEqual],
+    ["5,000 outputs in 1,666 groups of three", manyGroups],
+    ["5,000 inputs and outputs on one address", oneAddress],
+  ])("%s are checked in under 50 ms", (_name, shape) => {
+    const t = shape();
+    const { ms } = cost(() => checkPrivacy(t));
+    expect(ms).toBeLessThan(50);
   });
 });
