@@ -1089,7 +1089,7 @@ GET /app/lightning/block/000000000000000000016641ddffd204018c9351cb2678c88e769af
 
 ###### A node's channels
 
-`GET /app/lightning/nodes/:key/channels` sorts and filters a node's channels for its operator, 25 a page, the work in proportion to the node's own channels.
+`GET /app/lightning/nodes/:key/channels` sorts and filters a node's channels for its operator, 25 a page, the work in proportion to the node's own channels. Open channels are of a node in the graph; closed ones come from the store, so a node that has left the graph still has its closed list, as it has its close record. A key the graph does not hold is `404 node not found` for open channels, and for closed ones when no close is stored for it.
 
 **Open channels** sort by `capacity`; `age`, funding block time (`desc`, oldest first); `out`, this node's fee rate; `in`, the peer's fee rate; `cltv`, this node's CLTV delta; `htlc`, this node's max HTLC; `update`, the newer policy's time; and `peer`, the peer's total capacity. Without `dir`: `asc` for `out`, `in` and `cltv`, `desc` for the others. A channel without the figure (no policy that way, or a funding time not stored yet) comes last both ways, and ties go by channel id, lowest first, so pages are stable. The filters combine:
 

@@ -1804,6 +1804,28 @@ async fn a_node_s_close_record_comes_from_its_stored_closes() {
     );
     assert_eq!(g["peers"]["list"][0]["id"], graph::hex(&graph::key(1)));
     assert_eq!(g["peers"]["list"][0]["alias"], "ACINQ");
+    // Its closed list answers too, from the store, so its page can list the close; a key with
+    // no close stored and not in the graph is still no node, and its open list is none either.
+    let list = |k: u8, status: &'static str| {
+        let addr = addr.clone();
+        async move {
+            get(
+                &addr,
+                &format!(
+                    "/regtest/app/lightning/nodes/{}/channels?status={status}",
+                    graph::hex(&graph::key(k))
+                ),
+            )
+            .await
+        }
+    };
+    let closed = list(5, "closed").await;
+    assert_eq!(closed.status, 200);
+    let c = closed.json();
+    assert_eq!(c["total"].as_u64(), Some(1));
+    assert_eq!(c["channels"][0]["peer"]["id"], graph::hex(&graph::key(1)));
+    assert_eq!(list(5, "open").await.status, 404);
+    assert_eq!(list(9, "closed").await.status, 404);
     // Node 4 is in the graph with no close: an empty record, not a refusal.
     let none = record(4).await.json();
     assert_eq!(

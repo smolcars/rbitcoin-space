@@ -758,17 +758,22 @@ pub(crate) fn open_page(index: &Index, n: &Node, q: &OpenQuery, page: usize) -> 
 }
 
 /// A page of a node's closed channels from the store.
+/// A node's closed channels: from the store, so a node the graph no longer holds has them too. A
+/// key the graph does not hold and no close is stored for is no node.
 async fn closed_page(
     index: &Index,
     store: &Store,
-    n: &Node,
+    id: [u8; 33],
     q: &ClosedQuery,
     page: usize,
 ) -> Result<Value, ApiError> {
-    let rows = store_ln::node_closes(store, n.id)
+    let rows = store_ln::node_closes(store, id)
         .await
         .map_err(|e| store_error(&e))?;
-    let list = closed_list(index, &n.id, rows, q);
+    if rows.is_empty() && index.node(&id).is_none() {
+        return Err(NO_NODE);
+    }
+    let list = closed_list(index, &id, rows, q);
     let shown: Vec<Channel> = list.iter().skip(page * PAGE).take(PAGE).copied().collect();
     let next = store_ln::continued(store, shown.clone())
         .await
@@ -776,7 +781,7 @@ async fn closed_page(
     let rows: Vec<Value> = shown
         .iter()
         .zip(next)
-        .map(|(c, next)| closed_row(index, &n.id, c, next))
+        .map(|(c, next)| closed_row(index, &id, c, next))
         .collect();
     let sort = CLOSED_SORTS.iter().find(|s| s.0 == q.sort).map(|s| s.1);
     Ok(json!({
@@ -994,10 +999,10 @@ async fn app_node_channels(
     let id = pubkey(&key)?;
     let (view, page) = channel_view(raw.as_deref())?;
     let (index, _, store) = graph(&ctx)?;
-    let n = index.node(&id).ok_or(NO_NODE)?;
     let v = match view {
-        View::Open(q) => open_page(&index, n, &q, page),
-        View::Closed(q) => closed_page(&index, store, n, &q, page).await?,
+        View::Open(q) => open_page(&index, index.node(&id).ok_or(NO_NODE)?, &q, page),
+        // A node that left the graph still has the closes stored for it, as its record does.
+        View::Closed(q) => closed_page(&index, store, id, &q, page).await?,
     };
     Ok(send(&v, "lightning_node_channels"))
 }
