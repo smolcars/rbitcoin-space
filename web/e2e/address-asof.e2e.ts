@@ -395,7 +395,8 @@ test.describe("in the wide stand-in font", () => {
   test("with 24 px text on a 320 px phone the controls take two rows at most", async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 720 });
     await page.goto(`/regtest/address/${chain.addresses.miner}?at=107`);
-    await page.addStyleTag({ content: "html { font-size: 24px; }" });
+    // Larger text as a reader sets it: the root size every rem on the site follows.
+    await page.evaluate(() => document.documentElement.style.setProperty("font-size", "24px"));
     await expect(band(page).getByRole("button", { name: /^Next change/ })).toBeEnabled();
     expect(await rowsOf(page)).toBeLessThanOrEqual(2);
     expect(await wide(page)).toBe(false);
