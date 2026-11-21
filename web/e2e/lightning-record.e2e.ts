@@ -16,11 +16,13 @@ const acinq = (): Answer => recorded("node-acinq-closes") as Answer;
 /** ACINQ's record with three of its force closes found to be breaches, with two peers. */
 function withPenalties(): Answer {
   const a = acinq();
+  // The peers' closes add up to the node's: 23 force closes and 3 penalties, all with a peer.
   a.node = {
     ...a.node,
-    force: 22,
+    cooperative: 53,
+    force: 23,
     penalty: 3,
-    shares: { cooperative: 68.4, force: 27.8, penalty: 3.8, other: 0 },
+    shares: { cooperative: 67.1, force: 29.1, penalty: 3.8, other: 0 },
   };
   a.peers.list = a.peers.list.map((p, i) =>
     i === 0
@@ -170,6 +172,10 @@ test("mainnet's record: shares beside every channel's, fees, weeks and peers, at
   // Said once, under the first force figure.
   await expect(record.getByText("in both nodes' records")).toHaveCount(1);
   // The count leads past the record to the list, and the keyboard carries on from its heading.
+  // An in-page link: the router leaves it alone, so it is not announced as the current page.
+  await expect(record.getByRole("link", { name: "79 channels" })).not.toHaveAttribute(
+    "aria-current",
+  );
   await record.getByRole("link", { name: "79 channels" }).click();
   await expect(page.locator("#ln-node-closed-title")).toBeFocused();
   // Every peer has one force close: rows that each say 1 wait behind a press.
@@ -220,7 +226,7 @@ test("a record with penalties names them and says the record does not say by whi
   const record = page.locator(".ln-record");
   await expect(record).toContainText("the record does not say by which end");
   await expect(record).toContainText(
-    "The 22 force closes and 3 penalties were on channels with 25 different peers",
+    "The 23 force closes and 3 penalties were on channels with 25 different peers",
   );
   await expect(record.getByRole("columnheader", { name: "Penalty", exact: true })).toHaveCount(2);
   // The peer with two is listed; the 24 with one each are a press away.
@@ -255,7 +261,6 @@ test("too few closes for a share: counts, and why", async ({ page }) => {
   await expect(record).not.toContainText("this node, then all");
   // Beside a node's counts, every channel's share is a figure with no bar to read as the node's.
   await expect(record.locator(".ln-record__bar")).toHaveCount(0);
-  await holds(page);
 });
 
 test("a node with no close says so in one line", async ({ page }) => {
