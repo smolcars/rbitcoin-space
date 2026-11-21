@@ -69,7 +69,7 @@ import {
 import { confirmations, features, isCoinbase, isTxid, lockTimeMeaning, vsize } from "./tx";
 import { checkPrivacy } from "../../lib/privacy";
 import { Eye, LIST_ID, TxPrivacy } from "./Privacy";
-import { cardMarks, sayCount, shownFindings } from "./privacytext";
+import { cardMarks, countTone, sayCount, shownFindings } from "./privacytext";
 import { bringIntoView } from "./flash";
 import { judgeFee, parentsOf, verdictDetail, verdictText, verdictTitle } from "./verdict";
 import "./TransactionPage.css";
@@ -1189,7 +1189,7 @@ function Body(props: {
                     if (el) bringIntoView(el, el, "start");
                   }}
                 >
-                  <Eye tone={shownFindings(privacy(), false).length > 0 ? "caution" : "neutral"} />
+                  <Eye tone={countTone(privacy())} />
                   {line()}
                 </a>
               )}

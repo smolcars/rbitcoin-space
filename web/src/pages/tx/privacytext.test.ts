@@ -7,6 +7,7 @@ import {
   btc,
   CHECKS,
   cardMarks,
+  countTone,
   isPartial,
   LIMITS,
   listed,
@@ -969,6 +970,18 @@ describe("the summary's line on a narrow screen", () => {
     expect(sayCount(checkPrivacy(part(twice)))).toBe(
       "1 thing an observer can read, only partly checked",
     );
+  });
+  it("takes the caution colour only when something is given away", () => {
+    expect(countTone(checkPrivacy(payback))).toBe("caution");
+    const ins = [0, 1, 2, 3].map((k) => ({ value: 2_000_000, to: `i${k}` }));
+    const join = tx(ins, [
+      { value: 1_000_000, to: "o0" },
+      { value: 1_000_000, to: "o1" },
+      { value: 1_000_000, to: "o2" },
+      { value: 4_987_654, to: "o3" },
+    ]);
+    expect(checkPrivacy(join).findings.map((f) => f.kind)).toStrictEqual(["coinjoin"]);
+    expect(countTone(checkPrivacy(join))).toBe("neutral");
   });
   it("never counts what is shown only before sending", () => {
     const together = tx(

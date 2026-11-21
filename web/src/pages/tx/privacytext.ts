@@ -516,6 +516,11 @@ export function sayCount(r: PrivacyReport): string | null {
   return part ? `${things}, only partly checked` : things;
 }
 
+/** The summary line's eye: caution when anything shown gives something away; a CoinJoin's shape
+ * alone, or only a partial check, is neutral. */
+export const countTone = (r: PrivacyReport): Tone =>
+  shownFindings(r, false).some((f) => f.kind !== "coinjoin") ? "caution" : "neutral";
+
 /** After the title of a finding shown only before sending. */
 export const SPENT_TOGETHER_NOTE = "Shown only before sending";
 
