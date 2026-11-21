@@ -2,7 +2,7 @@ import { flush } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mount } from "../../components/test-utils";
 import { readFile } from "../../lib/labels/bip329";
-import { previewImport, resetStore, runImport } from "../../lib/labels/db";
+import { previewImport, resetStore, runImport, setLabel } from "../../lib/labels/db";
 import { fakeIndexedDB, KeyRange } from "../../lib/labels/fake-idb";
 import LabelsPage, { pageOf, typeName } from "./LabelsPage";
 
@@ -87,5 +87,33 @@ describe("the manager", () => {
     exportButton?.click();
     await until(() => saved !== undefined);
     await expect((saved as Blob).text()).resolves.toBe(`${line}\n`);
+  });
+
+  it("keeps an open editor and what is typed in it when another label changes", async () => {
+    const A = "aa".repeat(32);
+    const B = "bb".repeat(32);
+    const text = [
+      `{"type":"tx","ref":"${A}","label":"A"}`,
+      `{"type":"tx","ref":"${B}","label":"B"}`,
+    ];
+    await runImport(await previewImport((await readFile(text.join("\n"))).records));
+    const el = mount(() => <LabelsPage />, "/regtest/labels");
+    const editA = () =>
+      [...el.querySelectorAll("button")].find((b) =>
+        (b.textContent ?? "").startsWith("Edit the label of transaction aaaaaaaa"),
+      );
+    await until(() => editA() !== undefined);
+    editA()?.click();
+    await until(() => el.querySelector<HTMLInputElement>("input.label-editor__field") !== null);
+    const field = el.querySelector<HTMLInputElement>("input.label-editor__field");
+    if (!field) throw new TypeError("no field");
+    field.value = "A, half typed";
+    field.focus();
+    // Another tab, or this one, changes B.
+    await setLabel("tx", B, "B, changed elsewhere");
+    await until(() => (el.textContent ?? "").includes("B, changed elsewhere"));
+    expect(el.querySelector<HTMLInputElement>("input.label-editor__field")).toBe(field);
+    expect(field.value).toBe("A, half typed");
+    expect(document.activeElement).toBe(field);
   });
 });

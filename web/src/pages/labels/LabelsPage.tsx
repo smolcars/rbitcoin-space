@@ -108,12 +108,28 @@ export default function LabelsPage() {
   const [why, setWhy] = createSignal("");
   const [outdated, setOutdated] = createSignal(false);
   const [list, setList] = createSignal<Stored[]>([]);
+  // The list as last shown, by key: a record read again unchanged keeps its object, so its row
+  // (and an editor open in it, with what the reader is typing) is kept, and only changed rows are
+  // drawn again.
+  let shownByKey = new Map<string, Stored>();
+  let reads = 0;
   const read = () => {
+    const mine = ++reads;
     readAll()
       .then(({ records: kept }) => {
+        // Only the latest read is shown: an earlier one answering late is older.
+        if (mine !== reads) return;
+        const next = new Map<string, Stored>();
         // Newest first.
         const out: Stored[] = [];
-        for (let i = kept.length - 1; i >= 0; i--) out.push(kept[i] as Stored);
+        for (let i = kept.length - 1; i >= 0; i--) {
+          const fresh = kept[i] as Stored;
+          const old = shownByKey.get(fresh.key);
+          const r = old && old.line === fresh.line && old.seq === fresh.seq ? old : fresh;
+          next.set(r.key, r);
+          out.push(r);
+        }
+        shownByKey = next;
         setList(out);
         setState("ready");
       })
