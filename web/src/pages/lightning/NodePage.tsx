@@ -37,7 +37,7 @@ import {
   readView,
   weekAgo,
 } from "./lightning";
-import { CloseRecord } from "./CloseRecord";
+import { askRecord, CloseRecord, RecordSection } from "./CloseRecord";
 import { ClosedList, OpenList } from "./NodeChannels";
 import { FeeFigures, NodeFees, NodeHistory, RecentChanges } from "./NodeCharts";
 import { ask, Gate, LightningNav, rememberList, SatsFig, Stat, Tag } from "./parts";
@@ -88,12 +88,7 @@ function Node(props: { network: Network; id: string }) {
     <Switch>
       <Match when={node.latest}>{(n) => <Body node={n()} network={props.network} />}</Match>
       <Match when={node.state === "errored" && isNotFound(node.error)}>
-        <NotFound
-          title="This server knows no such node"
-          text="It holds a node while the node has an open channel it checked against the chain. A node with only private or closed channels, or one that never announced a channel, is not here."
-        />
-        {/* A node that left still has the closes this server saw: shown when there are any. */}
-        <CloseRecord network={props.network} id={props.id} gone />
+        <Gone network={props.network} id={props.id} />
       </Match>
       <Match when={node.state === "errored"}>
         <ErrorState title="Could not load this node" error={node.error} retry={refetch} />
@@ -102,6 +97,50 @@ function Node(props: { network: Network; id: string }) {
         <Loading label="Loading the node" />
       </Match>
     </Switch>
+  );
+}
+
+/**
+ * A key the graph does not hold: a node whose channels have all closed still has the closes this
+ * server saw, so the page is headed with its key and shows them; a key with none is no node here.
+ */
+function Gone(props: { network: Network; id: string }) {
+  const request = askRecord(props.network, () => props.id);
+  const answer = () => request[0];
+  return (
+    <Switch>
+      <Match when={(answer().latest?.node.closed ?? 0) > 0}>
+        <GoneHeader id={props.id} />
+        <RecordSection request={request} gone />
+      </Match>
+      <Match when={answer().state === "ready" || answer().state === "errored"}>
+        <NotFound
+          title="This server knows no such node"
+          text="It holds a node while the node has an open channel it checked against the chain. A node with only private or closed channels, or one that never announced a channel, is not here."
+        />
+      </Match>
+      <Match when={true}>
+        <Loading label="Loading the node" />
+      </Match>
+    </Switch>
+  );
+}
+
+function GoneHeader(props: { id: string }) {
+  usePageTitle(() => `Lightning node ${props.id.slice(0, 20)}`);
+  return (
+    <header class="ln-node-head">
+      <div class="ln-node-head__title">
+        <h1 class="ln-node-head__key">{truncateMiddle(props.id, 8, 6)}</h1>
+        <CopyButton value={props.id} label="Copy public key" />
+      </div>
+      <p class="ln-node-head__line">
+        <span>
+          It has no open channel now, so this server no longer holds it as a node. Below is what it
+          holds: the closes of its channels.
+        </span>
+      </p>
+    </header>
   );
 }
 
@@ -168,7 +207,10 @@ function Body(props: { node: NodeDetail; network: Network }) {
           <Match when={view() === "closed"}>
             <div class="ln-node-closed">
               <CloseRecord network={props.network} id={props.node.id} />
-              <ClosedList node={props.node} network={props.network} now={now} />
+              {/* With no close the record says so, once: an empty list under it would say it again. */}
+              <Show when={props.node.channels.closed > 0}>
+                <ClosedList node={props.node} network={props.network} now={now} />
+              </Show>
             </div>
           </Match>
           <Match when={view() === "fees"}>

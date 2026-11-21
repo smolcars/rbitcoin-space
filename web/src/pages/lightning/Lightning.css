@@ -1323,6 +1323,11 @@
     min-width: 0;
     overflow-wrap: anywhere;
   }
+  /* A node the graph no longer holds is headed by its key: it has no name to show. */
+  .ln-node-head__key {
+    font-family: var(--font-mono);
+    font-weight: var(--weight-medium);
+  }
   .ln-node-head__title {
     display: flex;
     flex-wrap: wrap;
@@ -2530,11 +2535,15 @@
   }
   .ln-record {
     display: grid;
-    gap: var(--space-4);
+    gap: var(--space-3);
   }
   .ln-record > *,
-  .ln-record__part > * {
+  .ln-record__part > *,
+  .ln-record__grid > * {
     min-width: 0;
+  }
+  .ln-record .more {
+    margin-top: 0;
   }
   .ln-record__lead {
     margin: 0;
@@ -2546,39 +2555,67 @@
     font-size: var(--text-sm);
     color: var(--color-text-muted);
   }
+  /* Its tables: how it ended across the panel, fees and weeks side by side on a wide screen, so
+     each figure sits by its label and the closed list starts near the first screen. */
+  .ln-record__grid {
+    display: grid;
+    gap: var(--space-5) var(--space-6);
+  }
+  @media (min-width: 65em) {
+    .ln-record__grid {
+      grid-template-columns: 1fr 1fr;
+      align-items: start;
+    }
+    .ln-record__part--wide {
+      grid-column: 1 / -1;
+    }
+  }
   .ln-record__part {
     display: grid;
-    gap: var(--space-3);
-    margin-top: var(--space-3);
+    gap: var(--space-2);
   }
   .ln-record__h {
     margin: 0;
     font-size: var(--text-md);
   }
+  /* A kind's words beside its tag where there is room; on a phone in "How this record is made". */
   .ln-record__kind {
-    display: grid;
-    gap: var(--space-1);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-1) var(--space-3);
   }
   .ln-record__gloss {
-    max-width: 34ch;
     font-size: var(--text-xs);
     color: var(--color-text-muted);
     white-space: normal;
   }
-  .ln-record__share {
-    display: grid;
-    gap: var(--space-1);
+  @media (max-width: 40em) {
+    .ln-record__gloss {
+      display: none;
+    }
   }
+  /* The shares of a row: each figure with its bar on one line, the bars starting together. */
   .ln-record__shares {
     display: grid;
-    gap: var(--space-2);
-    min-width: 4rem;
+    grid-template-columns: auto minmax(3rem, 1fr);
+    align-items: center;
+    gap: var(--space-1) var(--space-2);
+    min-width: 9rem;
+  }
+  @media (min-width: 65em) {
+    .ln-record__shares {
+      min-width: 18rem;
+    }
+  }
+  .ln-record__shares--one {
+    grid-template-columns: auto;
   }
   /* "all under 0.1%" may part between its words; only the figure is in `.num`, whole. */
-  .ln-record__share .ln-record__words {
+  .ln-record__words {
     white-space: normal;
   }
-  .ln-record__share--all .ln-record__words {
+  .ln-record__words--all {
     font-size: var(--text-xs);
     color: var(--color-text-muted);
   }
@@ -2605,6 +2642,40 @@
     display: grid;
     justify-items: end;
   }
+  /* Too few closes for a share: the record in a line, every channel's beside it. */
+  .ln-record__few {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-2) var(--space-6);
+  }
+  .ln-record__kinds {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-5);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .ln-record__kinds li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 var(--space-2);
+  }
+  .ln-record__kinds .ln-record__all {
+    white-space: normal;
+  }
+  .ln-record__network {
+    margin: 0;
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+  .ln-record__breakdown[open] > .ln-record__grid {
+    margin-top: var(--space-2);
+    color: var(--color-text);
+    font-size: var(--text-md);
+  }
   /* The record's tables fit a 320 px phone in any font: headers take two lines, a date breaks
      between day and year, and a peer's name and key break anywhere, as names and keys do. */
   .ln-record .table th,
@@ -2621,17 +2692,6 @@
   /* "313 a close" may part between the figure and its words, never inside the figure. */
   .ln-record__fee .ln-record__all {
     white-space: normal;
-  }
-  .ln-record__phone {
-    display: none;
-  }
-  .ln-record__phone--dropped {
-    display: block;
-  }
-  @media (max-width: 40em) {
-    .ln-record__phone {
-      display: block;
-    }
   }
   .ln-record__all {
     font-size: var(--text-xs);

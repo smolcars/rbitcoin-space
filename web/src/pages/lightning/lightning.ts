@@ -1703,3 +1703,59 @@ export function peersInWords(r: NodeCloses): string {
   if (peers === 1) return `The ${what} were all on channels with one peer.`;
   return `The ${what} were on channels with ${groupDigits(peers)} different peers, at most ${groupDigits(most)} with any one.`;
 }
+
+/** Peers listed before the reader asks for the rest. */
+const PEERS_SHOWN = 10;
+
+/**
+ * The peers a record lists, and the label of the button that shows the rest. Only the peers with
+ * more than one force close or penalty are listed at first: rows that each say 1 tell no more than
+ * the sentence above them. One peer alone is listed, as it says something of its own.
+ */
+export function peersShown(
+  peers: readonly RecordPeer[],
+  all: boolean,
+): { rows: readonly RecordPeer[]; button: string | null } {
+  if (peers.length <= 1) return { rows: peers, button: null };
+  const repeat = peers.filter((p) => p.force + p.penalty > 1);
+  const top = repeat.slice(0, PEERS_SHOWN);
+  const hidden = peers.length - top.length;
+  if (hidden === 0) return { rows: peers, button: null };
+  if (all) return { rows: peers, button: "Show fewer peers" };
+  const button =
+    repeat.length === 0
+      ? `Show the ${count(peers.length, "peer")}`
+      : repeat.length > top.length
+        ? `Show the other ${count(hidden, "peer")}`
+        : `Show the ${count(hidden, "peer")} with one each`;
+  return { rows: top, button };
+}
+
+/**
+ * A record too small for a share, in words: each kind it has with its count and closing fees, and
+ * every channel's shares (or counts, where they are too few for a share too) beside it.
+ */
+export function recordInWords(r: NodeCloses): {
+  node: { kind: CloseKind; count: number; fees: string }[];
+  network: string;
+} {
+  const node = CLOSE_KINDS.filter((k) => r.node[k] > 0).map((k) => {
+    const f = r.node.fees[k];
+    const fees =
+      f.known === 0
+        ? "fee not known"
+        : f.known < r.node[k]
+          ? `${groupDigits(f.sum)} sats in fees, ${groupDigits(r.node[k] - f.known)} not known`
+          : `${groupDigits(f.sum)} sats in fees`;
+    return { kind: k, count: r.node[k], fees };
+  });
+  const n = r.network;
+  if (n === null) return { node, network: "No figure for all channels yet." };
+  const kinds = kindsIn(r.node, n);
+  const parts = kinds.map((k) =>
+    n.shares === null
+      ? `${groupDigits(n[k])} ${KIND_SHORT[k].toLowerCase()}`
+      : `${shareText(n.shares[k], n[k])} ${KIND_SHORT[k].toLowerCase()}`,
+  );
+  return { node, network: `All channels: ${parts.join(", ")}.` };
+}
