@@ -678,12 +678,12 @@ It is read as soon as it is pasted, so the answer comes before the button: what 
 ```text
 Check a timestamp
 What a proof shows, in one sentence. Your file is read here and never sent.
-┌ Proof ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─┐ ┌ Your file ─ ─ ─ ─ ─ ─ ─ ─ ─┐   empty: dashed, a button each
-  [Choose a file] or drop it     [Choose a file] or drop it
-└ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─┘ └ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─┘
+┌ Proof ─ ─ ─ [Choose a file] ┐ ┌ Your file ─ [Choose a file] ┐   empty: dashed
+  The .ots file · or drop it here  Hashed here, never uploaded · or drop it here
 Or its SHA-256, in hex, instead of the file       64 characters, 0 to 9 and a to f
 [6fd9c1c4f096b77e6d4457bac1c7f51010d318db483f2868d3795843f098d378               ] (×)
-┌ Proof  two-blocks.ots  1 768 B  [Change] (×) ┐                filled: one row
+┌ Proof            [Change] (×) ┐ ┌ Your file      [Choose a file] ┐   every state: two lines,
+  two-blocks.ots  1 768 B           The digest below stands in for it    the same height
 ┌ (✓ Verified) ─────────────────────────────────────────────┐
 │ This digest is committed to by block 449 397               │
 │ Block          Its header time                             │
@@ -696,7 +696,7 @@ Or its SHA-256, in hex, instead of the file       64 characters, 0 to 9 and a to
 └────────────────────────────────────────────────────────────┘
 ```
 
-The two inputs are drawn as the site draws what has not settled: a dashed outline while empty, solid once each holds its file, as a projected tile sets when mined. A slot holding a file is one row, its name, the file's name and size, Change and remove, so the verdict is on the first screen at 1280 × 900 and starts within a 360 × 780 one; on a phone the file's name goes under that row. "Or drop it here" is shown only where there is a pointer to drop with, and not at a phone's width. The digest field sits under both slots, the full width, so neither card has an empty foot: a monospace field that shows all 64 characters at once and wraps them on a phone, with what it takes said beside its label and a clear control once it holds anything.
+The two inputs are drawn as the site draws what has not settled: a dashed outline while empty, solid once each holds its file (or, for "Your file", once a digest stands in for it), as a projected tile sets when mined. Every slot is the same two lines in every state, so the two are always one height side by side: its label with its controls together at the right ("Choose a file", or "Change" and remove), which never shrink; then across the whole card what it takes ("The .ots file", "Hashed here, never uploaded", "The digest below stands in for it") or the file it holds, its name cut with an ellipsis only when it cannot fit (whole in its title) and its size never. Remove is 44 px each way, as tall as Change beside it. "· or drop it here" ends the hint only where a pointer can drop and the card is wide enough to keep it one line (50em and up); the slot takes a drop either way. The verdict is on the first screen at 1280 × 900 and starts within a 360 × 780 one. The digest field sits under both slots, the full width, so neither card has an empty foot: a monospace field that shows all 64 characters at once and wraps them on a phone, with what it takes said beside its label and a 44 px clear control once it holds anything.
 
 The introduction is one sentence on what a proof shows and one that the file never leaves the browser; how the proof is followed, and what is asked of the server, is said inside "Show the steps".
 

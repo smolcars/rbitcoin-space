@@ -79,11 +79,16 @@
     outline: 2px solid var(--color-focus);
     outline-offset: 2px;
   }
-  /* Nothing to drop with on a touch screen, nor anything to drag onto a phone-width window. */
-  @media (pointer: coarse), (hover: none), (max-width: 40em) {
+  /* Nothing to drop with on a touch screen. Under 50em the words would take the hint a second
+     line, so they go; the slot still takes a file dropped on it. */
+  @media (pointer: coarse), (hover: none), (max-width: 50em) {
     .ots-slot__drop {
       display: none;
     }
+  }
+  /* A slot a digest stands in for takes no file by dropping either. */
+  .ots-slot--full .ots-slot__drop {
+    display: none;
   }
   /* The file's name gives way, cut with an ellipsis (whole in its title); its size never does. */
   .ots-slot__chosen {

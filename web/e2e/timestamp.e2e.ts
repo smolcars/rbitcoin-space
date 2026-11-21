@@ -476,7 +476,7 @@ test.describe("on a phone", () => {
 // controls stay whole inside it, and a name that fits is not cut (council F-D6, N-D5).
 test.describe("a filled slot's row", () => {
   test.use({ prose: "wide" });
-  const LONG = `${"a-very-long-file-name-".repeat(5)}that-goes-on.txt`.slice(0, 116) + ".ots";
+  const LONG = `${`${"a-very-long-file-name-".repeat(5)}that-goes-on.txt`.slice(0, 116)}.ots`;
   for (const [label, name] of [
     ["a short name", "hello-world.txt.ots"],
     ["a 120-character name", LONG],

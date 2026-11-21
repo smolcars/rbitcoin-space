@@ -248,8 +248,8 @@ export default function TimestampPage() {
           title="Your file"
           hint={
             readDigest(hex(), algorithm()) === null
-              ? `Hashed here with ${HASH_NAMES[algorithm()]}, never uploaded`
-              : `Not needed: the ${HASH_NAMES[algorithm()]} below stands in for it`
+              ? "Hashed here, never uploaded"
+              : "The digest below stands in for it"
           }
           chosen={file()?.name}
           detail={file() && formatSize(file()?.size ?? 0, "B")}
