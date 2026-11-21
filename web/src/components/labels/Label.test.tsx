@@ -197,4 +197,15 @@ describe("LabelControl", () => {
     expect(el.querySelector(".your-label__text")?.textContent).toBe("B");
     expect(el.querySelector("[role=status]")?.textContent).toBe("");
   });
+
+  it("opens its editor as a named dialog that leaves the page usable", async () => {
+    const el = mount(() => <LabelControl type="tx" reference={TXID} what="this transaction" />);
+    flush();
+    el.querySelector<HTMLButtonElement>(".label-control__open")?.click();
+    await until(() => el.querySelector(".label-pop") !== null);
+    const pop = el.querySelector(".label-pop");
+    expect(pop?.getAttribute("role")).toBe("dialog");
+    expect(pop?.getAttribute("aria-label")).toBe("Your label for this transaction");
+    expect(pop?.hasAttribute("aria-modal")).toBe(false);
+  });
 });

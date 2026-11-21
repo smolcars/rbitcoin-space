@@ -134,6 +134,8 @@ const GAP = 6;
  */
 export function EditorPop(props: {
   id: string;
+  /** Its name, for the dialog it is: "Your label for this transaction". */
+  name: string;
   anchor: HTMLElement;
   /** Closed without a save: Escape, a press outside, a scroll. */
   onClose: () => void;
@@ -183,7 +185,8 @@ export function EditorPop(props: {
     close?.();
   });
   return (
-    <div ref={pop} id={props.id} class="label-pop">
+    // A dialog that leaves the page usable around it (non-modal), named as its field is.
+    <div ref={pop} id={props.id} class="label-pop" role="dialog" aria-label={props.name}>
       {props.children}
     </div>
   );

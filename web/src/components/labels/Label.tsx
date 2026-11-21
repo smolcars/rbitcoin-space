@@ -73,6 +73,7 @@ interface EditorModule {
   LabelEditor: Component<EditorProps>;
   EditorPop: Component<{
     id: string;
+    name: string;
     anchor: HTMLElement;
     onClose: () => void;
     children: JSX.Element;
@@ -151,7 +152,12 @@ export function LabelControl(props: { type: Shown; reference: string; what: stri
             button?.focus();
           };
           return (
-            <EditorPop id={id} anchor={button as HTMLElement} onClose={finish}>
+            <EditorPop
+              id={id}
+              name={`Your label for ${props.what}`}
+              anchor={button as HTMLElement}
+              onClose={finish}
+            >
               <LabelEditor
                 type={props.type}
                 reference={props.reference}
