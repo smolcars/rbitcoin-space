@@ -90,12 +90,12 @@ function reusedSentence(a: ReusedAddress): Sentence {
   }
   if (inputs.length > 0)
     return [
-      `${cap(listed("input", inputs))} all spend from `,
+      `${cap(listed("input", inputs))} ${inputs.length === 2 ? "both" : "all"} spend from `,
       addr,
       ". An observer can tie those coins to one owner, with anything else paid to that address.",
     ];
   return [
-    `${cap(listed("output", outputs))} all pay `,
+    `${cap(listed("output", outputs))} ${outputs.length === 2 ? "both" : "all"} pay `,
     addr,
     ". An observer can tie them to the same owner.",
   ];
