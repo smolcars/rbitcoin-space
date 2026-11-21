@@ -95,12 +95,13 @@ async function tablesFitNow(page: Page, label: string) {
 }
 
 /**
- * Every amount on the page whole: a number never wraps inside itself or away from its unit, and
- * never runs out of the field that holds it into its neighbour.
+ * Every amount on the page whole: a number never wraps inside itself or away from its unit (an
+ * exact amount a field lets wrap breaks only at its point or before its unit), and never runs out
+ * of the field that holds it into its neighbour.
  */
 export async function amountsIntact(page: Page, label: string) {
   const faults = await page.evaluate(() => {
-    const SELECTOR = ".amount, .fee, .ln-msat, .num";
+    const SELECTOR = ".amount, .fee, .num";
     const out: string[] = [];
     for (const el of document.querySelectorAll<HTMLElement>(`main :is(${SELECTOR})`)) {
       // The innermost figure only, shown, with a digit in it.
@@ -116,7 +117,16 @@ export async function amountsIntact(page: Page, label: string) {
         .map((r) => r.top);
       tops.sort((a, b) => a - b);
       const lines = tops.filter((t, i) => i === 0 || t - (tops[i - 1] ?? t) > 6).length;
-      if (lines > 1) out.push(`"${text}" wraps onto ${lines} lines`);
+      // An exact amount that may wrap (Amount's `wrap`) breaks only after its point and before
+      // its unit: its groups are joined by no-break spaces.
+      // An exact Lightning figure (`Fig`) likewise breaks only before its unit.
+      const fig = el.querySelector(".ln-fig__exact");
+      const most = el.classList.contains("amount--wrap")
+        ? 3
+        : fig !== null && getComputedStyle(fig).whiteSpace !== "nowrap"
+          ? 2
+          : 1;
+      if (lines > most) out.push(`"${text}" wraps onto ${lines} lines`);
       const cell = el.closest("td, th, dd, li") ?? el.parentElement;
       if (!cell) continue;
       const r = el.getBoundingClientRect();
@@ -134,59 +144,7 @@ export async function amountsIntact(page: Page, label: string) {
 }
 
 /**
- * Every exact-amount control on the page, opened one after another: its pop-up the only one open,
- * wholly on screen, its text not cut, a copy button in it, nothing else on the page moved by it, and Escape closing it.
- */
-export async function exactsInside(page: Page, label: string) {
-  const controls = page.locator("main button:has(+ .exact)");
-  const n = await controls.count();
-  for (let i = 0; i < n; i++) {
-    const control = controls.nth(i);
-    await control.scrollIntoViewIfNeeded();
-    // Where everything but the pop-ups sits, before and after (the same lines in both calls).
-    const before = await page.evaluate(() =>
-      [...document.querySelectorAll<HTMLElement>("main :is(dt, dd, td, th, button, h1, h2)")]
-        .filter((e) => !e.closest(".exact"))
-        .map(
-          (e) =>
-            `${Math.round(e.getBoundingClientRect().left)},${Math.round(e.getBoundingClientRect().top)}`,
-        ),
-    );
-    await control.click();
-    const seen = await page.evaluate(() => {
-      const open = [...document.querySelectorAll<HTMLElement>(".exact:not([hidden])")];
-      const pop = open[0];
-      let fault = open.length === 1 ? "" : `${open.length} open`;
-      if (pop) {
-        const r = pop.getBoundingClientRect();
-        const w = document.documentElement.clientWidth;
-        const h = document.documentElement.clientHeight;
-        if (r.left < 0 || r.top < 0 || r.right > w || r.bottom > h) {
-          fault = `off screen at ${Math.round(r.left)}–${Math.round(r.right)} × ${Math.round(r.top)}–${Math.round(r.bottom)} in ${w} × ${h}`;
-        } else if (pop.scrollWidth > pop.clientWidth + 1) fault = "its text is cut";
-        // The same pop-up everywhere: its exact value with a copy button (a channel's had none).
-        else if (!pop.querySelector("button.copy")) fault = "it has no copy button";
-      }
-      const after = [
-        ...document.querySelectorAll<HTMLElement>("main :is(dt, dd, td, th, button, h1, h2)"),
-      ]
-        .filter((e) => !e.closest(".exact"))
-        .map(
-          (e) =>
-            `${Math.round(e.getBoundingClientRect().left)},${Math.round(e.getBoundingClientRect().top)}`,
-        );
-      return { fault, text: pop?.textContent ?? "", after };
-    });
-    expect(seen.fault, `${label}: "${seen.text}"`).toBe("");
-    expect(seen.after, `${label}: opening "${seen.text}" moved the page`).toEqual(before);
-    // Escape closes it, so it covers nothing the next control needs.
-    await page.keyboard.press("Escape");
-  }
-  await expect(page.locator(".exact:not([hidden])")).toHaveCount(0);
-}
-
-/**
- * Every copy control on screen, and each in an exact amount's pop-up, pressed one at a time: its
+ * Every copy control on screen, pressed one at a time: its
  * "Copied" (or "Not copied") wholly in sight, nothing over it and not cut by the screen's edge, and
  * clear of the value it copied. Beside the button it once hid the decimals it had just copied.
  * The page must answer the copy (`navigator.clipboard` stood in for).
@@ -201,20 +159,13 @@ export async function copyNotesClear(page: Page, label: string) {
     let count = 0;
     const buttons = [...document.querySelectorAll<HTMLButtonElement>("main button.copy")];
     for (const b of buttons) {
-      const pop = b.closest<HTMLElement>(".exact");
-      const figure = pop?.previousElementSibling;
-      const opens = figure instanceof HTMLButtonElement ? figure : undefined;
-      // Shown, or a tap away in a pop-up; a control on a panel that is shut is not checked.
-      if (!opens && b.getClientRects().length === 0) continue;
-      (opens ?? b).scrollIntoView({ block: "center" });
+      // A control on a panel that is shut is not checked.
+      if (b.getClientRects().length === 0) continue;
+      b.scrollIntoView({ block: "center" });
       await frame();
-      if (opens) {
-        opens.click();
-        await frame();
-      }
       const value =
         b.closest(".hash")?.querySelector(".hash__text") ??
-        pop?.querySelector(".num") ??
+        b.closest(".address-total")?.querySelector(".amount") ??
         b.closest(".tx-code")?.querySelector(".tx-code__text") ??
         b.closest(".ln-chan__ids dd")?.querySelector(".mono") ??
         b.closest(".ln-node-connect")?.querySelector(".mono");
@@ -283,7 +234,6 @@ export async function copyNotesClear(page: Page, label: string) {
       }
       // Out of the way of the next control's note; the button takes its own away after 1.4 s.
       note.style.visibility = "hidden";
-      if (pop) document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     }
     return { faults: out, checked: count };
   });

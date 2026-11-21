@@ -2,11 +2,10 @@ import { Match, Show, Switch } from "solid-js";
 import type { ApiResource } from "../../lib/api";
 import type { JSX } from "@solidjs/web";
 import { Amount } from "../../components/Amount";
-import { Exact } from "../../components/Exact";
 import { CopyButton } from "../../components/CopyButton";
 import { ErrorState } from "../../components/States";
 import type { AddressStats } from "../../lib/esplora";
-import { formatBtc, groupDigits, plainBtc } from "../../lib/format";
+import { groupDigits, plainBtc } from "../../lib/format";
 import { refusal } from "./address";
 import { Notice, Skeleton, settled, UnconfirmedMark } from "./parts";
 
@@ -38,25 +37,13 @@ export function Stat(props: {
   );
 }
 
-/**
- * A summary amount in magnitude (`195.27 BTC`, `5 894 BTC`); the exact amount is in its title, and
- * a tap or a key opens it on a line below with a copy button that copies it, to the satoshi.
- */
+/** A total, exact to the satoshi, with a copy button that copies it as a program reads it. */
 function Total(props: { sats: number; what: string }) {
   return (
-    <Exact
-      class="address-total"
-      title={`${formatBtc(props.sats)} BTC`}
-      figure={
-        <>
-          <Amount sats={props.sats} short />
-          <span class="visually-hidden">, show the exact amount</span>
-        </>
-      }
-    >
-      <span class="num">{formatBtc(props.sats)}</span>
+    <span class="address-total">
+      <Amount sats={props.sats} wrap />
       <CopyButton value={plainBtc(props.sats)} label={`Copy the exact ${props.what}, in BTC`} />
-    </Exact>
+    </span>
   );
 }
 

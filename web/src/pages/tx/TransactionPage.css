@@ -1104,6 +1104,11 @@
         "amt amt"
         "meta meta";
     }
+    /* The full amount always shows: one wider than the card breaks after its point (Amount's
+       `wrap`). */
+    .tx-flow__amt {
+      white-space: normal;
+    }
     /* A narrow card's lines are short: one more of them for the text. */
     .tx-flow__memo {
       -webkit-line-clamp: 3;
@@ -1197,14 +1202,6 @@
     }
     .tx-summary__item--amount {
       flex-basis: 100%;
-    }
-    /* A card is a third of a phone: a thousand bitcoin and more read in magnitude there, the
-       exact amount in the title and in the card's details. */
-    .amount--long .amount__exact {
-      display: none;
-    }
-    .amount--long .amount__short {
-      display: inline;
     }
     /* Each fact's name above its value, which then has the panel's width: a 13-digit amount and
        its unit on one line. */

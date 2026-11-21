@@ -29,18 +29,18 @@ test("the balance at block N and N + 1 differ by the payment between them, and a
   await mine(0);
 
   await page.goto(`/regtest/address/${address}?at=${n}`);
-  await expect(balance(page)).toHaveText("0.300 BTC");
+  await expect(balance(page)).toHaveText("0.30 000 000 BTC");
   await expect(rows(page)).toHaveCount(1);
   await page.goto(`/regtest/address/${address}?at=${n + 1}`);
-  await expect(balance(page)).toHaveText("0.423 BTC");
-  await expect(balance(page)).toHaveAttribute("title", /^0\.42345678 BTC,/);
+  await expect(balance(page)).toHaveText("0.42 345 678 BTC");
+  await expect(balance(page)).toHaveAttribute("title", /^42\s345\s678 sats$/);
   await expect(rows(page)).toHaveCount(2);
   await page.goto(`/regtest/address/${address}?at=${n - 1}`);
   await expect(page.getByText(`Not used yet at block ${n - 1}`)).toBeVisible();
 
   // Pinned at N + 1: a payment waits, then a block takes it, and the page does not move.
   await page.goto(`/regtest/address/${address}?at=${n + 1}`);
-  await expect(balance(page)).toHaveText("0.423 BTC");
+  await expect(balance(page)).toHaveText("0.42 345 678 BTC");
   const asked: string[] = [];
   page.on("request", (r) => asked.push(r.url()));
   const waiting = await pay(rpc, address, 5_000_000n);
@@ -48,14 +48,14 @@ test("the balance at block N and N + 1 differ by the payment between them, and a
   await block(rpc, miner, [waiting]);
   await mine(0);
   await page.waitForTimeout(3000);
-  await expect(balance(page)).toHaveText("0.423 BTC");
+  await expect(balance(page)).toHaveText("0.42 345 678 BTC");
   await expect(rows(page)).toHaveCount(2);
   // Every read it made meanwhile (the chart's, as it came into view) was pinned to the block.
   const unpinned = asked.filter((u) => u.includes(`/address/${address}`) && !u.includes("asof="));
   expect(unpinned).toStrictEqual([]);
   // Now, the page counts the third payment.
   await page.getByRole("button", { name: "Back to now" }).click();
-  await expect(balance(page)).toHaveText("0.473 BTC");
+  await expect(balance(page)).toHaveText("0.47 345 678 BTC");
 });
 
 test("a pinned block that a reorganization replaces is said, and the height is looked up again", async ({
@@ -72,7 +72,7 @@ test("a pinned block that a reorganization replaces is said, and the height is l
   const height = await rpc<number>("getblockcount");
   const old = await rpc<string>("getblockhash", [height]);
   await page.goto(`/regtest/address/${address}?at=${height}`);
-  await expect(balance(page)).toHaveText("0.200 BTC");
+  await expect(balance(page)).toHaveText("0.20 000 000 BTC");
   // Every read the page makes by itself is in (the chart's last), so the tab below is the one
   // pinned read after the reorganization.
   await expect(

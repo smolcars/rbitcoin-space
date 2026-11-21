@@ -89,7 +89,7 @@ describe("mining page", () => {
     await vi.waitFor(() => expect(text(el)).toContain("Paid to miners"));
     // A summary reads in magnitude, the exact amount in its title.
     expect(text(el)).toContain("126.00 BTC");
-    expect(el.querySelector('[title^="126.00000000 BTC"]')).not.toBeNull();
+    expect(el.querySelector('[title^="126.00\u202F000\u202F000 BTC"]')).not.toBeNull();
   });
 
   it("names each recent block's miner from one batch of facts", async () => {

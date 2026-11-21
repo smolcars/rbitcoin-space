@@ -66,7 +66,6 @@ import {
   inboundName,
   KindTag,
   LightningNav,
-  Msat,
   MsatFig,
   NodeName,
   PpmFig,
@@ -529,13 +528,12 @@ function WayFee(props: { policy: Policy | null; sats: number | null }) {
   );
 }
 
-/** One end's term: a figure, an msat term that opens to its exact msat, or a time. */
+/** One end's term: a figure, an msat term exact to the msat (its msat in the title), or a time. */
 function term(t: (typeof TERMS)[number], p: Policy | null): JSX.Element {
   if (!p) return "–";
   const k = t.key;
   if (k === "base_fee_msat" || k === "min_htlc_msat" || k === "max_htlc_msat") {
-    const what = `${t.label[0]?.toLowerCase() ?? ""}${t.label.slice(1)}`;
-    return <Msat msat={p[k]} what={what} />;
+    return <MsatFig msat={p[k]} />;
   }
   if (k === "last_update") return <TimeAgo time={p.last_update} />;
   if (k === "fee_rate") return <PpmFig rate={p.fee_rate} />;

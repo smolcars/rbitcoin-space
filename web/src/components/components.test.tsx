@@ -23,14 +23,18 @@ const q = <T extends Element = HTMLElement>(el: Element, sel: string) => {
 describe("Amount", () => {
   it("dims trailing zeros and shows sats on hover", () => {
     const el = mount(() => <Amount sats={3_500_000} />);
-    expect(el.textContent).toBe("0.03500000 BTC");
-    expect(q(el, ".amount__zeros").textContent).toBe("00000");
+    expect(el.textContent).toBe("0.03\u202F500\u202F000 BTC");
+    expect(q(el, ".amount__zeros").textContent).toBe("00\u202F000");
     expect(q(el, ".amount").title).toBe(`3${NNBSP}500${NNBSP}000 sats`);
   });
 
   it("signs incoming amounts and survives bad input", () => {
-    expect(mount(() => <Amount sats={150} signed />).textContent).toBe("+0.00000150 BTC");
-    expect(mount(() => <Amount sats={-150} signed />).textContent).toBe("−0.00000150 BTC");
+    expect(mount(() => <Amount sats={150} signed />).textContent).toBe(
+      "+0.00\u202F000\u202F150 BTC",
+    );
+    expect(mount(() => <Amount sats={-150} signed />).textContent).toBe(
+      "−0.00\u202F000\u202F150 BTC",
+    );
     expect(mount(() => <Amount sats={0.5} />).textContent).toBe("–");
     expect(mount(() => <Sats sats={1234} />).textContent).toBe(`1${NNBSP}234 sats`);
   });

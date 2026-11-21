@@ -127,6 +127,10 @@
   .dec-figure.num {
     white-space: nowrap;
   }
+  .dec-figure .unit {
+    font-size: 0.8em;
+    font-weight: 400;
+  }
   .dec-figure__unit {
     font-size: 0.8em;
     font-weight: 400;

@@ -98,7 +98,7 @@ describe("Compare", () => {
       (r) => r.querySelector(".tx-compare__kind")?.textContent,
     );
     expect(rows).toStrictEqual(["≠Changed", "+Added", "−Removed"]);
-    expect(t).toContain("was 0.00100000 BTC");
+    expect(t).toContain("was 0.00 100 000 BTC");
     expect(t).toContain("Script of 83 bytes");
     expect(t).toContain("2 kept");
     expect(t).not.toContain("dropped");

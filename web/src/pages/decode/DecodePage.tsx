@@ -5,6 +5,7 @@
 import { useLocation, useNavigate } from "@solidjs/router";
 import { createEffect, createSignal, For, Match, Show, Switch } from "solid-js";
 import type { JSX } from "@solidjs/web";
+import { Amount } from "../../components/Amount";
 import { CopyButton } from "../../components/CopyButton";
 import { Hash } from "../../components/Hash";
 import { More } from "../../components/More";
@@ -12,7 +13,7 @@ import { Empty, ErrorState, Loading } from "../../components/States";
 import { ApiError, createRequest, postApp } from "../../lib/api";
 import { useNow } from "../../lib/clock";
 import { TimeUtc } from "../../components/Time";
-import { formatBtcShort, formatRelative, groupDigits, truncateMiddle } from "../../lib/format";
+import { formatRelative, groupDigits, truncateMiddle } from "../../lib/format";
 import { loadConfig, readConfig } from "../../lib/config";
 import { NETWORK_NAMES, type Network, onNetwork, paths } from "../../lib/network";
 import { NetworkScope, usePageTitle } from "../../lib/page";
@@ -253,19 +254,18 @@ function Said(props: { text: string }) {
   return <bdi class="dec-said">{props.text}</bdi>;
 }
 
-/** From 1 BTC an amount reads in BTC, its sats in the title: 21 million BTC still fits a phone. */
+/** From 1 BTC an amount in whole sats reads in BTC, exact, its sats in the title. */
 const BTC_FROM_MSAT = 100_000_000_000;
 
-/** An amount in sats, the figure the result leads with. */
+/** An amount, the figure the result leads with: sats (to the msat), or BTC from 1 BTC. */
 function Figure(props: { msat: number | null }) {
   return (
     <Show when={props.msat !== null} fallback={<p class="dec-figure">Any amount</p>}>
       <Show
-        when={(props.msat ?? 0) < BTC_FROM_MSAT}
+        when={(props.msat ?? 0) < BTC_FROM_MSAT || (props.msat ?? 0) % 1000 !== 0}
         fallback={
-          <p class="dec-figure num" title={`${sats(props.msat ?? 0)} sats`}>
-            {formatBtcShort(Math.floor((props.msat ?? 0) / 1000))}{" "}
-            <span class="dec-figure__unit">BTC</span>
+          <p class="dec-figure">
+            <Amount sats={(props.msat ?? 0) / 1000} wrap />
           </p>
         }
       >

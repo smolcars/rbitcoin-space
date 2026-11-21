@@ -51,7 +51,7 @@ test("a kept address shows its totals, newest transactions and balance at once",
   const txs = page.getByRole("table", { name: /^Newest confirmed transactions/ });
   await expect(txs.locator("tbody tr")).toHaveCount(3);
   await expect(txs.locator("tbody tr").first()).toContainText("0def111d");
-  await expect(txs.locator("tbody tr").nth(1)).toContainText(/[−-]12\.34567890/);
+  await expect(txs.locator("tbody tr").nth(1)).toContainText(/[−-]12\.34\s567\s890/);
   await expect(
     page.getByText(/Until then it shows its newest 200 confirmed transactions/),
   ).toBeVisible();

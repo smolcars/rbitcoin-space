@@ -29,16 +29,6 @@ for (const { path, stub } of PAGES) {
       await page.setViewportSize({ width, height: 844 });
       for (const f of await smallTargets(page, "body")) faults.push(`${width} px: ${f}`);
     }
-    // An exact amount's pop-up, where the page has one.
-    const exact = page.locator("main button[data-exact]").first();
-    if ((await exact.count()) > 0) {
-      await exact.scrollIntoViewIfNeeded();
-      await exact.tap();
-      await expect(page.locator(".exact:not([hidden])")).toBeVisible();
-      for (const f of await smallTargets(page, ".exact:not([hidden])", false)) {
-        faults.push(`its exact amount: ${f}`);
-      }
-    }
     expect(faults).toStrictEqual([]);
   });
 }

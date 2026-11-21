@@ -4,7 +4,9 @@ import { SILENT_PAYMENT } from "./pages";
 
 const box = (page: Page, label: string) =>
   page.locator(".address-stat", { has: page.getByText(label, { exact: true }) });
-/** The figure a total shows: in magnitude for an amount, the exact one a tap away. */
+/** BTC exact and grouped as the page writes it, its spaces plain: matchers read them alike. */
+const btc = (sats: number) => (sats / 1e8).toFixed(8).replace(/(\d\d)(\d{3})(\d{3})$/, "$1 $2 $3");
+/** The figure a total shows. */
 const stat = (page: Page, label: string) =>
   box(page, label).locator("dd .amount, dd > .num").first();
 
@@ -44,28 +46,28 @@ test("a taproot address shows its totals, history and unspent outputs from the c
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Address");
   await expect(page.getByText("P2TR", { exact: true })).toBeVisible();
   // Block 106 paid it 1 BTC and block 107 0.49 BTC; the RBF replacement in the mempool pays it 0.25.
-  await expect(stat(page, "Balance")).toHaveText("1.49 BTC");
-  await expect(stat(page, "Received")).toHaveText("1.49 BTC");
-  await expect(stat(page, "Sent")).toHaveText("0 BTC");
+  await expect(stat(page, "Balance")).toHaveText("1.49 000 000 BTC");
+  await expect(stat(page, "Received")).toHaveText("1.49 000 000 BTC");
+  await expect(stat(page, "Sent")).toHaveText("0.00 000 000 BTC");
   await expect(stat(page, "Transactions")).toHaveText("3");
-  await expect(stat(page, "Unconfirmed")).toHaveText("+0.25000000 BTC");
+  await expect(stat(page, "Unconfirmed")).toHaveText("+0.25 000 000 BTC");
 
   const rows = page.getByRole("table").locator("tbody tr");
   await expect(rows).toHaveCount(3);
   await expect(rows.nth(0)).toContainText("Unconfirmed");
-  await expect(rows.nth(0)).toContainText("+0.25000000");
-  await expect(rows.nth(1)).toContainText("+0.49000000");
-  await expect(rows.nth(2)).toContainText("+1.00000000");
+  await expect(rows.nth(0)).toContainText("+0.25 000 000");
+  await expect(rows.nth(1)).toContainText("+0.49 000 000");
+  await expect(rows.nth(2)).toContainText("+1.00 000 000");
 
   // Its balance over time: two confirmed steps; the unconfirmed payment stays in the figures above.
   const chart = page.getByRole("slider", { name: "Confirmed balance after each block" });
   await expect(chart).toHaveAttribute("aria-valuemax", "1");
   await expect(chart).toHaveAttribute(
     "aria-valuetext",
-    /UTC: Balance 1\.49000000 BTC, Block 107, Change \+0\.49000000 BTC$/,
+    /UTC: Balance 1\.49\s000\s000 BTC, Block 107, Change \+0\.49\s000\s000 BTC$/,
   );
   await chart.press("Home");
-  await expect(chart).toHaveAttribute("aria-valuetext", /Balance 1\.00000000 BTC, Block 106,/);
+  await expect(chart).toHaveAttribute("aria-valuetext", /Balance 1\.00\s000\s000 BTC, Block 106,/);
   await rows.nth(1).getByRole("link").click();
   await expect(page).toHaveURL(`/regtest/tx/${chain.txs.spend_p2sh_p2a}`);
   await page.goBack();
@@ -75,11 +77,11 @@ test("a taproot address shows its totals, history and unspent outputs from the c
   const outputs = page.getByRole("table").locator("tbody tr");
   await expect(outputs).toHaveCount(3);
   // Tip 110: the output from block 107 has 4 confirmations, the one from 106 has 5.
-  await expect(outputs.nth(0)).toContainText("0.25000000");
+  await expect(outputs.nth(0)).toContainText("0.25 000 000");
   await expect(outputs.nth(0)).toContainText("Unconfirmed");
-  await expect(outputs.nth(1)).toContainText("0.49000000");
+  await expect(outputs.nth(1)).toContainText("0.49 000 000");
   await expect(outputs.nth(1).locator("td").nth(2)).toHaveText("4");
-  await expect(outputs.nth(2)).toContainText("1.00000000");
+  await expect(outputs.nth(2)).toContainText("1.00 000 000");
   await expect(outputs.nth(2).locator("td").nth(2)).toHaveText("5");
 
   // A reload keeps the view.
@@ -92,12 +94,12 @@ test("a taproot address shows its totals, history and unspent outputs from the c
 
 test("a spend and a receive net out per transaction", async ({ page }) => {
   await page.goto(`/regtest/address/${chain.addresses.p2sh}`);
-  await expect(stat(page, "Balance")).toHaveText("0 BTC");
-  await expect(stat(page, "Sent")).toHaveText("0.500 BTC");
+  await expect(stat(page, "Balance")).toHaveText("0.00 000 000 BTC");
+  await expect(stat(page, "Sent")).toHaveText("0.50 000 000 BTC");
   const rows = page.getByRole("table").locator("tbody tr");
   await expect(rows).toHaveCount(2);
-  await expect(rows.nth(0)).toContainText("−0.50000000");
-  await expect(rows.nth(1)).toContainText("+0.50000000");
+  await expect(rows.nth(0)).toContainText("−0.50 000 000");
+  await expect(rows.nth(1)).toContainText("+0.50 000 000");
   await page.getByRole("tab", { name: "Unspent outputs" }).click();
   await expect(page.getByText("No unspent outputs")).toBeVisible();
 });
@@ -114,9 +116,9 @@ test("unconfirmed payments are marked and agree with the node's own figures", as
     await request.get(`/regtest/api/address/${address}/txs/summary`)
   ).json()) as { txid: string; value: number }[];
   await page.goto(`/regtest/address/${address}`);
-  await expect(stat(page, "Balance")).toHaveText("91.00 BTC");
+  await expect(stat(page, "Balance")).toHaveText("91.00 000 000 BTC");
   const pending = stats.mempool_stats.funded_txo_sum - stats.mempool_stats.spent_txo_sum;
-  await expect(stat(page, "Unconfirmed")).toHaveText(`+${(pending / 1e8).toFixed(8)} BTC`);
+  await expect(stat(page, "Unconfirmed")).toHaveText(`+${btc(pending)} BTC`);
 
   // The node's summary lists confirmed transactions with this address's net value in each.
   const rows = page.getByRole("table").locator("tbody tr");
@@ -125,7 +127,7 @@ test("unconfirmed payments are marked and agree with the node's own figures", as
   for (const s of summary) {
     const row = rows.filter({ has: page.locator(`a[href$="${s.txid}"]`) });
     // The unit is hidden from sight, in the header, but read out with the number.
-    await expect(row.locator("td").nth(2)).toHaveText(`+${(s.value / 1e8).toFixed(8)} BTC`);
+    await expect(row.locator("td").nth(2)).toHaveText(`+${btc(s.value)} BTC`);
   }
 });
 
@@ -143,7 +145,7 @@ test("history pages 25 confirmed transactions at a time", async ({ page }) => {
     await expect(confirmed).toHaveCount(n);
   }
   await expect(more).toHaveCount(0);
-  await expect(confirmed.last()).toContainText("+50.00000000");
+  await expect(confirmed.last()).toContainText("+50.00 000 000");
 });
 
 test("an address of another network and a malformed one are named as such", async ({ page }) => {
@@ -175,10 +177,8 @@ test("the live line never sits on the address, however many lines the address ta
 
 // An address above the node's cap: address-large.e2e.ts.
 
-// Summary totals read in magnitude, the exact amount a tap away and what its copy button copies.
-test("a total reads in magnitude, on one line on a phone, and opens to the exact amount", async ({
-  page,
-}) => {
+// Totals are exact, to the satoshi, with a copy button beside each.
+test("a total reads exact, on one line on a phone, with its copy button", async ({ page }) => {
   for (const width of [390, 320]) {
     await page.setViewportSize({ width, height: 844 });
     await page.goto(`/regtest/address/${chain.addresses.p2tr}`);
@@ -195,14 +195,9 @@ test("a total reads in magnitude, on one line on a phone, and opens to the exact
     }
   }
   const balance = box(page, "Balance");
-  const exact = balance.locator(".exact");
-  await expect(exact).toBeHidden();
-  await expect(balance.locator(".address-total")).toHaveAttribute("title", "1.49000000 BTC");
-  await balance.getByRole("button", { name: /show the exact amount/ }).click();
-  await expect(exact).toBeVisible();
-  await expect(exact).toContainText("1.49000000");
-  await exact.getByRole("button", { name: "Copy the exact balance" }).click();
-  await expect(exact.locator(".copy__note")).toHaveText("Copied");
+  await expect(balance.locator(".address-total .amount")).toHaveText("1.49 000 000 BTC");
+  await balance.getByRole("button", { name: "Copy the exact balance" }).click();
+  await expect(balance.locator(".copy__note")).toHaveText("Copied");
 });
 
 test.describe("an address page's requests", () => {
@@ -250,7 +245,7 @@ test.describe("an address page's requests", () => {
     await expect(
       page.getByText("The server is busy for a moment, so this page is waiting"),
     ).toBeVisible();
-    await expect(stat(page, "Balance")).toHaveText("1.49 BTC", { timeout: 15_000 });
+    await expect(stat(page, "Balance")).toHaveText("1.49 000 000 BTC", { timeout: 15_000 });
     await expect(page.getByText(/busy for a moment/)).toHaveCount(0);
     await expect(page.getByRole("alert")).toHaveCount(0);
   });

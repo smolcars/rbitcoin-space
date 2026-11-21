@@ -13,8 +13,6 @@ import {
 } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { Amount } from "../../components/Amount";
-import { CopyButton } from "../../components/CopyButton";
-import { Exact } from "../../components/Exact";
 import type { Column } from "../../components/DataTable";
 import { Link } from "../../components/Link";
 import { Empty, ErrorState, Loading } from "../../components/States";
@@ -41,7 +39,6 @@ import {
   msatAsSats,
   NAME_IN_LIST,
   type NodeRef,
-  plainMsat,
   plus,
   ppm,
   type RankedNode,
@@ -467,51 +464,42 @@ export function LightningNav(props: {
 }
 
 /**
- * A channel term in millisatoshis, as sats to the msat (`20 000 000 sats`), never broken inside:
- * a tap or a key opens it in msat (`20 000 000 000 msat`) with a copy button that copies it as
- * plain digits, its unit in the button's label. `what` names the term in that label.
- */
-export function Msat(props: { msat: number; what: string }) {
-  return (
-    <Exact
-      class="ln-msat num tap"
-      title={msat(props.msat)}
-      figure={
-        <>
-          <MsatFig msat={props.msat} />
-          <span class="visually-hidden">, exactly {msat(props.msat)}</span>
-        </>
-      }
-    >
-      <span class="num">{msat(props.msat)}</span>
-      <CopyButton value={plainMsat(props.msat)} label={`Copy the exact ${props.what}, in msat`} />
-    </Exact>
-  );
-}
-
-/**
- * An msat figure (`msatAsSats`), whole with its unit. One longer than `LONG_FIGURE` carries its
- * magnitude too (`msatAsBtc`), which the narrowest room (a phone at a large text size) shows in
- * its place; elsewhere it is the exact figure alone. `sign` goes before either (a difference).
+ * An msat figure (`msatAsSats`), exact to the msat with its unit, the msat in its title. One
+ * longer than `LONG_FIGURE` carries its magnitude too (`msatAsBtc`), for an overview's narrowest
+ * room (the live feed, a node's cards); where the figure is the answer (a channel's terms) the room
+ * breaks it before its unit instead. `sign` goes before either (a difference).
  */
 export function MsatFig(props: { msat: number | bigint; sign?: string }) {
   const sign = () => props.sign ?? "";
   return (
-    <Fig exact={`${sign()}${msatAsSats(props.msat)}`} short={`${sign()}${msatAsBtc(props.msat)}`} />
+    <Fig
+      exact={`${sign()}${msatAsSats(props.msat)}`}
+      short={`${sign()}${msatAsBtc(props.msat)}`}
+      title={typeof props.msat === "number" ? msat(props.msat) : undefined}
+    />
   );
 }
 
 /**
- * A figure in two forms: `exact`, and where that is long, `short` for the narrowest room. One
- * past `LONGER_FIGURE` is marked too, for rooms that switch only those.
+ * A figure in two forms: `exact`, and where that is long, `short` for a list's narrowest room.
+ * One past `LONGER_FIGURE` is marked too, for rooms that act on only those. A room whose figure is
+ * the answer never shows `short`: it lets `exact` break before its unit (`Lightning.css`).
  */
-export function Fig(props: { exact: string; short: string; unit?: string }) {
+export function Fig(props: {
+  exact: string;
+  short: string;
+  unit?: string;
+  title?: string | undefined;
+}) {
   // With `unit`, the exact form is the figure and its unit in a span of its own, for a room that
   // sets the unit smaller (a node's card); one piece all the same.
   const length = () => props.exact.length + (props.unit === undefined ? 0 : props.unit.length + 1);
   const long = () => length() > LONG_FIGURE;
   return (
-    <span class={["num", { "ln-fig--long": long(), "ln-fig--longer": length() > LONGER_FIGURE }]}>
+    <span
+      class={["num", { "ln-fig--long": long(), "ln-fig--longer": length() > LONGER_FIGURE }]}
+      title={props.title}
+    >
       <span class="ln-fig__exact">
         {props.exact}
         <Show when={props.unit}>

@@ -137,26 +137,7 @@ export function Flow(props: {
   const [view, setView] = createSignal("0 0 0 0");
 
   // Ribbon geometry from where the cards actually sit. One layout read per draw.
-  // An exact amount wider than its card (a phone's, in a wide font) reads in magnitude there.
-  const fitAmounts = () => {
-    // Only amounts with a magnitude form to fall back on (`fit`); a total has none.
-    const fits = flowEl?.querySelectorAll<HTMLElement>(".tx-flow__item .amount[data-short]");
-    for (const amount of fits ?? []) {
-      const exact = amount.querySelector(".amount__exact");
-      const card = amount.closest(".tx-flow__item");
-      if (!exact || !card) continue;
-      amount.classList.remove("amount--tight");
-      // 2 px clear of the border on each side, where it actually sits: an amount wider than its
-      // line runs out on one side only, so it has one side's padding to spare, not both.
-      const e = exact.getBoundingClientRect();
-      const inner = card.getBoundingClientRect().left + card.clientLeft;
-      const wide = e.left < inner + 2 || e.right > inner + card.clientWidth - 2;
-      amount.classList.toggle("amount--tight", wide);
-    }
-  };
-
   const draw = () => {
-    fitAmounts();
     if (!svgEl || !inCol || !outCol) return;
     const box = svgEl.getBoundingClientRect();
     const W = box.width;
@@ -296,7 +277,7 @@ export function Flow(props: {
         Show {groupDigits(Math.min(hidden, MORE_STEP))} more
       </button>
       <span class="tx-flow__amt">
-        <Amount sats={value} unit={false} fit />
+        <Amount sats={value} unit={false} wrap />
       </span>
       <span class="tx-flow__meta">
         {groupDigits(hidden)} more {side === "in" ? "inputs" : "outputs"}
@@ -320,7 +301,7 @@ export function Flow(props: {
             >
               <span class="tx-flow__who">Coinbase</span>
               <span class="tx-flow__amt">
-                <Amount sats={totalOut(props.tx)} unit={false} fit />
+                <Amount sats={totalOut(props.tx)} unit={false} wrap />
               </span>
               <span class="tx-flow__meta">New coins and fees</span>
               <Memo t={coinbaseText(props.tx)} label={false} />
@@ -344,7 +325,7 @@ export function Flow(props: {
                 <span class="tx-flow__who">{who(input.prevout)}</span>
                 <span class="tx-flow__amt">
                   <Show when={input.prevout} fallback={<span class="amount">–</span>}>
-                    {(p) => <Amount sats={p().value} unit={false} fit />}
+                    {(p) => <Amount sats={p().value} unit={false} wrap />}
                   </Show>
                 </span>
                 <span class="tx-flow__meta">
@@ -404,7 +385,7 @@ export function Flow(props: {
             >
               <span class="tx-flow__who">{who(out)}</span>
               <span class="tx-flow__amt">
-                <Amount sats={out.value} unit={false} fit />
+                <Amount sats={out.value} unit={false} wrap />
               </span>
               <span class="tx-flow__meta">
                 <Show when={marked(out)}>
@@ -438,7 +419,7 @@ export function Flow(props: {
           >
             <span class="tx-flow__who">Fee</span>
             <span class="tx-flow__amt">
-              <Amount sats={fee()} unit={false} fit />
+              <Amount sats={fee()} unit={false} wrap />
             </span>
             <span class="tx-flow__meta">
               <FeeRate rate={rate()} />

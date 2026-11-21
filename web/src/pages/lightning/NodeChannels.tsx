@@ -14,6 +14,7 @@ import {
   Switch,
   untrack,
 } from "solid-js";
+import { Amount } from "../../components/Amount";
 import type { JSX } from "@solidjs/web";
 import { formatDay } from "../../components/chart/scale";
 import { type Column, DataTable } from "../../components/DataTable";
@@ -25,7 +26,7 @@ import { scrollCue } from "../../components/scrollCue";
 import { SectionHeader } from "../../components/SectionHeader";
 import { Empty, ErrorState, Loading } from "../../components/States";
 import { createRequest } from "../../lib/api";
-import { formatBtcShort, groupDigits, MISSING, truncateMiddle } from "../../lib/format";
+import { groupDigits, MISSING, truncateMiddle } from "../../lib/format";
 import { type Network, paths } from "../../lib/network";
 import {
   ageShort,
@@ -259,7 +260,7 @@ function PeerBar(props: {
             <span class="muted">
               {" "}
               (<span class="num">{count(n(), "channel")}</span>,{" "}
-              <span class="num">{formatBtcShort(props.known?.capacity ?? 0)} BTC</span>)
+              <Amount sats={props.known?.capacity ?? 0} wrap />)
             </span>
           )}
         </Show>
@@ -365,9 +366,7 @@ function sortedFigure(by: string, c: OpenChannel): JSX.Element | null {
   if (by === "peer")
     return named(
       "Peer",
-      <span class="num">
-        {c.peer.capacity === null ? MISSING : `${formatBtcShort(c.peer.capacity)} BTC`}
-      </span>,
+      c.peer.capacity === null ? MISSING : <Amount sats={c.peer.capacity} wrap />,
     );
   return null;
 }
@@ -780,7 +779,7 @@ function OpenCard(props: {
                 {(n) => (
                   <>
                     , <span class="num">{count(n(), "channel")}</span>,{" "}
-                    <span class="num">{formatBtcShort(c().peer.capacity ?? 0)} BTC</span>
+                    <Amount sats={c().peer.capacity ?? 0} wrap />
                   </>
                 )}
               </Show>

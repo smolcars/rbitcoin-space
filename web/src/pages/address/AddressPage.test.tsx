@@ -210,29 +210,31 @@ describe("address page", () => {
     });
     const el = open(`/address/${ME}`);
     await until(() => expect(el.querySelectorAll("tbody tr .hash")).toHaveLength(3));
-    // Totals in magnitude; the exact amount behind each, a tap away, with its own copy button.
+    // Totals exact, each with a copy button that copies it as a program reads it.
     const shown = [
       ...el.querySelectorAll(".address-stat__value .amount, .address-stat__value > .num"),
     ];
     expect(shown.map((e) => text(e))).toStrictEqual([
-      "1.00 BTC",
-      "1.50 BTC",
-      "0.500 BTC",
+      "1.00\u202F000\u202F000 BTC",
+      "1.50\u202F000\u202F000 BTC",
+      "0.50\u202F000\u202F000 BTC",
       "4",
-      "+0.00050000 BTC",
+      "+0.00\u202F050\u202F000 BTC",
     ]);
-    const exact = [...el.querySelectorAll<HTMLElement>(".exact")];
-    expect(exact.map((e) => [e.hidden, text(e.querySelector(".num") as Element)])).toStrictEqual([
-      [true, "1.00000000"],
-      [true, "1.50000000"],
-      [true, "0.50000000"],
+    expect(
+      [...el.querySelectorAll(".address-total button")].map((b) => b.getAttribute("title")),
+    ).toStrictEqual([
+      "Copy the exact balance, in BTC",
+      "Copy the exact amount received, in BTC",
+      "Copy the exact amount sent, in BTC",
     ]);
-    el.querySelector<HTMLButtonElement>(".address-total")?.click();
-    await until(() => expect(exact[0]?.hidden).toBe(false));
-    expect(el.querySelector(".address-total")?.getAttribute("aria-expanded")).toBe("true");
     const rows = [...el.querySelectorAll("tbody tr")];
     const change = rows.map((r) => text(r.querySelectorAll("td")[2] as Element));
-    expect(change).toStrictEqual(["+0.00050000 BTC", "−0.00040210 BTC", "−0.00000210 BTC"]);
+    expect(change).toStrictEqual([
+      "+0.00\u202F050\u202F000 BTC",
+      "−0.00\u202F040\u202F210 BTC",
+      "−0.00\u202F000\u202F210 BTC",
+    ]);
     expect(text(rows[0] as Element)).toContain("Unconfirmed");
     expect(rows[1]?.querySelector("a")?.getAttribute("href")).toBe(`/tx/${txid(2)}`);
     expect(text(el.querySelector(".address-history .section__meta") as Element)).toBe("3 of 4");
@@ -250,7 +252,9 @@ describe("address page", () => {
     const more = [...el.querySelectorAll("button")].find((b) => text(b) === "Show 25 more");
     more?.click();
     await until(() => expect(el.querySelectorAll("tbody tr")).toHaveLength(26));
-    expect(text(el.querySelectorAll("tbody tr")[25] as Element)).toContain("−0.00005000");
+    expect(text(el.querySelectorAll("tbody tr")[25] as Element)).toContain(
+      "−0.00\u202F005\u202F000",
+    );
     expect([...el.querySelectorAll("button")].some((b) => text(b) === "Show 25 more")).toBe(false);
   });
 
@@ -326,11 +330,13 @@ describe("address page", () => {
     expect(el.querySelectorAll("tbody tr")[1]).toBe(row);
     // The same transaction in the same block, answered differently (a node that has since pruned
     // its inputs, say): what the answer says now is drawn, never the object held from before.
-    expect(text(row as Element)).toContain("+0.00001000");
+    expect(text(row as Element)).toContain("+0.00\u202F001\u202F000");
     page = [tx(2, [[OTHER, 9000]], [[ME, 8000]], false), tx(1, [[OTHER, 2000]], [[ME, 1500]])];
     status("s4");
     await until(() =>
-      expect(text(el.querySelectorAll("tbody tr")[1] as Element)).toContain("+0.00001500"),
+      expect(text(el.querySelectorAll("tbody tr")[1] as Element)).toContain(
+        "+0.00\u202F001\u202F500",
+      ),
     );
   });
 
@@ -627,7 +633,9 @@ describe("address page", () => {
     const el = open(`/address/${ME}`);
     await until(() => expect(text(el)).toContain("This address has never been used"));
     expect(el.querySelector('[role="alert"]')).toBeNull();
-    expect(text(el.querySelector(".address-stat__value .amount") as Element)).toBe("0 BTC");
+    expect(text(el.querySelector(".address-stat__value .amount") as Element)).toBe(
+      "0.00\u202F000\u202F000 BTC",
+    );
   });
 
   it("answers a malformed address without asking the server, as text", async () => {
@@ -900,7 +908,7 @@ describe("address page", () => {
     up = true;
     const retry = [...el.querySelectorAll("button")].find((b) => text(b) === "Try again");
     retry?.click();
-    await until(() => expect(text(el)).toContain("1.00 BTC"));
+    await until(() => expect(text(el)).toContain("1.00\u202F000\u202F000 BTC"));
     expect(text(el)).not.toContain("Could not load");
   });
 
@@ -932,9 +940,9 @@ describe("address page", () => {
       ...[...r.querySelectorAll("td")].slice(1).map((e) => text(e)),
     ]);
     expect(rows).toStrictEqual([
-      ["00000000…00000002:2", "0.00002000 BTC", "Unconfirmed"],
-      ["00000000…00000003:3", "0.00003000 BTC", "1"],
-      ["00000000…00000001:1", "0.00001000 BTC", "11"],
+      ["00000000…00000002:2", "0.00\u202F002\u202F000 BTC", "Unconfirmed"],
+      ["00000000…00000003:3", "0.00\u202F003\u202F000 BTC", "1"],
+      ["00000000…00000001:1", "0.00\u202F001\u202F000 BTC", "11"],
     ]);
     expect(text(el.querySelector(".address-history .section__meta") as Element)).toBe("3 outputs");
   });
@@ -1320,14 +1328,16 @@ describe("balance chart", () => {
     expect(chart.getAttribute("aria-valuemax")).toBe("2");
     // The latest step first: the time, the balance, the block and what it changed.
     expect(chart.getAttribute("aria-valuetext")).toBe(
-      "6 Nov 2026, 21:40 UTC: Balance 0.00030000 BTC, Block 102, Change +0.00030000 BTC",
+      "6 Nov 2026, 21:40 UTC: Balance 0.00\u202F030\u202F000 BTC, Block 102, Change +0.00\u202F030\u202F000 BTC",
     );
     key(chart, "ArrowLeft");
     expect(chart.getAttribute("aria-valuetext")).toContain(
-      "Balance 0.00000000 BTC, Block 101, Change −0.00050000 BTC",
+      "Balance 0.00\u202F000\u202F000 BTC, Block 101, Change −0.00\u202F050\u202F000 BTC",
     );
     key(chart, "Home");
-    expect(chart.getAttribute("aria-valuetext")).toContain("21:20 UTC: Balance 0.00050000 BTC");
+    expect(chart.getAttribute("aria-valuetext")).toContain(
+      "21:20 UTC: Balance 0.00\u202F050\u202F000 BTC",
+    );
     key(chart, "Escape");
     expect(chart.getAttribute("aria-valuetext")).toContain("Block 102");
     // The plot starts 66 px in, with the first step at its left edge: left of that is the first.
@@ -1342,7 +1352,9 @@ describe("balance chart", () => {
     );
     flush();
     expect(chart.getAttribute("aria-valuetext")).toContain("Block 100");
-    expect(text(el.querySelector(".chart__readout") as Element)).toContain("0.00050000 BTC");
+    expect(text(el.querySelector(".chart__readout") as Element)).toContain(
+      "0.00\u202F050\u202F000 BTC",
+    );
     // One summary page held the whole history: nothing else was asked.
     expect(summaries()).toStrictEqual([`/api/address/${ME}/txs/summary`]);
     expect(calls.filter((c) => c.includes("asof"))).toStrictEqual([]);
@@ -1411,11 +1423,11 @@ describe("balance chart", () => {
       `The last 200 of 5${NNBSP}598 confirmed transactions`,
     );
     expect(chart.getAttribute("aria-label")).toContain("the last 200 transactions");
-    expect(chart.getAttribute("aria-valuetext")).toContain("Balance 0.09000000 BTC");
+    expect(chart.getAttribute("aria-valuetext")).toContain("Balance 0.09\u202F000\u202F000 BTC");
     key(chart, "Home");
     // The oldest loaded block: its balance follows from the true one; its change may be partial.
     expect(chart.getAttribute("aria-valuetext")).toContain(
-      `Balance 0.08980100 BTC, Block 9${NNBSP}801, Change no data`,
+      `Balance 0.08\u202F980\u202F100 BTC, Block 9${NNBSP}801, Change no data`,
     );
   });
 
@@ -1440,7 +1452,7 @@ describe("balance chart", () => {
     status("s2");
     await until(() => expect(chart.getAttribute("aria-valuemax")).toBe("2"));
     expect(chart.getAttribute("aria-valuetext")).toContain(
-      "Balance 0.00065000 BTC, Block 102, Change +0.00025000 BTC",
+      "Balance 0.00\u202F065\u202F000 BTC, Block 102, Change +0.00\u202F025\u202F000 BTC",
     );
     expect(text(el.querySelector(".address-balance .section__meta") as Element)).toBe(
       "3 confirmed transactions",

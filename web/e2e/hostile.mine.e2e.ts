@@ -95,7 +95,7 @@ test("hostile chain data is shown as text on every page that shows it", async ({
   await expect(miner.getByRole("link")).toHaveText("Unknown");
   // The miner claimed 1 000 sats less than the subsidy of an empty block.
   await expect(
-    page.getByText("0.00001000 BTC less than the subsidy and fees allowed"),
+    page.getByText("0.00 001 000 BTC less than the subsidy and fees allowed"),
   ).toBeVisible();
   await inert(page, dialogs);
 

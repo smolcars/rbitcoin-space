@@ -20,7 +20,7 @@ import type { JSX } from "@solidjs/web";
 import type { ApiResource } from "../../lib/api";
 import { useNow } from "../../lib/clock";
 import type { AddressStats } from "../../lib/esplora";
-import { formatBtc, groupDigits } from "../../lib/format";
+import { formatBtc, formatBtcScale, groupDigits } from "../../lib/format";
 import { paths } from "../../lib/network";
 import type { Ledger, LedgerTx } from "./ledger";
 import { UnconfirmedTransactions, useUnconfirmed } from "./Large";
@@ -38,7 +38,7 @@ const HEIGHT = 200;
 
 type Tracked = Extract<Ledger, { state: "tracked" }>;
 
-const btcTick = (sats: number) => formatBtc(Math.round(sats)).replace(/\.?0+$/, "");
+const btcTick = (sats: number) => formatBtcScale(Math.round(sats));
 const btc = (sats: number) => `${formatBtc(sats)} BTC`;
 const plural = (n: number, one: string, many: string) =>
   `${groupDigits(n)} ${n === 1 ? one : many}`;

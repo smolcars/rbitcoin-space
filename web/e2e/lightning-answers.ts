@@ -102,8 +102,9 @@ export const pageFaults = (page: Page, scope = "main") =>
         if (tops.size > 1) out.push(`split: ${m[0]}`);
       }
     }
-    // A figure is one piece with its unit ("1 sat", never "1" then "sat"); a time is a phrase.
-    for (const el of document.querySelectorAll<HTMLElement>(`${within} :is(.num, .ln-msat)`)) {
+    // A figure is one piece with its unit ("1 sat", never "1" then "sat"); a time is a phrase. A
+    // long exact one (`Fig`) breaks before its unit only where its room lets it.
+    for (const el of document.querySelectorAll<HTMLElement>(`${within} .num`)) {
       // A channel id wraps after an "x" by design (ChannelId).
       // A chart's reading of its time is a phrase too.
       if (el.querySelector(".num") || el.closest("time, .chart__when, .visually-hidden, .ln-id"))
@@ -122,7 +123,11 @@ export const pageFaults = (page: Page, scope = "main") =>
       // so only a step of half the figure's size is a new line.
       const half = Number.parseFloat(getComputedStyle(el).fontSize) / 2;
       tops.sort((a, b) => a - b);
-      if (tops.some((t, i) => i > 0 && t - (tops[i - 1] ?? t) > half))
+      const exact = el.querySelector(".ln-fig__exact");
+      const breaks =
+        el.classList.contains("amount--wrap") ||
+        (exact !== null && getComputedStyle(exact).whiteSpace !== "nowrap");
+      if (!breaks && tops.some((t, i) => i > 0 && t - (tops[i - 1] ?? t) > half))
         out.push(`unit apart: ${el.textContent ?? ""}`);
       // Nor out of the box a reader sees round it: a fee's well, an end's box, the panel.
       // A row that scrolls sideways on purpose (the state chips, a wide table) is its own box.

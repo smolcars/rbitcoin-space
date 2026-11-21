@@ -6,7 +6,7 @@ import { formatSi, readoutLines } from "../../components/chart/scale";
 import { Link } from "../../components/Link";
 import { Empty, ErrorState, Loading } from "../../components/States";
 import type { Coverage } from "../../lib/api";
-import { formatSize } from "../../lib/format";
+import { formatBtc, formatBtcScale, formatSize } from "../../lib/format";
 import { paths } from "../../lib/network";
 import { NoHistoryError } from "./data";
 import { coverageNote, type Period } from "./mining";
@@ -130,11 +130,10 @@ export function Stat(props: { label: string; children: JSX.Element; sub?: JSX.El
 
 // Formats for chart axes and readouts.
 
-/** BTC without trailing zeros, for axis ticks, which are round: `0.025 BTC`, `3 BTC`. */
-export const btcShort = (sats: number): string =>
-  `${(sats / 1e8).toFixed(8).replace(/\.?0+$/, "")} BTC`;
-/** BTC with all eight decimals, for readouts. */
-export const btcFull = (sats: number): string => `${(sats / 1e8).toFixed(8)} BTC`;
+/** BTC without the zeros a round tick does not need, for axis ticks: `0.025 BTC`, `3 BTC`. */
+export const btcShort = (sats: number): string => `${formatBtcScale(Math.round(sats))} BTC`;
+/** BTC exact, all eight decimals grouped, for readouts. */
+export const btcFull = (sats: number): string => `${formatBtc(Math.round(sats))} BTC`;
 export const difficultyShort = (d: number): string => formatSi(d, "");
 export const difficultyFull = (d: number): string => formatSi(d, "", 5);
 export const bytesText = (b: number): string => formatSize(b, "B");

@@ -41,23 +41,32 @@ export function formatPowerOfTen(n: number, digits = 3): string {
 export interface BtcParts {
   /** `"−"` or `""`. */
   sign: string;
-  /** Whole bitcoins, grouped. */
+  /** Whole bitcoins, grouped in threes. */
   whole: string;
-  /** Fraction digits up to the last non-zero one. */
+  /** The grouped decimals up to the last non-zero digit: `00 012 5`. */
   significant: string;
-  /** The trailing zeros that complete eight decimals. */
+  /** The rest of the eight grouped decimals, all zeros and group spaces: `00`. */
   zeros: string;
 }
 
 /**
- * Splits an amount in sats into BTC parts with all eight decimals. Integer arithmetic only, so
- * there is never a floating-point error. Returns null for anything that is not a safe integer.
+ * Eight decimals grouped as sats read: 2 + 3 + 3 (`00 012 500`), so the last six digits are the
+ * sats under a hundred thousand, grouped as `formatSats` groups them.
+ */
+function groupFraction(eight: string): string {
+  return `${eight.slice(0, 2)}${NNBSP}${eight.slice(2, 5)}${NNBSP}${eight.slice(5)}`;
+}
+
+/**
+ * Splits an amount in sats into BTC parts with all eight decimals, grouped (`1 234.56 789 012`).
+ * Integer arithmetic only, so there is never a floating-point error. Returns null for anything
+ * that is not a safe integer.
  */
 export function btcParts(sats: number): BtcParts | null {
   if (!Number.isSafeInteger(sats)) return null;
   const abs = Math.abs(sats);
-  const fraction = (abs % SATS_PER_BTC).toString().padStart(8, "0");
-  const significant = fraction.replace(/0+$/, "");
+  const fraction = groupFraction((abs % SATS_PER_BTC).toString().padStart(8, "0"));
+  const significant = fraction.replace(/[0\u202F]+$/, "");
   return {
     sign: sats < 0 ? "−" : "",
     whole: groupDigits(Math.floor(abs / SATS_PER_BTC)),
@@ -66,7 +75,7 @@ export function btcParts(sats: number): BtcParts | null {
   };
 }
 
-/** BTC as plain text with eight decimals: `0.03500000`. */
+/** BTC as text with all eight decimals, grouped: `0.03 500 000`. Never rounded. */
 export function formatBtc(sats: number): string {
   const p = btcParts(sats);
   return p ? `${p.sign}${p.whole}.${p.significant}${p.zeros}` : MISSING;
@@ -84,9 +93,23 @@ export function plainBtc(sats: number): string {
 }
 
 /**
- * BTC to the precision a summary needs, magnitude first: whole bitcoins from 1 000 (`2 799`), two
- * decimals from 1 (`3.15`), three significant digits below (`0.0225`, `0.00149`). Rounded to
- * nearest; the exact amount belongs in a title or a detail page.
+ * A chart's BTC scale, where a tick is a round step, not an amount: whole bitcoins grouped, the
+ * decimals it needs and no more, ungrouped (`0.025`, `1 200`). Never for an amount itself.
+ */
+export function formatBtcScale(sats: number): string {
+  if (!Number.isSafeInteger(sats)) return MISSING;
+  const abs = Math.abs(sats);
+  const fraction = String(abs % SATS_PER_BTC)
+    .padStart(8, "0")
+    .replace(/0+$/, "");
+  const whole = groupDigits(Math.floor(abs / SATS_PER_BTC));
+  return `${sats < 0 ? "−" : ""}${whole}${fraction === "" ? "" : `.${fraction}`}`;
+}
+
+/**
+ * BTC in magnitude, for a chart axis's ticks only (a scale, not an amount): whole bitcoins from
+ * 1 000 (`2 799`), two decimals from 1 (`3.15`), three significant digits below (`0.0225`).
+ * Every amount a reader is shown is exact ({@link formatBtc}).
  */
 export function formatBtcShort(sats: number): string {
   if (!Number.isSafeInteger(sats)) return MISSING;

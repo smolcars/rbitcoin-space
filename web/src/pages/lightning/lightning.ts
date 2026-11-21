@@ -743,13 +743,6 @@ export const btcAxis = (sats: number): string => {
 /** Millisatoshis: `1 000 msat`. */
 export const msat = (n: number): string => `${groupDigits(n)} msat`;
 
-/**
- * Millisatoshis as a program reads them: digits only, no grouping or unit. The same decimal digits
- * `msat` shows, past 2^53 too (a BigInt there gave the binary value's digits, not the shown ones).
- */
-export const plainMsat = (n: number): string =>
-  Number.isFinite(n) ? Math.round(n).toString() : MISSING;
-
 /** A channel id as the API writes it: `811984x2037x0`; or the 64-bit one in decimal. */
 export function isChannelId(v: string): boolean {
   return (
@@ -897,20 +890,15 @@ export function feeRows(fees: NodeDetail["fees"]): FeeRow[] {
 const group = (digits: string): string => digits.replaceAll(/\B(?=(\d{3})+(?!\d))/g, NNBSP);
 
 /**
- * Millisatoshis as an operator reads a policy: under a bitcoin, as sats exact to the msat (`1 sat`,
- * `500 msat` under a sat, `1.001 sats`, `20 000 000 sats`); from one, in magnitude like any
- * summary (`5.00 BTC`, `21 000 000 BTC`), which fits a phone at any text size, the exact msat
- * a press away (`Msat`). A bigint for a fee past 2⁵³.
+ * Millisatoshis as an operator reads a policy, as sats exact to the msat at any size (`1 sat`,
+ * `500 msat` under a sat, `1.001 sats`, `500 000 000 sats`): never rounded, as a term is what a
+ * node enforces. A bigint for a fee past 2⁵³.
  */
-export function msatAsSats(n: number | bigint, btcFrom = 100_000_000_000n): string {
+export function msatAsSats(n: number | bigint): string {
   if (typeof n === "number" && !Number.isFinite(n)) return MISSING;
   const big = typeof n === "bigint" ? n : BigInt(Math.round(n));
   const sign = big < 0n ? "−" : "";
   const m = big < 0n ? -big : big;
-  if (m >= btcFrom) {
-    const btc = m / 100_000_000_000n;
-    return `${sign}${btc >= 1000n ? group(String(btc)) : formatBtcShort(Number(m / 1000n))} BTC`;
-  }
   if (m > 0n && m < 1000n) return `${sign}${group(String(m))} msat`;
   const frac = String(m % 1000n)
     .padStart(3, "0")
@@ -919,19 +907,30 @@ export function msatAsSats(n: number | bigint, btcFrom = 100_000_000_000n): stri
   return `${sign}${whole}${frac === "" ? "" : `.${frac}`} ${m === 1000n ? "sat" : "sats"}`;
 }
 
-/** The same figure in magnitude from a sat (`0.200 BTC`, `0.0100 BTC`), for a very narrow room. */
-export const msatAsBtc = (n: number | bigint): string => msatAsSats(n, 1000n);
+/**
+ * The same figure in magnitude from a sat (`0.200 BTC`, `21 000 000 BTC`), for a list's narrowest
+ * room (the live feed): under a sat it is the exact msat.
+ */
+export function msatAsBtc(n: number | bigint): string {
+  if (typeof n === "number" && !Number.isFinite(n)) return MISSING;
+  const big = typeof n === "bigint" ? n : BigInt(Math.round(n));
+  const m = big < 0n ? -big : big;
+  if (m < 1000n) return msatAsSats(big);
+  const sign = big < 0n ? "−" : "";
+  const btc = m / 100_000_000_000n;
+  return `${sign}${btc >= 1000n ? group(String(btc)) : formatBtcShort(Number(m / 1000n))} BTC`;
+}
 
 /**
- * Characters past which an msat figure also carries its magnitude, shown in its place where the
- * room is narrowest (a phone at a large text size, `MsatFig`): there no longer figure fits whole.
+ * Characters past which an msat figure also carries its magnitude (`MsatFig`), and a fee history
+ * reads as a labelled list: where a room is narrowest no longer figure fits on one line.
  */
 export const LONG_FIGURE = 12;
 
 /**
  * Characters past which a figure is too long even for a room that holds an ordinary long one
- * (`500 000 000 sats` is 16): the node page's cards and glance show these in magnitude by their
- * own width, so their ordinary figures stay exact.
+ * (`500 000 000 sats` is 16): the node page's cards and glance, and the live feed, show these in
+ * magnitude by their own width, so their ordinary figures stay exact.
  */
 export const LONGER_FIGURE = 16;
 

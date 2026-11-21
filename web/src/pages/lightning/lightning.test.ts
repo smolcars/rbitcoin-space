@@ -12,8 +12,6 @@ import {
   movedText,
   btcAxis,
   cleanAlias,
-  msat,
-  plainMsat,
   coverageSentence,
   cut,
   feeRows,
@@ -173,22 +171,6 @@ describe("coverage", () => {
   });
 });
 
-describe("plainMsat", () => {
-  // What the copy button copies: the digits shown, ungrouped, past 2^53 too.
-  it("copies exactly the digits msat shows", () => {
-    for (const n of [
-      0,
-      1,
-      1_234_567_890,
-      Number("1234567890123456789"),
-      2_100_000_000_000_000_000,
-    ]) {
-      expect(plainMsat(n)).toMatch(/^\d+$/);
-      expect(plainMsat(n)).toBe(msat(n).replace(" msat", "").replaceAll("\u202F", ""));
-    }
-  });
-});
-
 describe("a node's fee rates", () => {
   const fees = acinq().fees;
 
@@ -264,18 +246,24 @@ describe("msatAsSats", () => {
     expect(msatAsSats(Number.NaN)).toBe("–");
   });
 
-  it("reads a bitcoin and more in magnitude, so the longest still fits a phone", () => {
-    expect(msatAsSats(100_000_000_000)).toBe("1.00 BTC");
-    expect(msatAsSats(523_456_789_000)).toBe("5.23 BTC");
-    expect(plain(msatAsSats(2_100_000_000_000_000_000))).toBe("21 000 000 BTC");
-    expect(plain(msatAsSats(-150_000_000_000_000))).toBe("−1 500 BTC");
-    // The magnitude a long figure carries for the narrowest room.
+  it("stays exact in sats past a bitcoin, never rounded", () => {
+    expect(plain(msatAsSats(100_000_000_000))).toBe("100 000 000 sats");
+    expect(plain(msatAsSats(523_456_789_001))).toBe("523 456 789.001 sats");
+    expect(plain(msatAsSats(2_100_000_000_000_000_000))).toBe("2 100 000 000 000 000 sats");
+    expect(plain(msatAsSats(-150_000_000_000_000))).toBe("−150 000 000 000 sats");
+    // A fee past 2⁵³, as a bigint, to the msat.
+    expect(plain(msatAsSats(8_400_000_000_000_000_000_123n))).toBe(
+      "8 400 000 000 000 000 000.123 sats",
+    );
+  });
+
+  it("gives a list's narrowest room the magnitude from a sat", () => {
     expect(msatAsBtc(99_999_999_999)).toBe("1.00 BTC");
     expect(msatAsBtc(999_999_999)).toBe("0.01000 BTC");
     expect(msatAsBtc(4_294_967_295)).toBe("0.0429 BTC");
     expect(msatAsBtc(999)).toBe("999 msat");
-    // A fee past 2⁵³, as a bigint.
-    expect(plain(msatAsSats(8_400_000_000_000_000_000_123n))).toBe("84 000 000 000 BTC");
+    expect(plain(msatAsBtc(2_100_000_000_000_000_000))).toBe("21 000 000 BTC");
+    expect(plain(msatAsBtc(-150_000_000_000_000))).toBe("−1 500 BTC");
   });
 
   it("never lets a figure break inside its digits", () => {

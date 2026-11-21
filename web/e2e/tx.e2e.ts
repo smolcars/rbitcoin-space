@@ -19,9 +19,11 @@ test("a confirmed transaction names every output type and links where the money 
     const named = outputs.getByText(type, { exact: true }).first();
     await (wide ? expect(named).toBeVisible() : expect(named).toBeAttached());
   }
-  await expect(outputs).toContainText("OP_RETURN0.00000000 BTCUnspendable“mempool.based regtest”");
+  await expect(outputs).toContainText(
+    "OP_RETURN0.00 000 000 BTCUnspendable“mempool.based regtest”",
+  );
   // Amounts keep their unit for screen readers, though the cards show bare numbers.
-  await expect(outputs.getByText("1.00000000 BTC", { exact: true }).first()).toBeAttached();
+  await expect(outputs.getByText("1.00 000 000 BTC", { exact: true }).first()).toBeAttached();
   // spend_p2sh_p2a spent the P2SH and P2A outputs.
   await expect(
     outputs.getByRole("link", { name: `Spent in transaction ${chain.txs.spend_p2sh_p2a}` }),

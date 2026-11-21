@@ -214,10 +214,10 @@ describe("BlockPage", () => {
   it("shows a block by hash with reward, fees and neighbours", async () => {
     serve(normal());
     const el = open(`/block/${HASH}`);
-    await until(() => expect(fact(el, "Reward")).toContain("3.13000000 BTC"));
+    await until(() => expect(fact(el, "Reward")).toContain("3.13 000 000 BTC"));
     expect(text(el.querySelector("h1") as Element)).toBe("Block 975 411");
     expect(fact(el, "Total fees")).toContain("500 000 sats");
-    expect(fact(el, "Reward")).toContain("3.12500000 BTC subsidy");
+    expect(fact(el, "Reward")).toContain("3.12 500 000 BTC subsidy");
     expect(fact(el, "Confirmations")).toContain("10");
     expect(fact(el, "Fullness")).toContain("99.8%");
     // The facts come before the drawing in reading order, so a phone shows them first.
@@ -284,7 +284,7 @@ describe("BlockPage", () => {
       input.includes("/app/blocks/summary") ? new Promise(() => {}) : served(input),
     );
     const el = open(`/block/${HASH}`);
-    await until(() => expect(fact(el, "Reward")).toContain("3.13000000 BTC"));
+    await until(() => expect(fact(el, "Reward")).toContain("3.13 000 000 BTC"));
     expect(el.querySelector(".audit__rate")).toBeNull();
     const socket = await until(() => FakeSocket.last());
     socket.hello({ network: "mainnet" });
@@ -744,11 +744,11 @@ describe("BlockPage", () => {
         "0.00 sat/vB",
       ),
     );
-    await until(() => expect(fact(el, "Total fees")).toContain("0.00500000 BTC"));
+    await until(() => expect(fact(el, "Total fees")).toContain("0.00 500 000 BTC"));
     expect(fact(el, "Total fees")).toContain("500 000 sats");
     await until(() =>
       expect(fact(el, "Reward")).toContain(
-        "3.12000000 BTC0.01000000 BTC less than the subsidy and fees allowed",
+        "3.12 000 000 BTC0.01 000 000 BTC less than the subsidy and fees allowed",
       ),
     );
     // A tag with nothing after the height says so, rather than "shown as hex" over a dash.
@@ -758,7 +758,7 @@ describe("BlockPage", () => {
   it("uses the network's halving interval", async () => {
     serve(normal());
     const el = open(`/signet/block/${HASH}`);
-    await until(() => expect(fact(el, "Reward")).toContain("3.12500000 BTC subsidy"));
+    await until(() => expect(fact(el, "Reward")).toContain("3.12 500 000 BTC subsidy"));
   });
 });
 
@@ -817,11 +817,11 @@ describe("BlocksPage", () => {
     const el = open("/blocks");
     const row = (i: number) => text(el.querySelectorAll("tbody tr")[i] as Element);
     await until(() => expect(row(0)).toContain("1.09"));
-    expect(row(0)).toContain("0.00500000");
+    expect(row(0)).toContain("0.00 500 000");
     expect(row(1)).toContain("None");
     expect(el.querySelectorAll("tbody tr")[2]?.querySelector(".block-skel")).not.toBeNull();
     await vi.advanceTimersByTimeAsync(1300);
-    await until(() => expect(row(2)).toContain("0.00000007"));
+    await until(() => expect(row(2)).toContain("0.00 000 007"));
   });
 
   it("gives each audited block its match rate, and a dash to a block without one", async () => {

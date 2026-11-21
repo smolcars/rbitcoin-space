@@ -45,7 +45,7 @@ test.describe("an Arkade address", () => {
     await expect(table.getByText("Unspent")).toHaveCount(3);
     await expect(table.getByText("Not settled yet")).toHaveCount(3);
     // Three of 1 000 sats each.
-    await expect(page.locator(".arkade-fig__value").nth(1)).toContainText(/0\.0000\s?3000/);
+    await expect(page.locator(".arkade-fig__value").nth(1)).toContainText(/0\.00\s003\s000/);
   });
 
   test("another server's, an empty one, Bark's, an unknown version, another network's and nonsense", async ({

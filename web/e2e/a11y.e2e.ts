@@ -279,12 +279,12 @@ const PAGES: PageType[] = [
   {
     name: "address",
     path: `/regtest/address/${chain.addresses.p2wpkh}`,
-    ready: (p) => p.getByRole("button", { name: /show the exact amount/ }).first(),
+    ready: (p) => p.getByRole("button", { name: /^Copy the exact balance/ }),
   },
   {
     name: "address as of a block",
     path: `/regtest/address/${chain.addresses.p2wpkh}?at=106`,
-    ready: (p) => p.getByRole("button", { name: /show the exact amount/ }).first(),
+    ready: (p) => p.getByRole("button", { name: /^Copy the exact balance/ }),
   },
   {
     name: "address above the node's cap",
@@ -511,10 +511,7 @@ test("an SVG control's ring is a focus-coloured stroke, not any stroke it always
 });
 
 // Escape closes what opened and gives focus back to what opened it.
-test("Escape closes the network menu, an exact amount and the search's answer", async ({
-  page,
-  browserName,
-}) => {
+test("Escape closes the network menu and the search's answer", async ({ page, browserName }) => {
   const tab = browserName === "webkit" ? "Alt+Tab" : "Tab";
   // A second network, so the switch is a menu rather than a label.
   await page.route("**/app/config", (r) =>
@@ -530,17 +527,6 @@ test("Escape closes the network menu, an exact amount and the search's answer", 
   await page.keyboard.press("Escape");
   await expect(menu).toBeHidden();
   await expect(network).toBeFocused();
-
-  const exact = page.getByRole("button", { name: /show the exact amount/ }).first();
-  await exact.focus();
-  await page.keyboard.press("Enter");
-  const copy = page.getByRole("button", { name: /^Copy the exact/ });
-  await expect(copy).toBeVisible();
-  await page.keyboard.press(tab);
-  await expect(copy).toBeFocused();
-  await page.keyboard.press("Escape");
-  await expect(copy).toBeHidden();
-  await expect(exact).toBeFocused();
 
   const search = page.getByRole("combobox", { name: "Search" });
   await search.fill("nothing like an id");

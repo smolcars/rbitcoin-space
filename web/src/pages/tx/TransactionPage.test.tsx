@@ -1293,7 +1293,7 @@ describe("TransactionPage", () => {
     expect(el.querySelector("img")).toBeNull();
     const card = el.querySelector(".tx-flow__col--out .tx-flow__item") as Element;
     expect(text(card)).toContain(
-      'OP_RETURN0.00000000 BTCUnspendable“<img src=x onerror="alert(1)">\\u{202e}”',
+      'OP_RETURN0.00 000 000 BTCUnspendable“<img src=x onerror="alert(1)">\\u{202e}”',
     );
     expect(text(card)).toContain("Unspendable");
     const open = card.querySelector<HTMLButtonElement>(".tx-flow__open");

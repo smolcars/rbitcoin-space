@@ -3,18 +3,13 @@
     white-space: nowrap;
     font-variant-numeric: tabular-nums slashed-zero;
   }
+  /* Breaks only after its point or before its unit: never inside its groups, whatever its field. */
+  .amount--wrap {
+    white-space: normal;
+    overflow-wrap: normal;
+  }
   /* Same weight as the digits before them: only the colour steps back. */
   .amount__zeros {
     color: var(--color-text-muted);
-  }
-  /* Exact unless a field says otherwise (a phone's flow card): see Amount's `fit`. */
-  .amount__short {
-    display: none;
-  }
-  .amount--tight .amount__exact {
-    display: none;
-  }
-  .amount--tight::before {
-    content: attr(data-short);
   }
 }

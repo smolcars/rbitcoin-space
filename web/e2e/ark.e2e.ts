@@ -76,7 +76,7 @@ test.describe("with Bark", () => {
     const state = page.getByRole("list", { name: "State" });
     await expect(state.getByText("Signatures OK")).toBeVisible();
     await expect(state.getByText("Not settled yet")).toBeVisible();
-    await expect(page.getByText(/^0\.0001\s?0000/).first()).toBeVisible();
+    await expect(page.getByText(/^0\.00\s010\s000/).first()).toBeVisible();
     await expect(page.getByText("3 tree, 2 transfers")).toBeVisible();
 
     const table = page.getByRole("table", { name: /exit transactions/ });

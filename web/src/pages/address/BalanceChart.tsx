@@ -14,7 +14,7 @@ import { formatMoment } from "../../components/chart/scale";
 import { Loading, ErrorState } from "../../components/States";
 import { type ApiResource, fetchStamped, type Stamped } from "../../lib/api";
 import type { AddressStats } from "../../lib/esplora";
-import { formatBtc, groupDigits } from "../../lib/format";
+import { formatBtc, formatBtcScale, groupDigits } from "../../lib/format";
 import { useNetwork } from "../../lib/page";
 import { refusal } from "./address";
 import { advance, type History, loadHistory, points, readRows } from "./balance";
@@ -34,7 +34,7 @@ const FOLLOW_TRIES = 3;
 const HEIGHT = 200;
 
 /** BTC without the zeros a round tick does not need: `0.5`, `1 200`. */
-const btcTick = (sats: number) => formatBtc(Math.round(sats)).replace(/\.?0+$/, "");
+const btcTick = (sats: number) => formatBtcScale(Math.round(sats));
 const btc = (sats: number) => `${formatBtc(sats)} BTC`;
 const signedBtc = (sats: number) => `${sats > 0 ? "+" : ""}${btc(sats)}`;
 const plural = (n: number, one: string, many: string) =>

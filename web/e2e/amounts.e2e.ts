@@ -1,9 +1,9 @@
 // Amounts at their longest, at a phone's width: never broken inside, never parted from their unit,
 // never run into a neighbour. Real pages, their answers given the largest values they can hold.
 import { readFileSync } from "node:fs";
-import type { Locator, Page, Route } from "@playwright/test";
+import type { Page, Route } from "@playwright/test";
 import { chain, expect, stubRetargets, test } from "./fixtures";
-import { amountsIntact, copyNotesClear, exactsInside } from "./rows";
+import { amountsIntact, copyNotesClear } from "./rows";
 
 /** 21 million BTC to the satoshi, a 13-digit sat amount, the largest msat limit, fine rates. */
 const ALL_BTC = 2_099_999_997_690_000;
@@ -157,20 +157,6 @@ for (const width of [320, 390]) {
       if (copies) await copiesPlain(page, path);
     }
   });
-
-  // Each exact amount opens whole and on screen, whatever column it is in, moving nothing.
-  test(`every exact amount opens whole and on screen at ${width} px`, async ({ page }) => {
-    await lightning(page);
-    await esplora(page);
-    // In the dark scheme, as when these checks followed the amounts' light and dark passes.
-    await page.emulateMedia({ colorScheme: "dark" });
-    await page.setViewportSize({ width, height: 900 });
-    // The pages that have them: a channel's terms and an address's totals (a node page has none).
-    for (const path of PAGES.filter((p) => /channel|address/.test(p))) {
-      await load(page, path);
-      await exactsInside(page, `${path} at ${width} px`);
-    }
-  });
 }
 
 // On a desktop too, each "Copied" clears the value it copied (at a phone's widths: above). A test
@@ -188,161 +174,6 @@ for (const path of PAGES.filter((p) => COPY_PAGE.test(p))) {
   });
 }
 
-// One exact amount open at a time, and a scroll closes it (Safari never focused the button, so
-// closing on blur left them open, two at once). A press elsewhere is the test below.
-test("an exact amount closes on scrolling, and when another opens", async ({ page }) => {
-  await lightning(page);
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/regtest/lightning/channel/811984x2037x0");
-  const controls = page.locator("main button:has(+ .exact)");
-  await expect(controls.first()).toBeVisible();
-  const open = page.locator(".exact:not([hidden])");
-  await controls.nth(1).click();
-  await expect(open).toHaveCount(1);
-  await controls.nth(0).click();
-  await expect(open).toHaveCount(1);
-  await expect(controls.nth(0)).toHaveAttribute("aria-expanded", "true");
-  await expect(controls.nth(1)).toHaveAttribute("aria-expanded", "false");
-  // The scroll a finger makes fires the same event; WebKit's test driver does not wheel the page.
-  await page.evaluate(() => {
-    window.scrollBy(0, 120);
-  });
-  await expect(open).toHaveCount(0);
-  // A figure just under the sticky header opens its note below it, never over the header. A short
-  // window, so the page scrolls far enough to put the figure there, but tall enough (30em) for the
-  // header to stick.
-  await page.setViewportSize({ width: 390, height: 520 });
-  const first = controls.first();
-  const gap = await first.evaluate((el) => {
-    const header = () =>
-      document.querySelector(".site-header")?.getBoundingClientRect().bottom ?? 0;
-    window.scrollBy(0, el.getBoundingClientRect().top - header() - 4);
-    return el.getBoundingClientRect().top - header();
-  });
-  expect(gap, "the figure sits just under the header").toBeLessThan(12);
-  await first.click();
-  await expect(open).toHaveCount(1);
-  const [top, header] = await open.evaluate((el) => [
-    el.getBoundingClientRect().top,
-    document.querySelector(".site-header")?.getBoundingClientRect().bottom ?? 0,
-  ]);
-  expect(top).toBeGreaterThanOrEqual(header ?? 0);
-});
-
-type Input = "mouse" | "finger";
-
-/**
- * Presses the middle of `target` with a mouse or a finger, at that point rather than through the
- * locator: Playwright retries a press whose target is covered until the test's time runs out. The
- * point is checked first, so a pop-up over it fails at once and says so.
- */
-async function pressOn(page: Page, input: Input, target: Locator) {
-  const at = await target.evaluate((el) => {
-    const r = el.getBoundingClientRect();
-    const y = r.top + r.height / 2;
-    // Across its middle, from the centre out, to the first point nothing covers.
-    for (const f of [0.5, 0.25, 0.75, 0.1, 0.9]) {
-      const x = r.left + r.width * f;
-      const hit = document.elementFromPoint(x, y);
-      if (hit !== null && el.contains(hit)) return { x, y };
-    }
-    return undefined;
-  });
-  if (!at) throw new Error("something covers the whole of the press's target");
-  await (input === "finger" ? page.touchscreen.tap(at.x, at.y) : page.mouse.click(at.x, at.y));
-}
-
-/** Opens, by a press of `input`, an exact amount well away from `target`, and checks it opened. */
-async function openAwayFrom(page: Page, input: Input, target: Locator) {
-  const controls = page.locator("main button:has(+ .exact)");
-  const i = await controls.evaluateAll(
-    (all, t) => {
-      const goal = t.getBoundingClientRect();
-      return all.findIndex((b) => {
-        const r = b.getBoundingClientRect();
-        const away = r.bottom < goal.top - 60 || r.top > goal.bottom + 60;
-        return r.width > 0 && r.top > 80 && r.bottom < innerHeight - 8 && away;
-      });
-    },
-    await target.elementHandle(),
-  );
-  expect(i, "an exact amount on screen away from the target").toBeGreaterThanOrEqual(0);
-  await pressOn(page, input, controls.nth(i));
-  await expect(page.locator(".exact:not([hidden])")).toHaveCount(1);
-}
-
-// With an exact amount open, a press anywhere else only closes it, as the network menu does:
-// Safari closed it and also opened the disclosure, or followed the link, under the finger. Safari
-// sends a tap as touch, then a mouse's events and a click, so a finger is pressed as well as a
-// mouse. The next press does what it touches; another figure opens in one press.
-for (const input of ["mouse", "finger"] as const) {
-  test(`a ${input}'s press outside an open exact amount only closes it`, async ({
-    browser,
-    browserName,
-    extraHTTPHeaders,
-    page: fixturePage,
-  }) => {
-    // A finger's own context: touch, and a phone's mobile viewport where the engine has one.
-    const context =
-      input === "finger"
-        ? await browser.newContext({
-            hasTouch: true,
-            isMobile: browserName !== "firefox",
-            // Tall enough for the whole page: a scroll would close the pop-up.
-            viewport: { width: 390, height: 2000 },
-            ...(extraHTTPHeaders ? { extraHTTPHeaders } : {}),
-          })
-        : undefined;
-    const page = context ? await context.newPage() : fixturePage;
-    if (!context)
-      await page.setViewportSize({ width: page.viewportSize()?.width ?? 1280, height: 2000 });
-    await lightning(page);
-    const path = "/regtest/lightning/channel/811984x2037x0";
-    await page.goto(path);
-    const open = page.locator(".exact:not([hidden])");
-    const about = page.locator("details.more", { hasText: "Whose fee is whose" });
-    const summary = about.locator("summary");
-    const node = page.locator(`main a[href$="/lightning/node/${ACINQ}"]`).first();
-    const theme = page.locator(".site-header button[aria-label^='Switch to']");
-    await expect(summary).toBeVisible();
-
-    // A disclosure: the pop-up closes, the disclosure stays shut; the next press opens it.
-    await openAwayFrom(page, input, summary);
-    await pressOn(page, input, summary);
-    await expect(open).toHaveCount(0);
-    expect(await about.evaluate((d) => (d as HTMLDetailsElement).open)).toBe(false);
-    await pressOn(page, input, summary);
-    expect(await about.evaluate((d) => (d as HTMLDetailsElement).open)).toBe(true);
-
-    // A button: the theme stays as it was.
-    await openAwayFrom(page, input, summary);
-    const scheme = await theme.getAttribute("aria-label");
-    await pressOn(page, input, theme);
-    await expect(open).toHaveCount(0);
-    await expect(theme).toHaveAttribute("aria-label", scheme ?? "");
-
-    // Another figure: it opens in the same press, as before.
-    await openAwayFrom(page, input, summary);
-    const other = page.locator("main button[aria-expanded='false']:has(+ .exact)").filter({
-      visible: true,
-    });
-    await pressOn(page, input, other.first());
-    await expect(open).toHaveCount(1);
-
-    // A link: the page stays; the next press follows it. Escape closes with nothing armed.
-    await openAwayFrom(page, input, node);
-    await pressOn(page, input, node);
-    await expect(open).toHaveCount(0);
-    expect(new URL(page.url()).pathname).toBe(path);
-    await openAwayFrom(page, input, node);
-    await page.keyboard.press("Escape");
-    await expect(open).toHaveCount(0);
-    await pressOn(page, input, node);
-    await expect(page).toHaveURL(new RegExp(`/lightning/node/${ACINQ}$`));
-    await context?.close();
-  });
-}
-
 // A copied value is pasted into wallets, spreadsheets and calculators: it once carried the page's
 // grouping space ("5 954.38071385"). Every copy control copies plain text of its kind, checked
 // as the page hands it to the clipboard, the same in every engine.
@@ -351,7 +182,6 @@ const COPIED: [RegExp, RegExp][] = [
   [/public key/, /^0[23][0-9a-f]{64}$/],
   [/address$/, /^(?:bcrt1[02-9ac-hj-np-z]{8,87}|[1-9A-HJ-NP-Za-km-z]{25,35})$/],
   [/in BTC$/, /^-?\d+\.\d{8}$/],
-  [/in msat$/, /^\d+$/],
   [/channel id$/, /^\d+x\d+x\d+$/],
   [/channel id as one number$/, /^\d+$/],
   [/channel id in lnd's form$/, /^\d+:\d+:\d+$/],

@@ -15,7 +15,7 @@ import { SectionHeader } from "../../components/SectionHeader";
 import { Empty, ErrorState, Loading } from "../../components/States";
 import { TimeAgo } from "../../components/Time";
 import { createRequest, isNotFound } from "../../lib/api";
-import { formatBtcShort, groupDigits, MISSING, truncateMiddle } from "../../lib/format";
+import { formatBtc, groupDigits, MISSING, truncateMiddle } from "../../lib/format";
 import { type Network, paths } from "../../lib/network";
 import { useNetwork, usePageTitle } from "../../lib/page";
 import {
@@ -226,7 +226,7 @@ function Header(props: { node: NodeDetail }) {
       <p class="ln-node-head__line">
         <span>
           <strong>
-            <Amount sats={props.node.capacity} short />
+            <Amount sats={props.node.capacity} wrap />
           </strong>
           , <span class="muted">{ordinal(props.node.rank.capacity)} by capacity</span>
         </span>
@@ -259,7 +259,7 @@ function Change(props: { now: number; then: number | undefined; format: (n: numb
   );
 }
 
-const btc = (n: number) => `${formatBtcShort(n)} BTC`;
+const btc = (n: number) => `${formatBtc(n)} BTC`;
 
 function Glance(props: { node: NodeDetail; history: HistoryAnswer | undefined; now: number }) {
   const f = () => props.node.figures;
@@ -276,7 +276,7 @@ function Glance(props: { node: NodeDetail; history: HistoryAnswer | undefined; n
           label="Capacity"
           sub={<Change now={props.node.capacity} then={week()?.capacity} format={btc} />}
         >
-          <Amount sats={props.node.capacity} short />
+          <Amount sats={props.node.capacity} wrap />
         </Stat>
         <Stat
           label="Open channels"

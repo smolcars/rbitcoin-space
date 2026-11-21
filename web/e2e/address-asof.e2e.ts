@@ -27,22 +27,22 @@ test("the address as of a block shows its figures, history and coins then", asyn
   );
   // Block 106 is at 2026-01-01T00:00:00Z plus 106 × 10 minutes.
   await expect(band(page)).toContainText("Mined 1 Jan 2026, 17:40:00 UTC");
-  await expect(stat(page, "Balance")).toHaveText("0.500 BTC");
-  await expect(stat(page, "Received")).toHaveText("0.500 BTC");
-  await expect(stat(page, "Sent")).toHaveText("0 BTC");
+  await expect(stat(page, "Balance")).toHaveText("0.50 000 000 BTC");
+  await expect(stat(page, "Received")).toHaveText("0.50 000 000 BTC");
+  await expect(stat(page, "Sent")).toHaveText("0.00 000 000 BTC");
   await expect(stat(page, "Transactions")).toHaveText("1");
   await expect(page.getByText("At block 106", { exact: true })).toBeVisible();
   await expect(page.getByText("Unconfirmed", { exact: true })).toHaveCount(0);
   await expect(rows(page)).toHaveCount(1);
-  await expect(rows(page).first()).toContainText("+0.50000000");
+  await expect(rows(page).first()).toContainText("+0.50 000 000");
   const chart = page.getByRole("slider", { name: "Confirmed balance after each block" });
-  await expect(chart).toHaveAttribute("aria-valuetext", /Balance 0\.50000000 BTC, Block 106,/);
+  await expect(chart).toHaveAttribute("aria-valuetext", /Balance 0\.50\s000\s000 BTC, Block 106,/);
   // Counted at block 106, not at the tip: one confirmation.
   await page.getByRole("tab", { name: "Unspent outputs" }).click();
   await expect(page).toHaveURL(/\?at=106&view=unspent$/);
   await expect(page.getByRole("columnheader", { name: "Confirmations then" })).toBeVisible();
   await expect(rows(page)).toHaveCount(1);
-  await expect(rows(page).first()).toContainText("0.50000000");
+  await expect(rows(page).first()).toContainText("0.50 000 000");
   await expect(rows(page).first().locator("td").last()).toHaveText("1");
 
   // The next block spent it, and the view stays as the reader left it.
@@ -50,8 +50,8 @@ test("the address as of a block shows its figures, history and coins then", asyn
   await expect(page).toHaveURL(/\?at=107&view=unspent$/);
   await expect(band(page).getByRole("heading")).toHaveText("As of block 107");
   await expect(page.getByText("No unspent outputs at this block")).toBeVisible();
-  await expect(stat(page, "Balance")).toHaveText("0 BTC");
-  await expect(stat(page, "Sent")).toHaveText("0.500 BTC");
+  await expect(stat(page, "Balance")).toHaveText("0.00 000 000 BTC");
+  await expect(stat(page, "Sent")).toHaveText("0.50 000 000 BTC");
   await expect(stat(page, "Transactions")).toHaveText("2");
 
   // Before it was first used, said in words, not an empty page.
@@ -79,7 +79,7 @@ test("nothing live reaches the page as of a block", async ({ page }) => {
     }
   });
   await page.goto(`/regtest/address/${address}?at=110`);
-  await expect(stat(page, "Balance")).toHaveText("91.00 BTC");
+  await expect(stat(page, "Balance")).toHaveText("91.00 000 000 BTC");
   // Its payments waiting in the mempool are left out: no row, no figure.
   await expect(rows(page)).toHaveCount(2);
   for (const row of await rows(page).all()) await expect(row).not.toContainText("Unconfirmed");
@@ -113,10 +113,10 @@ test("a block is picked by height or date, kept in the URL and across a reload",
   await field.fill("106");
   await page.getByRole("button", { name: "Show", exact: true }).click();
   await expect(page).toHaveURL(`/regtest/address/${p2tr}?at=106`);
-  await expect(stat(page, "Balance")).toHaveText("1.00 BTC");
+  await expect(stat(page, "Balance")).toHaveText("1.00 000 000 BTC");
   await page.reload();
   await expect(band(page).getByRole("heading")).toHaveText("As of block 106");
-  await expect(stat(page, "Balance")).toHaveText("1.00 BTC");
+  await expect(stat(page, "Balance")).toHaveText("1.00 000 000 BTC");
   // Back goes to the live page it came from.
   await page.goBack();
   await expect(page).toHaveURL(`/regtest/address/${p2tr}`);
@@ -146,7 +146,7 @@ test("a height past the tip and a parameter that is no height are said plainly",
   await expect(page.locator(".address-stats")).toHaveCount(0);
   await band(page).getByRole("button", { name: "Back to now" }).click();
   await expect(page).toHaveURL(`/regtest/address/${p2tr}`);
-  await expect(stat(page, "Balance")).toHaveText("1.49 BTC");
+  await expect(stat(page, "Balance")).toHaveText("1.49 000 000 BTC");
 });
 
 /** Answers the pinned totals of `address` with `status` and the server's error text. */
@@ -208,7 +208,7 @@ test("a block that left the best chain is said, and looked up again on request",
   gone = false;
   await page.getByRole("button", { name: "Show block 107 as it is now" }).click();
   await expect(rows(page)).toHaveCount(2);
-  await expect(stat(page, "Balance")).toHaveText("1.49 BTC");
+  await expect(stat(page, "Balance")).toHaveText("1.49 000 000 BTC");
 });
 
 test("a failing or slow node is said, with a way to try again", async ({ page }) => {
@@ -223,7 +223,7 @@ test("a failing or slow node is said, with a way to try again", async ({ page })
   await expect(page.getByText("Could not look up block 107")).toBeVisible();
   fail = false;
   await page.getByRole("button", { name: "Try again" }).click();
-  await expect(stat(page, "Balance")).toHaveText("1.49 BTC");
+  await expect(stat(page, "Balance")).toHaveText("1.49 000 000 BTC");
 
   await page.unrouteAll();
   await page.route(
@@ -238,7 +238,7 @@ test("a failing or slow node is said, with a way to try again", async ({ page })
 test("the copy and QR buttons keep working as of a block", async ({ page }) => {
   const address = chain.addresses.p2tr;
   await page.goto(`/regtest/address/${address}?at=106`);
-  await expect(stat(page, "Balance")).toHaveText("1.00 BTC");
+  await expect(stat(page, "Balance")).toHaveText("1.00 000 000 BTC");
   await page.getByRole("button", { name: "Show the address as a QR code" }).click();
   const dialog = page.getByRole("dialog", { name: "Scan the address" });
   await expect(dialog.locator(".qr-pop__text")).toHaveText(address);
@@ -310,7 +310,7 @@ test("the snapshot never waits on the tip, which is read only to name the newest
   );
   try {
     await page.goto(`/regtest/address/${chain.addresses.p2tr}?at=107`);
-    await expect(stat(page, "Balance")).toHaveText("1.49 BTC");
+    await expect(stat(page, "Balance")).toHaveText("1.49 000 000 BTC");
     await expect(rows(page)).toHaveCount(2);
     expect(tipAsked).toBe(0);
   } finally {
@@ -329,7 +329,7 @@ test("a height not found while the tip already reaches it is looked up again", a
         : route.continue(),
   );
   await page.goto(`/regtest/address/${chain.addresses.p2tr}?at=107`);
-  await expect(stat(page, "Balance")).toHaveText("1.49 BTC");
+  await expect(stat(page, "Balance")).toHaveText("1.49 000 000 BTC");
   await expect(page.getByText("has not been mined yet")).toHaveCount(0);
 });
 
@@ -342,7 +342,7 @@ test("next is offered at the tip, and a step past it says the block is not mined
     if (new URL(r.url()).pathname === `/regtest/api/block-height/${tip + 1}`) lookups++;
   });
   await page.goto(`/regtest/address/${chain.addresses.p2tr}?at=${tip}`);
-  await expect(stat(page, "Balance")).toHaveText("1.49 BTC");
+  await expect(stat(page, "Balance")).toHaveText("1.49 000 000 BTC");
   await band(page)
     .getByRole("button", { name: `Block ${tip + 1}` })
     .click();
@@ -356,7 +356,7 @@ test("next is offered at the tip, and a step past it says the block is not mined
     .getByRole("button", { name: `Show block ${tip}` })
     .click();
   await expect(page).toHaveURL(new RegExp(`\\?at=${tip}$`));
-  await expect(stat(page, "Balance")).toHaveText("1.49 BTC");
+  await expect(stat(page, "Balance")).toHaveText("1.49 000 000 BTC");
 });
 
 test("a height not found, with a tip that cannot be read, is a failed lookup with Try again", async ({
@@ -378,7 +378,7 @@ test("a height not found, with a tip that cannot be read, is a failed lookup wit
   await expect(page.getByText(/has not been mined yet/)).toHaveCount(0);
   fail = false;
   await page.getByRole("button", { name: "Try again" }).click();
-  await expect(stat(page, "Balance")).toHaveText("1.49 BTC");
+  await expect(stat(page, "Balance")).toHaveText("1.49 000 000 BTC");
 });
 
 test("a height that keeps missing while the tip reaches it is a failed lookup, not a future block", async ({
@@ -513,7 +513,7 @@ test("a block found between its lookup and a cached tip short of it is shown, no
   );
   await page.goto(`/regtest/address/${chain.addresses.p2tr}?at=107`);
   await expect(band(page).getByRole("heading")).toHaveText("As of block 107");
-  await expect(stat(page, "Balance")).toHaveText("1.49 BTC");
+  await expect(stat(page, "Balance")).toHaveText("1.49 000 000 BTC");
   await expect(page.getByText(/has not been mined yet/)).toHaveCount(0);
   expect(lookups).toBe(2);
 });

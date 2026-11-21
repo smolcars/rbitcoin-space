@@ -76,7 +76,13 @@ test("the balance chart steps with each block and follows a new payment", async 
   await page.getByText("Show the figures").click();
   const figures = page.getByRole("region", { name: /figures$/ }).locator("tbody tr");
   const balances = () => figures.evaluateAll((rows) => rows.map((r) => r.children[1]?.textContent));
-  await expect.poll(balances).toEqual(["0.30000000 BTC", "0.00000000 BTC", "0.50000000 BTC"]);
+  await expect
+    .poll(balances)
+    .toEqual([
+      "0.30\u202F000\u202F000 BTC",
+      "0.00\u202F000\u202F000 BTC",
+      "0.50\u202F000\u202F000 BTC",
+    ]);
   await expect(figures.nth(1)).toContainText("107");
 
   await expect(page.getByText("Live", { exact: true })).toBeVisible();
@@ -105,7 +111,12 @@ test("the balance chart steps with each block and follows a new payment", async 
   await expect(chart).toHaveAttribute("aria-valuemax", "3");
   await expect
     .poll(balances)
-    .toEqual(["0.50000000 BTC", "0.30000000 BTC", "0.00000000 BTC", "0.50000000 BTC"]);
+    .toEqual([
+      "0.50\u202F000\u202F000 BTC",
+      "0.30\u202F000\u202F000 BTC",
+      "0.00\u202F000\u202F000 BTC",
+      "0.50\u202F000\u202F000 BTC",
+    ]);
   await expect(chart).toHaveAttribute(
     "aria-valuetext",
     /Balance 0\.50000000 BTC, Block \d+, Change \+0\.20000000 BTC$/,

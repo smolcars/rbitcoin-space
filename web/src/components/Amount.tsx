@@ -3,9 +3,14 @@ import { btcParts, formatBtc, formatBtcShort, formatSats, MISSING } from "../lib
 import "./Amount.css";
 
 /**
- * An amount in BTC with all eight decimals, trailing zeros dimmed; the title shows sats. `short`
- * prints a summary's magnitude instead ({@link formatBtcShort}), the exact amount in its title;
- * `approx` puts `~` before it.
+ * An amount in BTC, exact: all eight decimals, grouped as sats read (`0.00 012 500`), the trailing
+ * zeros dimmed; the title gives sats. An amount a reader acts on or reads for one thing (an
+ * address's balance, a transaction's outputs, a block's reward) is always exact.
+ * `short` prints a magnitude instead ({@link formatBtcShort}), the exact amount in its title: only
+ * in an overview read at a glance (the home page's blocks, the mining page's totals, a list of
+ * nodes). `approx` puts `~` before it (a projected block).
+ * `wrap` lets an exact amount break before its unit, or after its point, in a field a full amount
+ * can outgrow (a phone's flow card, a large balance); otherwise it never wraps.
  * `unit={false}` hides the unit from sight only (a table names it in its header): screen readers
  * still read it.
  * `signed` adds a `+` to positive amounts (address history): the sign carries the direction, not
@@ -17,20 +22,10 @@ export function Amount(props: {
   signed?: boolean;
   short?: boolean;
   approx?: boolean;
-  /**
-   * Exact, but where a phone's narrow field cannot hold it (a thousand bitcoin and more), in
-   * magnitude there (`.amount--long`, CSS by the field), the exact amount in its title. A field
-   * that measures its exact amount wider than itself in the reader's font marks it
-   * `.amount--tight`, which reads in magnitude too (`data-short`, drawn by CSS, so the text is
-   * still the exact amount).
-   */
-  fit?: boolean;
+  wrap?: boolean;
 }) {
-  const parts = () => btcParts(props.sats);
-  const long = () => props.fit === true && Math.abs(props.sats) >= LONG;
-  const direction = () => (props.signed && props.sats > 0 ? "in" : undefined);
   return (
-    <Show when={parts()} fallback={<span class="amount">{MISSING}</span>}>
+    <Show when={btcParts(props.sats)} fallback={<span class="amount">{MISSING}</span>}>
       {(p) => (
         <Show
           when={!props.short}
@@ -46,22 +41,17 @@ export function Amount(props: {
           }
         >
           <span
-            class={["amount num", { "amount--long": long() }]}
-            data-short={props.fit === true && !long() ? formatBtcShort(props.sats) : undefined}
-            title={
-              props.fit === true
-                ? `${formatBtc(props.sats)} BTC, ${formatSats(props.sats)} sats`
-                : `${formatSats(props.sats)} sats`
-            }
+            class={["amount num", { "amount--wrap": props.wrap }]}
+            title={`${formatSats(props.sats)} sats`}
           >
-            <span class="amount__exact">
-              {direction() === "in" ? "+" : p().sign}
-              {p().whole}.{p().significant}
-              <span class="amount__zeros">{p().zeros}</span>
-            </span>
-            <Show when={long()}>
-              <span class="amount__short">{formatBtcShort(props.sats)}</span>
+            {props.approx ? "~" : ""}
+            {props.signed && props.sats > 0 ? "+" : p().sign}
+            {p().whole}.{/* Only where it may wrap: Chromium breaks at a <wbr> even in `nowrap`. */}
+            <Show when={props.wrap}>
+              <wbr />
             </Show>
+            {p().significant}
+            <span class="amount__zeros">{p().zeros}</span>
             <span class={{ unit: true, "visually-hidden": props.unit === false }}> BTC</span>
           </span>
         </Show>
@@ -69,9 +59,6 @@ export function Amount(props: {
     </Show>
   );
 }
-
-/** A thousand bitcoin: from here an exact amount outgrows a phone's flow card. */
-const LONG = 100_000_000_000;
 
 /** An amount in sats, grouped. */
 export function Sats(props: { sats: number; unit?: boolean }) {

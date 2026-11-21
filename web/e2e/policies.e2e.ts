@@ -55,7 +55,7 @@ function channelStates(): Record<string, unknown> {
     // amount.
     "largest limit": { ...real, ...ends(rtl, long, { ...base, max_htlc_msat: 2.1e18 }, null) },
     "largest rate": { ...real, ...ends(rtl, long, { ...base, fee_rate: 1_000_000 }, null) },
-    // Just under where a term reads in magnitude at every size: the longest exact figures.
+    // The longest figures under a bitcoin, where a term once switched to magnitude.
     "longest exact limit": {
       ...real,
       ...ends(rtl, long, { ...base, max_htlc_msat: 99_999_999_999 }, null),
@@ -160,9 +160,9 @@ for (const view of [
       expect(await pageFaults(page), name).toStrictEqual([]);
       expect(await tablesScrolling(page, "#fee-history"), name).toStrictEqual([]);
       if (name === "longest exact base") {
-        // A long fee is exact in a wide well, in magnitude only where its well is narrow.
+        // A long fee is exact in any well; a narrow one may break it before its unit.
         await expect(page.locator(".ln-hop__fee").first()).toHaveText(
-          desktop ? "1\u202F000\u202F000.099 sats" : "0.0100 BTC",
+          /^1\u202F000\u202F000\.099\s+sats$/,
           { useInnerText: true },
         );
       }

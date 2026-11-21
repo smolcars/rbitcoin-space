@@ -625,29 +625,6 @@
 }
 
 @layer pages {
-  /* A term, a button that shows the exact msat in place: drawn as the figure. */
-  .ln-msat {
-    padding: 0;
-    border: 0;
-    background: none;
-    color: inherit;
-    font: inherit;
-    white-space: nowrap;
-    text-align: start;
-    cursor: pointer;
-    text-decoration: underline dotted var(--color-line-strong);
-    text-decoration-thickness: 1px;
-    text-underline-offset: 0.2em;
-  }
-  @media (pointer: coarse) {
-    /* A term starts its cell, where the table's edge would cut a target round it: it reaches on. */
-    .ln-msat::before {
-      inset-inline: 0 min(0px, 100% - var(--touch));
-    }
-  }
-}
-
-@layer pages {
   /* Lightning's own way around: one short row above the title. */
   .ln-nav {
     display: flex;
@@ -740,22 +717,20 @@
   /* A figure is one piece, its unit with it, at any text size: a line breaks between figures
      ("1 ppm" + "1 sat"), never inside one. Its digit groups are joined by no-break spaces. */
   :is(.ln-chan, .ln-lanes, .ln-hop, .ln-outcome, .ln-life, .ln-terms, .ln-feehist)
-    .num:not(time, .chart__when) {
+    .num:not(time, .chart__when, .amount--wrap) {
     white-space: nowrap;
   }
-  /* A long msat figure's magnitude, shown in its place only where the room is narrowest (below). */
+  /* An exact figure (`Fig`) too long for its room breaks before its unit, never inside its digits
+     and never rounded: its groups are joined by no-break spaces, so that is its one break. */
+  :is(.ln-chan, .ln-lanes, .ln-hop, .ln-outcome, .ln-life, .ln-terms, .ln-feehist, .ln-node-page)
+    .ln-fig__exact {
+    white-space: normal;
+    overflow-wrap: normal;
+  }
+  /* A long figure's magnitude, shown in its place only in a list's narrowest room (the live feed).
+     Where the figure is the answer (a term, a fee, a capacity) it stays exact. */
   .ln-fig__short {
     display: none;
-  }
-  /* A fee's well narrower than its longest exact figure needs at its size (19 characters at
-     --text-xl, about 18em with padding), with a fifth to spare: its long figures in magnitude. */
-  @container (max-width: 22em) {
-    .ln-hop__way .ln-fig--long > .ln-fig__exact {
-      display: none;
-    }
-    .ln-hop__way .ln-fig--long > .ln-fig__short {
-      display: inline;
-    }
   }
   /* Names are the one thing here that may break anywhere: a figure never does. */
   .ln bdi {
@@ -1271,14 +1246,6 @@
       color: var(--color-text-muted);
       font-family: var(--font-sans);
     }
-    /* A value a thumb high, so its exact amount's target never reaches over the next. */
-    @media (pointer: coarse) {
-      .ln-terms td[data-end] {
-        align-items: center;
-        min-height: var(--touch);
-        padding-block: 0;
-      }
-    }
   }
 
   /* Larger text still (a phone at 200%). */
@@ -1319,27 +1286,21 @@
     .ln-hop__way {
       padding-inline: var(--space-1);
     }
-    /* No room for a long figure whole: its magnitude instead, the exact msat a press away. */
-    .ln-fig--long > .ln-fig__exact {
-      display: none;
-    }
-    .ln-fig--long > .ln-fig__short {
-      display: inline;
-    }
   }
 }
 
 /* The node page, for its operator: the header, the views and their lists, the glance and what it
    announces. A figure is one piece at every text size, as on the channel page: never broken inside
-   its digits (grouped with no-break spaces) nor parted from its unit; where its room is too narrow
-   it reads in magnitude (`Fig`). */
+   its digits (grouped with no-break spaces); where its room is too narrow it breaks before its unit
+   (`Fig`), still exact. */
 @layer pages {
   /* A chart's time is a phrase, free to wrap; a channel id wraps after an "x" (ChannelId). */
-  .ln-node-page .num:not(time, .ln-id, .chart__when) {
+  .ln-node-page .num:not(time, .ln-id, .chart__when, .amount--wrap) {
     white-space: nowrap;
   }
-  /* A card and the glance switch their longest figures (`ln-fig--longer`, past 16 characters) to
-     magnitude by their own width, so an ordinary long one ("500 000 000 sats") stays exact. */
+  /* A card and the glance, overviews of a node's channels, switch their longest figures
+     (`ln-fig--longer`, past 16 characters) to magnitude by their own width, so an ordinary long one
+     ("500 000 000 sats") stays exact. */
   .ln-node-card,
   .ln-node-glance {
     container-type: inline-size;

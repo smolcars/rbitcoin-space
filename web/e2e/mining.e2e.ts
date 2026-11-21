@@ -58,12 +58,19 @@ test("a chart draws and its readout shows the route's figure", async ({ page }) 
   // The server refreshes its answer while the backfill runs: compare until both see the same one.
   await expect(async () => {
     const points = (await (await page.request.get(route)).json()) as { avgFees: number }[];
-    reward = `${((points.at(-1)?.avgFees ?? 0) / 1e8).toFixed(8)} BTC`;
+    // Exact, grouped as sats read: `0.00 000 018 BTC` (the matchers read its spaces as spaces).
+    const sats = Math.round(points.at(-1)?.avgFees ?? 0);
+    const eight = String(sats % 1e8).padStart(8, "0");
+    reward = `${Math.floor(sats / 1e8)}.${eight.slice(0, 2)} ${eight.slice(2, 5)} ${eight.slice(5)} BTC`;
     // Fees is the tab shown first.
     await page.goto("/regtest/mining?period=all");
-    await expect(chart).toHaveAttribute("aria-valuetext", new RegExp(`Fees per block ${reward}`), {
-      timeout: 3_000,
-    });
+    await expect(chart).toHaveAttribute(
+      "aria-valuetext",
+      new RegExp(`Fees per block ${reward.replaceAll(".", "\\.").replaceAll(" ", "\\s")}`),
+      {
+        timeout: 3_000,
+      },
+    );
   }).toPass({ timeout: 30_000 });
   const section = page.getByRole("region", { name: "Blocks over time" });
   await expect(section.locator("svg path").first()).toBeAttached();

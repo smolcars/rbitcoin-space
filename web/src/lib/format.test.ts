@@ -6,6 +6,7 @@ import {
   feeColor,
   feeRate,
   formatBtc,
+  formatBtcScale,
   formatFeeRate,
   formatFeeRateUp,
   formatInterval,
@@ -65,41 +66,81 @@ describe("formatPowerOfTen", () => {
 });
 
 describe("BTC and sats", () => {
-  it("always shows eight decimals", () => {
-    expect(formatBtc(0)).toBe("0.00000000");
-    expect(formatBtc(1)).toBe("0.00000001");
-    expect(formatBtc(3_500_000)).toBe("0.03500000");
-    expect(formatBtc(100_000_000)).toBe("1.00000000");
-    expect(formatBtc(2_100_000_000_000_000)).toBe(s("21_000_000.00000000"));
+  it("always shows eight decimals, grouped 2 + 3 + 3", () => {
+    expect(formatBtc(0)).toBe(s("0.00_000_000"));
+    expect(formatBtc(1)).toBe(s("0.00_000_001"));
+    expect(formatBtc(12_500)).toBe(s("0.00_012_500"));
+    expect(formatBtc(3_500_000)).toBe(s("0.03_500_000"));
+    expect(formatBtc(100_000_000)).toBe(s("1.00_000_000"));
+    expect(formatBtc(123_456_789_012)).toBe(s("1_234.56_789_012"));
+    expect(formatBtc(2_100_000_000_000_000)).toBe(s("21_000_000.00_000_000"));
+  });
+
+  it("puts the sign before the whole amount", () => {
+    expect(formatBtc(-1)).toBe(s("−0.00_000_001"));
+    expect(formatBtc(-2_100_000_000_000_000)).toBe(s("−21_000_000.00_000_000"));
   });
 
   it("has no floating-point error where floats would have one", () => {
     // 0.1 + 0.2 in BTC, and amounts whose float division is inexact.
-    expect(formatBtc(10_000_000 + 20_000_000)).toBe("0.30000000");
-    expect(formatBtc(29_999_999)).toBe("0.29999999");
-    expect(formatBtc(123_456_789_012_345)).toBe(s("1_234_567.89012345"));
-    expect(formatBtc(Number.MAX_SAFE_INTEGER)).toBe(s("90_071_992.54740991"));
+    expect(formatBtc(10_000_000 + 20_000_000)).toBe(s("0.30_000_000"));
+    expect(formatBtc(29_999_999)).toBe(s("0.29_999_999"));
+    expect(formatBtc(123_456_789_012_345)).toBe(s("1_234_567.89_012_345"));
+    expect(formatBtc(Number.MAX_SAFE_INTEGER)).toBe(s("90_071_992.54_740_991"));
   });
 
-  it("splits trailing zeros off so they can be dimmed", () => {
+  it("splits trailing zeros off, group spaces and all, so they can be dimmed", () => {
+    expect(btcParts(0)).toStrictEqual({
+      sign: "",
+      whole: "0",
+      significant: "",
+      zeros: s("00_000_000"),
+    });
+    expect(btcParts(1)).toStrictEqual({
+      sign: "",
+      whole: "0",
+      significant: s("00_000_001"),
+      zeros: "",
+    });
     expect(btcParts(3_500_000)).toStrictEqual({
       sign: "",
       whole: "0",
-      significant: "035",
-      zeros: "00000",
+      significant: s("03_5"),
+      zeros: s("00_000"),
+    });
+    // The zeros start at a group's edge: its space goes with them.
+    expect(btcParts(12_000_000)).toStrictEqual({
+      sign: "",
+      whole: "0",
+      significant: "12",
+      zeros: s("_000_000"),
     });
     expect(btcParts(100_000_000)).toStrictEqual({
       sign: "",
       whole: "1",
       significant: "",
-      zeros: "00000000",
+      zeros: s("00_000_000"),
+    });
+    expect(btcParts(2_100_000_000_000_000)).toStrictEqual({
+      sign: "",
+      whole: s("21_000_000"),
+      significant: "",
+      zeros: s("00_000_000"),
     });
     expect(btcParts(-12_345)).toStrictEqual({
       sign: "−",
       whole: "0",
-      significant: "00012345",
+      significant: s("00_012_345"),
       zeros: "",
     });
+  });
+
+  it("writes a chart's scale with only the decimals it needs", () => {
+    expect(formatBtcScale(0)).toBe("0");
+    expect(formatBtcScale(2_500_000)).toBe("0.025");
+    expect(formatBtcScale(-50_000_000)).toBe("−0.5");
+    expect(formatBtcScale(120_000_000_000)).toBe(s("1_200"));
+    expect(formatBtcScale(0.5)).toBe(MISSING);
   });
 
   it("refuses anything that is not a safe integer", () => {

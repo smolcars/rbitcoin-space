@@ -15,13 +15,13 @@ test("a block by height shows its facts and transactions, and steps to its neigh
   // The harness's miner claims the 50 BTC subsidy (regtest halves every 150 blocks) and leaves
   // the block's 1 152 sats of fees unclaimed; the page says so rather than showing no fees.
   await expect(
-    page.getByText("0.00001152 BTC less than the subsidy and fees allowed"),
+    page.getByText("0.00 001 152 BTC less than the subsidy and fees allowed"),
   ).toBeVisible();
   const rows = page.getByRole("table", { name: "Transactions in this block" }).getByRole("row");
   await expect(rows).toHaveCount(4); // header, coinbase, script_types, consolidation
   await expect(page.getByRole("cell", { name: "Coinbase" })).toBeVisible();
   // The unit is in the header for sight and in the cell for screen readers.
-  await expect(page.getByRole("cell", { name: "50.00000000 BTC", exact: true })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "50.00 000 000 BTC", exact: true })).toBeVisible();
 
   await page.getByRole("link", { name: /^Next: 107/ }).click();
   await expect(title).toHaveText("Block 107");
@@ -150,5 +150,5 @@ test("every block names its miner: Unknown on regtest, which has no pools", asyn
 test("a coinbase-only block says it pays no fees", async ({ page }) => {
   await page.goto("/regtest/block/105");
   await expect(page.getByText("Only the coinbase, which pays none")).toBeVisible();
-  await expect(page.getByText("50.00000000 BTC subsidy")).toBeVisible();
+  await expect(page.getByText("50.00 000 000 BTC subsidy")).toBeVisible();
 });

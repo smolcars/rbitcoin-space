@@ -63,30 +63,17 @@
     font-size: var(--text-3xl);
     letter-spacing: var(--tracking-tight);
   }
-  /* A total in magnitude, the exact amount a tap away: drawn as the figure, not as a button. */
+  /* A total and its copy button beside it. The amount is exact: where it is wider than its column
+     (a phone, an exchange's millions) it breaks before its unit or after its point (Amount's
+     `wrap`). The button sits at its first line, so "Copied" rises above the figure, never over it. */
   .address-total {
-    /* Its target reaches past its line, over the figures' labels, not under them. */
-    position: relative;
     display: inline-flex;
-    align-items: center;
-    min-height: var(--touch);
-    margin-block: calc((var(--touch) - 1lh) / -2);
-    padding: 0;
-    border: 0;
-    background: none;
-    color: inherit;
-    font: inherit;
-    letter-spacing: inherit;
-    text-align: start;
-    cursor: pointer;
-    text-decoration: underline dotted var(--color-line-strong);
-    text-decoration-thickness: 1px;
-    text-underline-offset: 0.2em;
+    align-items: flex-start;
+    gap: var(--space-1);
+    max-width: 100%;
   }
-  @media (hover: hover) {
-    .address-total:hover {
-      text-decoration-color: var(--color-text-muted);
-    }
+  .address-total .amount {
+    min-width: 0;
   }
 
   /* An address above the node's cap: its count of paying transactions leads, the cap and the unconfirmed
@@ -565,6 +552,11 @@
     }
     .address-stat__value {
       font-size: var(--text-md);
+    }
+    /* A step smaller, so a balance of a hundred thousand bitcoin and more keeps its digits on a
+       line at 320 px. */
+    .address-stat--balance .address-stat__value {
+      font-size: var(--text-xl);
     }
     .address-tab {
       font-size: var(--text-md);
