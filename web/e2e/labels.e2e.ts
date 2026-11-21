@@ -667,8 +667,9 @@ async function manage(page: Page, file: string) {
 /**
  * The same walk through the site, with or without labels already kept, on one schedule:
  * - The transaction page: the socket's greeting and everything after it are held until the page's
- *   first answers have come. The block page: held until the page shows what its first answers
- *   hold (its miner, its first transactions, its map).
+ *   first answers have come. The block page: its status is held until it shows its other first
+ *   answers (its miner, its first transactions, its map), so it always opens its socket; the
+ *   greeting is held until it shows its status too.
  * - The address page: its first status passes straight through, so the page asks once, on that
  *   status, never on its one-second fallback (checked below); and the address's totals are held
  *   until the first ledger answer has come, so the ledger is always asked first on the totals'
@@ -730,25 +731,41 @@ async function walk(page: Page, seen: Seen, gate: Gate, block: string, paid: str
     status !== -1 && status < totals,
     "the server answered the address's subscription before the page's one-second fallback",
   ).toBe(true);
+  // The block's status is held too, until the page shows its other first answers: until then the
+  // page listens for a next block, so it always opens its socket, whichever answer would have
+  // come first. Then the status, and only once the page shows it, the socket's greeting.
+  let releaseStatus: () => void = () => undefined;
+  const statusHeld = new Promise<void>((resolve) => {
+    releaseStatus = resolve;
+  });
+  await page.route(new RegExp(`/api/block/${block}/status$`), async (route) => {
+    await statusHeld;
+    await route.continue();
+  });
   gate.held = true;
   since = seen.received.length;
   sentSince = seen.sent.length;
   await page.goto(`/regtest/block/${block}`);
-  // Released once the page has applied its first answers, as it shows them: the block's summary
-  // (its miner), its first page of transactions, and its transactions for the map.
+  // The page's first answers, as it shows them: the block's summary (its miner), its first page
+  // of transactions, and its transactions for the map.
   await expect(
     page.locator(".block-fact").filter({ hasText: "Miner" }).getByRole("link"),
   ).toBeVisible();
   await expect(page.locator(`a[href$="/tx/${TX}"]`).first()).toBeVisible();
   await expect(page.getByRole("img", { name: /Map of the block/ })).toBeVisible();
+  await expect
+    .poll(() => seen.sent.slice(sentSince).some((m) => m.startsWith("open ")), { timeout: 10_000 })
+    .toBe(true);
+  releaseStatus();
+  await expect(page.locator('a[rel="next"]')).toBeVisible();
   gate.release();
   await expect
     .poll(() => seen.received.slice(since).some((m) => m.includes('"network":"regtest"')), {
       timeout: 10_000,
     })
     .toBe(true);
-  // With its status in hand before the greeting (an older block, with a next one), the page never
-  // listens for new blocks: under this schedule it asks the socket for nothing.
+  // It stopped listening for a next block once its status said there is one (an older block),
+  // before the greeting: under this schedule it asks the socket for nothing.
   expect(seen.sent.slice(sentSince).filter((m) => m.includes('"blocks"'))).toEqual([]);
   await manage(page, file);
 }
