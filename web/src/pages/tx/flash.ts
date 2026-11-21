@@ -3,11 +3,38 @@
 // outlined for a moment so the eye finds it.
 
 /** How long the outline stays, matched by the fade in Privacy.css. */
-const OUTLINE_MS = 1600;
-const timers = new WeakMap<Element, ReturnType<typeof setTimeout>>();
+export const OUTLINE_MS = 1600;
+
+/** The one target outlined now, and its timer: a second jump ends the first one's outline. */
+let active: { el: HTMLElement; timer: ReturnType<typeof setTimeout> } | undefined;
+/** The jump waiting for the next frame, so a newer one or an unmount can call it off. */
+let frame: number | undefined;
+
+/** Ends the outline now and calls off a jump still waiting: on unmount, or before another. */
+export function clearFlash(): void {
+  if (frame !== undefined) cancelAnimationFrame(frame);
+  frame = undefined;
+  endOutline();
+}
+
+function endOutline() {
+  if (!active) return;
+  clearTimeout(active.timer);
+  active.el.classList.remove("is-flashed");
+  active = undefined;
+}
+
+/** Runs `jump` on the next frame, after what it needs is drawn, in place of one still waiting. */
+export function nextFrame(jump: () => void): void {
+  if (frame !== undefined) cancelAnimationFrame(frame);
+  frame = requestAnimationFrame(() => {
+    frame = undefined;
+    jump();
+  });
+}
 
 /** Scrolls `el` to the middle of the window (or its top to the top), focuses `focus` (or `el`),
- * and outlines `el`. */
+ * and outlines `el` for a moment. */
 export function bringIntoView(
   el: HTMLElement,
   focus: HTMLElement = el,
@@ -16,19 +43,15 @@ export function bringIntoView(
   const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
   el.scrollIntoView({ block, behavior: reduce ? "auto" : "smooth" });
   focus.focus({ preventScroll: true });
-  const before = timers.get(el);
-  if (before !== undefined) clearTimeout(before);
-  el.classList.remove("is-flashed");
+  endOutline();
   // A fresh start for the fade when the same target is followed twice.
   void el.offsetWidth;
   el.classList.add("is-flashed");
-  timers.set(
-    el,
-    setTimeout(() => {
-      el.classList.remove("is-flashed");
-      timers.delete(el);
-    }, OUTLINE_MS),
-  );
+  const timer = setTimeout(() => {
+    el.classList.remove("is-flashed");
+    if (active?.el === el) active = undefined;
+  }, OUTLINE_MS);
+  active = { el, timer };
 }
 
 /** The event a flow listens for to show one of its cards. */

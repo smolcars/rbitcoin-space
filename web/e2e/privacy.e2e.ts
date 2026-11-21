@@ -135,6 +135,58 @@ test("a transaction with findings: marks on its cards and what an observer can r
   await expect(page.locator("#pv-list")).toBeFocused();
 });
 
+test("a number far down the flow opens that card's details, never every card before it", async ({
+  page,
+  request,
+}) => {
+  // The consolidation's two coins from the miner's address, to 3,000 outputs: 50 and 2,999 pay that
+  // address back, the rest fresh addresses. Served to the page; nothing like it is on the chain.
+  const real = (await (await request.get(`/regtest/api/tx/${chain.txs.consolidation}`)).json()) as {
+    vout: Record<string, unknown>[];
+  };
+  const back = (i: number) => i === 50 || i === 2_999;
+  real.vout = Array.from({ length: 3_000 }, (_, i) =>
+    back(i)
+      ? {
+          scriptpubkey: MINER_SCRIPT,
+          scriptpubkey_asm: "",
+          scriptpubkey_type: "v0_p2wsh",
+          scriptpubkey_address: chain.addresses.miner,
+          value: 1_000 + i,
+        }
+      : {
+          scriptpubkey: `0014${i.toString(16).padStart(40, "0")}`,
+          scriptpubkey_asm: "",
+          scriptpubkey_type: "v0_p2wpkh",
+          scriptpubkey_address: `bcrt1qfar${i}`,
+          value: 1_000 + i,
+        },
+  );
+  await page.route(new RegExp(`/regtest/api/tx/${chain.txs.consolidation}$`), (r) =>
+    r.fulfill({ json: real }),
+  );
+  await page.route(new RegExp(`/regtest/api/tx/${chain.txs.consolidation}/outspends`), (r) =>
+    r.fulfill({ json: real.vout.map(() => ({ spent: false })) }),
+  );
+  await page.goto(`/regtest/tx/${chain.txs.consolidation}`);
+  const section = page.getByRole("region", { name: "What an observer can read" });
+  const outputs = page.getByRole("list", { name: "Outputs" });
+  const cards = outputs.locator(".tx-flow__item:not(.tx-flow__item--more, .tx-flow__item--fee)");
+  await expect(cards).toHaveCount(10);
+
+  // One press of "Show more" away: pressed, and the card is in view with the focus.
+  await section.getByRole("link", { name: "Show output 50" }).click();
+  await expect(page.getByRole("button", { name: "Details of output 50" })).toBeFocused();
+  await expect(cards).toHaveCount(110);
+
+  // Thousands away: its details open, and not one more card is drawn.
+  await section.getByRole("link", { name: "Show output 2999" }).click();
+  await expect(page.getByRole("heading", { name: "Output 2999" })).toBeFocused();
+  await expect(page.locator("#tx-inspector")).toContainText(chain.addresses.miner.slice(-8));
+  await expect(cards).toHaveCount(110);
+  await expect(page.locator(".tx-ribbon")).not.toHaveCount(3_002);
+});
+
 /** Each output card's meta line now: its children's text and line top, to say what wrapped. */
 const metaLines = (page: Page) =>
   page.evaluate(() =>
@@ -198,11 +250,16 @@ test.describe("in a wide prose font, on a phone", () => {
       await page.evaluate(() => document.fonts.ready);
       expect(await smallRefs(page)).toStrictEqual([]);
       const line = page.locator(".tx-answer__privacy span");
-      const box = await line.evaluate((el) => ({
-        lines: el.getClientRects().length,
-        row: el.closest(".tx-answer__cell")?.getBoundingClientRect().width ?? 0,
-        panel: el.closest(".tx-answer")?.getBoundingClientRect().width ?? 0,
-      }));
+      // Lines of the text itself: the span is a grid item, one box however many lines it takes.
+      const box = await line.evaluate((el) => {
+        const r = document.createRange();
+        r.selectNodeContents(el);
+        return {
+          lines: new Set([...r.getClientRects()].map((x) => Math.round(x.top))).size,
+          row: el.closest(".tx-answer__cell")?.getBoundingClientRect().width ?? 0,
+          panel: el.closest(".tx-answer")?.getBoundingClientRect().width ?? 0,
+        };
+      });
       expect(box.lines).toBe(1);
       // A row of its own, not a half-width cell.
       expect(box.row).toBeGreaterThan(box.panel * 0.7);

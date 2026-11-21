@@ -12,7 +12,7 @@ import { paths } from "../../lib/network";
 import type { TagPart } from "../block/chain";
 import { type ChainText, coinbaseText, inputText, outputText } from "./chaintext";
 import { LookalikeTag } from "./Lookalike";
-import { bringIntoView, cardId, SHOW } from "./flash";
+import { bringIntoView, cardId, clearFlash, nextFrame, SHOW } from "./flash";
 import { CardMarks } from "./Privacy";
 import type { Mark } from "./privacytext";
 import { classify } from "./script";
@@ -229,8 +229,15 @@ export function Flow(props: {
     const total = side === "in" ? vin().length : props.tx.vout.length;
     if (!Number.isInteger(index) || index < 0 || index >= total) return;
     const need = Math.max(0, Math.ceil((index + 1 - FIRST_SHOWN) / MORE_STEP));
-    (side === "in" ? setInPresses : setOutPresses)((n) => Math.max(n, need));
-    requestAnimationFrame(() => {
+    const presses = side === "in" ? inPresses() : outPresses();
+    // Past one more press of "Show more" the card is not drawn: every card before it would be,
+    // thousands on a large payout. Its details open instead, as its own button opens them.
+    if (need - presses > 1) {
+      if (!isSel(side, index)) props.onSelect({ side, index });
+      return;
+    }
+    if (need > presses) (side === "in" ? setInPresses : setOutPresses)(need);
+    nextFrame(() => {
       const card = flowEl?.querySelector<HTMLElement>(`#${cardId(side, index)}`);
       if (!card) return;
       bringIntoView(card, card.querySelector<HTMLElement>(".tx-flow__open") ?? card);
@@ -248,6 +255,7 @@ export function Flow(props: {
     return () => {
       ro.disconnect();
       document.removeEventListener(SHOW, onShow);
+      clearFlash();
     };
   });
   // Cards added or relabelled: redraw after they are laid out.

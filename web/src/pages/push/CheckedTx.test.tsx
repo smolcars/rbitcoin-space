@@ -12,12 +12,22 @@ const NOT_SENT =
 
 /** What the broadcast route answers, for this test. */
 let answer: () => Promise<Response>;
+/** Every URL the page asked for. */
+let asked: string[] = [];
 
 beforeEach(() => {
   clearApiCache();
+  asked = [];
   answer = async () => new Response("", { status: 500 });
   vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+    asked.push(url);
     if (init?.method === "POST" && url.endsWith("/api/tx")) return answer();
+    // Output 1 already spent by a child in the mempool, output 0 not.
+    if (url.endsWith("/outspends"))
+      return Response.json([
+        { spent: false },
+        { spent: true, txid: "c".repeat(64), vin: 0, status: { confirmed: false } },
+      ]);
     return Response.json({ fastestFee: 2 });
   });
 });
@@ -162,5 +172,55 @@ describe("the notice before sending", () => {
     // Another transaction is its own: never pressed, so not sent.
     const other = checked();
     unsent(mount(() => <CheckedTx c={other} hex="00" enabled />, "/regtest/tx/push"));
+  });
+});
+
+describe("whether its outputs are spent", () => {
+  const spendsAsked = () => asked.filter((u) => u.endsWith("/outspends"));
+  /** Opens output `i`'s details and gives their text. */
+  const details = (el: HTMLElement, i: number) => {
+    el.querySelector<HTMLButtonElement>(`button[aria-label="Details of output ${i}"]`)?.click();
+    flush();
+    return el.querySelector("#tx-inspector")?.textContent ?? "";
+  };
+
+  it("before sending, no card or detail says, and nothing is asked", () => {
+    const c = checked();
+    const el = mount(() => <CheckedTx c={c} hex="00" enabled />, "/regtest/tx/push");
+    expect(el.querySelectorAll(".tx-flow__status")).toHaveLength(0);
+    expect(details(el, 0)).not.toContain("Spent");
+    expect(spendsAsked()).toStrictEqual([]);
+  });
+
+  it("an unspendable output still says so before sending", () => {
+    const c = checked();
+    c.tx.vout.push({
+      scriptpubkey: "6a0568656c6c6f",
+      scriptpubkey_asm: "",
+      scriptpubkey_type: "op_return",
+      value: 0,
+    });
+    const el = mount(() => <CheckedTx c={c} hex="00" enabled />, "/regtest/tx/push");
+    expect(details(el, 2)).toContain("Unspendable");
+  });
+
+  it("once the node has taken it from this page, the cards say what spent it", async () => {
+    const c = checked();
+    answer = async () => new Response(c.tx.txid, { status: 200 });
+    const el = mount(() => <CheckedTx c={c} hex="00" enabled />, "/regtest/tx/push");
+    press(el);
+    await vi.waitFor(() => expect(el.querySelectorAll(".tx-flow__spent")).toHaveLength(1));
+    expect(spendsAsked()).toHaveLength(1);
+    expect(details(el, 1)).toContain("Being spent");
+  });
+
+  it("a refusal, or a press with no answer, never makes it known", async () => {
+    answer = refusal("min relay fee");
+    const c = checked();
+    const el = mount(() => <CheckedTx c={c} hex="00" enabled />, "/regtest/tx/push");
+    press(el);
+    await vi.waitFor(() => expect(el.querySelector(".push-send__why")).not.toBeNull());
+    expect(el.querySelectorAll(".tx-flow__status")).toHaveLength(0);
+    expect(spendsAsked()).toStrictEqual([]);
   });
 });

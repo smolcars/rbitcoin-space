@@ -768,8 +768,9 @@ function Body(props: {
   // after it loads. A coinbase has no sender to give away and shows nothing.
   const privacy = createMemo(() => checkPrivacy(props.tx));
   const privacyMarks = createMemo(() => cardMarks(shownFindings(privacy(), false)));
-  // Wide, the list is a panel of its own under "Details"; narrower, it sits under the flow and the
-  // summary carries a line that leads to it (docs/DESIGN.md "Transaction").
+  // Wide, the list is a panel of its own in the side column, first when it has something to say;
+  // narrower, it sits under the flow and the summary carries a line that leads to it
+  // (docs/DESIGN.md "Transaction").
   // Findings, or only part checked: what the summary's line counts.
   const reported = () => sayCount(privacy()) !== null;
   const stackedQuery = matchMedia(`(max-width: ${STACKED})`);

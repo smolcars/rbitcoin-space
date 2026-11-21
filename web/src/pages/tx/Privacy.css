@@ -92,6 +92,16 @@
     height: 24px;
     transform: translate(-50%, -50%);
   }
+  /* An address in a sentence: the site's monospace, set as text; a line may break after its "…"
+     only (Privacy.tsx). */
+  .pv-addr {
+    font-family: var(--font-mono);
+    font-size: 0.92em;
+    font-variant-numeric: slashed-zero;
+  }
+  .pv-addr__part {
+    white-space: nowrap;
+  }
   /* A number or an address and the punctuation after it never part across lines. The mark sits
      against the chip, and the room a chip's targets need is taken after the mark instead: in
      "0, 1, 2" neighbours' targets stay 24 px apart. */
@@ -123,6 +133,10 @@
     to {
       outline-color: transparent;
     }
+  }
+  /* Reached from the keyboard, the focus ring is the outline, and it stays: no fade. */
+  .is-flashed:focus-visible {
+    animation: none;
   }
   @media (prefers-reduced-motion: reduce) {
     .is-flashed {
@@ -247,7 +261,8 @@
     margin-top: calc(var(--space-2) * -1);
   }
 
-  /* The transaction page, wide: a panel of its own under "Details", as narrow as the column. */
+  /* The transaction page, wide: a panel of its own in the side column, before "Details" with
+     something to report and after it with nothing, as narrow as the column. */
   .pv-rail {
     display: grid;
     align-content: start;

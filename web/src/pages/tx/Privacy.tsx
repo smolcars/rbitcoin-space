@@ -1,7 +1,7 @@
 // The privacy check on the page (docs/FRONTEND.md "Privacy check"): its marks on the flow's cards,
 // the list under the flow on the transaction page, and the notice on Broadcast and the decoder.
 // The words are all in privacytext.ts; this file only lays them out, as text nodes.
-import { createMemo, For, Show } from "solid-js";
+import { createMemo, For, onCleanup, Show } from "solid-js";
 import { More } from "../../components/More";
 import { SectionHeader } from "../../components/SectionHeader";
 import type { PrivacyReport } from "../../lib/privacy";
@@ -25,7 +25,7 @@ import {
   UNSENT_CLOSING,
   UNSENT_TITLE,
 } from "./privacytext";
-import { bringIntoView, cardId, showCard } from "./flash";
+import { bringIntoView, cardId, clearFlash, nextFrame, showCard } from "./flash";
 import "./Privacy.css";
 
 /** What an observer sees. A filled pupil where something is given away, an open one otherwise. */
@@ -41,7 +41,7 @@ export function Eye(props: { tone: Tone }) {
 /** Brings a finding into view and outlines it, after `before` has made room for it. */
 function showFinding(id: string, before: (() => void) | undefined) {
   before?.();
-  requestAnimationFrame(() => {
+  nextFrame(() => {
     const el = document.getElementById(id);
     if (el) bringIntoView(el);
   });
@@ -156,21 +156,21 @@ function Words(props: { s: Sentence }) {
           ) : (
             <Ref side={run.ref} index={run.index} />
           );
+        // An address may break after its "…", never inside its head or its tail, and the
+        // punctuation after it stays with its tail: at large text on a phone it then fits.
         const a = shownAddress(run.address);
-        const shown = (
-          <span class="hash">
-            <span class="hash__text" title={a.title}>
-              {a.short}
+        const cut = a.short.indexOf("…") + 1;
+        return (
+          <span class="pv-addr" title={a.title}>
+            <Show when={cut > 0}>
+              <span class="pv-addr__part">{a.short.slice(0, cut)}</span>
+              <wbr />
+            </Show>
+            <span class="pv-addr__part">
+              {a.short.slice(cut)}
+              {run.tail}
             </span>
           </span>
-        );
-        return run.tail ? (
-          <span class="pv-ref-tail">
-            {shown}
-            {run.tail}
-          </span>
-        ) : (
-          shown
         );
       }}
     </For>
@@ -240,6 +240,8 @@ function WhatThisChecks() {
 
 /** The findings to show and the lines on what could not be checked, each worked out once. */
 function useWords(report: () => PrivacyReport, unsent: () => boolean) {
+  // A jump to a finding must not outlive the list: no outline left on a detached element.
+  onCleanup(clearFlash);
   const said = createMemo(() => {
     const shown = shownFindings(report(), unsent());
     return shown.map((f) => sayFinding(f, shown));
@@ -277,8 +279,8 @@ function Partial(props: { lines: Sentence[] }) {
 export const LIST_ID = "pv-list";
 
 /**
- * On the transaction page. Beside the flow (`rail`), its own panel under "Details", always with
- * its heading. Under the flow (`under`, a narrow screen), quiet, in the flow's own panel; with
+ * On the transaction page. Beside the flow (`rail`), its own panel in the side column, always
+ * with its heading: before "Details" with something to report, after it with nothing. Under the flow (`under`, a narrow screen), quiet, in the flow's own panel; with
  * nothing to show, one muted line and no heading.
  */
 export function TxPrivacy(props: { report: PrivacyReport; place: "rail" | "under" }) {

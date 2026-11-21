@@ -1089,14 +1089,17 @@ function bare(v: Vout, n: number): Vout {
 }
 /** `t` with input `i`'s coin moved to a script with no address. */
 function bareInput(t: Transaction, i: number): Transaction {
-  const vin = (t.vin ?? []).map((x, k) =>
-    k === i && x.prevout ? { ...x, prevout: bare(x.prevout, 0x40 + k) } : x,
-  );
-  return { ...t, vin };
+  const inputs = structuredClone(t.vin ?? []);
+  const x = inputs[i];
+  if (x?.prevout) x.prevout = bare(x.prevout, 0x40 + i);
+  return { ...t, vin: inputs };
 }
 /** `t` with output `o` paying a script with no address. */
 function bareOutput(t: Transaction, o: number): Transaction {
-  return { ...t, vout: t.vout.map((v, k) => (k === o ? bare(v, 0x60 + k) : v)) };
+  const outputs = structuredClone(t.vout);
+  const v = outputs[o];
+  if (v) outputs[o] = bare(v, 0x60 + o);
+  return { ...t, vout: outputs };
 }
 
 describe("what the rules counted, by name", () => {

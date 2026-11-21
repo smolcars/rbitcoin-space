@@ -36,7 +36,7 @@ describe("the list under the flow", () => {
     const el = mount(() => <TxPrivacy place="under" report={checkPrivacy(payback(HOSTILE))} />);
     expect(el.querySelector("img")).toBeNull();
     expect(el.querySelector("[onerror]")).toBeNull();
-    const shown = el.querySelector(".pv-item .hash__text");
+    const shown = el.querySelector(".pv-item .pv-addr");
     expect(shown?.getAttribute("title")).toBe(HOSTILE);
     expect(shown?.textContent).toBe(`${HOSTILE.slice(0, 8)}…${HOSTILE.slice(-8)}`);
     expect(el.querySelector("h3")?.textContent).toBe("What an observer can read");

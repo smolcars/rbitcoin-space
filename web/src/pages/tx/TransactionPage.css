@@ -1011,13 +1011,6 @@
     min-height: 24px;
     line-height: 24px;
   }
-  /* With no address there is no type label before the link: marks that would open the line keep
-     the link's line above them until it arrives. */
-  .tx-flow__col--out
-    .tx-flow__item:not(.tx-flow__item--fee, .tx-flow__item--more)
-    .tx-flow__meta:has(> .pv-tags:first-child) {
-    padding-top: 24px;
-  }
   /* The spent status and an unseen copy of its widest words in one cell: its width is fixed
      before the spends arrive. */
   .tx-flow__status {

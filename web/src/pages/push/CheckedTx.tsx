@@ -61,12 +61,13 @@ export function CheckedTx(props: {
   const privacyMarks = createMemo(() =>
     shown() ? cardMarks(shownFindings(privacy(), state() === "unsent")) : undefined,
   );
+  // The node has it: it said so when checked, or it took it from this page just now. A press that
+  // got no answer, or a refusal, says nothing of the kind.
+  const known = () => props.c.known !== null || sent() !== undefined;
   // Nothing can spend a transaction the node does not have; one it has may be spent already.
-  const [spends] = createApi<Outspend[]>(() =>
-    props.c.known ? `/tx/${tx().txid}/outspends` : false,
-  );
+  const [spends] = createApi<Outspend[]>(() => (known() ? `/tx/${tx().txid}/outspends` : false));
   const outspends = (): Outspend[] | null | undefined => {
-    if (!props.c.known) return undefined;
+    if (!known()) return undefined;
     return spends.state === "errored" ? null : spends.latest;
   };
   /** Why the last press did not send it. */
@@ -295,7 +296,7 @@ export function CheckedTx(props: {
           selected={selected()}
           onSelect={select}
           marks={privacyMarks()}
-          known={props.c.known !== null}
+          known={known()}
         />
         <Show when={selected()} keyed>
           {(s) => (
@@ -303,7 +304,7 @@ export function CheckedTx(props: {
               tx={tx()}
               selected={s}
               outspends={outspends}
-              known={props.c.known !== null}
+              known={known()}
               onClose={() => setSelected(null)}
               ref={(el) => {
                 inspectorHeading = el;
