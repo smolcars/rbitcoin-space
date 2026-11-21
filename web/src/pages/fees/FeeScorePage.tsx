@@ -186,10 +186,14 @@ function Board(props: { score: Score; testNet: boolean }) {
         <SectionHeader title="Mined in time" id="fee-score-met">
           <span class="fee-score__key" aria-hidden="true">
             <span class="fee-score__scale">Lines 0–100%</span>
-            <span class="fee-key fee-key--target" />
-            {TARGET_TEXT} target
-            <span class="fee-key fee-key--band" />
-            95% interval
+            <span class="fee-key-item">
+              <span class="fee-key fee-key--target" />
+              {TARGET_TEXT} target
+            </span>
+            <span class="fee-key-item">
+              <span class="fee-key fee-key--band" />
+              95% interval
+            </span>
           </span>
         </SectionHeader>
         <ul class="fee-levels">

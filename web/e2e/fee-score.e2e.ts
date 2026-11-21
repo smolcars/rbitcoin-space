@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { MAINNET_1W, MAINNET_24H } from "../src/pages/fees/testdata";
+import { MAINNET_1W, MAINNET_24H, SIGNET_1W } from "../src/pages/fees/testdata";
 import { expect, test } from "./fixtures";
 import { serveScore } from "./score-answers";
 
@@ -83,6 +83,31 @@ test.describe("on a phone, in a wide prose font", () => {
       await expect(evidence.getByRole("row", { name: /^High/ })).toContainText(
         "34 not finished, 4 no clearing rate",
       );
+      // Each legend item's swatch is on the line of its words (council N-C5).
+      const apart = await page.evaluate(() => {
+        const key = document.querySelector(".fee-score__key");
+        const mid = (r: DOMRect) => (r.top + r.bottom) / 2;
+        const words = (text: string) => {
+          const walk = document.createTreeWalker(key ?? document.body, NodeFilter.SHOW_TEXT);
+          for (let n = walk.nextNode(); n; n = walk.nextNode())
+            if (n.textContent?.includes(text)) {
+              const range = document.createRange();
+              range.selectNodeContents(n);
+              return range.getBoundingClientRect();
+            }
+          return undefined;
+        };
+        return [
+          [".fee-key--target", "target"],
+          [".fee-key--band", "interval"],
+        ].map(([swatch, text]) => {
+          const s = key?.querySelector(swatch ?? "")?.getBoundingClientRect();
+          const w = words(text ?? "");
+          return s && w ? Math.round(Math.abs(mid(s) - mid(w))) : -1;
+        });
+      });
+      for (const d of apart) expect(d).toBeGreaterThanOrEqual(0);
+      for (const d of apart) expect(d).toBeLessThan(8);
       // The period switch, wrapped under the title, starts at its left edge.
       const [title, periods] = await Promise.all([
         page.getByRole("heading", { level: 1 }).boundingBox(),
@@ -91,6 +116,44 @@ test.describe("on a phone, in a wide prose font", () => {
       expect(periods?.y).toBeGreaterThan((title?.y ?? 0) + (title?.height ?? 0) - 1);
       expect(Math.round(periods?.x ?? -1)).toBe(Math.round(title?.x ?? 0));
     });
+  }
+});
+
+// Each meter's written interval is clear of the target's tick, the share's mark and the track, at
+// a desktop width and at 24 px text, on mainnet's figures and on signet's (all at 0%) (council F-C8).
+test.describe("the meters' labels, in a wide prose font", () => {
+  test.use({ prose: "wide" });
+  for (const [name, answer] of [
+    ["mainnet", MAINNET_1W],
+    ["signet", SIGNET_1W],
+  ] as const) {
+    for (const big of [false, true]) {
+      test(`on ${name}'s figures${big ? " at 24 px text" : ""}, no label touches the tick, the mark or the line`, async ({
+        page,
+      }) => {
+        await page.setViewportSize({ width: 1280, height: 900 });
+        await serveScore(page, answer);
+        await page.goto("/regtest/fees/score");
+        await expect(levels(page)).toHaveCount(4);
+        if (big) await page.evaluate(() => (document.documentElement.style.fontSize = "24px"));
+        await page.evaluate(() => document.fonts.ready);
+        const touching = await page.evaluate(() => {
+          const meet = (a: DOMRect, b: DOMRect) =>
+            a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+          const found: string[] = [];
+          for (const meter of document.querySelectorAll(".fee-meter")) {
+            const label = meter.querySelector(".fee-meter__range")?.getBoundingClientRect();
+            if (!label) continue;
+            for (const part of [".fee-meter__target", ".fee-meter__mark", ".fee-meter__track"]) {
+              const r = meter.querySelector(part)?.getBoundingClientRect();
+              if (r && meet(label, r)) found.push(`${meter.textContent ?? ""} ${part}`);
+            }
+          }
+          return found;
+        });
+        expect(touching).toStrictEqual([]);
+      });
+    }
   }
 });
 

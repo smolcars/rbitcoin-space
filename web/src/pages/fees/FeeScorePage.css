@@ -43,7 +43,7 @@
     display: inline-flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: var(--space-1);
+    gap: var(--space-1) var(--space-3);
   }
   /* Said once on a phone, where the lines drop their 0% and 100% for room. */
   .fee-score__scale {
@@ -53,6 +53,13 @@
     margin: var(--space-3) 0 0;
     font-size: var(--text-sm);
     color: var(--color-text-muted);
+  }
+  /* A swatch and its words wrap as one. */
+  .fee-key-item {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    white-space: nowrap;
   }
   .fee-key {
     display: inline-block;
@@ -66,7 +73,6 @@
   .fee-key--band {
     width: 16px;
     height: 10px;
-    margin-left: var(--space-2);
     border-radius: var(--radius-s);
     background: var(--color-line-strong);
   }
@@ -226,7 +232,8 @@
     display: grid;
     grid-template-columns: auto 1fr auto;
     align-items: center;
-    gap: 2px var(--space-2);
+    /* Clear of the share's mark, which stands 4 px out of the track. */
+    gap: 6px var(--space-2);
     font-size: var(--text-xs);
     color: var(--color-text-muted);
   }
@@ -272,9 +279,11 @@
   .fee-level--below .fee-meter__mark {
     background: var(--color-negative);
   }
+  /* Above the track and through it, never below: the interval's ends are written there. */
   .fee-meter__target {
     position: absolute;
-    inset-block: -6px;
+    top: -6px;
+    bottom: 0;
     left: calc(var(--target) - 0.5px);
     border-left: 1px dashed var(--color-text);
   }
@@ -335,7 +344,6 @@
     }
     .fee-score__scale {
       display: inline;
-      margin-right: var(--space-1);
     }
     .fee-meter {
       grid-template-columns: 1fr auto;
