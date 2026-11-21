@@ -94,42 +94,90 @@ test("a transaction with findings: marks on its cards and what an observer can r
   expect(await axe(page)).toStrictEqual([]);
 });
 
-test("at 360 px, the spends arriving after the cards move nothing", async ({ page, request }) => {
-  // `script_types`: its P2SH and pay-to-anchor outputs are spent. The P2SH one is served here with
-  // no address and the miner's script, so it is a spent card with no type label before its link,
-  // and with a mark (the miner's address is reused): the hardest line to hold.
-  const real = (await (await request.get(`/regtest/api/tx/${chain.txs.script_types}`)).json()) as {
-    vout: Record<string, unknown>[];
-  };
-  const p2sh = real.vout.findIndex((o) => o["scriptpubkey_type"] === "p2sh");
-  const bare = real.vout[p2sh];
-  if (bare) {
-    delete bare["scriptpubkey_address"];
-    bare["scriptpubkey"] = MINER_SCRIPT;
-  }
-  await page.route(new RegExp(`/regtest/api/tx/${chain.txs.script_types}$`), (r) =>
-    r.fulfill({ json: real }),
+/** Each output card's meta line now: its children's text and line top, to say what wrapped. */
+const metaLines = (page: Page) =>
+  page.evaluate(() =>
+    [...document.querySelectorAll('ul[aria-label="Outputs"] > li .tx-flow__meta')].map((m) =>
+      [...m.children].map(
+        (c) =>
+          `${(c.textContent ?? "").trim()}@${Math.round(c.getBoundingClientRect().top - m.getBoundingClientRect().top)}`,
+      ),
+    ),
   );
-  let release: () => void = () => undefined;
-  const held = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  await page.route(new RegExp(`/regtest/api/tx/${chain.txs.script_types}/outspends`), async (r) => {
-    await held;
-    await r.continue();
-  });
-  await page.setViewportSize({ width: 360, height: 780 });
-  await page.goto(`/regtest/tx/${chain.txs.script_types}`);
-  await expect(page.locator(".pv-under")).toBeVisible();
-  const card = page.getByRole("list", { name: "Outputs" }).getByRole("listitem").nth(p2sh);
-  await expect(card.getByRole("link")).toHaveCount(0);
-  await expect(card).toContainText("Reused address");
-  await expect(page.locator(".tx-flow__spent")).toHaveCount(0);
-  const before = await heights(page);
-  release();
-  await expect(page.locator(".tx-flow__spent")).toHaveCount(2);
-  await expect(card.locator(".tx-flow__spent")).toHaveCount(1);
-  expect(await heights(page)).toStrictEqual(before);
+
+// CI's prose font is wider than a Mac's: a status that fits beside a card's type there may wrap
+// onto a line of its own in it (docs/FRONTEND.md "Other systems' fonts").
+test.describe("the spends arriving after the cards, in a wide prose font", () => {
+  test.use({ prose: "wide" });
+  // `script_types`: its P2SH and pay-to-anchor outputs are spent. Served two ways, each a hard line
+  // to hold: the P2SH one with no address and the miner's script, so a spent card with no type
+  // label before its link and a mark; and the anchor one paying the miner's address as the only
+  // pay-back (the change goes elsewhere), so a spent card with an address and two marks.
+  for (const variant of ["no address, a mark", "an address, two marks"] as const) {
+    for (const width of [320, 360]) {
+      test(`at ${width} px, a spent output with ${variant} moves nothing`, async ({
+        page,
+        request,
+      }) => {
+        const real = (await (
+          await request.get(`/regtest/api/tx/${chain.txs.script_types}`)
+        ).json()) as { vout: Record<string, unknown>[] };
+        const at = (type: string) => real.vout.findIndex((o) => o["scriptpubkey_type"] === type);
+        const p2sh = at("p2sh");
+        const anchor = real.vout.findIndex((o) => o["scriptpubkey"] === "51024e73");
+        const change = real.vout.length - 1;
+        const spent = variant === "no address, a mark" ? p2sh : anchor;
+        const o = real.vout[spent];
+        const last = real.vout[change];
+        if (o && last) {
+          o["scriptpubkey"] = MINER_SCRIPT;
+          o["scriptpubkey_type"] = "v0_p2wsh";
+          if (variant === "no address, a mark") delete o["scriptpubkey_address"];
+          else {
+            o["scriptpubkey_address"] = chain.addresses.miner;
+            last["scriptpubkey"] = P2WPKH;
+            last["scriptpubkey_type"] = "v0_p2wpkh";
+            last["scriptpubkey_address"] = chain.addresses.p2wpkh;
+          }
+        }
+        await page.route(new RegExp(`/regtest/api/tx/${chain.txs.script_types}$`), (r) =>
+          r.fulfill({ json: real }),
+        );
+        let release: () => void = () => undefined;
+        const held = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        await page.route(
+          new RegExp(`/regtest/api/tx/${chain.txs.script_types}/outspends`),
+          async (r) => {
+            await held;
+            await r.continue();
+          },
+        );
+        await page.setViewportSize({ width, height: 780 });
+        await page.goto(`/regtest/tx/${chain.txs.script_types}`);
+        await expect(page.locator(".pv-under")).toBeVisible();
+        const card = page.getByRole("list", { name: "Outputs" }).getByRole("listitem").nth(spent);
+        if (variant === "no address, a mark") {
+          await expect(card.getByRole("link")).toHaveCount(0);
+          await expect(card.locator(".pv-tag")).toHaveText(["Reused address"]);
+        } else {
+          await expect(card.locator(".pv-tag")).toHaveText(["Reused address", "Reads as change"]);
+        }
+        await expect(page.locator(".tx-flow__spent")).toHaveCount(0);
+        const before = await heights(page);
+        const linesBefore = await metaLines(page);
+        release();
+        await expect(page.locator(".tx-flow__spent")).toHaveCount(2);
+        await expect(card.locator(".tx-flow__spent")).toHaveCount(1);
+        const after = await heights(page);
+        expect(
+          after,
+          `meta lines before ${JSON.stringify(linesBefore)}, after ${JSON.stringify(await metaLines(page))}`,
+        ).toStrictEqual(before);
+      });
+    }
+  }
 });
 
 test("a transaction whose input the node does not have is only partly checked", async ({

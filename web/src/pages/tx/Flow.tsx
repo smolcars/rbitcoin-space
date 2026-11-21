@@ -441,18 +441,25 @@ export function Flow(props: {
 function Spent(props: { unspendable: boolean; spend: Outspend | undefined }) {
   return (
     <Show when={!props.unspendable} fallback={<span>Unspendable</span>}>
-      <Show when={props.spend}>
-        {(s) => (
-          <Show when={s().spent && s().txid} fallback={<span>Unspent</span>}>
-            {(by) => (
-              <Link href={paths.tx(by())} class="tx-flow__spent">
-                {s().status?.confirmed === false ? "Being spent" : "Spent"}
-                <span class="visually-hidden"> in transaction {by()}</span>
-              </Link>
-            )}
-          </Show>
-        )}
-      </Show>
+      {/* The status's place from the start, as wide as its widest words, so the line wraps the
+          same before the spends arrive and after, in any font. */}
+      <span class="tx-flow__status">
+        <span class="tx-flow__status-room" aria-hidden="true">
+          Being spent
+        </span>
+        <Show when={props.spend}>
+          {(s) => (
+            <Show when={s().spent && s().txid} fallback={<span>Unspent</span>}>
+              {(by) => (
+                <Link href={paths.tx(by())} class="tx-flow__spent">
+                  {s().status?.confirmed === false ? "Being spent" : "Spent"}
+                  <span class="visually-hidden"> in transaction {by()}</span>
+                </Link>
+              )}
+            </Show>
+          )}
+        </Show>
+      </span>
     </Show>
   );
 }

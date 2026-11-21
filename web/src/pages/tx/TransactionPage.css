@@ -983,6 +983,18 @@
     .tx-flow__meta:has(> .pv-tags:first-child) {
     padding-top: 24px;
   }
+  /* The spent status and an unseen copy of its widest words in one cell: its width is fixed
+     before the spends arrive. */
+  .tx-flow__status {
+    display: inline-grid;
+    align-items: center;
+  }
+  .tx-flow__status > * {
+    grid-area: 1 / 1;
+  }
+  .tx-flow__status-room {
+    visibility: hidden;
+  }
   /* A 24 px target (WCAG 2.2) in the meta line. */
   .tx-flow__spent {
     display: inline-flex;
