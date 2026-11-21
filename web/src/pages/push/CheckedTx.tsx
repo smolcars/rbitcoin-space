@@ -20,7 +20,7 @@ import { cardMarks, shownFindings } from "../tx/privacytext";
 import {
   broadcast,
   type Checked,
-  mayHaveSent,
+  BroadcastError,
   needsSecondThought,
   rateOf,
   refusal,
@@ -55,9 +55,17 @@ export function CheckedTx(props: {
   const [sending, setSending] = createSignal(false);
   /** The txid the node accepted. */
   const [sent, setSent] = createSignal<string>();
-  /** A press failed with no answer the node refused it: it may have been sent. */
-  const [lost, setLost] = createSignal(false);
-  const state = () => (sent() === undefined ? (lost() ? "lost" : "unsent") : "sent");
+  /** A press ended without a definite answer: it may be public. Only a confirmed send clears it. */
+  const [unconfirmed, setUnconfirmed] = createSignal(false);
+  // "Not sent yet" only while nothing has been pressed, or after a definite refusal of every press.
+  const state = () =>
+    sent() === undefined
+      ? unconfirmed()
+        ? "unconfirmed"
+        : sending()
+          ? "pending"
+          : "unsent"
+      : "sent";
   // What sending it would show an observer: said while it can still change, so not for one the
   // node already has, nor for a coinbase, which has no sender.
   const privacy = createMemo(() => checkPrivacy(tx()));
@@ -85,7 +93,7 @@ export function CheckedTx(props: {
       controller?.abort();
       setSending(false);
       setSent(undefined);
-      setLost(false);
+      setUnconfirmed(false);
       setWhy(undefined);
     },
   );
@@ -103,8 +111,11 @@ export function CheckedTx(props: {
       (e: unknown) => {
         if (signal.aborted) return;
         setSending(false);
-        setLost(mayHaveSent(e));
-        setWhy(refusal(e));
+        const answer = e instanceof BroadcastError ? e.answer : "unconfirmed";
+        // The node's duplicate refusal: it already has it, so it is public.
+        if (answer === "public") setSent(tx().txid);
+        else if (answer === "unconfirmed") setUnconfirmed(true);
+        setWhy(answer === "public" ? undefined : refusal(e));
       },
     );
   };

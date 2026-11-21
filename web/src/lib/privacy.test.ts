@@ -185,6 +185,25 @@ describe("address reuse", () => {
     delete bare.scriptpubkey_address;
     const r = checkPrivacy(tx([bare], [bare, { value: 10_000, to: "z" }]));
     expect(finding(r, "reuse")?.addresses[0]?.address).toBe(bare.scriptpubkey);
+    // Said by the rules, never guessed from the string's shape.
+    expect(finding(r, "reuse")?.addresses[0]?.isAddress).toBe(false);
+    // A pay-back to it says the same of the script paid back.
+    expect(finding(r, "change")?.readings[0]?.reason).toMatchObject({
+      kind: "payback",
+      isAddress: false,
+    });
+  });
+  it("says an address is one, even when it is all lower-case hex (a real P2PKH form)", () => {
+    const hexLike: Vout = {
+      ...out({ value: 30_000, to: "h" }),
+      scriptpubkey_type: "p2pkh",
+      scriptpubkey_address: "1646e6df533667199e41221ee21315b14f",
+    };
+    const r = checkPrivacy(tx([hexLike], [hexLike, { value: 10_000, to: "z" }]));
+    expect(finding(r, "reuse")?.addresses[0]).toMatchObject({
+      address: "1646e6df533667199e41221ee21315b14f",
+      isAddress: true,
+    });
   });
   it("does not fire on OP_RETURN outputs or anchors that repeat", () => {
     const r = checkPrivacy(
@@ -219,6 +238,7 @@ describe("change: pays back to an input's address", () => {
     expect(finding(r, "change")?.readings[0]?.reason).toStrictEqual({
       kind: "payback",
       inputs: [0, 3, 4],
+      isAddress: true,
     });
   });
   it("does not call multi-party pay-backs change (a3582ef2)", () => {

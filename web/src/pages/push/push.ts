@@ -124,6 +124,39 @@ export function warnings(tx: Transaction, next: number | undefined): Warnings {
 /** Whether broadcasting should take a second, deliberate press. */
 export const needsSecondThought = (w: Warnings): boolean => w.rate !== null || w.burn > 0;
 
+/** The server's words for the node's duplicate refusal (crates/server/src/esplora.rs). */
+export const DUPLICATE = "transaction already in the mempool or chain";
+
+/**
+ * What a broadcast's answer establishes. `refused`: it did not reach the mempool (the node's
+ * reason, or the server's own refusal before it: a body that is no transaction, broadcast off, too
+ * large, too many). `public`: the node already has it (its duplicate refusal). `unconfirmed`:
+ * nothing definite (no answer, a timeout, a `5xx`, any answer that cannot be read).
+ */
+export type Answer = "refused" | "public" | "unconfirmed";
+
+/** A broadcast that did not come back with a txid, and what its answer established. */
+export class BroadcastError extends ApiError {
+  readonly answer: Answer;
+  constructor(status: number, message: string, answer: Answer, retryAfter?: number) {
+    super(status, message, retryAfter);
+    this.name = "BroadcastError";
+    this.answer = answer;
+  }
+}
+
+/** A failed answer read by its status and the server's `{"error": …}` body, never status alone. */
+export function classify(status: number, body: unknown): Answer {
+  const error =
+    typeof body === "object" && body !== null && "error" in body && typeof body.error === "string"
+      ? body.error
+      : undefined;
+  if (error === undefined) return "unconfirmed";
+  if (status === 400) return error === DUPLICATE ? "public" : "refused";
+  if (status === 403 || status === 413 || status === 429) return "refused";
+  return "unconfirmed";
+}
+
 /**
  * Sends the transaction (`POST /api/tx`) and gives its txid. Never retried by itself: a refusal is
  * shown, and the reader decides whether to press again.
@@ -143,30 +176,31 @@ export async function broadcast(
     });
   } catch (e) {
     if (signal?.aborted === true) throw e;
-    throw new ApiError(0, "The server cannot be reached. Check your connection.");
+    throw new BroadcastError(
+      0,
+      "The server cannot be reached. Check your connection.",
+      "unconfirmed",
+    );
   }
   if (!res.ok) {
     const body: unknown = await res.json().catch(() => null);
     const after = Number(res.headers.get("retry-after") ?? Number.NaN);
-    throw new ApiError(
+    throw new BroadcastError(
       res.status,
       errorMessage(res.status, body),
+      classify(res.status, body),
       Number.isFinite(after) ? after : undefined,
     );
   }
-  const txid = (await res.text()).trim();
+  const txid = (await res.text().catch(() => "")).trim();
   if (!isHash(txid))
-    throw new ApiError(res.status, "The server sent a reply that could not be read.");
+    throw new BroadcastError(
+      res.status,
+      "The server sent a reply that could not be read.",
+      "unconfirmed",
+    );
   return txid;
 }
-
-/**
- * Whether a broadcast that failed may still have reached the node: no answer came back (the
- * connection failed), or the server failed without saying the node refused it. A refusal (`4xx`:
- * the node's reason, broadcast off, too many) means it was not sent.
- */
-export const mayHaveSent = (e: unknown): boolean =>
-  !(e instanceof ApiError) || e.status === 0 || e.status >= 500;
 
 /** The line shown when a broadcast is refused. The node's reason is one of a fixed list. */
 export function refusal(e: unknown): string {

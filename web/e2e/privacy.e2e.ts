@@ -6,7 +6,7 @@
 import type { Page, Request } from "@playwright/test";
 import { axe } from "./axe";
 import { chain, expect, test } from "./fixtures";
-import { MINER_SCRIPT, spending } from "./regtest";
+import { MINER_SCRIPT, spending, spendingMany } from "./regtest";
 
 /** The scenario's P2WPKH address as a script. */
 const P2WPKH = "00147503ccb2c772094595aa0491a48c29de61c04e61";
@@ -222,47 +222,101 @@ test.describe("before sending", () => {
 });
 
 test.describe("a broadcast that does not go through", () => {
-  // One pattern: Playwright reads a two-item array here as a value and its options.
-  test.use({ consoleErrorsAllowed: [/status of (400|503)|ERR_CONNECTION_FAILED|Failed to fetch/] });
+  // Only the browser's own report of the broadcast failing, and the next block's rate, which may be
+  // refused while the server's fee level settles on regtest. One pattern: Playwright reads a
+  // two-item array here as a value and its options.
+  test.use({
+    consoleErrorsAllowed: [
+      /^Failed to load resource: .+ http:\/\/[^/]+\/regtest\/api\/(tx|v1\/fees\/recommended)$/,
+    ],
+  });
   const NOT_SENT =
     "It is not sent yet: a wallet can still change which coins it spends and where the change goes.";
+  /** The server's own words for the node's refusals (crates/server/src/esplora.rs). */
+  const refused = (error: string) => ({ status: 400, json: { error } });
 
-  test("refused by the node, it is still not sent", async ({ page, request }) => {
+  test("refused by the node on the first press, it is still not sent", async ({
+    page,
+    request,
+  }) => {
     const hex = await unsent(request);
     await page.route(/\/regtest\/api\/tx$/, (r) =>
-      r.request().method() === "POST"
-        ? r.fulfill({ status: 400, json: { error: "bad-txns-inputs-missingorspent" } })
-        : r.continue(),
+      r.request().method() === "POST" ? r.fulfill(refused("min relay fee")) : r.continue(),
     );
     await page.goto("/regtest/tx/push");
     await page.getByRole("textbox", { name: "Signed transaction in hex" }).fill(hex);
     await page.getByRole("button", { name: "Broadcast" }).click();
-    await expect(page.getByText(/^The node refused it/)).toBeVisible();
+    await expect(page.getByText("The node refused it: min relay fee.")).toBeVisible();
     const notice = page.getByRole("region", {
       name: "Once it is sent, anyone can read this from it",
     });
     await expect(notice).toContainText(NOT_SENT);
   });
 
-  test("with no answer, it may have been sent, and nothing says it can still change", async ({
+  test("from the first press on it never says not sent: a lost reply, then the node's duplicate", async ({
     page,
     request,
   }) => {
-    const hex = await unsent(request);
-    await page.route(/\/regtest\/api\/tx$/, (r) =>
-      r.request().method() === "POST" ? r.abort("connectionfailed") : r.continue(),
+    // Coinbases 12 and 13, both at the miner's address: two inputs, so coins spent together, an
+    // unsent-only finding, is there to go.
+    const coinbase = async (h: number) => {
+      const hash = (await (await request.get(`/regtest/api/block-height/${h}`)).text()).trim();
+      return (await (await request.get(`/regtest/api/block/${hash}/txid/0`)).text()).trim();
+    };
+    const hex = spendingMany(
+      [await coinbase(12), await coinbase(13)],
+      [
+        [P2WPKH, 100_000_000n],
+        [MINER_SCRIPT, 10_000_000_000n - 100_000_000n - 3_000n],
+      ],
     );
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let posts = 0;
+    await page.route(/\/regtest\/api\/tx$/, async (r) => {
+      if (r.request().method() !== "POST") return r.continue();
+      posts += 1;
+      if (posts === 1) {
+        await held;
+        return r.abort("connectionfailed");
+      }
+      // The server's words for the node's duplicate refusal, written out: not the page's own constant.
+      return r.fulfill(refused("transaction already in the mempool or chain"));
+    });
     await page.goto("/regtest/tx/push");
     await page.getByRole("textbox", { name: "Signed transaction in hex" }).fill(hex);
+    const together = page.getByText("Coins spent together", { exact: true });
+    await expect(page.getByText(NOT_SENT)).toBeVisible();
+    await expect(together).toBeVisible();
+
+    // From here on, the line must never be drawn again.
+    await page.evaluate((text) => {
+      const w = window as unknown as { sawNotSent?: boolean };
+      w.sawNotSent = false;
+      new MutationObserver(() => {
+        if (document.body.textContent.includes(text)) w.sawNotSent = true;
+      }).observe(document.body, { childList: true, subtree: true, characterData: true });
+    }, NOT_SENT);
     await page.getByRole("button", { name: "Broadcast" }).click();
-    await expect(
-      page.getByText("The server cannot be reached. Check your connection."),
-    ).toBeVisible();
+    await expect(page.getByText(NOT_SENT)).toHaveCount(0);
+    await expect(together).toHaveCount(0);
+
+    release();
     const notice = page.getByRole("region", { name: "What an observer can read" });
     await expect(notice).toContainText(
-      "It may have been sent: no answer came back. If it was, anyone can read this from it.",
+      "The broadcast could not be confirmed. It may already be public.",
     );
-    await expect(notice).toContainText("Output 1 reads as change, output 0 as the payment");
-    await expect(page.getByText(NOT_SENT)).toHaveCount(0);
+    await expect(together).toHaveCount(0);
+
+    // The retry's duplicate refusal: the node has it.
+    await page.getByRole("button", { name: /^Broadcast/ }).click();
+    await expect(page.getByText("Sent", { exact: true })).toBeVisible();
+    await expect(page.getByText(/could not be confirmed/)).toHaveCount(0);
+    expect(posts).toBe(2);
+    expect(
+      await page.evaluate(() => (window as unknown as { sawNotSent?: boolean }).sawNotSent),
+    ).toBe(false);
   });
 });

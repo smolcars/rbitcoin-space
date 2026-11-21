@@ -32,6 +32,8 @@ export type PrivacyCheck =
 export interface ReusedAddress {
   /** Its address, or its script in hex when it has none. Attacker-controlled text. */
   address: string;
+  /** `address` is an address; false when it is the script's hex (bare multisig, P2PK, others). */
+  isAddress: boolean;
   /** Inputs that spend from it and outputs that pay it, by index in `vin` and `vout`. */
   inputs: number[];
   outputs: number[];
@@ -43,7 +45,12 @@ export type ChangeReason =
    * It pays an address that these inputs spend from; no other output does. It outranks the other
    * readings: when it applies, the finding is change at its output, whatever they say.
    */
-  | { kind: "payback"; inputs: number[] }
+  | {
+      kind: "payback";
+      inputs: number[];
+      /** The script paid back has an address; false for one without (bare multisig, P2PK). */
+      isAddress: boolean;
+    }
   /** The other output is round (`value`); this one is not. */
   | { kind: "round"; roundOutput: number; value: number }
   /** Every input and this output, and no other, are of `scriptType`. */
@@ -199,13 +206,19 @@ interface Shape {
 function reuse(s: Shape): ReusedAddress[] {
   const outputsBy = new Map<string, number[]>();
   for (const { i, o } of s.outs) push(outputsBy, key(o), i);
-  const names = new Map<string, string>();
-  for (const { o } of [...s.funding, ...s.outs]) names.set(key(o), named(o));
+  const names = new Map<string, Vout>();
+  for (const { o } of [...s.funding, ...s.outs]) names.set(key(o), o);
   const reused: ReusedAddress[] = [];
-  for (const [k, address] of names) {
+  for (const [k, o] of names) {
     const inputs = s.inputsBy.get(k) ?? [];
     const outputs = outputsBy.get(k) ?? [];
-    if (inputs.length + outputs.length > 1) reused.push({ address, inputs, outputs });
+    if (inputs.length + outputs.length > 1)
+      reused.push({
+        address: named(o),
+        isAddress: o.scriptpubkey_address !== undefined,
+        inputs,
+        outputs,
+      });
   }
   return reused;
 }
@@ -246,7 +259,14 @@ function payback(s: Shape): ChangeReading | null {
   const back = s.outs.filter(({ o }) => s.inputsBy.has(key(o)));
   const only = back[0];
   if (back.length !== 1 || !only || s.outs.length < 2) return null;
-  return { change: only.i, reason: { kind: "payback", inputs: s.inputsBy.get(key(only.o)) ?? [] } };
+  return {
+    change: only.i,
+    reason: {
+      kind: "payback",
+      inputs: s.inputsBy.get(key(only.o)) ?? [],
+      isAddress: only.o.scriptpubkey_address !== undefined,
+    },
+  };
 }
 
 /** One round amount beside one that is not. */

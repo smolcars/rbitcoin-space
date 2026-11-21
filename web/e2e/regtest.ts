@@ -59,6 +59,17 @@ export function spending(txid: string, outputs: [string, bigint][]): string {
   );
 }
 
+/** As `spending`, from output 0 of several miner-script coins: each input's witness is [OP_TRUE]. */
+export function spendingMany(txids: string[], outputs: [string, bigint][]): string {
+  const prev = (txid: string) =>
+    Array.from({ length: 32 }, (_, i) => txid.slice(62 - 2 * i, 64 - 2 * i)).join("");
+  const ins = txids.map((t) => `${prev(t)}0000000000fdffffff`).join("");
+  const outs = outputs.map(([s, sats]) => `${le(sats, 8)}${script(s)}`).join("");
+  const count = (n: number) => n.toString(16).padStart(2, "0");
+  const witness = txids.map(() => "010151").join("");
+  return `020000000001${count(txids.length)}${ins}${count(outputs.length)}${outs}${witness}00000000`;
+}
+
 /** Pays `sats` to `address` from a mature coinbase of the miner script; the change goes back to it. */
 export async function pay(rpc: Rpc, address: string, sats: bigint): Promise<string> {
   const { scriptPubKey } = await rpc<{ scriptPubKey: string }>("validateaddress", [address]);

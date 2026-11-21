@@ -102,19 +102,14 @@ const TYPE_NAMES: Partial<Record<ScriptType, string>> = {
 };
 const typeName = (t: ScriptType) => TYPE_NAMES[t] ?? t;
 
-/**
- * What a reused script is called. The rules name it by its address, or by its script in hex when
- * it has none (bare multisig, a nonstandard script): an even run of lower-case hex digits, which no
- * bech32 address (it holds a "1" and a "q" or "p") and in practice no base58 one can be.
- */
-export const isScriptHex = (a: string) => a.length % 2 === 0 && /^[0-9a-f]+$/.test(a);
-const what = (a: string) => (isScriptHex(a) ? "locking script" : "address");
+/** What a reused script is called: its address, or "locking script" when the rules say it has none. */
+const what = (isAddress: boolean) => (isAddress ? "address" : "locking script");
 
 /** One reused address, or script, in a sentence or two: the match, then what an observer may read. */
 function reusedSentence(a: ReusedAddress): Sentence {
   const { inputs, outputs } = a;
   const addr = { address: a.address };
-  const it = what(a.address);
+  const it = what(a.isAddress);
   const owner = `An observer may read one ${it} as one owner`;
   if (inputs.length > 0 && outputs.length > 0) {
     const ins = listed("input", inputs);
@@ -149,7 +144,7 @@ function agreeing(r: ChangeReading): Sentence {
   const why = r.reason;
   if (why.kind === "payback") {
     return [
-      `It pays the same address ${listed("input", why.inputs)} ${why.inputs.length === 1 ? "spends" : "spend"} from, which an observer may read as going back to the sender.`,
+      `It pays the same ${what(why.isAddress)} ${listed("input", why.inputs)} ${why.inputs.length === 1 ? "spends" : "spend"} from, which an observer may read as going back to the sender.`,
     ];
   }
   if (why.kind === "round") {
@@ -159,12 +154,12 @@ function agreeing(r: ChangeReading): Sentence {
   }
   if (why.kind === "script") {
     return [
-      `Every input that funds it is ${typeName(why.scriptType)}, and of the two outputs that are paid only this one is, which suggests it is the change.`,
+      `Every input that funds it is ${typeName(why.scriptType)}, and of the two outputs checked only this one is, which suggests it is the change.`,
     ];
   }
   // unneeded
   return [
-    `It is less than ${least(why.inputs, why.value)}, and the other paid output is not. If the wallet would not add coins it did not need, that suggests the other paid output is the payment.`,
+    `It is less than ${least(why.inputs, why.value)}, and the other output checked is not. If the wallet would not add coins it did not need, that suggests the other output checked is the payment.`,
   ];
 }
 
@@ -173,7 +168,7 @@ function stated(r: ChangeReading): Sentence {
   const why = r.reason;
   if (why.kind === "payback") {
     return [
-      `Output ${r.change} pays the same address ${listed("input", why.inputs)} ${why.inputs.length === 1 ? "spends" : "spend"} from.`,
+      `Output ${r.change} pays the same ${what(why.isAddress)} ${listed("input", why.inputs)} ${why.inputs.length === 1 ? "spends" : "spend"} from.`,
     ];
   }
   if (why.kind === "round") {
@@ -183,12 +178,12 @@ function stated(r: ChangeReading): Sentence {
   }
   if (why.kind === "script") {
     return [
-      `Every input that funds it is ${typeName(why.scriptType)}, and of the two outputs that are paid only output ${r.change} is.`,
+      `Every input that funds it is ${typeName(why.scriptType)}, and of the two outputs checked only output ${r.change} is.`,
     ];
   }
   // unneeded
   return [
-    `Output ${r.change} is less than ${least(why.inputs, why.value)}, and the other paid output is not.`,
+    `Output ${r.change} is less than ${least(why.inputs, why.value)}, and the other output checked is not.`,
   ];
 }
 
@@ -211,7 +206,7 @@ const readingCount = (n: number) =>
 
 /** The reused addresses and scripts not said one by one, counted. */
 function moreReused(rest: readonly ReusedAddress[]): string {
-  const scripts = rest.filter((a) => isScriptHex(a.address)).length;
+  const scripts = rest.filter((a) => !a.isAddress).length;
   const addresses = rest.length - scripts;
   const some = (k: number, one: string, many: string) =>
     `${groupDigits(k)} ${k === 1 ? one : many}`;
@@ -225,7 +220,7 @@ function moreReused(rest: readonly ReusedAddress[]): string {
 
 /** "Address reused", "Locking script reused", or how many of each. */
 function reusedTitle(all: readonly ReusedAddress[]): string {
-  const scripts = all.filter((a) => isScriptHex(a.address)).length;
+  const scripts = all.filter((a) => !a.isAddress).length;
   const addresses = all.length - scripts;
   const n = (k: number, one: string, many: string) => (k === 1 ? one : `${groupDigits(k)} ${many}`);
   if (scripts === 0) return n(addresses, "Address reused", "addresses reused");
@@ -397,14 +392,14 @@ export const LIST_TITLE = "What an observer can read";
 export const UNSENT_TITLE = "Once it is sent, anyone can read this from it";
 export const UNSENT_CLOSING =
   "It is not sent yet: a wallet can still change which coins it spends and where the change goes.";
-/** After a broadcast whose answer was lost: the node may have it, or may not. */
-export const LOST_CLOSING =
-  "It may have been sent: no answer came back. If it was, anyone can read this from it.";
+/** After a broadcast that ended without a definite answer: the node may have it. */
+export const UNCONFIRMED_CLOSING =
+  "The broadcast could not be confirmed. It may already be public.";
 
 /** "What this checks": each check in a sentence, then what it does not do. */
 export const CHECKS: readonly string[] = [
   "Address reuse: an address that appears more than once among this transaction's inputs and outputs.",
-  "Which output is change, from four readings: one output paying the same address an input spends from; one round amount beside one that is not; the only one of two paid outputs of the inputs' script type; and the smaller of two paid outputs being less than the least spent from any one address while the larger is not. A pay-back decides; readings that point at different outputs leave it unclear.",
+  "Which output is change, from four readings: one output paying the same address an input spends from; one round amount beside one that is not; the only one of two outputs checked of the inputs' script type; and the smaller of two outputs checked being less than the least spent from any one address while the larger is not. Every output is checked but data outputs (OP_RETURN) and fee anchors. A pay-back decides; readings that point at different outputs leave it unclear.",
   "The shape of a CoinJoin: among other conditions, three or more outputs of one amount, each to a different address, with the inputs that fund it from at least as many different addresses.",
   "Coins spent together, which suggest one owner; shown only before a transaction is sent, while that can still change.",
 ];
@@ -428,15 +423,15 @@ export function cardMarks(findings: readonly PrivacyFinding[]): Map<string, Mark
     if (!xs) marks.set(key, [mark]);
     else if (!xs.some((m) => m.text === mark.text)) xs.push(mark);
   };
-  const reused = (a: string): Mark => ({
-    text: isScriptHex(a) ? "Reused script" : "Reused address",
+  const reused = (isAddress: boolean): Mark => ({
+    text: isAddress ? "Reused address" : "Reused script",
     tone: "caution",
   });
   for (const f of findings) {
     if (f.kind === "reuse")
       for (const a of f.addresses) {
-        for (const i of a.inputs) add(`in:${i}`, reused(a.address));
-        for (const o of a.outputs) add(`out:${o}`, reused(a.address));
+        for (const i of a.inputs) add(`in:${i}`, reused(a.isAddress));
+        for (const o of a.outputs) add(`out:${o}`, reused(a.isAddress));
       }
     if (f.kind === "change") {
       add(`out:${f.change}`, { text: "Reads as change", tone: "caution" });

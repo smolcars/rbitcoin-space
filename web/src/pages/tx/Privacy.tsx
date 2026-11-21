@@ -9,7 +9,7 @@ import {
   isPartial,
   LIMITS,
   LIST_TITLE,
-  LOST_CLOSING,
+  UNCONFIRMED_CLOSING,
   type Mark,
   type Said,
   type Sentence,
@@ -181,10 +181,14 @@ export function TxPrivacy(props: { report: PrivacyReport }) {
 
 /**
  * On Broadcast and the decoder, before the action: what sending it would show, always whole
- * (heading, findings or the one line, closing). Once sent it says what the transaction page says;
- * when a broadcast's answer was lost, the same, saying it may have been sent.
+ * (heading, findings or the one line, closing). From the moment it is pressed it says what the
+ * transaction page says; when no press got a definite answer, that it may already be public.
  */
-export function UnsentPrivacy(props: { report: PrivacyReport; state: "unsent" | "sent" | "lost" }) {
+export function UnsentPrivacy(props: {
+  report: PrivacyReport;
+  /** Unsent; a press under way; sent (or already public); pressed without a definite answer. */
+  state: "unsent" | "pending" | "sent" | "unconfirmed";
+}) {
   const w = useWords(
     () => props.report,
     () => props.state === "unsent",
@@ -206,8 +210,10 @@ export function UnsentPrivacy(props: { report: PrivacyReport; state: "unsent" | 
         <FindingList said={w.said()} />
       </Show>
       <Partial lines={w.partial()} />
-      <Show when={props.state !== "sent"}>
-        <p class="pv-closing">{props.state === "lost" ? LOST_CLOSING : UNSENT_CLOSING}</p>
+      <Show when={props.state === "unsent" || props.state === "unconfirmed"}>
+        <p class="pv-closing">
+          {props.state === "unconfirmed" ? UNCONFIRMED_CLOSING : UNSENT_CLOSING}
+        </p>
       </Show>
       <WhatThisChecks />
     </section>
