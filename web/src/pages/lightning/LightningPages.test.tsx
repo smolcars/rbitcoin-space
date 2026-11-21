@@ -958,7 +958,7 @@ describe("a node's close record", () => {
       "the chain shows that one end broadcast a commitment transaction, not which end or why",
     );
     // Fees: in all, a close's mean, and every channel's mean.
-    expect(t).toContain("Force25 0001 0001 000");
+    expect(t).toContain("Force25 0001 000 a close1 000");
     // The second week is past every channel's figures: none, not a zero, said in words to a
     // screen reader and in a note under the table.
     expect(t).toContain("16 Nov 2026345–No figure for this week yet");

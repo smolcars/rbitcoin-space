@@ -2596,7 +2596,6 @@
   .ln-record__kind {
     display: grid;
     gap: var(--space-1);
-    min-width: 11ch;
   }
   .ln-record__gloss {
     max-width: 34ch;
@@ -2607,12 +2606,15 @@
   .ln-record__share {
     display: grid;
     gap: var(--space-1);
-    min-width: 7ch;
   }
   .ln-record__shares {
     display: grid;
     gap: var(--space-2);
-    min-width: 5.5rem;
+    min-width: 4rem;
+  }
+  /* "all under 0.1%" may part between its words; the figure itself has no space to part at. */
+  .ln-record__share .num {
+    white-space: normal;
   }
   .ln-record__share--all .num {
     font-size: var(--text-xs);
@@ -2640,6 +2642,31 @@
   .ln-record__fee {
     display: grid;
     justify-items: end;
+  }
+  /* The record's tables fit a 320 px phone in any font: headers take two lines, a date breaks
+     between day and year, and a peer's name and key break anywhere, as names and keys do. */
+  .ln-record .table th,
+  .ln-record .table td:first-child {
+    white-space: normal;
+  }
+  .ln-record .table td:first-child :is(.ln-alias, .ln-key) {
+    overflow-wrap: anywhere;
+  }
+  .ln-record .table :is(.ln-node-peer, td:first-child .ln-key) {
+    max-width: none;
+    white-space: normal;
+  }
+  /* "313 a close" may part between the figure and its words, never inside the figure. */
+  .ln-record__fee .ln-record__all {
+    white-space: normal;
+  }
+  .ln-record__phone {
+    display: none;
+  }
+  @media (max-width: 40em) {
+    .ln-record__phone {
+      display: block;
+    }
   }
   .ln-record__all {
     font-size: var(--text-xs);

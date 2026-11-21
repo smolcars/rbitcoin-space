@@ -241,20 +241,22 @@ function Fees(props: { record: NodeCloses }) {
   const columns = (): Column<CloseKind>[] => [
     { header: "Closing transactions", cell: (k) => <Kind kind={k} /> },
     {
+      // In all, and a close's mean under it: one column, so the table fits a phone.
       header: "In all",
       sub: "sats",
       numeric: true,
-      cell: (k) => (r().node.fees[k].known === 0 ? MISSING : groupDigits(r().node.fees[k].sum)),
-    },
-    {
-      header: "A close",
-      sub: "sats, mean",
-      numeric: true,
-      cell: (k) => sats(perClose(r().node.fees[k])),
+      cell: (k) => (
+        <span class="ln-record__fee">
+          <span>{r().node.fees[k].known === 0 ? MISSING : groupDigits(r().node.fees[k].sum)}</span>
+          <span class="ln-record__all">
+            <span class="num">{sats(perClose(r().node.fees[k]))}</span> a close
+          </span>
+        </span>
+      ),
     },
     {
       header: "All channels",
-      sub: "sats, mean",
+      sub: "a close, sats",
       numeric: true,
       cell: (k) => {
         const n = r().network;
@@ -285,19 +287,26 @@ function Weeks(props: { record: NodeCloses }) {
   const columns = (): Column<WeekRow>[] => [
     {
       header: "Week of",
-      sub: "Monday, UTC",
+      // "Monday, UTC" would hold the column wider than a phone allows; the note under says it.
+      sub: "UTC",
       cell: (w) => (w.time === null ? "Earlier" : formatDay(w.time)),
     },
-    ...kinds().map((k): Column<WeekRow> => ({
-      header: KIND_SHORT[k],
-      numeric: true,
-      cell: (w) => (w[k] === 0 ? <span class="muted">0</span> : groupDigits(w[k])),
-    })),
+    ...kinds().map((k): Column<WeekRow> => {
+      const column: Column<WeekRow> = {
+        header: KIND_SHORT[k],
+        numeric: true,
+        cell: (w) => (w[k] === 0 ? <span class="muted">0</span> : groupDigits(w[k])),
+      };
+      // The one long kind's word, shorter where a phone has no room for it.
+      if (k === "cooperative") column.short = "Co-op";
+      return column;
+    }),
     {
       header: "All channels",
       sub: "force or penalty",
       numeric: true,
-      drop: 1,
+      // Left out on a phone, which says so under the table.
+      optional: true,
       cell: (w) => {
         const n = w.network;
         if (n === null)
@@ -326,6 +335,10 @@ function Weeks(props: { record: NodeCloses }) {
         columns={columns()}
         rows={rows()}
       />
+      <p class="ln-record__note">Each week runs from Monday, 00:00 UTC.</p>
+      <p class="ln-record__note ln-record__phone">
+        On a phone this table leaves out every channel's figure each week; a wider screen shows it.
+      </p>
       <Show when={rows().some((w) => w.network === null)}>
         <p class="ln-record__note">
           {props.record.network === null
@@ -400,7 +413,8 @@ function Peers(props: { record: NodeCloses; gone: boolean }) {
       header: "Open now",
       sub: "channels",
       numeric: true,
-      drop: 1,
+      // Left out on a phone, which says so under the table.
+      optional: true,
       cell: (p) => groupDigits(p.open),
     },
   ];
@@ -419,6 +433,10 @@ function Peers(props: { record: NodeCloses; gone: boolean }) {
           columns={columns()}
           rows={shown()}
         />
+        <p class="ln-record__note ln-record__phone">
+          On a phone this table leaves out how many channels with each peer are open now; a wider
+          screen shows it.
+        </p>
         <Show when={hidden() > 0}>
           <div>
             <button class="btn" type="button" onClick={() => setAll(true)}>
