@@ -119,6 +119,6 @@ test("the balance chart steps with each block and follows a new payment", async 
     ]);
   await expect(chart).toHaveAttribute(
     "aria-valuetext",
-    /Balance 0\.50000000 BTC, Block \d+, Change \+0\.20000000 BTC$/,
+    /Balance 0\.50\s000\s000 BTC, Block \d+, Change \+0\.20\s000\s000 BTC$/,
   );
 });

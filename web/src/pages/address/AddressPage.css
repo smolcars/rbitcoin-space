@@ -544,10 +544,10 @@
     .address {
       padding-top: var(--space-5);
     }
-    /* Two abreast where they fit, one below that: an exchange's millions need a whole row on the
-       narrowest phones. */
+    /* Two abreast where they fit, one below that: an exact total and its copy button need about
+       12rem in a wide font, so on a phone each has a row. */
     .address-stats {
-      grid-template-columns: repeat(auto-fit, minmax(min(100%, 9.5rem), 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
       gap: var(--space-4);
     }
     .address-stat__value {

@@ -269,7 +269,11 @@ function Figure(props: { msat: number | null }) {
           </p>
         }
       >
-        <p class="dec-figure dec-figure--sats num">
+        <p
+          class="dec-figure dec-figure--sats num"
+          // The characters it cannot break inside: its whole sats and point (Decode.css).
+          style={{ "--whole": sats(props.msat ?? 0).split(".")[0]?.length ?? 1 }}
+        >
           <SatsText text={sats(props.msat ?? 0)} /> <span class="dec-figure__unit">sats</span>
         </p>
       </Show>

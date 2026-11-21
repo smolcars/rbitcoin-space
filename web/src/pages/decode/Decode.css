@@ -133,6 +133,14 @@
     white-space: normal;
     overflow-wrap: normal;
   }
+  /* Its whole sats are one piece: set smaller where they would be wider than the screen (about
+     0.65em a character, a phone's gutters aside). */
+  .dec-figure--sats {
+    font-size: min(
+      clamp(var(--text-md), 8vw, var(--text-3xl)),
+      calc((100vw - 4rem) / ((var(--whole, 1) + 1) * 0.65))
+    );
+  }
   .dec-figure .unit {
     font-size: 0.8em;
     font-weight: 400;
