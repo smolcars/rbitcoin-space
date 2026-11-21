@@ -995,7 +995,7 @@ declare const process: { env: Record<string, string | undefined> };
  * The suite checks what the rules answer for three large shapes. How fast they answer is a time
  * budget, and a time budget runs on request (docs/CI.md "Rules for tests"): on a slow runner one
  * of these took 54 ms of processor time against a 4 ms norm, with nothing wrong in the code.
- * `PRIVACY_BENCH=1 bunx vitest run src/lib/privacy.test.ts`
+ * From `web/`: `PRIVACY_BENCH=1 bunx vitest run src/lib/privacy.test.ts`
  */
 const BENCH = process.env["PRIVACY_BENCH"] === "1";
 
