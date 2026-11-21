@@ -472,110 +472,141 @@ test.describe("on a phone", () => {
   });
 });
 
-// A filled slot's row at every width, in CI's wider prose font: no two of its parts overlap, the
-// controls stay whole inside it, and a name that fits is not cut (council F-D6, N-D5).
-test.describe("a filled slot's row", () => {
+// The slots in every state, at every width and at larger text, in CI's wider prose font: no two
+// of a slot's parts overlap (its label's words, its line's words, Change or Choose, remove), none
+// sticks out of the slot, a name that fits is not cut, a label never shrinks under its own words,
+// and the two slots are one height (council F-D6, N-D5, F-D7, N-D6, N-D7, A-D2).
+test.describe("the slots in every state, width and text size", () => {
   test.use({ prose: "wide" });
   const LONG = `${`${"a-very-long-file-name-".repeat(5)}that-goes-on.txt`.slice(0, 116)}.ots`;
+  const SIZES: [number, number][] = [
+    ...[320, 360, 700, 1040, 1280].map((w): [number, number] => [w, 16]),
+    [320, 24],
+    [360, 24],
+    [320, 32],
+    [360, 32],
+  ];
+  /** Every fault in the two slots as they are drawn now. */
+  const faults = (page: Page) =>
+    page.evaluate(() => {
+      const out: string[] = [];
+      const words = (el: Element | null) => {
+        if (!el || el.getClientRects().length === 0) return undefined;
+        const r = document.createRange();
+        r.selectNodeContents(el);
+        return r.getBoundingClientRect();
+      };
+      const slots = [...document.querySelectorAll(".ots-slot")];
+      for (const slot of slots) {
+        const box = slot.getBoundingClientRect();
+        const title = slot.querySelector(".ots-slot__title");
+        const shown = (sel: string) => {
+          const el = slot.querySelector(sel);
+          return el && el.getClientRects().length > 0 ? el.getBoundingClientRect() : undefined;
+        };
+        // The label by its words, which overflow a squeezed box; the rest by their boxes.
+        const candidates: [string, DOMRect | undefined][] = [
+          ["label", words(title)],
+          ["hint", shown(".ots-slot__hint")],
+          ["name", shown(".ots-slot__chosen")],
+          ["choose", shown(".ots-slot__choose")],
+          ["remove", shown(".ots-slot__clear")],
+        ];
+        const parts = candidates.filter(
+          (p): p is [string, DOMRect] => p[1] !== undefined && p[1].width > 0,
+        );
+        const name = title?.textContent ?? "";
+        for (const [what, r] of parts)
+          if (r.left < box.left - 0.5 || r.right > box.right + 0.5)
+            out.push(`${name}: ${what} outside its slot`);
+        for (const [i, [a, ra]] of parts.entries())
+          for (const [b, rb] of parts.slice(i + 1))
+            if (
+              ra.left < rb.right - 0.5 &&
+              rb.left < ra.right - 0.5 &&
+              ra.top < rb.bottom - 0.5 &&
+              rb.top < ra.bottom - 0.5
+            )
+              out.push(`${name}: ${a} overlaps ${b}`);
+        if (title && title.scrollWidth > title.clientWidth + 1) out.push(`${name}: label squeezed`);
+        if (title && title.getClientRects().length > 0) {
+          const lh = Number.parseFloat(getComputedStyle(title).lineHeight);
+          if (title.getBoundingClientRect().height > lh * 1.5) out.push(`${name}: label wraps`);
+        }
+        // A name is cut only when it does not fit its line alone.
+        const n = slot.querySelector<HTMLElement>(".ots-slot__name");
+        const line = slot.querySelector<HTMLElement>(".ots-slot__chosen");
+        if (n && line && n.scrollWidth > n.clientWidth + 1 && n.scrollWidth <= line.clientWidth)
+          out.push(`${name}: "${n.textContent ?? ""}" is cut though it fits`);
+      }
+      const [a, b] = slots.map((x) => x.getBoundingClientRect().height);
+      if (Math.abs((a ?? 0) - (b ?? -99)) > 1) out.push(`heights ${a} and ${b}`);
+      return out;
+    });
+  const sweep = async (page: Page, state: string) => {
+    const found: string[] = [];
+    for (const [width, text] of SIZES) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.evaluate((px) => (document.documentElement.style.fontSize = `${px}px`), text);
+      await page.evaluate(() => document.fonts.ready);
+      for (const f of await faults(page))
+        found.push(`${state}, ${width} px, ${text} px text: ${f}`);
+    }
+    await page.evaluate(() => (document.documentElement.style.fontSize = ""));
+    return found;
+  };
   for (const [label, name] of [
     ["a short name", "hello-world.txt.ots"],
     ["a 120-character name", LONG],
   ] as const) {
-    test(`with ${label}, nothing overlaps at 320 to 1280 px`, async ({ page }) => {
+    test(`with ${label}`, async ({ page }) => {
       expect(name.length).toBe(label === "a short name" ? 19 : 120);
+      await withMainnet(page);
       await page.goto("/regtest/timestamp");
+      await expect(page.locator(".ots-slot")).toHaveCount(2);
+      const found = await sweep(page, "both empty");
       await proofInput(page).setInputFiles({
         name,
         mimeType: "application/octet-stream",
         buffer: proof(sha256(Buffer.from("x")), pending(CALENDAR)),
       });
-      await fileInput(page).setInputFiles({
-        name: name.replace(/\.ots$/, ""),
-        mimeType: "text/plain",
-        buffer: Buffer.from("x"),
-      });
-      await expect(page.locator(".ots-slot--chosen")).toHaveCount(2);
-      await page.evaluate(() => document.fonts.ready);
-      const faults: string[] = [];
-      for (const width of [320, 360, 700, 1040, 1280]) {
-        await page.setViewportSize({ width, height: 900 });
-        const found = await page.evaluate(() => {
-          const out: string[] = [];
-          for (const slot of document.querySelectorAll(".ots-slot--chosen")) {
-            const box = slot.getBoundingClientRect();
-            const parts = [
-              ".ots-slot__title",
-              ".ots-slot__chosen",
-              ".ots-slot__choose",
-              ".ots-slot__clear",
-            ].map((sel) => [sel, slot.querySelector(sel)?.getBoundingClientRect()] as const);
-            for (const [sel, r] of parts) {
-              if (!r) out.push(`${sel} missing`);
-              else if (r.left < box.left - 0.5 || r.right > box.right + 0.5)
-                out.push(`${sel} outside its slot`);
-            }
-            for (const [i, [a, ra]] of parts.entries())
-              for (const [b, rb] of parts.slice(i + 1))
-                if (
-                  ra &&
-                  rb &&
-                  ra.left < rb.right - 0.5 &&
-                  rb.left < ra.right - 0.5 &&
-                  ra.top < rb.bottom - 0.5 &&
-                  rb.top < ra.bottom - 0.5
-                )
-                  out.push(`${a} overlaps ${b}`);
-            // A name is cut only when it cannot fit.
-            const n = slot.querySelector<HTMLElement>(".ots-slot__name");
-            if (n && (n.textContent ?? "").length < 40 && n.scrollWidth > n.clientWidth + 1)
-              out.push(`"${n.textContent ?? ""}" is cut`);
-          }
-          return out;
+      await expect(page.locator(".ots-slot--chosen")).toHaveCount(1);
+      found.push(...(await sweep(page, "proof only")));
+      await digestBox(page).fill(sha256(Buffer.from("x")).toString("hex"));
+      await expect(page.getByText(/stands in for it/)).toBeVisible();
+      found.push(...(await sweep(page, "proof and a digest")));
+      await page
+        .locator("input[type=file]")
+        .nth(1)
+        .setInputFiles({
+          name: name.replace(/\.ots$/, ""),
+          mimeType: "text/plain",
+          buffer: Buffer.from("x"),
         });
-        for (const f of found) faults.push(`${width} px: ${f}`);
-      }
-      expect(faults).toStrictEqual([]);
+      await expect(page.locator(".ots-slot--chosen")).toHaveCount(2);
+      found.push(...(await sweep(page, "proof and file")));
+      await page.getByRole("button", { name: "Remove the proof" }).click();
+      await expect(page.locator(".ots-slot--chosen")).toHaveCount(1);
+      found.push(...(await sweep(page, "file only")));
+      expect(found).toStrictEqual([]);
     });
   }
-});
-
-// The two slots are one height in every state they can be in together (council F-D7, N-D6).
-test("the two slots are the same height empty, filled, and with a digest in place of the file", async ({
-  page,
-}) => {
-  await withMainnet(page);
-  await page.setViewportSize({ width: 1280, height: 900 });
-  await page.goto("/regtest/timestamp");
-  await expect(page.locator(".ots-slot")).toHaveCount(2);
-  const heights = () =>
-    page
-      .locator(".ots-slot")
-      .evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().height)));
-  const same = async (state: string) => {
-    const [a, b] = await heights();
-    expect(Math.abs((a ?? 0) - (b ?? -99)), `${state}: ${a} and ${b}`).toBeLessThanOrEqual(1);
-  };
-  await same("both empty");
-  await proofInput(page).setInputFiles(fileURLToPath(fixture("two-blocks.ots")));
-  await expect(page.locator(".ots-slot--chosen")).toHaveCount(1);
-  await same("proof, no file");
-  await digestBox(page).fill(TWO_BLOCKS);
-  await expect(page.getByText(/stands in for it/)).toBeVisible();
-  await same("proof and a digest");
-  // The file slot's hint now says the digest stands in: its input found by order.
-  await page
-    .locator("input[type=file]")
-    .nth(1)
-    .setInputFiles({
-      name: "f.txt",
-      mimeType: "text/plain",
-      buffer: Buffer.from("f"),
-    });
-  await expect(page.locator(".ots-slot--chosen")).toHaveCount(2);
-  await same("proof and file");
-  await page.getByRole("button", { name: "Remove the proof" }).click();
-  await expect(page.locator(".ots-slot--chosen")).toHaveCount(1);
-  await same("file, no proof");
+  // Both slots' right-hand controls end the same distance from their cards' edge (council F-D9).
+  test("the empty slot's button ends where the filled slot's remove does", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto("/regtest/timestamp");
+    await proofInput(page).setInputFiles(fileURLToPath(fixture("two-blocks.ots")));
+    await expect(page.locator(".ots-slot--chosen")).toHaveCount(1);
+    const insets = await page.locator(".ots-slot").evaluateAll((slots) =>
+      slots.map((s) => {
+        const last = [...s.querySelectorAll(".ots-slot__choose, .ots-slot__clear")].map(
+          (e) => e.getBoundingClientRect().right,
+        );
+        return Math.round(s.getBoundingClientRect().right - Math.max(...last));
+      }),
+    );
+    expect(insets[0]).toBe(insets[1]);
+  });
 });
 
 // On a touch screen every control of a filled slot and the digest's clear is a thumb's target

@@ -17,19 +17,20 @@
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(min(18rem, 100%), 1fr));
     align-items: stretch;
+    /* Stacked on a phone too, the two are one height: each row as tall as the tallest. */
+    grid-auto-rows: 1fr;
     gap: var(--space-4);
     margin-top: var(--space-5);
   }
-  /* Every slot has the same two lines in every state, so the two are one height whatever each
-     holds: its label with its controls together at the right (which never shrink), then across
-     the whole card what it takes or the file it holds (which gives way first). */
+  /* Every slot is the same lines in every state: its label with its controls together at the
+     right (which never shrink), then across the whole card what it takes or the file it holds
+     (which gives way first). Where label and controls do not fit side by side (a phone at large
+     text), the controls go together onto the next line, at the right; the label never shrinks. */
   .ots-slot {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto auto;
-    grid-template-areas:
-      "title pick clear"
-      "line line line";
+    display: flex;
+    flex-wrap: wrap;
     align-items: center;
+    align-content: flex-start;
     gap: var(--space-1) var(--space-3);
     min-width: 0;
     padding: var(--space-3) var(--panel-pad);
@@ -49,13 +50,15 @@
     background: var(--color-accent-soft);
   }
   .ots-slot__title {
-    grid-area: title;
+    flex: 1 0 auto;
+    order: 0;
     margin: 0;
     font-size: var(--text-md);
   }
   .ots-slot__hint,
   .ots-slot__chosen {
-    grid-area: line;
+    flex: 1 0 100%;
+    order: 3;
     min-width: 0;
     margin: 0;
     font-size: var(--text-sm);
@@ -67,13 +70,20 @@
     display: none;
   }
   .ots-slot__pick {
-    grid-area: pick;
+    order: 1;
     display: flex;
+    flex: 0 1 auto;
+    max-width: 100%;
+    gap: var(--space-3);
+    margin-inline-start: auto;
   }
+  /* Its words stay on one line wherever they fit, and wrap rather than leave the card at the
+     largest text on a phone. */
   .ots-slot__choose {
-    flex: none;
+    flex: 0 1 auto;
+    min-width: 0;
     min-height: var(--touch);
-    white-space: nowrap;
+    text-align: center;
   }
   .ots-slot__choose:focus-within {
     outline: 2px solid var(--color-focus);
@@ -93,8 +103,9 @@
   /* The file's name gives way, cut with an ellipsis (whole in its title); its size never does. */
   .ots-slot__chosen {
     display: flex;
+    flex-wrap: wrap;
     align-items: baseline;
-    gap: var(--space-2);
+    gap: 0 var(--space-2);
   }
   .ots-slot__name {
     min-width: 0;
@@ -109,7 +120,6 @@
   }
   /* As tall as Change beside it, and a thumb's target by itself. */
   .ots-slot__clear {
-    grid-area: clear;
     display: inline-grid;
     place-items: center;
     flex: none;
@@ -143,7 +153,8 @@
       .ots-slot__chosen,
       .ots-slot__clear
     ) {
-    grid-column: 1 / -1;
+    flex: 1 0 100%;
+    order: 4;
     margin-top: var(--space-2);
   }
   .ots-slot__note {

@@ -378,30 +378,30 @@ function Slot(props: {
             }}
           />
         </label>
+        <Show when={props.chosen !== undefined}>
+          <button
+            class="ots-slot__clear tap"
+            type="button"
+            aria-label={props.clearLabel}
+            onClick={() => {
+              props.onClear();
+              input?.focus();
+            }}
+          >
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M4 4l8 8M12 4l-8 8" />
+            </svg>
+          </button>
+        </Show>
       </div>
       <Show when={props.chosen}>
         {(name) => (
-          <>
-            <p class="ots-slot__chosen">
-              <bdi class="ots-slot__name" title={name()}>
-                {name()}
-              </bdi>
-              <span class="muted num">{props.detail}</span>
-            </p>
-            <button
-              class="ots-slot__clear tap"
-              type="button"
-              aria-label={props.clearLabel}
-              onClick={() => {
-                props.onClear();
-                input?.focus();
-              }}
-            >
-              <svg viewBox="0 0 16 16" aria-hidden="true">
-                <path d="M4 4l8 8M12 4l-8 8" />
-              </svg>
-            </button>
-          </>
+          <p class="ots-slot__chosen">
+            <bdi class="ots-slot__name" title={name()}>
+              {name()}
+            </bdi>
+            <span class="muted num">{props.detail}</span>
+          </p>
         )}
       </Show>
       {props.children}
