@@ -2711,9 +2711,44 @@
   .ln-record .table__short {
     white-space: nowrap;
   }
+  /* A kind's word is never broken: "Co-op" is one word. */
+  .ln-record .ln-tag {
+    white-space: nowrap;
+  }
   @container record (max-width: 17.5em) {
-    .ln-record__shares {
-      grid-template-columns: minmax(3rem, 1fr);
+    /* How it ended, row by row: the kind and its count on one line, this node's share and every
+       channel's, each figure before its bar, on the full line under them. A kind with no closes
+       keeps one line. The table's cells stay its cells for screen readers. */
+    .ln-record__part--ended .table,
+    .ln-record__part--ended .table :is(thead, tbody) {
+      display: block;
+    }
+    .ln-record__part--ended .table tr {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: baseline;
+      column-gap: var(--space-3);
+    }
+    .ln-record__part--ended .table tbody tr {
+      border-top: 1px solid var(--color-line);
+    }
+    .ln-record__part--ended .table :is(th, td) {
+      border-top: 0;
+      padding-inline: 0;
+    }
+    .ln-record__part--ended .table :is(th, td):nth-child(3) {
+      grid-column: 1 / -1;
+      padding-top: 0;
+    }
+    .ln-record__part--ended .table tr.ln-record__row--none {
+      grid-template-columns: minmax(0, 1fr) auto auto;
+    }
+    .ln-record__part--ended .table tr.ln-record__row--none td:nth-child(3) {
+      grid-column: auto;
+      padding-top: var(--space-2);
+    }
+    .ln-record__shares:not(.ln-record__shares--one) {
+      grid-template-columns: minmax(4em, auto) minmax(3rem, 1fr);
     }
     /* The full word stays for screen readers; the short one is what fits. */
     .ln-record__long {
@@ -2730,6 +2765,55 @@
   }
   .ln-record__shares--one {
     grid-template-columns: auto;
+  }
+  /* Under 13em of its own text (a phone at 24 or 32 px text) the other tables are cards, as the fee
+     histogram's are: what names the row, then each figure after its heading. The headings stay for
+     screen readers; a column left out stays out, its figure a line of the first cell. */
+  @container record (max-width: 13em) {
+    .ln-record__part:not(.ln-record__part--ended) .table thead {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+    }
+    .ln-record__part:not(.ln-record__part--ended) :is(.table, .table tbody, .table tr) {
+      display: block;
+      width: 100%;
+    }
+    .ln-record__part:not(.ln-record__part--ended) .table tbody tr {
+      padding: var(--space-2) 0;
+      border-top: 1px solid var(--color-line);
+    }
+    .ln-record__part:not(.ln-record__part--ended) .table td:not(.table__optional, .table__gone) {
+      display: block;
+      padding: 0;
+      border: 0;
+      text-align: left;
+      white-space: normal;
+    }
+    .ln-record__part:not(.ln-record__part--ended) .table td[data-label]:not(:first-child)::before {
+      content: attr(data-label) " ";
+      font-family: var(--font-sans);
+      font-size: var(--text-sm);
+      color: var(--color-text-muted);
+    }
+    .ln-record__part:not(.ln-record__part--ended) .ln-record__fee {
+      justify-items: start;
+    }
+    /* Each bar under its figure, across the line. */
+    .ln-record__shares:not(.ln-record__shares--one) {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    /* A kind with no closes: one line where it fits, its figure under it where it does not. */
+    .ln-record__part--ended .table tr.ln-record__row--none {
+      display: flex;
+      flex-wrap: wrap;
+      column-gap: var(--space-3);
+    }
+    .ln-record__part--ended .table tr.ln-record__row--none td:first-child {
+      flex: 1 1 auto;
+    }
   }
   /* "all under 0.1%" may part between its words; only the figure is in `.num`, whole. */
   .ln-record__words {

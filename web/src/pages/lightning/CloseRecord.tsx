@@ -364,6 +364,7 @@ function Ended(props: { record: NodeCloses }) {
         caption="How its channels ended, beside every channel's as of the time above"
         columns={columns()}
         rows={kinds()}
+        rowClass={(k) => (r().node[k] === 0 ? "ln-record__row--none" : undefined)}
       />
       <Show when={rated() && r().node.force + r().node.penalty > 0}>
         <p class="ln-record__note">{BOTH_ENDS}</p>
@@ -396,9 +397,9 @@ function Fees(props: { record: NodeCloses }) {
       ),
     },
     {
-      // In all, and a close's mean under it: one column, so the table fits a phone.
-      header: "In all",
-      sub: "sats",
+      // In all, and a close's mean under it: one column, so the table fits a phone. The unit in
+      // the heading itself, which is what labels the figure where the table is cards.
+      header: "In all, sats",
       numeric: true,
       cell: (k) => {
         const f = () => r().node.fees[k];

@@ -323,6 +323,52 @@ test("on a phone the weeks and the peers open folded to their sentences, and unf
   await holds(page);
 });
 
+test("at 320 and 360 px with 16, 24 and 32 px text no record table scrolls and no word breaks", async ({
+  page,
+}) => {
+  await open(page, ACINQ, { [`nodes/${ACINQ}/closes`]: withPenalties() });
+  const faults: string[] = [];
+  for (const width of [320, 360]) {
+    for (const size of [16, 24, 32]) {
+      await page.setViewportSize({ width, height: 800 });
+      // The root size, as a reader's larger text sets it: every rem and em on the page grows.
+      await page.evaluate((px) => {
+        document.documentElement.style.fontSize = `${px}px`;
+        for (const d of document.querySelectorAll(".ln-record details")) d.setAttribute("open", "");
+      }, size);
+      const more = page.locator(".ln-record").getByRole("button", { name: /^Show the/ });
+      if (await more.isVisible()) await more.click();
+      await frames(page);
+      const found = await page.evaluate(() => {
+        const record = document.querySelector(".ln-record") as HTMLElement;
+        const out: string[] = [];
+        for (const t of record.querySelectorAll(".table-scroll")) {
+          if (t.scrollWidth > t.clientWidth + 1)
+            out.push(`a table scrolls ${t.scrollWidth - t.clientWidth} px`);
+        }
+        // A word drawn on two lines: names and keys may break, a word or a figure never does.
+        const walk = document.createTreeWalker(record, NodeFilter.SHOW_TEXT);
+        for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+          const el = n.parentElement;
+          if (el === null || el.closest(".visually-hidden, .ln-key, .ln-alias")) continue;
+          for (const m of (n.textContent ?? "").matchAll(/\S+/g)) {
+            const range = document.createRange();
+            range.setStart(n, m.index);
+            range.setEnd(n, m.index + m[0].length);
+            const tops = new Set(
+              [...range.getClientRects()].filter((r) => r.width > 0).map((r) => Math.round(r.top)),
+            );
+            if (tops.size > 1) out.push(`"${m[0]}" breaks`);
+          }
+        }
+        return out;
+      });
+      faults.push(...found.map((f) => `${width} px, ${size} px text: ${f}`));
+    }
+  }
+  expect(faults).toStrictEqual([]);
+});
+
 /** Every channel's penalty share under 0.1%: one penalty in 1,802 closes, as mainnet could see. */
 function tinyShare(): Answer {
   const a = withPenalties();
