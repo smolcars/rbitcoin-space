@@ -410,6 +410,36 @@ test("an import over long kept records works a few at a time, never holding the 
   expect(saving).toBeLessThan(idle + 100);
 });
 
+test("an untouched Save keeps a label with line breaks as it is: nothing is written", async ({
+  page,
+}) => {
+  // A single-line field drops CR and LF: what it shows is not the stored label.
+  const kept: Line[] = [
+    { type: "tx", ref: "a1".repeat(32), label: "rent\nMarch" },
+    { type: "tx", ref: "b2".repeat(32), label: "rent\rApril" },
+    { type: "tx", ref: "c3".repeat(32), label: "rent\r\nMay" },
+  ];
+  await seedLabels(page, kept);
+  await page.goto("/regtest/labels");
+  for (const l of kept) {
+    await page
+      .getByRole("button", {
+        name: `Edit the label of transaction ${l.ref.slice(0, 8)}…${l.ref.slice(-8)}`,
+      })
+      .click();
+    const field = page.getByRole("textbox", { name: /^Your label for transaction/ });
+    await expect(field).toBeFocused();
+    await page.getByRole("button", { name: "Save label" }).click();
+    await expect(field).toHaveCount(0);
+  }
+  await expect(page.getByText("Label saved")).toHaveCount(0);
+  const [file] = await Promise.all([
+    page.waitForEvent("download"),
+    page.getByRole("button", { name: "Export a file" }).click(),
+  ]);
+  expect(await readFile(await file.path(), "utf8")).toBe(bip329(kept));
+});
+
 test("hostile labels from a file are shown as inert, marked text", async ({ page }) => {
   let dialogs = 0;
   page.on("dialog", (d) => {

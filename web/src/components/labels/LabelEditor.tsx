@@ -18,7 +18,11 @@ export function LabelEditor(props: EditorProps) {
   // The label as it was when the editor opened: a change landing later (another tab, a save that
   // ended late) never overwrites what is being typed.
   const initial = untrack(() => props.current) ?? "";
+  // What the field held when it opened, as the browser holds it: a single-line field drops a
+  // label's line breaks, so an untouched Save is compared with this, never with the stored label.
+  let opened = initial;
   onSettled(() => {
+    opened = field?.value ?? initial;
     field?.focus();
     field?.select();
   });
@@ -48,8 +52,9 @@ export function LabelEditor(props: EditorProps) {
     e.preventDefault();
     const text = field?.value ?? "";
     // Unchanged from what the editor opened with: nothing to write, so nothing is written. A
-    // label another tab saved meanwhile stays; only a deliberate edit replaces it.
-    if (text === initial) {
+    // label another tab saved meanwhile stays, and one with a line break keeps it; only a
+    // deliberate edit replaces it.
+    if (text === opened) {
       props.done();
       return;
     }
