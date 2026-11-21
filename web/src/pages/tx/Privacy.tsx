@@ -92,7 +92,7 @@ type Run =
 const TAIL = /^[,.;:)!?]+/;
 
 /** A sentence's runs: each number takes the punctuation right after it, so the two never part. */
-function runs(s: Sentence): Run[] {
+export function runs(s: Sentence): Run[] {
   const out: Run[] = [];
   let carry = "";
   s.forEach((piece, k) => {

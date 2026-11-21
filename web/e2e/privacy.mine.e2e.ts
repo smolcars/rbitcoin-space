@@ -68,6 +68,37 @@ test("a transaction shaped like a CoinJoin is a neutral finding, with no change 
     "Outputs 0, 1 and 2 each pay exactly 1.9999 BTC to a different address, and its inputs spend from 3 different addresses.",
   );
   await expect(section).not.toContainText("reads as change");
+  // "Outputs 0, 1 and 2": each number keeps its comma on its line, right against it, and the
+  // numbers' 24 px targets still do not overlap.
+  const tails = await section.locator(".pv-ref-tail").evaluateAll((spans) =>
+    spans.map((t) => {
+      const chip = t.querySelector(".pv-ref")?.getBoundingClientRect();
+      const r = document.createRange();
+      if (t.lastChild) r.selectNodeContents(t.lastChild);
+      const mark = r.getBoundingClientRect();
+      return {
+        text: t.textContent,
+        lines: new Set([...t.getClientRects()].map((x) => Math.round(x.top))).size,
+        gap: Math.round(mark.left - (chip?.right ?? 0)),
+      };
+    }),
+  );
+  expect(tails).toStrictEqual([{ text: "0,", lines: 1, gap: 0 }]);
+  const overlapped = await section.locator(".pv-ref").evaluateAll((as) =>
+    as.flatMap((a) => {
+      a.scrollIntoView({ block: "center" });
+      const r = a.getBoundingClientRect();
+      const x = r.left + r.width / 2;
+      const y = r.top + r.height / 2;
+      return [-11, 11].flatMap((d) =>
+        [document.elementFromPoint(x + d, y), document.elementFromPoint(x, y + d)]
+          .map((e) => e?.closest("a"))
+          .filter((e) => e !== a)
+          .map(() => a.getAttribute("aria-label")),
+      );
+    }),
+  );
+  expect(overlapped).toStrictEqual([]);
   const outputs = page.getByRole("list", { name: "Outputs" });
   await expect(outputs.getByText("Equal amount")).toHaveCount(3);
   // Neutral: the open eye, in the text's colour, never the caution's.
@@ -94,8 +125,9 @@ test("a clean transaction is one muted line", async ({ page, rpc, mine }) => {
 
   await page.goto(`/regtest/tx/${clean}`);
   await expect(page.getByText("Nothing in this transaction's shape stands out.")).toBeVisible();
-  // Wide, a panel of its own beside the flow, named like the others.
+  // Wide, a panel of its own beside the flow, named like the others, after the details.
   await expect(page.getByRole("heading", { name: "What an observer can read" })).toHaveCount(1);
+  await expect(page.locator(".tx-rail__details + #pv-list")).toBeVisible();
   await expect(page.locator(".tx-flow .pv-tag")).toHaveCount(0);
   await expect(page.getByText("What this checks")).toBeVisible();
   expect(await axe(page)).toStrictEqual([]);

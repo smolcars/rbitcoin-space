@@ -23,7 +23,9 @@ async function watchArrival(page: Page) {
     const seen = new MutationObserver(() => {
       if (!document.querySelector(".tx-flow__item:not(.tx-flow__item--ghost)")) return;
       w.arrival = document.querySelector("#pv-list") !== null;
-      w.summary = document.querySelector(".tx-answer")?.getBoundingClientRect().height ?? 0;
+      // The summary's privacy row, as it stood then: its height, or -1 when there was none.
+      w.summary =
+        document.querySelector(".tx-answer__cell--privacy")?.getBoundingClientRect().height ?? -1;
       seen.disconnect();
     });
     seen.observe(document, { childList: true, subtree: true });
@@ -78,14 +80,19 @@ test("a transaction with findings: marks on its cards and what an observer can r
   // It came with the first card: it never appears later.
   expect(await arrival(page)).toBe(true);
 
-  // The summary's line to it came with the first card too: the summary never grew after.
-  expect(
-    await page.evaluate(() => document.querySelector(".tx-answer")?.getBoundingClientRect().height),
-  ).toBe(await page.evaluate(() => (window as unknown as { summary?: number }).summary));
+  // Wide, the summary has no row for it, from the first card on (its other cells load on their
+  // own time and are not this check's).
+  expect(await page.evaluate(() => (window as unknown as { summary?: number }).summary)).toBe(-1);
 
-  // Wide, it is a panel of its own under "Details", off the first screen: the summary leads to it.
-  await expect(page.locator(".tx-rail > #pv-list")).toBeVisible();
-  await expect(page.getByRole("link", { name: "2 things an observer can read" })).toBeVisible();
+  // Wide, with findings, it opens the side column, above "Details", on the first screen beside
+  // the marks it explains; so the summary carries no line to it.
+  await expect(page.locator(".tx-rail > #pv-list:first-child + .tx-rail__details")).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.querySelector("#pv-list h2")?.getBoundingClientRect().bottom,
+    ),
+  ).toBeLessThan(720);
+  await expect(page.locator(".tx-answer__privacy")).toHaveCount(0);
 
   // Every card carries its number, as the sentences name it.
   await expect(inputs.locator(".tx-flow__index")).toHaveText(["#0", "#1"]);
@@ -172,9 +179,19 @@ test.describe("in a wide prose font, on a phone", () => {
     test(`at ${width} px every number in the list is a 24 px target and the summary's line is one row`, async ({
       page,
     }) => {
+      await watchArrival(page);
       await page.setViewportSize({ width, height: 780 });
       await page.goto(`/regtest/tx/${chain.txs.consolidation}`);
       const list = page.locator("#pv-list");
+      // The summary's row came with the first card, as tall as it stays: nothing moves for it.
+      await page.evaluate(() => document.fonts.ready);
+      const row = await page
+        .locator(".tx-answer__cell--privacy")
+        .evaluate((el) => el.getBoundingClientRect().height);
+      expect(row).toBeGreaterThan(0);
+      expect(await page.evaluate(() => (window as unknown as { summary?: number }).summary)).toBe(
+        row,
+      );
       // "Inputs 0 and 1", "output 1", "output 0": numbers in a row and alone.
       await expect(list.locator(".pv-ref")).not.toHaveCount(0);
       await page.evaluate(() => document.fonts.ready);

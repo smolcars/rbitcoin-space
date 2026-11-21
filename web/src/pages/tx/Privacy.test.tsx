@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { mount } from "../../components/test-utils";
 import type { Transaction, Vout } from "../../lib/esplora";
 import { checkPrivacy } from "../../lib/privacy";
-import { CardMarks, TxPrivacy, UnsentPrivacy } from "./Privacy";
+import { CardMarks, runs, TxPrivacy, UnsentPrivacy } from "./Privacy";
 
 const HOSTILE = '<img src=x onerror="alert(1)">bcrt1qhostile';
 
@@ -135,5 +135,29 @@ describe("marks on a card", () => {
       "#pv-coinjoin",
     ]);
     expect(el.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+  });
+});
+
+describe("a number in a sentence", () => {
+  it("takes the punctuation right after it, so the two never part, and leaves words alone", () => {
+    const n = (index: number) => ({ ref: "in" as const, index });
+    expect(
+      runs(["Inputs ", n(0), ", ", n(3), " and ", n(4), " spend from ", { address: "a" }, "."]),
+    ).toStrictEqual([
+      { text: "Inputs " },
+      { ref: "in", index: 0, tail: "," },
+      { text: " " },
+      { ref: "in", index: 3, tail: "" },
+      { text: " and " },
+      { ref: "in", index: 4, tail: "" },
+      { text: " spend from " },
+      { address: "a" },
+      { text: "." },
+    ]);
+    expect(runs(["(input ", n(11), "), and the other"])).toStrictEqual([
+      { text: "(input " },
+      { ref: "in", index: 11, tail: ")," },
+      { text: " and the other" },
+    ]);
   });
 });
