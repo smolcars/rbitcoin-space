@@ -284,7 +284,14 @@ function Fold(props: {
 }) {
   const phone = usePhone();
   return (
-    <details class={["ln-record__fold", props.class]} open={!untrack(phone)}>
+    <details
+      class={props.class === undefined ? "ln-record__fold" : `ln-record__fold ${props.class}`}
+      // Set once, as the page opens: an attribute here would be set again with the class (when a
+      // column drops), folding the part under the reader on a phone.
+      ref={(el) => {
+        el.open = !untrack(phone);
+      }}
+    >
       <summary class="ln-record__summary">
         <h3 class="ln-record__h">{props.title}</h3>
         <Show when={props.aside}>

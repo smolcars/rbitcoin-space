@@ -168,12 +168,13 @@ test("mainnet's record: shares beside every channel's, fees, weeks and peers, at
     "The 25 force closes were on channels with 25 different peers, at most 1 with any one.",
   );
   // Said once, under the first force figure.
-  await expect(record.getByText("in the record of both of its channel's nodes")).toHaveCount(1);
+  await expect(record.getByText("in both nodes' records")).toHaveCount(1);
   // Every peer has one force close: rows that each say 1 wait behind a press.
   await expect(record.locator(".ln-record__part").last().locator("tbody tr")).toHaveCount(0);
   await record.getByRole("button", { name: "Show the 25 peers" }).click();
   await expect(record.locator(".ln-record__part").last().locator("tbody tr")).toHaveCount(25);
-  await expect(record.getByRole("button", { name: "Show fewer peers" })).toBeVisible();
+  // Folded back none would show, so the button says it hides them all.
+  await expect(record.getByRole("button", { name: "Hide the 25 peers" })).toBeVisible();
   // No tone that reads as a verdict.
   await expect(record.locator(".ln-tag:not(.ln-tag--muted)")).toHaveCount(0);
   await holds(page);
@@ -249,7 +250,7 @@ test("a node with no close says so in one line", async ({ page }) => {
 test.describe("a node that left the graph", () => {
   // Its node answer is a 404, which the browser logs.
   test.use({ consoleErrorsAllowed: [/status of 404/] });
-  test("shows its record under the page that says so, its peers leading to their own pages", async ({
+  test("shows its record and its closed channels under its key, its peers filtering them", async ({
     page,
   }) => {
     const gone = `02${"ab".repeat(32)}`;
@@ -264,7 +265,22 @@ test.describe("a node that left the graph", () => {
         { ...record.peers.list[0], id: left, alias: "gone too", held: false },
       ],
     };
-    await serve(page, { ...mainnet(), [`nodes/${gone}/closes`]: { ...record, id: gone } });
+    // Its closed list answers from the store, as for any node: three closes, one with FUNK-BTCPay.
+    const closed = recorded("node-acinq-closed") as { channels: unknown[] };
+    await serve(page, {
+      ...mainnet(),
+      [`nodes/${gone}/closes`]: { ...record, id: gone },
+      [`nodes/${gone}/channels?status=closed`]: {
+        ...closed,
+        total: 3,
+        channels: closed.channels.slice(0, 3),
+      },
+      [`nodes/${gone}/channels?status=closed&peer=${ONE}`]: {
+        ...closed,
+        total: 1,
+        channels: closed.channels.slice(0, 1),
+      },
+    });
     await page.route(new RegExp(`/regtest/app/lightning/nodes/${gone}$`), (r) =>
       r.fulfill({ status: 404, json: { error: "node not found" } }),
     );
@@ -274,17 +290,37 @@ test.describe("a node that left the graph", () => {
     await expect(page.getByText("It has no open channel now")).toBeVisible();
     await expect(page.getByText("This server knows no such node")).toHaveCount(0);
     await expect(page.locator(".ln-record")).toContainText("3 channels closed");
+    // The closes the heading promises, listed under the record.
+    const list = page.locator("[aria-labelledby=ln-node-closed-title]");
+    await expect(list).toContainText("3 closes");
     // The check of every look opens the breakdown.
     await holds(page);
     await page.getByRole("button", { name: "Show the 2 peers" }).click();
     const peers = page.locator(".ln-record .ln-record__part").last();
-    await expect(peers.getByRole("link")).toHaveCount(1);
-    await expect(peers).toContainText("gone too");
-    await expect(page.locator(".ln-record")).not.toContainText("Filter its closed channels");
+    // Both peers filter its list, whether or not the graph still holds them.
+    await expect(peers.getByRole("link")).toHaveCount(2);
     await peers.getByRole("link", { name: "FUNK-BTCPay" }).click();
-    await expect(page).toHaveURL(new RegExp(`/regtest/lightning/node/${ONE}$`));
-    await expect(page.getByRole("heading", { name: "At a glance" })).toBeVisible();
+    await expect(page).toHaveURL(
+      new RegExp(`/regtest/lightning/node/${gone}\\?view=closed&peer=${ONE}$`),
+    );
+    await expect(list).toContainText(/1\s+of 3 closes match/);
   });
+});
+
+test("on a phone the weeks and the peers open folded to their sentences, and unfold", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 360, height: 800 });
+  await open(page, ACINQ, {});
+  const folds = page.locator(".ln-record details.ln-record__fold");
+  await expect(folds).toHaveCount(2);
+  for (const fold of await folds.all()) await expect(fold).not.toHaveAttribute("open");
+  await expect(folds.nth(0)).toContainText("2 weeks from 9 Nov 2026, at most");
+  await expect(folds.nth(1)).toContainText("The 25 force closes were on channels with 25");
+  await expect(page.getByRole("button", { name: "Show the 25 peers" })).toBeHidden();
+  await folds.nth(1).locator("summary").click();
+  await expect(page.getByRole("button", { name: "Show the 25 peers" })).toBeVisible();
+  await holds(page);
 });
 
 /** Every channel's penalty share under 0.1%: one penalty in 1,802 closes, as mainnet could see. */
@@ -314,9 +350,9 @@ test("a figure a column leaves out is its row's second line, never both and neve
   await open(page, ACINQ, { [`nodes/${ACINQ}/closes`]: withPenalties() });
   const parts = page.locator(".ln-record .ln-record__part");
   const triples = [
-    { part: parts.nth(1), header: "All channels" },
-    { part: parts.nth(2), header: "All channels" },
-    { part: parts.nth(3), header: "Open now" },
+    { part: parts.nth(1), name: "fees", header: "All channels" },
+    { part: parts.nth(2), name: "weeks", header: "All channels" },
+    { part: parts.nth(3), name: "peers", header: "Open now" },
   ];
   const faults: string[] = [];
   const seen = new Set<string>();
@@ -332,7 +368,7 @@ test("a figure a column leaves out is its row's second line, never both and neve
     for (const width of [320, 360, 660, 720, 800, 900, 1040, 1280]) {
       await page.setViewportSize({ width, height: 900 });
       await frames(page);
-      for (const { part, header } of triples) {
+      for (const { part, name, header } of triples) {
         // The table fits in the frame after a resize notice; wait until it has.
         await part.locator(".table-scroll").evaluate(
           () =>
@@ -345,7 +381,7 @@ test("a figure a column leaves out is its row's second line, never both and neve
         seen.add(shown ? "shown" : "left out");
         if (shown === second)
           faults.push(
-            `${size} px text, ${width} px: ${header} shown ${shown}, second line ${second}`,
+            `${size} px text, ${width} px, ${name}: ${header} shown ${shown}, second line ${second}`,
           );
       }
     }
