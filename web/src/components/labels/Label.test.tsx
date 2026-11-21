@@ -263,6 +263,40 @@ describe("LabelControl", () => {
       await expect(label()).resolves.toStrictEqual(["my draft"]);
     });
 
+    it("the reviewer's sequence: a second Save never replaces a label its message did not name", async () => {
+      await setLabel("tx", TXID, "original");
+      const el = mount(() => <LabelControl type="tx" reference={TXID} what="this transaction" />);
+      await until(() => el.querySelector(".your-label__text")?.textContent === "original");
+      const field = await open(el);
+      field.value = "my draft";
+      field.focus();
+      // B deletes it and imports the same key.
+      await remove([recordKey("tx", TXID, undefined)]);
+      const again = (await readFile(`{"type":"tx","ref":"${TXID}","label":"first replacement"}`))
+        .records;
+      await runImport(again, await previewImport(again));
+      submit(el);
+      await until(() => (status(el) ?? "").includes("“first replacement”"));
+      expect(status(el)).toContain(
+        "so nothing was saved. Pressing Save again replaces “first replacement” with what you typed.",
+      );
+      // B edits that record in place; the page's tag follows, the editor's words do not yet.
+      await setLabel("tx", TXID, "second edit in B");
+      await until(() => el.querySelector(".your-label__text")?.textContent === "second edit in B");
+      submit(el);
+      await until(() => (status(el) ?? "").includes("“second edit in B”"));
+      expect(status(el)).toContain(
+        "Pressing Save again replaces “second edit in B” with what you typed.",
+      );
+      expect(el.querySelector("input")).toBe(field);
+      expect(field.value).toBe("my draft");
+      expect(document.activeElement).toBe(field);
+      await expect(label()).resolves.toStrictEqual(["second edit in B"]);
+      submit(el);
+      await until(() => el.querySelector("input") === null);
+      await expect(label()).resolves.toStrictEqual(["my draft"]);
+    });
+
     it("refuses to save over a label another tab added after it opened on none, keeps the draft, and saves on a second Save", async () => {
       const el = mount(() => <LabelControl type="tx" reference={TXID} what="this transaction" />);
       flush();

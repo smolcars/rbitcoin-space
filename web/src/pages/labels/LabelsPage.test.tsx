@@ -6,12 +6,14 @@ import { LabelEditor } from "../../components/labels/LabelEditor";
 import {
   exportFile,
   previewImport,
+  readAll,
   remove,
   resetStore,
   runImport,
   setLabel,
 } from "../../lib/labels/db";
 import { fakeIndexedDB, KeyRange } from "../../lib/labels/fake-idb";
+import { changed, type Stored } from "../../lib/labels/store";
 import LabelsPage, { pageOf, typeName } from "./LabelsPage";
 
 const TXID = "f91d0a8a78462bc59398f2c5d7a84fcff491c26ba54c4833478b202796c8aafd";
@@ -40,6 +42,48 @@ describe("pageOf", () => {
     // An address record holding a key, or a key record holding an address, is not mapped.
     expect(pageOf({ type: "addr", ref: KEY }, "mainnet")).toBeUndefined();
   });
+});
+
+/**
+ * Another tab's change, written straight to the store in one transaction, which this tab has not
+ * read yet: `put` records (a shown row with each label), `drop` keys. `changed()` then reads it,
+ * as the storage event from that tab would.
+ */
+const behind = (put: readonly Stored[], drop: readonly string[] = []): Promise<void> =>
+  new Promise((resolve, reject) => {
+    const req = indexedDB.open("rbitcoin-labels", 3);
+    req.addEventListener("error", () => reject(new Error("could not open")));
+    req.addEventListener("success", () => {
+      const db = req.result;
+      const tx = db.transaction(["records", "shown", "meta"], "readwrite");
+      for (const k of drop) {
+        tx.objectStore("records").delete(k);
+        tx.objectStore("shown").delete(k);
+      }
+      for (const r of put) {
+        tx.objectStore("records").put(r);
+        if (r.label !== undefined)
+          tx.objectStore("shown").put({
+            key: r.key,
+            at: `${r.type}:${r.ref}`,
+            label: r.label,
+            plain: true,
+            seq: r.seq,
+          });
+      }
+      // Left open: the stand-in gives every connection one database, the app's among them.
+      tx.addEventListener("complete", () => resolve());
+      tx.addEventListener("abort", () => reject(new Error("aborted")));
+    });
+  });
+/** A tx record as stored, with `label`, at place `seq`. */
+const txRecord = (ref: string, label: string, seq: number): Stored => ({
+  key: recordKey("tx", ref, undefined),
+  type: "tx",
+  ref,
+  label,
+  line: JSON.stringify({ type: "tx", ref, label }),
+  seq,
 });
 
 /** Waits, flushing, until `ok` holds: the store answers in later tasks. */
@@ -313,6 +357,45 @@ describe("the manager", () => {
       );
     });
 
+    it("a copy that ends after its draft was dismissed and another given back says nothing of it", async () => {
+      let finish: () => void = () => undefined;
+      const writeText = vi.fn<(t: string) => Promise<void>>(
+        () =>
+          new Promise<void>((resolve) => {
+            finish = resolve;
+          }),
+      );
+      Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+      const B = "bb".repeat(32);
+      await importLines([`{"type":"tx","ref":"${B}","label":"B"}`]);
+      const { el, copy } = await lose();
+      copy.click();
+      expect(writeText).toHaveBeenCalledWith(DRAFT);
+      // Dismissed, then another label is lost: draft B.
+      [...el.querySelectorAll("button")].find((b) => b.textContent === "Dismiss")?.click();
+      flush();
+      const edit = () =>
+        [...el.querySelectorAll("button")].find((b) =>
+          (b.textContent ?? "").startsWith("Edit the label of transaction bbbbbbbb"),
+        );
+      await until(() => edit() !== undefined);
+      edit()?.click();
+      await until(() => el.querySelector<HTMLInputElement>("input.label-editor__field") !== null);
+      const field = el.querySelector<HTMLInputElement>("input.label-editor__field");
+      if (!field) throw new TypeError("no field");
+      field.value = "draft B";
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+      await remove([recordKey("tx", B, undefined)]);
+      await until(() => el.querySelector(".labels-page__draft")?.textContent === "draft B");
+      // Copying A ends now.
+      finish();
+      await new Promise((resolve) => {
+        setTimeout(resolve, 20);
+      });
+      flush();
+      expect(el.querySelector(".labels-page__said")?.textContent).not.toContain("Draft copied.");
+    });
+
     it("when the browser refuses the clipboard, offers the draft to copy by hand", async () => {
       const writeText = vi.fn<(t: string) => Promise<void>>(() =>
         Promise.reject(new DOMException("denied", "NotAllowedError")),
@@ -322,6 +405,80 @@ describe("the manager", () => {
       copy.click();
       await until(() => el.querySelector<HTMLInputElement>("#labels-draft") !== null);
       expect(el.querySelector<HTMLInputElement>("#labels-draft")?.value).toBe(DRAFT);
+    });
+  });
+
+  describe("a save replaces only what the editor has shown", () => {
+    const A = "aa".repeat(32);
+    const openA = async () => {
+      await importLines([`{"type":"tx","ref":"${A}","label":"A"}`]);
+      const el = mount(() => <LabelsPage />, "/regtest/labels");
+      const edit = () =>
+        [...el.querySelectorAll("button")].find((b) =>
+          (b.textContent ?? "").startsWith("Edit the label of transaction aaaaaaaa"),
+        );
+      await until(() => edit() !== undefined);
+      edit()?.click();
+      await until(() => el.querySelector<HTMLInputElement>("input.label-editor__field") !== null);
+      const field = el.querySelector<HTMLInputElement>("input.label-editor__field");
+      if (!field) throw new TypeError("no field");
+      field.value = "A, my draft";
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+      field.focus();
+      const seq = (await readAll()).records[0]?.seq ?? 0;
+      return { el, field, seq };
+    };
+    const submit = (el: HTMLElement) =>
+      el
+        .querySelector("form.label-editor")
+        ?.dispatchEvent(new Event("submit", { cancelable: true }));
+    const note = (el: HTMLElement) =>
+      el.querySelector(".label-editor__elsewhere")?.textContent ?? "";
+
+    it("refuses a Save made before the manager read another tab's edit in place, names the text there, and saves on the next", async () => {
+      const { el, field, seq } = await openA();
+      // Another tab edits A in place; this tab has not read it.
+      await behind([txRecord(A, "B1", seq)]);
+      submit(el);
+      await until(() => note(el) !== "");
+      expect(note(el)).toContain("so nothing was saved");
+      expect(note(el)).toContain("Pressing Save again replaces “B1” with what you typed.");
+      expect(el.querySelector("input.label-editor__field")).toBe(field);
+      expect(field.value).toBe("A, my draft");
+      expect(document.activeElement).toBe(field);
+      await expect(stored()).resolves.toBe(`{"type":"tx","ref":"${A}","label":"B1"}\n`);
+      // Again, unread: refused once more, naming the new text.
+      await behind([txRecord(A, "B2", seq)]);
+      submit(el);
+      await until(() => note(el).includes("“B2”"));
+      expect(note(el)).toContain("Pressing Save again replaces “B2” with what you typed.");
+      expect(field.value).toBe("A, my draft");
+      // Against what it last showed: it goes through.
+      submit(el);
+      await until(() => el.querySelector("input.label-editor__field") === null);
+      await expect(stored()).resolves.toBe(`{"type":"tx","ref":"${A}","label":"A, my draft"}\n`);
+    });
+
+    it("a 'changed elsewhere' note from the manager's reading binds the next Save: one press replaces the text it names", async () => {
+      const { el } = await openA();
+      await setLabel("tx", A, "B1");
+      await until(() => note(el).includes("“B1”"));
+      expect(note(el)).toContain("Pressing Save replaces “B1” with what you typed.");
+      submit(el);
+      await until(() => el.querySelector("input.label-editor__field") === null);
+      await expect(stored()).resolves.toBe(`{"type":"tx","ref":"${A}","label":"A, my draft"}\n`);
+    });
+
+    it("a reading that finds the record replaced under its key closes the editor and gives the draft back, the deletion never read on its own", async () => {
+      const { el, field, seq } = await openA();
+      // Deleted and made again in one go, as one reading would find it.
+      await behind([txRecord(A, "theirs", seq + 1)], [recordKey("tx", A, undefined)]);
+      expect(el.querySelector("input.label-editor__field")).toBe(field);
+      await changed();
+      await until(() => el.querySelector(".labels-page__draft") !== null);
+      expect(el.querySelector("input.label-editor__field")).toBeNull();
+      expect(el.querySelector(".labels-page__draft")?.textContent).toBe("A, my draft");
+      await expect(stored()).resolves.toBe(`{"type":"tx","ref":"${A}","label":"theirs"}\n`);
     });
   });
 

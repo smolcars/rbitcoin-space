@@ -1,6 +1,6 @@
 import { flush } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { HINT, labelOf, recordKey, shownRecord } from "../labels";
+import { HINT, labelOf, recordKey, type Showed, shownRecord } from "../labels";
 import { MAX_BYTES, readFile } from "./bip329";
 import {
   ChangedElsewhereError,
@@ -498,33 +498,64 @@ describe("a save and the reads after it", () => {
   });
 });
 
-describe("a save applies only to the state its editor opened on", () => {
+describe("a save replaces only what its editor has shown the reader", () => {
   const K = recordKey("tx", TXID, undefined);
   const record = async () => (await readAll()).records.find((r) => r.key === K);
-  const openedOn = async () => {
+  /** What an editor opened on the record now stored would show. */
+  const showing = async (): Promise<Showed> => {
     const r = await record();
-    if (!r) throw new TypeError("no record");
-    return { key: r.key, seq: r.seq };
+    return { record: r ? { key: r.key, seq: r.seq } : null, label: r?.label };
   };
+  /** The refusal a save meets, or undefined when it went through. */
+  const refusal = (p: Promise<unknown>) =>
+    p.then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+  const nowOf = (e: unknown): Showed => {
+    expect(e).toBeInstanceOf(ChangedElsewhereError);
+    const { now } = e as ChangedElsewhereError;
+    return { record: now.opened, label: now.label };
+  };
+
+  it("goes through in one press when nothing changed elsewhere, from the manager and from a page", async () => {
+    await setLabel("tx", TXID, "first");
+    await setLabel("tx", TXID, "from the manager", K, await showing());
+    expect((await record())?.label).toBe("from the manager");
+    await setLabel("tx", TXID, "from the page", undefined, await showing());
+    expect((await record())?.label).toBe("from the page");
+    // Opened on no label, none added since.
+    await removeAll();
+    await setLabel("tx", TXID, "new", undefined, { record: null, label: undefined });
+    expect((await record())?.label).toBe("new");
+  });
+
+  it("changes only the label: a field another tab added in place stays, and does not stop the save", async () => {
+    await importText(`{"type":"tx","ref":"${TXID}","label":"first"}`);
+    const showed = await showing();
+    await importText(`{"type":"tx","ref":"${TXID}","note":"added in B"}`);
+    await setLabel("tx", TXID, "mine", K, showed);
+    expect((await exportFile()).text).toBe(
+      `{"type":"tx","ref":"${TXID}","note":"added in B","label":"mine"}\n`,
+    );
+  });
 
   it("the manager's save is refused when another tab deleted and made the record again before it, queued", async () => {
     await setLabel("tx", TXID, "first");
-    const opened = await openedOn();
-    // Another tab's deletion and new label, and this tab's save, queued one after another.
+    const showed = await showing();
     const deleted = remove([K]);
     const made = setLabel("tx", TXID, "made again");
-    const saved = setLabel("tx", TXID, "my draft", K, opened);
+    const saved = setLabel("tx", TXID, "my draft", K, showed);
     await Promise.all([deleted, made, expect(saved).rejects.toMatchObject({ kind: "gone" })]);
     expect((await record())?.label).toBe("made again");
   });
 
   it("the manager's save is refused when another tab imported the same key again", async () => {
     await importText(`{"type":"tx","ref":"${TXID}","label":"first","note":"one"}`);
-    const opened = await openedOn();
+    const showed = await showing();
     await remove([K]);
     await importText(`{"type":"tx","ref":"${TXID}","label":"imported again","note":"two"}`);
-    expect((await record())?.seq).not.toBe(opened.seq);
-    await expect(setLabel("tx", TXID, "my draft", K, opened)).rejects.toMatchObject({
+    await expect(setLabel("tx", TXID, "my draft", K, showed)).rejects.toMatchObject({
       kind: "gone",
     });
     expect((await exportFile()).text).toBe(
@@ -532,65 +563,84 @@ describe("a save applies only to the state its editor opened on", () => {
     );
   });
 
-  it("the manager's save still applies over an ordinary change to the record it opened", async () => {
+  it("a first Save is refused, by the manager and by a page, when another tab edited the label in place", async () => {
     await setLabel("tx", TXID, "first");
-    const opened = await openedOn();
-    // An edit and an import over it keep its place: it is the same record.
-    await setLabel("tx", TXID, "changed");
-    await importText(`{"type":"tx","ref":"${TXID}","label":"imported","note":"n"}`);
-    expect((await record())?.seq).toBe(opened.seq);
-    await setLabel("tx", TXID, "my draft", K, opened);
-    expect((await record())?.label).toBe("my draft");
+    const showed = await showing();
+    await setLabel("tx", TXID, "edited in B");
+    for (const key of [K, undefined]) {
+      const e = await refusal(setLabel("tx", TXID, "mine", key, showed));
+      expect(nowOf(e)).toStrictEqual({ record: showed.record, label: "edited in B" });
+    }
+    expect((await record())?.label).toBe("edited in B");
   });
 
-  it("a page's save is refused when the record it shows was deleted and made again, and applies once opened on that", async () => {
-    await setLabel("tx", TXID, "first");
+  it("the reviewer's sequence: a retry never replaces a label its refusal did not show", async () => {
+    await setLabel("tx", TXID, "original");
     flush();
-    const opened = shownRecord("tx", TXID) ?? null;
-    expect(opened).toStrictEqual(await openedOn());
+    // A page's editor opens on the label the page shows.
+    const opened: Showed = { record: shownRecord("tx", TXID) ?? null, label: "original" };
+    expect(opened).toStrictEqual(await showing());
+    // B deletes it and imports the same key.
     await remove([K]);
-    await setLabel("tx", TXID, "made again");
-    const refused = await setLabel("tx", TXID, "my draft", undefined, opened).then(
-      () => undefined,
-      (e: unknown) => e,
-    );
-    expect(refused).toBeInstanceOf(ChangedElsewhereError);
-    const { now } = refused as ChangedElsewhereError;
-    expect(now).toStrictEqual({ label: "made again", opened: await openedOn() });
-    expect((await record())?.label).toBe("made again");
-    // Saved again, opened on what is there now: it applies.
-    await setLabel("tx", TXID, "my draft", undefined, now.opened);
+    await importText(`{"type":"tx","ref":"${TXID}","label":"first replacement"}`);
+    const first = nowOf(await refusal(setLabel("tx", TXID, "my draft", undefined, opened)));
+    expect(first.label).toBe("first replacement");
+    // B edits that record in place: same key, same place.
+    await setLabel("tx", TXID, "second edit in B");
+    const second = nowOf(await refusal(setLabel("tx", TXID, "my draft", undefined, first)));
+    expect(second).toStrictEqual({ record: first.record, label: "second edit in B" });
+    expect((await record())?.label).toBe("second edit in B");
+    // Saved against what was last shown: it goes through.
+    await setLabel("tx", TXID, "my draft", undefined, second);
     expect((await record())?.label).toBe("my draft");
   });
 
-  it("a page's save opened on no label is refused when another tab added one meanwhile", async () => {
-    // Opened on nothing; another tab adds a label.
+  it("two refusals in a row, each naming the text there then, and a Save against the last goes through", async () => {
+    await setLabel("tx", TXID, "first");
+    let showed = await showing();
+    for (const theirs of ["B1", "B2"]) {
+      await setLabel("tx", TXID, theirs);
+      const now = nowOf(await refusal(setLabel("tx", TXID, "mine", K, showed)));
+      expect(now.label).toBe(theirs);
+      showed = now;
+    }
+    await setLabel("tx", TXID, "mine", K, showed);
+    expect((await record())?.label).toBe("mine");
+  });
+
+  it("a page's save opened on no label is refused when another tab added one, and when one it showed was deleted", async () => {
+    const none: Showed = { record: null, label: undefined };
     await setLabel("tx", TXID, "theirs");
-    await expect(setLabel("tx", TXID, "mine", undefined, null)).rejects.toMatchObject({
-      kind: "changed",
-      now: { label: "theirs" },
-    });
-    expect((await record())?.label).toBe("theirs");
-    // A page's save opened on a deleted label, nothing there now: refused too, and says so.
-    const opened = await openedOn();
+    const now = nowOf(await refusal(setLabel("tx", TXID, "mine", undefined, none)));
+    expect(now).toStrictEqual(await showing());
+    expect(now.label).toBe("theirs");
+    const showed = await showing();
     await remove([K]);
-    await expect(setLabel("tx", TXID, "mine", undefined, opened)).rejects.toMatchObject({
-      kind: "changed",
-      now: { label: undefined, opened: null },
-    });
+    expect(nowOf(await refusal(setLabel("tx", TXID, "mine", undefined, showed)))).toStrictEqual(
+      none,
+    );
     await expect(exportFile()).resolves.toMatchObject({ text: "" });
   });
 
-  it("never gives a place twice: not after a delete-all, nor in a store made afresh", async () => {
+  it("a page's save opened on no label may label a record that has none: it had no label to lose", async () => {
+    const OUT = `${TXID}:1`;
+    await importText(`{"type":"output","ref":"${OUT}","spendable":false}`);
+    await setLabel("output", OUT, "mine", undefined, { record: null, label: undefined });
+    expect((await exportFile()).text).toBe(
+      `{"type":"output","ref":"${OUT}","spendable":false,"label":"mine"}\n`,
+    );
+  });
+
+  it("never gives a place twice: not after a delete-all, nor (very nearly) in a store made afresh", async () => {
     await setLabel("tx", TXID, "first");
-    const before = (await openedOn()).seq;
+    const before = (await showing()).record?.seq ?? 0;
     await removeAll();
     await importText(`{"type":"tx","ref":"${TXID}","label":"again"}`);
-    expect((await openedOn()).seq).toBeGreaterThan(before);
-    // Site data cleared: a new store, whose places start elsewhere.
+    expect((await showing()).record?.seq).toBeGreaterThan(before);
+    // Site data cleared: a new store, whose places start at a random point.
     use();
     await setLabel("tx", TXID, "afresh");
-    expect((await openedOn()).seq).not.toBe(before);
-    expect((await openedOn()).seq).not.toBe(before + 1);
+    expect((await showing()).record?.seq).not.toBe(before);
+    expect((await showing()).record?.seq).not.toBe(before + 1);
   });
 });

@@ -6,7 +6,7 @@
 // that transaction, and moves the store's revision. Nothing is kept in memory between calls: the
 // manager reads the store whole each time it shows it, and an import's preview is only a preview,
 // computed again inside the write and not written if the store changed since.
-import { HINT, indexKey, normalRef, type Opened, type Shown } from "../labels";
+import { HINT, indexKey, normalRef, type Showed, type Shown } from "../labels";
 import {
   holdsMore,
   type LabelRecord,
@@ -237,18 +237,20 @@ function putBoth(c: Ctx, r: Stored): IDBRequest {
  * transaction, so an edit never undoes another tab's. A record that holds more than its label (an
  * origin, `spendable`, a wallet's other fields) keeps the rest when its label is removed.
  *
- * An editor's save applies only to the state it opened on (`opened`): the record, by its key and
- * its place, or no record (`null`), checked here, inside the write. The manager's (`key`) is
- * refused as "gone" when that record is deleted or replaced, and a page's as "changed"
- * (`ChangedElsewhereError`) when the page now shows another record, or one where it showed none.
- * Without `opened` (tests, and a tab's own scripted change) nothing is checked.
+ * A save replaces only what its editor has shown the reader (`showed`): the record, by its key
+ * and place, or none, and that record's label text. Both are checked here, inside the write. A
+ * save changes nothing but the label: every other field of the record stays as stored now. The
+ * manager's (`key`) is refused as "gone" when its record was deleted or replaced; any editor's is
+ * refused as "changed" (`ChangedElsewhereError`, with what is there now, read in this write) when
+ * a page now shows another record, or one where it showed none, or the label is not the text the
+ * editor showed. Without `showed` (tests, and a tab's own scripted change) nothing is checked.
  */
 export async function setLabel(
   type: string,
   ref: string,
   text: string | null,
   key?: string,
-  opened?: Opened | null,
+  showed?: Showed,
 ): Promise<{ shown: boolean }> {
   const label = text === null || text.trim() === "" ? null : text;
   const norm = normalRef(type, ref);
@@ -262,9 +264,22 @@ export async function setLabel(
         // refused, and nothing is ever made in its place.
         if (
           key !== undefined &&
-          (!existing || (opened !== undefined && existing.seq !== opened?.seq))
+          (!existing || (showed !== undefined && existing.seq !== showed.record?.seq))
         ) {
           c.fail(new LabelStoreError("gone"));
+          return;
+        }
+        // The record shown, with a label the reader was not shown: another tab changed it in
+        // place. Refused, with the label there now, which the editor shows and its next save is
+        // checked against. (A label-less record a page never showed has no label to lose: a
+        // page editor opened on none may label it, its other fields kept.)
+        if (showed !== undefined && existing?.label !== showed.label) {
+          c.fail(
+            new ChangedElsewhereError({
+              label: existing?.label,
+              opened: existing ? { key: existing.key, seq: existing.seq } : null,
+            }),
+          );
           return;
         }
         const next = withLabel(existing, type, ref, label);
@@ -317,12 +332,13 @@ export async function setLabel(
     at.addEventListener("success", () => {
       let best: ShownRow | undefined;
       for (const row of at.result as ShownRow[]) if (!best || better(row, best)) best = row;
-      // A page's editor writes only over what it opened on: the same record, or still none.
+      // A page's editor writes only over the record it showed: the same one, or still none.
+      const was = showed?.record;
       if (
-        opened !== undefined &&
-        (opened === null
+        was !== undefined &&
+        (was === null
           ? best !== undefined
-          : best === undefined || best.key !== opened.key || best.seq !== opened.seq)
+          : best === undefined || best.key !== was.key || best.seq !== was.seq)
       ) {
         c.fail(
           new ChangedElsewhereError({

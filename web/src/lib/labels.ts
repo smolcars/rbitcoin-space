@@ -23,6 +23,15 @@ export interface Opened {
   seq: number;
 }
 
+/**
+ * What an editor has shown the reader: the record (`null` for none) and its label text (undefined
+ * for none). A save replaces only this: it is checked inside the write.
+ */
+export interface Showed {
+  record: Opened | null;
+  label: string | undefined;
+}
+
 // The map is changed in place by the store; the version says that it changed.
 let index: ReadonlyMap<string, string> = new Map();
 // The record behind each label shown, by the same key.

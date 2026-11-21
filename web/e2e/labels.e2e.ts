@@ -517,6 +517,77 @@ for (const fallback of [false, true])
     await other.close();
   });
 
+// A page's editor refused because another tab changed the label after it opened: the reviewer's
+// sequence, with a real second tab, its longer words checked at phone widths in the wide font.
+test.describe("a refused save on a page, in the wide font", () => {
+  test.use({ prose: "wide" });
+  for (const width of [320, 360])
+    test(`at ${width} px the refusal names what Save again replaces, all in view, and a second change is named again`, async ({
+      page,
+      context,
+    }) => {
+      await page.setViewportSize({ width, height: 780 });
+      await seedLabels(page, [{ type: "tx", ref: TX, label: "original" }]);
+      await page.goto(`/regtest/tx/${TX}`);
+      const head = page.locator(".tx-head");
+      await expect(tagIn(head)).toHaveText("original");
+      await head.getByRole("button", { name: "Edit label" }).click();
+      const field = page.getByRole("textbox", { name: "Your label for this transaction" });
+      await field.fill("my draft");
+      // Another tab deletes it, imports the same key, and later edits that in place.
+      const other = await context.newPage();
+      await other.goto("/regtest/labels");
+      await other.getByRole("button", { name: /^Delete the label of transaction/ }).click();
+      await expect(other.getByText("No labels yet.", { exact: false })).toBeVisible();
+      await other.locator('input[type="file"]').setInputFiles({
+        name: "again.jsonl",
+        mimeType: "application/jsonl",
+        buffer: Buffer.from(bip329([{ type: "tx", ref: TX, label: "first replacement" }])),
+      });
+      await other.getByRole("button", { name: "Import 1 label" }).click();
+      await expect(tagIn(head)).toHaveText("first replacement");
+      const note = page.locator(".label-editor__elsewhere");
+      await page.getByRole("button", { name: "Save label" }).click();
+      await expect(note).toContainText(
+        "Pressing Save again replaces “first replacement” with what you typed.",
+      );
+      await expect(field).toHaveValue("my draft");
+      await expect(field).toBeFocused();
+      // Nothing sideways, and the editor with its words inside the window.
+      const fits = () =>
+        page.evaluate(() => {
+          const pop = document.querySelector(".label-pop")?.getBoundingClientRect();
+          const words = document.querySelector(".label-editor__elsewhere");
+          return {
+            page: document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+            pop:
+              pop !== undefined &&
+              pop.left >= 0 &&
+              pop.right <= document.documentElement.clientWidth &&
+              pop.bottom <= window.innerHeight,
+            words: words !== null && words.scrollWidth <= words.clientWidth,
+          };
+        });
+      expect(await fits()).toStrictEqual({ page: true, pop: true, words: true });
+      await other.goto("/regtest/labels");
+      await other.getByRole("button", { name: /^Edit the label of transaction/ }).click();
+      await other
+        .getByRole("textbox", { name: /^Your label for transaction/ })
+        .fill("second edit in B");
+      await other.getByRole("button", { name: "Save label" }).click();
+      await expect(tagIn(head)).toHaveText("second edit in B");
+      await page.getByRole("button", { name: "Save label" }).click();
+      await expect(note).toContainText(
+        "Pressing Save again replaces “second edit in B” with what you typed.",
+      );
+      expect(await fits()).toStrictEqual({ page: true, pop: true, words: true });
+      await page.getByRole("button", { name: "Save label" }).click();
+      await expect(field).toHaveCount(0);
+      await expect(tagIn(head)).toHaveText("my draft");
+      await other.close();
+    });
+});
+
 test("an untouched Save keeps a label with line breaks as it is: nothing is written", async ({
   page,
 }) => {

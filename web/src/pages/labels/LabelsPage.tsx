@@ -294,15 +294,21 @@ function Manager(props: {
   // Copying the draft given back: done, or the clipboard unavailable (a page over plain HTTP has
   // none, and a browser may refuse), when the draft is offered in a field to copy by hand.
   const [copied, setCopied] = createSignal<"copied" | "by hand" | undefined>();
-  const copyDraft = (text: string) => {
+  const copyDraft = (from: Lost) => {
     const clipboard = typeof navigator === "undefined" ? undefined : navigator.clipboard;
     if (clipboard === undefined) {
       setCopied("by hand");
       return;
     }
-    clipboard.writeText(text).then(
-      () => setCopied("copied"),
-      () => setCopied("by hand"),
+    // Said only of the draft it copied: one dismissed, or replaced by another, hears nothing.
+    const still = () => untrack(() => props.lost) === from;
+    clipboard.writeText(from.draft).then(
+      () => {
+        if (still()) setCopied("copied");
+      },
+      () => {
+        if (still()) setCopied("by hand");
+      },
     );
   };
   // The editor that held focus closed under the reader: focus goes to the message that says why.
@@ -632,7 +638,7 @@ function Manager(props: {
               <div class="labels-page__buttons">
                 <Show when={l().draft !== ""}>
                   {/* The text above is cleaned for showing; this copies what was typed, as typed. */}
-                  <button type="button" class="btn" onClick={() => copyDraft(l().draft)}>
+                  <button type="button" class="btn" onClick={() => copyDraft(l())}>
                     Copy draft
                   </button>
                 </Show>
