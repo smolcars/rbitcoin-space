@@ -78,45 +78,32 @@ test.describe("a camera with no code before it", () => {
     await recordStreams(page);
   });
 
-  test("Escape closes the scanner and turns the camera off", async ({ page }) => {
-    await page.goto("/regtest/");
-    const dialog = await openScanner(page);
-    await expect(dialog.getByRole("status")).toHaveText("Hold the code inside the frame.");
-    expect(await cameraOn(page)).toBe(true);
-    await page.keyboard.press("Escape");
-    await expect(dialog).toHaveCount(0);
-    expect(await cameraOn(page)).toBe(false);
-    await expect(page.getByRole("button", { name: "Scan a QR code" })).toBeFocused();
-  });
-
-  test("the close button and a press outside close it too, the camera with it", async ({
+  test("Escape, the close button, a press outside and leaving the page each turn the camera off", async ({
     page,
   }) => {
-    await page.goto("/regtest/");
-    let dialog = await openScanner(page);
-    await expect(dialog.getByRole("status")).toHaveText("Hold the code inside the frame.");
-    await dialog.getByRole("button", { name: "Close" }).click();
-    await expect(dialog).toHaveCount(0);
-    expect(await cameraOn(page)).toBe(false);
-    dialog = await openScanner(page);
-    await expect(dialog.getByRole("status")).toHaveText("Hold the code inside the frame.");
-    await page.mouse.click(4, 4);
-    await expect(dialog).toHaveCount(0);
-    expect(await cameraOn(page)).toBe(false);
-  });
-
-  test("leaving the page closes the scanner and turns the camera off", async ({ page }) => {
-    // One document throughout, so Back is the router's and the recorded stream is this page's.
+    // One document throughout, so Back is the router's and every recorded stream is this page's.
     await page.goto("/regtest/blocks");
     await page.getByRole("banner").getByRole("link").first().click();
     await expect(page).toHaveURL(/\/regtest\/?$/);
-    const dialog = await openScanner(page);
-    await expect(dialog.getByRole("status")).toHaveText("Hold the code inside the frame.");
-    await page.goBack();
+    const closes: [string, () => Promise<unknown>][] = [
+      ["Escape", async () => page.keyboard.press("Escape")],
+      ["its close button", async () => page.getByRole("button", { name: "Close" }).click()],
+      ["a press outside", async () => page.mouse.click(4, 4)],
+      ["Back", async () => page.goBack()],
+    ];
+    for (const [i, [how, close]] of closes.entries()) {
+      const dialog = await openScanner(page);
+      await expect(dialog.getByRole("status")).toHaveText("Hold the code inside the frame.");
+      expect(await cameraOn(page), `the camera on before ${how}`).toBe(true);
+      await close();
+      await expect(dialog).toHaveCount(0);
+      expect(await cameraOn(page), `the camera off after ${how}`).toBe(false);
+      expect(await streamsAsked(page)).toBe(i + 1);
+      if (how === "Escape") {
+        await expect(page.getByRole("button", { name: "Scan a QR code" })).toBeFocused();
+      }
+    }
     await expect(page).toHaveURL("/regtest/blocks");
-    await expect(dialog).toHaveCount(0);
-    expect(await streamsAsked(page)).toBe(1);
-    expect(await cameraOn(page)).toBe(false);
   });
 });
 

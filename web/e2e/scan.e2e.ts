@@ -33,7 +33,7 @@ async function choosePicture(page: Page, text: string | Buffer) {
 }
 
 test.describe("with jsQR", () => {
-  test("loads the scanner and jsQR only when it opens, and says why there is no camera", async ({
+  test("loads only when it opens, says why there is no camera, and stays open for a picture with no code", async ({
     page,
   }) => {
     const jsqr = watchJsqr(page);
@@ -46,24 +46,27 @@ test.describe("with jsQR", () => {
     await expect(dialog.getByRole("status")).toHaveText(
       /No camera found|blocked for this site|cannot use a camera/,
     );
-    await expect(dialog.getByRole("button", { name: "Choose a picture" })).toBeVisible();
+    // An empty file is no picture at all; a white one has no code. Either way it stays open.
+    for (const [buffer, says] of [
+      [Buffer.alloc(0), /not a picture this browser can open/],
+      [blankPng(), /No QR code found in that picture/],
+    ] as const) {
+      const chooser = page.waitForEvent("filechooser");
+      await dialog.getByRole("button", { name: "Choose a picture" }).click();
+      await (await chooser).setFiles({ name: "picture.png", mimeType: "image/png", buffer });
+      await expect(dialog.getByRole("status")).toHaveText(says);
+    }
+    await expect(dialog).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(dialog).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Scan a QR code" })).toBeFocused();
   });
 
-  test("a picture of a transaction ID opens the transaction", async ({ page }) => {
-    const jsqr = watchJsqr(page);
-    await page.goto("/regtest/blocks");
-    await choosePicture(page, chain.txs.payment);
-    await expect(page).toHaveURL(`/regtest/tx/${chain.txs.payment}`);
-    await expect(page.getByRole("heading", { level: 1 })).toContainText("Transaction");
-    expect(jsqr).toHaveLength(1);
-  });
-
-  test("a screenshot of the site's own code, logo, text and all, opens its address", async ({
+  test("pictures of an ID, a payment URI, a connect string and the site's own code open their pages", async ({
     page,
   }) => {
+    await serve(page, mainnet());
+    const jsqr = watchJsqr(page);
     // The address page's pop-up on a light page: its title and the address as text sit beside the
     // code, which jsQR read at one size in two (decode.ts WAYS).
     await page.goto(`/regtest/address/${chain.addresses.p2tr}`);
@@ -75,22 +78,19 @@ test.describe("with jsQR", () => {
     });
     const shot = await pop.screenshot({ animations: "disabled" });
     await page.keyboard.press("Escape");
-    await page.goto("/regtest/");
-    await choosePicture(page, shot);
-    await expect(page).toHaveURL(`/regtest/address/${chain.addresses.p2tr}`);
-  });
-
-  test("a payment URI in capitals opens its address", async ({ page }) => {
-    await page.goto("/regtest/");
-    await choosePicture(page, `BITCOIN:${chain.addresses.p2tr.toUpperCase()}?AMOUNT=0.001`);
-    await expect(page).toHaveURL(`/regtest/address/${chain.addresses.p2tr}`);
-  });
-
-  test("a node's connect string opens the node", async ({ page }) => {
-    await serve(page, mainnet());
-    await page.goto("/regtest/");
+    await page.goto("/regtest/blocks");
+    // Each from the page the one before opened: the scan button is in every page's header.
+    await choosePicture(page, chain.txs.payment);
+    await expect(page).toHaveURL(`/regtest/tx/${chain.txs.payment}`);
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("Transaction");
+    await choosePicture(page, `BITCOIN:${chain.addresses.p2wpkh.toUpperCase()}?AMOUNT=0.001`);
+    await expect(page).toHaveURL(`/regtest/address/${chain.addresses.p2wpkh}`);
     await choosePicture(page, `${ACINQ}@3.33.236.230:9735`);
     await expect(page).toHaveURL(`/regtest/lightning/node/${ACINQ}`);
+    await choosePicture(page, shot);
+    await expect(page).toHaveURL(`/regtest/address/${chain.addresses.p2tr}`);
+    // One download of jsQR for the page, however many pictures it reads.
+    expect(jsqr).toHaveLength(1);
   });
 
   test("a code the site does not know is shown as text and named so", async ({ page }) => {
@@ -106,22 +106,6 @@ test.describe("with jsQR", () => {
     await expect(page.getByRole("button", { name: "Scan a QR code" })).toBeFocused();
     await page.keyboard.press("Tab");
     await expect(panel.getByRole("link").first()).toBeFocused();
-  });
-
-  test("a picture with no code, or no picture at all, says so and keeps the scanner open", async ({
-    page,
-  }) => {
-    await page.goto("/regtest/");
-    // An empty file: no picture at all.
-    const dialog = await choosePicture(page, Buffer.alloc(0));
-    await expect(dialog.getByRole("status")).toHaveText(/not a picture this browser can open/);
-    const chooser = page.waitForEvent("filechooser");
-    await dialog.getByRole("button", { name: "Choose a picture" }).click();
-    await (
-      await chooser
-    ).setFiles({ name: "blank.png", mimeType: "image/png", buffer: blankPng() });
-    await expect(dialog.getByRole("status")).toHaveText(/No QR code found in that picture/);
-    await expect(dialog).toBeVisible();
   });
 });
 
