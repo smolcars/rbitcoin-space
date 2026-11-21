@@ -2,7 +2,7 @@
 // browser's store only; the form has no action and nothing it holds goes into a URL.
 import { createSignal, createUniqueId, onSettled, Show } from "solid-js";
 import { MAX_LABEL } from "../../lib/labels/bip329";
-import { LabelStoreError, setLabel } from "../../lib/labels/db";
+import { failureWords, setLabel } from "../../lib/labels/db";
 import { paths } from "../../lib/network";
 import { Link } from "../Link";
 import type { EditorProps } from "./Label";
@@ -22,9 +22,7 @@ export function LabelEditor(props: EditorProps) {
     void setLabel(props.type, props.reference, text, props.record)
       .then(() => props.done(said))
       .catch((e: unknown) => {
-        setError(
-          e instanceof LabelStoreError ? e.message : "The label could not be saved. Try again.",
-        );
+        setError(failureWords(e, "The label could not be saved. Try again."));
       })
       .finally(() => setBusy(false));
   };

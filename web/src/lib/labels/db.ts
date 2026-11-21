@@ -3,7 +3,7 @@
 // opens the editor or the manager. Each change is one transaction that also moves the store's
 // revision, so a change planned against an older revision is refused rather than laid over a
 // newer one. Every write tells the pages (`noteWrite`) and the reader's other tabs (the hint).
-import { indexKey, normalRef, type Shown } from "../labels";
+import { HINT, indexKey, normalRef, type Shown, showLabels } from "../labels";
 import {
   holdsMore,
   type LabelRecord,
@@ -16,24 +16,123 @@ import {
   writeFile,
 } from "./bip329";
 import {
+  add,
   BATCH,
-  hint,
+  better,
+  candidates,
+  type Failure,
   LabelStoreError,
   META,
-  noteWrite,
   onElsewhere,
   open,
-  originOf,
+  placeOf,
   RECORDS,
+  settle,
+  shown,
   SHOWN,
   type ShownRow,
-  shownFrom,
-  shownRow,
   type Stored,
   wrap,
+  wrote,
 } from "./store";
 
-export { FAILURE_WORDS, LabelStoreError, reset as resetStore, type Stored, VERSION } from "./store";
+export { LabelStoreError, reset as resetStore, type Stored, VERSION } from "./store";
+
+/** What a reader is told when the store could not do what they asked. */
+export const FAILURE_WORDS: Record<Failure, string> = {
+  unavailable:
+    "This browser is not letting the site keep anything here (a private window, site data blocked, or the store not answering), so labels cannot be kept here.",
+  outdated: "This site was updated in another tab. Reload this page to keep labels here.",
+  full: "This browser has no room left for the site's data, so the labels were not saved.",
+  failed: "The browser could not save the labels. Try again.",
+  "too-many": "This browser keeps at most 250 000 labels.",
+  "too-big": "This browser keeps at most 40 MB of labels.",
+  stale: "Your labels changed since this was read, in this tab or another. Look again.",
+  long: "That would make the record longer than a label file's line may be.",
+};
+
+/** An error in words a reader can act on: the store's own, or `fallback` for anything else. */
+export function failureWords(e: unknown, fallback: string): string {
+  return e instanceof LabelStoreError ? FAILURE_WORDS[e.kind] : fallback;
+}
+
+// What pages show, changed after each write without reading it all again.
+
+const SHOWN_TYPES = new Set<string>(["tx", "addr", "pubkey", "input", "output"]);
+
+/** The row pages show for a record, or null when they show none. */
+export function shownRow(r: Stored, origin: string | undefined): ShownRow | null {
+  if (r.label === undefined || r.label.trim() === "" || !SHOWN_TYPES.has(r.type)) return null;
+  const norm = normalRef(r.type, r.ref);
+  if (norm === null) return null;
+  return {
+    key: r.key,
+    at: indexKey(r.type as Shown, norm),
+    label: r.label,
+    plain: origin === undefined,
+    seq: r.seq,
+  };
+}
+
+/** A record's origin, read from its key. */
+export function originOf(key: string): string | undefined {
+  try {
+    const v: unknown = JSON.parse(key);
+    return Array.isArray(v) && typeof v[2] === "string" ? v[2] : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function drop(key: string): string | undefined {
+  const at = placeOf.get(key);
+  if (at === undefined) return undefined;
+  placeOf.delete(key);
+  const set = candidates.get(at);
+  set?.delete(key);
+  if (set?.size === 0) candidates.delete(at);
+  return at;
+}
+
+/** Changes what pages show after a write: rows put, records gone, or everything cleared first. */
+export function noteWrite(puts: readonly ShownRow[], gone: readonly string[], clear = false): void {
+  wrote();
+  const touched = new Set<string>();
+  if (clear) {
+    candidates.clear();
+    placeOf.clear();
+    shown.clear();
+  }
+  for (const k of gone) {
+    const at = drop(k);
+    if (at !== undefined) touched.add(at);
+  }
+  for (const row of puts) {
+    const at = drop(row.key);
+    if (at !== undefined) touched.add(at);
+    add(row);
+    touched.add(row.at);
+  }
+  for (const at of touched) settle(at);
+  showLabels(shown);
+}
+
+/** The record a page's label at `at` comes from, if one does. */
+export function shownFrom(at: string): string | undefined {
+  let best: ShownRow | undefined;
+  for (const row of candidates.get(at)?.values() ?? []) if (!best || better(row, best)) best = row;
+  return best?.key;
+}
+
+/** Sets the hint to the store's revision after a write, or takes it away when nothing is kept. */
+export function hint(rev: number, count: number): void {
+  try {
+    if (count === 0) localStorage.removeItem(HINT);
+    else localStorage.setItem(HINT, String(rev));
+  } catch {
+    // Storage blocked: every page opens the database instead.
+  }
+}
 
 /** Every record as last read or written here, in the reader's order, with the revision it is of. */
 let cache: Map<string, Stored> | undefined;
@@ -151,7 +250,7 @@ function transact(
           else reject(failure ?? new LabelStoreError("failed"));
         });
         const recordStore = tx.objectStore(RECORDS);
-        const shown = tx.objectStore(SHOWN);
+        const shownStore = tx.objectStore(SHOWN);
         const meta = tx.objectStore(META);
         const revReq = meta.get("rev");
         const seqReq = meta.get("seq");
@@ -163,7 +262,13 @@ function transact(
           }
           try {
             run(
-              { records: recordStore, shown, rev, seq: Number(seqReq.result ?? 0), fail: stop },
+              {
+                records: recordStore,
+                shown: shownStore,
+                rev,
+                seq: Number(seqReq.result ?? 0),
+                fail: stop,
+              },
               (change) => {
                 meta.put(rev + 1, "rev");
                 meta.put(change.seq, "seq");

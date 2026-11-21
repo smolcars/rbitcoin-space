@@ -3,7 +3,7 @@
 // code only from a browser that holds labels would tell the server that it does. It never holds
 // up the page: the router mounts and the page asks its questions as on any visit, and labels are
 // read afterwards, a slice at a time. Writing is db.ts, loaded when the reader asks for it.
-import { HINT, indexKey, normalRef, recordKey, type Shown, showLabels } from "../labels";
+import { HINT, showLabels } from "../labels";
 
 const NAME = "rbitcoin-labels";
 /**
@@ -53,23 +53,11 @@ export type Failure =
   | "stale"
   | "long";
 
-export const FAILURE_WORDS: Record<Failure, string> = {
-  unavailable:
-    "This browser is not letting the site keep anything here (a private window, site data blocked, or the store not answering), so labels cannot be kept here.",
-  outdated: "This site was updated in another tab. Reload this page to keep labels here.",
-  full: "This browser has no room left for the site's data, so the labels were not saved.",
-  failed: "The browser could not save the labels. Try again.",
-  "too-many": "This browser keeps at most 250 000 labels.",
-  "too-big": "This browser keeps at most 40 MB of labels.",
-  stale: "Your labels changed since this was read, in this tab or another. Look again.",
-  long: "That would make the record longer than a label file's line may be.",
-};
-
-/** Why the store could not do what it was asked, in words a reader can act on. */
+/** Why the store could not do what it was asked; db.ts has the words a reader is shown. */
 export class LabelStoreError extends Error {
   readonly kind: Failure;
   constructor(kind: Failure, cause?: unknown) {
-    super(FAILURE_WORDS[kind], { cause });
+    super(kind, { cause });
     this.kind = kind;
     this.name = "LabelStoreError";
   }
@@ -81,70 +69,17 @@ export function wrap(e: unknown): LabelStoreError {
   return new LabelStoreError(name === "QuotaExceededError" ? "full" : "failed", e);
 }
 
-const SHOWN_TYPES = new Set<string>(["tx", "addr", "pubkey", "input", "output"]);
-
-/** The row pages show for a record, or null when they show none. */
-export function shownRow(r: Stored, origin: string | undefined): ShownRow | null {
-  if (r.label === undefined || r.label.trim() === "" || !SHOWN_TYPES.has(r.type)) return null;
-  const norm = normalRef(r.type, r.ref);
-  if (norm === null) return null;
-  return {
-    key: r.key,
-    at: indexKey(r.type as Shown, norm),
-    label: r.label,
-    plain: origin === undefined,
-    seq: r.seq,
-  };
-}
-
-/** A record's origin, read from its key. */
-export function originOf(key: string): string | undefined {
-  try {
-    const v: unknown = JSON.parse(key);
-    return Array.isArray(v) && typeof v[2] === "string" ? v[2] : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/** Runs each migration from the stored version up to VERSION, inside the upgrade's transaction. */
-function upgrade(db: IDBDatabase, tx: IDBTransaction | null, from: number): void {
-  if (from < 1) db.createObjectStore(RECORDS, { keyPath: "key" });
-  if (from < 2 && tx) {
-    const records = tx.objectStore(RECORDS);
-    records.createIndex("seq", "seq");
-    const shown = db.createObjectStore(SHOWN, { keyPath: "key" });
+/**
+ * Runs each migration from the stored version up to VERSION. Version 1 was never released (it was
+ * this feature's first draft), so a development browser's is started afresh, not moved.
+ */
+function upgrade(db: IDBDatabase, from: number): void {
+  if (from === 1) db.deleteObjectStore(RECORDS);
+  if (from < 2) {
+    db.createObjectStore(RECORDS, { keyPath: "key" }).createIndex("seq", "seq");
+    db.createObjectStore(SHOWN, { keyPath: "key" });
     const meta = db.createObjectStore(META);
-    // Version 1 joined type, reference and origin with line feeds, which two triples could
-    // share: each record is keyed again, and what pages show is written beside it.
-    let seq = 0;
-    if (from === 1) {
-      const req = records.openCursor();
-      req.addEventListener("success", () => {
-        const cursor = req.result;
-        if (!cursor) {
-          meta.put(seq, "seq");
-          return;
-        }
-        const r = cursor.value as Stored;
-        let origin: string | undefined;
-        try {
-          const v = JSON.parse(r.line) as { origin?: unknown };
-          origin = typeof v.origin === "string" ? v.origin : undefined;
-        } catch {
-          origin = undefined;
-        }
-        const next = { ...r, key: recordKey(r.type, normalRef(r.type, r.ref) ?? r.ref, origin) };
-        if (next.key !== r.key) {
-          cursor.delete();
-          records.put(next);
-        }
-        const row = shownRow(next, origin);
-        if (row) shown.put(row);
-        seq = Math.max(seq, r.seq);
-        cursor.continue();
-      });
-    } else meta.put(0, "seq");
+    meta.put(0, "seq");
     meta.put(1, "rev");
   }
 }
@@ -182,9 +117,7 @@ export function open(): Promise<IDBDatabase> {
       fail(e);
       return;
     }
-    req.addEventListener("upgradeneeded", (e) =>
-      upgrade(req.result, req.transaction, e.oldVersion),
-    );
+    req.addEventListener("upgradeneeded", (e) => upgrade(req.result, e.oldVersion));
     req.addEventListener("error", () => {
       clearTimeout(deadline);
       fail(req.error);
@@ -210,20 +143,20 @@ export function open(): Promise<IDBDatabase> {
 
 // What pages show, kept so one write changes it without reading everything again: each place's
 // candidates by record, and which record wins there.
-const candidates = new Map<string, Map<string, ShownRow>>();
-const placeOf = new Map<string, string>();
-const shown = new Map<string, string>();
+export const candidates = new Map<string, Map<string, ShownRow>>();
+export const placeOf = new Map<string, string>();
+export const shown = new Map<string, string>();
 
-const better = (a: ShownRow, b: ShownRow) => (a.plain === b.plain ? a.seq < b.seq : a.plain);
+export const better = (a: ShownRow, b: ShownRow) => (a.plain === b.plain ? a.seq < b.seq : a.plain);
 
-function settle(at: string): void {
+export function settle(at: string): void {
   let best: ShownRow | undefined;
   for (const row of candidates.get(at)?.values() ?? []) if (!best || better(row, best)) best = row;
   if (best) shown.set(at, best.label);
   else shown.delete(at);
 }
 
-function add(row: ShownRow): void {
+export function add(row: ShownRow): void {
   placeOf.set(row.key, row.at);
   let set = candidates.get(row.at);
   if (!set) {
@@ -231,46 +164,6 @@ function add(row: ShownRow): void {
     candidates.set(row.at, set);
   }
   set.set(row.key, row);
-}
-
-function drop(key: string): string | undefined {
-  const at = placeOf.get(key);
-  if (at === undefined) return undefined;
-  placeOf.delete(key);
-  const set = candidates.get(at);
-  set?.delete(key);
-  if (set?.size === 0) candidates.delete(at);
-  return at;
-}
-
-/** Changes what pages show after a write: rows put, records gone, or everything cleared first. */
-export function noteWrite(puts: readonly ShownRow[], gone: readonly string[], clear = false): void {
-  writes++;
-  const touched = new Set<string>();
-  if (clear) {
-    candidates.clear();
-    placeOf.clear();
-    shown.clear();
-  }
-  for (const k of gone) {
-    const at = drop(k);
-    if (at !== undefined) touched.add(at);
-  }
-  for (const row of puts) {
-    const at = drop(row.key);
-    if (at !== undefined) touched.add(at);
-    add(row);
-    touched.add(row.at);
-  }
-  for (const at of touched) settle(at);
-  showLabels(shown);
-}
-
-/** The record a page's label at `at` comes from, if one does. */
-export function shownFrom(at: string): string | undefined {
-  let best: ShownRow | undefined;
-  for (const row of candidates.get(at)?.values() ?? []) if (!best || better(row, best)) best = row;
-  return best?.key;
 }
 
 const turn = () =>
@@ -315,6 +208,10 @@ export function onElsewhere(fn: () => void): void {
 let reading: Promise<void> | undefined;
 // Writes noted since a read began: such a read is older than what pages show, and is done again.
 let writes = 0;
+/** Notes a write made by db.ts, so a read begun before it is done again. */
+export function wrote(): void {
+  writes++;
+}
 
 /** Reads what pages show again, and shows it. */
 export function refresh(): Promise<void> {
@@ -347,16 +244,6 @@ export function refresh(): Promise<void> {
     if (again) await refresh();
   })();
   return reading;
-}
-
-/** Sets the hint to the store's revision after a write, or takes it away when nothing is kept. */
-export function hint(rev: number, count: number): void {
-  try {
-    if (count === 0) localStorage.removeItem(HINT);
-    else localStorage.setItem(HINT, String(rev));
-  } catch {
-    // Storage blocked: every page opens the database instead.
-  }
 }
 
 /**

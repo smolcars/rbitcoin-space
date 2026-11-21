@@ -297,27 +297,18 @@ describe("the store's versions", () => {
     });
   });
 
-  it("moves version 1's records to keys no two triples share, and builds what pages show", async () => {
-    // Version 1 as it was: type, reference and origin joined by line feeds.
+  it("starts a store of version 1, which was never released, afresh", async () => {
+    // Version 1, the first draft of this feature, only ever on development builds.
     const v1 = fake.factory.open("rbitcoin-labels", 1);
     await new Promise<void>((resolve) => {
       v1.addEventListener("upgradeneeded", () => {
-        const store = v1.result.createObjectStore("records", { keyPath: "key" });
-        store.put({
+        v1.result.createObjectStore("records", { keyPath: "key" }).put({
           key: `tx\n${TXID}\n`,
           type: "tx",
-          ref: TXID.toUpperCase(),
-          label: "rent",
-          line: `{"type":"tx","ref":"${TXID.toUpperCase()}","label":"rent"}`,
-          seq: 1,
-        });
-        store.put({
-          key: `tx\n${TXID}\nwpkh([aaaaaaaa/84'/0'/0'])`,
-          type: "tx",
           ref: TXID,
-          label: "wallet",
-          line: `{"type":"tx","ref":"${TXID}","label":"wallet","origin":"wpkh([aaaaaaaa/84'/0'/0'])"}`,
-          seq: 2,
+          label: "draft",
+          line: `{"type":"tx","ref":"${TXID}","label":"draft"}`,
+          seq: 1,
         });
       });
       v1.addEventListener("success", () => {
@@ -326,13 +317,9 @@ describe("the store's versions", () => {
       });
     });
     await refresh();
-    expect(shown("tx", TXID)).toBe("rent");
-    const keys = [...((await records()) as Map<string, unknown>).keys()];
-    expect(keys).toStrictEqual([
-      recordKey("tx", TXID, undefined),
-      recordKey("tx", TXID, "wpkh([aaaaaaaa/84'/0'/0'])"),
-    ]);
-    await setLabel("tx", TXID, "b");
-    expect(Number(localStorage.getItem(HINT))).toBeGreaterThan(0);
+    expect(shown("tx", TXID)).toBeUndefined();
+    await setLabel("tx", TXID, "new");
+    expect(shown("tx", TXID)).toBe("new");
+    expect([...(await records()).keys()]).toStrictEqual([recordKey("tx", TXID, undefined)]);
   });
 });

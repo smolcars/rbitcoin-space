@@ -25,7 +25,7 @@ import {
 } from "../../lib/labels/bip329";
 import {
   exportFile,
-  FAILURE_WORDS,
+  failureWords,
   type ImportPlan,
   LabelStoreError,
   planImport,
@@ -106,6 +106,7 @@ export default function LabelsPage() {
   const network = useNetwork();
   const [state, setState] = createSignal<"loading" | "ready" | "off">("loading");
   const [why, setWhy] = createSignal("");
+  const [outdated, setOutdated] = createSignal(false);
   const [list, setList] = createSignal<Stored[]>([]);
   const read = () => {
     records()
@@ -118,7 +119,8 @@ export default function LabelsPage() {
         setState("ready");
       })
       .catch((e: unknown) => {
-        setWhy(e instanceof LabelStoreError ? e.message : "");
+        setWhy(failureWords(e, ""));
+        setOutdated(e instanceof LabelStoreError && e.kind === "outdated");
         setState("off");
       });
   };
@@ -127,7 +129,7 @@ export default function LabelsPage() {
   createEffect(labelsVersion, read);
   const retry = () => {
     // Another tab updated the site: only a reload of this one can open its store again.
-    if (why() === FAILURE_WORDS.outdated) {
+    if (outdated()) {
       location.reload();
       return;
     }
@@ -212,8 +214,7 @@ function Manager(props: { all: Stored[]; network: Network }) {
     return found().slice((p - 1) * PER_PAGE, p * PER_PAGE);
   });
 
-  const fail = (e: unknown) =>
-    setProblem(e instanceof LabelStoreError ? e.message : "That could not be done. Try again.");
+  const fail = (e: unknown) => setProblem(failureWords(e, "That could not be done. Try again."));
 
   const choose = (e: Event & { currentTarget: HTMLInputElement }) => {
     const file = e.currentTarget.files?.[0];
@@ -250,10 +251,10 @@ function Manager(props: { all: Stored[]; network: Network }) {
       if (run !== reading) return;
       setPhase({
         kind: "refused",
-        words:
-          error instanceof LabelStoreError
-            ? error.message
-            : "The file could not be read. Check that it is a text file of labels.",
+        words: failureWords(
+          error,
+          "The file could not be read. Check that it is a text file of labels.",
+        ),
       });
     }
   };

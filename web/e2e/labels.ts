@@ -1,52 +1,76 @@
 // The reader's labels for browser tests: written straight into the browser's own store, as the app
-// keeps them (src/lib/labels/store.ts), from a page that loads no app code, so a test can start
-// with labels without the manager's page in its requests.
+// keeps them (src/lib/labels/store.ts, version 2), from a page that loads no app code, so a test
+// can start with labels without the manager's page in its requests.
 import type { Page } from "@playwright/test";
 
 /** A BIP329 record: its type, reference, label and any other fields, as in a file's line. */
 export type Line = { type: string; ref: string; label?: string } & Record<string, unknown>;
 
+const SHOWN = new Set(["tx", "addr", "pubkey", "input", "output"]);
+
 /** The reference as the app compares it: hex and bech32 in lower case, base58 as written. */
 function normal(type: string, ref: string): string {
-  if (["tx", "input", "output", "pubkey"].includes(type)) return ref.toLowerCase();
+  if (type === "input" || type === "output") {
+    const [txid = "", n = ""] = ref.split(":");
+    return `${txid.toLowerCase()}:${Number(n)}`;
+  }
+  if (type === "tx" || type === "pubkey") return ref.toLowerCase();
   if (type === "addr" && /^(bc|tb|bcrt)1/i.test(ref)) return ref.toLowerCase();
   return ref;
 }
 
-/** Puts `lines` in the page's origin's label store, as an import would have. */
+/** Puts `lines` in the page's origin's label store, as an import would have, replacing any. */
 export async function seedLabels(page: Page, lines: readonly Line[]): Promise<void> {
   // The server's liveness route: same origin, no app code, no other request.
   await page.goto("/healthz");
-  const rows = lines.map((l, i) => ({
-    key: `${l.type}\n${normal(l.type, l.ref)}\n${typeof l["origin"] === "string" ? l["origin"] : ""}`,
-    type: l.type,
-    ref: l.ref,
-    ...(l.label === undefined ? {} : { label: l.label }),
-    line: JSON.stringify(l),
-    seq: i + 1,
-  }));
+  const records = lines.map((l, i) => {
+    const origin = typeof l["origin"] === "string" ? l["origin"] : null;
+    return {
+      key: JSON.stringify([l.type, normal(l.type, l.ref), origin]),
+      type: l.type,
+      ref: l.ref,
+      ...(l.label === undefined ? {} : { label: l.label }),
+      line: JSON.stringify(l),
+      seq: i + 1,
+      origin,
+    };
+  });
+  const shown = records
+    .filter((r) => r.label !== undefined && r.label.trim() !== "" && SHOWN.has(r.type))
+    .map((r) => ({
+      key: r.key,
+      at: `${r.type}:${normal(r.type, r.ref)}`,
+      label: r.label,
+      plain: r.origin === null,
+      seq: r.seq,
+    }));
   await page.evaluate(
-    (records) =>
+    ({ rows, show }) =>
       new Promise<void>((resolve, reject) => {
-        // From nothing, as version 1 kept it: the app moves it to its current version on opening.
         indexedDB.deleteDatabase("rbitcoin-labels");
-        const req = indexedDB.open("rbitcoin-labels", 1);
+        const req = indexedDB.open("rbitcoin-labels", 2);
         req.addEventListener("upgradeneeded", () => {
-          req.result.createObjectStore("records", { keyPath: "key" });
+          const db = req.result;
+          db.createObjectStore("records", { keyPath: "key" }).createIndex("seq", "seq");
+          db.createObjectStore("shown", { keyPath: "key" });
+          db.createObjectStore("meta");
         });
         req.addEventListener("error", () => reject(new Error("could not open")));
         req.addEventListener("success", () => {
-          const tx = req.result.transaction("records", "readwrite");
-          for (const r of records) tx.objectStore("records").put(r);
+          const tx = req.result.transaction(["records", "shown", "meta"], "readwrite");
+          for (const { origin: _, ...r } of rows) tx.objectStore("records").put(r);
+          for (const r of show) tx.objectStore("shown").put(r);
+          tx.objectStore("meta").put(rows.length, "seq");
+          tx.objectStore("meta").put(1, "rev");
           tx.addEventListener("complete", () => {
             req.result.close();
-            localStorage.setItem("labels", String(Date.now()));
+            localStorage.setItem("labels", "1");
             resolve();
           });
           tx.addEventListener("error", () => reject(new Error("could not write")));
         });
       }),
-    rows,
+    { rows: records, show: shown },
   );
 }
 

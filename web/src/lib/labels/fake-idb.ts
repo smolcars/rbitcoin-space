@@ -270,6 +270,9 @@ class FakeDatabase extends EventTarget {
     this.tables.set(name, { keyPath: opts?.keyPath, rows: new Map(), indexes: new Map() });
     return new FakeStore(this.upgrading as FakeTransaction, name);
   }
+  deleteObjectStore(name: string): void {
+    this.tables.delete(name);
+  }
   upgrading: FakeTransaction | undefined;
   transaction(names: string | string[]): FakeTransaction {
     if (this.closed) throw new DOMException("closed", "InvalidStateError");
