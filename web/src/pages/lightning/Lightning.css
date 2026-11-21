@@ -2572,6 +2572,11 @@
     .ln-record__part--wide {
       grid-column: 1 / -1;
     }
+    /* A table across the panel with no bars to fill it: as wide as what it holds, not wider. */
+    .ln-record__part--fit .table {
+      width: auto;
+      min-width: min(100%, 32rem);
+    }
   }
   .ln-record__part {
     display: grid;

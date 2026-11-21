@@ -312,7 +312,7 @@ function Ended(props: { record: NodeCloses }) {
     },
   ];
   return (
-    <div class="ln-record__part ln-record__part--wide">
+    <div class={`ln-record__part ln-record__part--wide${rated() ? "" : " ln-record__part--fit"}`}>
       <DataTable
         caption="How its channels ended, beside every channel's as of the time above"
         columns={columns()}
@@ -553,7 +553,7 @@ function Peers(props: { record: NodeCloses; gone: boolean }) {
   ];
   return (
     <div
-      class={`ln-record__part ln-record__part--wide${dropped() > 0 ? " ln-record__part--dropped" : ""}`}
+      class={`ln-record__part ln-record__part--wide ln-record__part--fit${dropped() > 0 ? " ln-record__part--dropped" : ""}`}
     >
       <h3 class="ln-record__h">With whom</h3>
       <p class="ln-record__lead">
