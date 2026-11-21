@@ -82,33 +82,74 @@ export function CardMarks(props: {
   );
 }
 
+/** A run of a sentence as drawn: text, an address, or a number with the punctuation after it. */
+type Run =
+  | { text: string }
+  | { address: string }
+  | { ref: "in" | "out"; index: number; tail: string };
+
+/** Punctuation that belongs to the word before it: kept on the number's line, with no gap. */
+const TAIL = /^[,.;:)!?]+/;
+
+/** A sentence's runs: each number takes the punctuation right after it, so the two never part. */
+function runs(s: Sentence): Run[] {
+  const out: Run[] = [];
+  let carry = "";
+  s.forEach((piece, k) => {
+    if (typeof piece === "string") {
+      const text = piece.slice(carry.length);
+      carry = "";
+      if (text) out.push({ text });
+      return;
+    }
+    if ("ref" in piece) {
+      const next = s[k + 1];
+      const tail = typeof next === "string" ? (TAIL.exec(next)?.[0] ?? "") : "";
+      carry = tail;
+      out.push({ ref: piece.ref, index: piece.index, tail });
+      return;
+    }
+    out.push({ address: piece.address });
+  });
+  return out;
+}
+
+function Ref(props: { side: "in" | "out"; index: number }) {
+  return (
+    <a
+      class="pv-ref num"
+      href={`#${cardId(props.side, props.index)}`}
+      aria-current="false"
+      aria-label={`Show ${props.side === "in" ? "input" : "output"} ${props.index}`}
+      onClick={(e) => {
+        e.preventDefault();
+        showCard(props.side, props.index);
+      }}
+    >
+      {String(props.index)}
+    </a>
+  );
+}
+
 /**
- * A sentence: its text, and each address as `shownAddress` gives it, hidden characters made
- * visible, shortened as the site shortens one, its title bounded.
+ * A sentence: its text, each address as `shownAddress` gives it, hidden characters made visible,
+ * shortened as the site shortens one, its title bounded; each number a link to its card.
  */
 function Words(props: { s: Sentence }) {
   return (
-    <For each={props.s}>
-      {(piece) => {
-        if (typeof piece === "string") return piece;
-        if ("ref" in piece) {
-          const { ref: side, index } = piece;
-          return (
-            <a
-              class="pv-ref num"
-              href={`#${cardId(side, index)}`}
-              aria-current="false"
-              aria-label={`Show ${side === "in" ? "input" : "output"} ${index}`}
-              onClick={(e) => {
-                e.preventDefault();
-                showCard(side, index);
-              }}
-            >
-              {String(index)}
-            </a>
+    <For each={runs(props.s)}>
+      {(run) => {
+        if ("text" in run) return run.text;
+        if ("ref" in run)
+          return run.tail ? (
+            <span class="pv-ref-tail">
+              <Ref side={run.ref} index={run.index} />
+              {run.tail}
+            </span>
+          ) : (
+            <Ref side={run.ref} index={run.index} />
           );
-        }
-        const a = shownAddress(piece.address);
+        const a = shownAddress(run.address);
         return (
           <span class="hash">
             <span class="hash__text" title={a.title}>

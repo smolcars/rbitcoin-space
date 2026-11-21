@@ -770,6 +770,8 @@ function Body(props: {
   const privacyMarks = createMemo(() => cardMarks(shownFindings(privacy(), false)));
   // Wide, the list is a panel of its own under "Details"; narrower, it sits under the flow and the
   // summary carries a line that leads to it (docs/DESIGN.md "Transaction").
+  // Findings, or only part checked: what the summary's line counts.
+  const reported = () => sayCount(privacy()) !== null;
   const stackedQuery = matchMedia(`(max-width: ${STACKED})`);
   const [stacked, setStacked] = createSignal(stackedQuery.matches);
   const onStacked = (e: MediaQueryListEvent) => setStacked(e.matches);
@@ -1200,8 +1202,9 @@ function Body(props: {
             </Show>
           </dd>
         </div>
-        {/* A row of its own, under the figures: the list is off the first screen at any width. */}
-        <Show when={!privacy().coinbase && sayCount(privacy())}>
+        {/* Narrow, a row of its own under the figures: the list is under the flow, off the first
+            screen. Wide, the list opens the side column, in sight, so no row. */}
+        <Show when={stacked() && !privacy().coinbase && sayCount(privacy())}>
           {(line) => (
             <div class="tx-answer__cell tx-answer__cell--privacy">
               <dt class="visually-hidden">Privacy</dt>
@@ -1354,6 +1357,10 @@ function Body(props: {
 
         {/* The facts that are left; an input's or output's inspector takes their place. */}
         <div class={["tx-rail", { "tx-rail--open": selected() !== null }]}>
+          {/* With something to report, the list opens the column, beside the marks it explains. */}
+          <Show when={!stacked() && !privacy().coinbase && reported()}>
+            <TxPrivacy report={privacy()} place="rail" />
+          </Show>
           <section class="tx-rail__details" aria-labelledby="tx-details-title">
             <SectionHeader title="Details" id="tx-details-title" />
             <dl class="tx-facts tx-facts--rail">
@@ -1438,7 +1445,8 @@ function Body(props: {
               {(r) => <Group relatives={r()} txid={props.tx.txid} rate={rate() ?? null} />}
             </Show>
           </section>
-          <Show when={!stacked() && !privacy().coinbase}>
+          {/* Nothing to report: one muted panel, after the details. */}
+          <Show when={!stacked() && !privacy().coinbase && !reported()}>
             <TxPrivacy report={privacy()} place="rail" />
           </Show>
           {/* Keyed: each selection mounts fresh, so no "Show all" carries over to another item. */}

@@ -462,7 +462,7 @@ describe("which output is change", () => {
       "• Every input that funds it is P2TR, and of the two outputs checked only this one is.",
     ]);
   });
-  it("disputed: the readings as facts, no output named as change", () => {
+  it("disputed: each reading its direction, then its comparison; no output named as change", () => {
     // Output 0 is round, so the round reading points at 1; only 0 is of the inputs' type.
     const t = tx(
       [{ value: 10_000_000, to: "me", type: "v1_p2tr" }],
@@ -475,8 +475,8 @@ describe("which output is change", () => {
     expect(lines(s)).toStrictEqual([
       "No output clearly reads as change",
       "These two readings disagree:",
-      "• Output 0 is a round 0.05 BTC, and output 1 is not.",
-      "• Every input that funds it is P2TR, and of the two outputs checked only output 0 is.",
+      "• Payment: output 0 is a round 0.05 BTC, and output 1 is not.",
+      "• Change: of the two outputs checked only output 0 is P2TR, as is every input that funds it.",
     ]);
     expect(lines(s).join(" ")).not.toMatch(/reads as change,|is the payment|is change/);
   });
@@ -514,9 +514,9 @@ describe("which output is change", () => {
     expect(lines(said(t, "change-disputed"))).toStrictEqual([
       "No output clearly reads as change",
       "These readings disagree:",
-      "• Output 0 is a round 0.05 BTC, and output 1 is not.",
-      "• Every input that funds it is P2WPKH, and of the two outputs checked only output 0 is.",
-      "• Output 1 is less than 0.00150003 BTC, the least spent from any one address (input 0), and the other output checked is not.",
+      "• Payment: output 0 is a round 0.05 BTC, and output 1 is not.",
+      "• Change: of the two outputs checked only output 0 is P2WPKH, as is every input that funds it.",
+      "• Change: output 1 is less than 0.00150003 BTC, the least spent from any one address (input 0), and the other output checked is not.",
     ]);
   });
   it("disputed with the smallest coin, as a fact", () => {
@@ -533,8 +533,8 @@ describe("which output is change", () => {
     expect(lines(said(t, "change-disputed"))).toStrictEqual([
       "No output clearly reads as change",
       "These two readings disagree:",
-      "• Every input that funds it is P2WSH, and of the two outputs checked only output 1 is.",
-      "• Output 0 is less than 0.0169945 BTC, the least spent from any one address (input 0), and the other output checked is not.",
+      "• Change: of the two outputs checked only output 1 is P2WSH, as is every input that funds it.",
+      "• Change: output 0 is less than 0.0169945 BTC, the least spent from any one address (input 0), and the other output checked is not.",
     ]);
   });
 });

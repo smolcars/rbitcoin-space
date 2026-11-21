@@ -68,15 +68,14 @@
     color: var(--color-text);
   }
 
-  /* An input's or output's number in a sentence: a link to its card. A digit is 8 px wide, so the
-     link is a small chip at least 24 px wide, and its target reaches 24 px tall past the line
-     without changing the line's height (WCAG 2.2 target size); in "0, 3 and 4" neighbours' centres
-     stay 24 px or more apart. */
+  /* An input's or output's number in a sentence: a link to its card, a chip as narrow as its
+     digits with a little room each side, so punctuation after it sits right against it. Its target
+     reaches 24 px each way past the chip without changing the line's height (WCAG 2.2 target
+     size); one digit and ", " put neighbours' centres 25 px apart, so targets never overlap. */
   .pv-ref {
     position: relative;
     display: inline-block;
-    min-width: 24px;
-    padding: 0 3px;
+    padding: 0 5px;
     border-radius: var(--radius-s);
     background: var(--color-surface-sunken);
     font-weight: var(--weight-medium);
@@ -87,9 +86,15 @@
   .pv-ref::after {
     content: "";
     position: absolute;
-    inset: 50% 0 auto;
+    top: 50%;
+    left: 50%;
+    width: max(100%, 24px);
     height: 24px;
-    transform: translateY(-50%);
+    transform: translate(-50%, -50%);
+  }
+  /* A number and the punctuation after it never part across lines. */
+  .pv-ref-tail {
+    white-space: nowrap;
   }
   @media (hover: hover) {
     .pv-ref:hover {

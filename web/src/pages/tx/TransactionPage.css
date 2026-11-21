@@ -830,9 +830,9 @@
   .tx-rail--open .pv-rail {
     visibility: hidden;
   }
-  /* With what an observer can read under it, the details scroll with the page: held in view, they
-     would slide over the panel below them. */
-  .tx-rail:has(> .pv-rail) .tx-rail__details {
+  /* With the muted privacy panel under them, the details scroll with the page: held in view, they
+     would slide over it. With the findings above them they stay held, once the findings scroll by. */
+  .tx-rail__details:has(~ .pv-rail) {
     position: static;
     max-height: none;
     overflow: visible;

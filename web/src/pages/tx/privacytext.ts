@@ -201,13 +201,16 @@ function agreeing(r: ChangeReading): Sentence {
   );
 }
 
-/** A change reading as a plain fact, for readings that disagree: it names no output as change. */
+/**
+ * A change reading for readings that disagree: first what it suggests ("Change:" or "Payment:"),
+ * since there the direction is what disagrees, then its comparison as a plain fact.
+ */
 function stated(r: ChangeReading): Sentence {
   const why = r.reason;
   const change = ref("out", r.change);
   if (why.kind === "payback") {
     return says(
-      "Output ",
+      "Change: output ",
       change,
       ` pays the same ${what(why.isAddress)} `,
       listedRefs("input", why.inputs),
@@ -216,7 +219,7 @@ function stated(r: ChangeReading): Sentence {
   }
   if (why.kind === "round") {
     return says(
-      "Output ",
+      "Payment: output ",
       ref("out", why.roundOutput),
       ` is a round ${btc(why.value)}, and output `,
       change,
@@ -225,14 +228,14 @@ function stated(r: ChangeReading): Sentence {
   }
   if (why.kind === "script") {
     return says(
-      `Every input that funds it is ${typeName(why.scriptType)}, and of the two outputs checked only output `,
+      `Change: of the two outputs checked only output `,
       change,
-      " is.",
+      ` is ${typeName(why.scriptType)}, as is every input that funds it.`,
     );
   }
   // unneeded
   return says(
-    "Output ",
+    "Change: output ",
     change,
     " is less than ",
     least(why.inputs, why.value),
