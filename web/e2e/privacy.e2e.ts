@@ -369,7 +369,7 @@ test("a transaction whose input the node does not have is only partly checked", 
   const region = page.locator("#pv-list");
   await expect(region.locator(".pv-partial p")).toHaveText([
     "Only part of this transaction could be checked.",
-    "What input 0 spends is not known here, so these were not checked: the CoinJoin shape, outputs paying back to an input's address, script types and the least spent from one address.",
+    "What input 0 spends is not known here, so these were not checked: the CoinJoin shape, outputs paying back to an input's address, script types and the least spent from one funding address.",
     "What it shows about address reuse and which output is change may be incomplete.",
   ]);
   await expect(region).not.toContainText("stands out");

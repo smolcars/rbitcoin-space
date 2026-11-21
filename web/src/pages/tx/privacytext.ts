@@ -436,7 +436,7 @@ const CHECK_NAMES: Record<PrivacyCheck, string> = {
   payback: "outputs paying back to an input's address",
   round: "round amounts",
   script: "script types",
-  unneeded: "the least spent from one address",
+  unneeded: "the least spent from one funding address",
   coinjoin: "the CoinJoin shape",
   "spent-together": "coins spent together",
 };

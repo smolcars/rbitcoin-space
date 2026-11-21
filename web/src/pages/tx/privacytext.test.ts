@@ -660,12 +660,12 @@ describe("when only part could be checked", () => {
     );
     expect(partial(r)).toStrictEqual([
       HEAD,
-      "What input 1 spends is not known here, so these were not checked: the CoinJoin shape, outputs paying back to an input's address, script types and the least spent from one address.",
+      "What input 1 spends is not known here, so these were not checked: the CoinJoin shape, outputs paying back to an input's address, script types and the least spent from one funding address.",
       "What it shows about address reuse and which output is change may be incomplete.",
     ]);
     expect(partial(r, true)).toStrictEqual([
       HEAD,
-      "What input 1 spends is not known here, so these were not checked: the CoinJoin shape, outputs paying back to an input's address, script types, the least spent from one address and coins spent together.",
+      "What input 1 spends is not known here, so these were not checked: the CoinJoin shape, outputs paying back to an input's address, script types, the least spent from one funding address and coins spent together.",
       "What it shows about address reuse, which output is change and coins spent together may be incomplete.",
     ]);
   });
@@ -703,7 +703,7 @@ describe("when only part could be checked", () => {
     );
     expect(partial(checkPrivacy({ ...t, pruned: true }))).toStrictEqual([
       HEAD,
-      "Its inputs are not listed here, so these were not checked: the CoinJoin shape, outputs paying back to an input's address, script types and the least spent from one address.",
+      "Its inputs are not listed here, so these were not checked: the CoinJoin shape, outputs paying back to an input's address, script types and the least spent from one funding address.",
       "What it shows about address reuse and which output is change may be incomplete.",
     ]);
   });
@@ -719,7 +719,7 @@ describe("when only part could be checked", () => {
     );
     expect(partial(r)).toStrictEqual([
       HEAD,
-      "Some of its amounts cannot be right (more than there will ever be, or more paid out than spent), so these were not checked: the CoinJoin shape, round amounts and the least spent from one address.",
+      "Some of its amounts cannot be right (more than there will ever be, or more paid out than spent), so these were not checked: the CoinJoin shape, round amounts and the least spent from one funding address.",
       "What it shows about which output is change may be incomplete.",
     ]);
   });
@@ -735,8 +735,8 @@ describe("when only part could be checked", () => {
     );
     expect(partial(r)).toStrictEqual([
       HEAD,
-      "What input 1 spends is not known here, so these were not checked: the CoinJoin shape, outputs paying back to an input's address, script types and the least spent from one address.",
-      "Some of its amounts cannot be right (more than there will ever be, or more paid out than spent), so these were not checked: the CoinJoin shape, round amounts and the least spent from one address.",
+      "What input 1 spends is not known here, so these were not checked: the CoinJoin shape, outputs paying back to an input's address, script types and the least spent from one funding address.",
+      "Some of its amounts cannot be right (more than there will ever be, or more paid out than spent), so these were not checked: the CoinJoin shape, round amounts and the least spent from one funding address.",
       "What it shows about address reuse and which output is change may be incomplete.",
     ]);
   });
@@ -750,8 +750,8 @@ describe("when only part could be checked", () => {
     );
     expect(partial(checkPrivacy({ ...t, pruned: true }))).toStrictEqual([
       HEAD,
-      "Its inputs are not listed here, so these were not checked: the CoinJoin shape, outputs paying back to an input's address, script types and the least spent from one address.",
-      "Some of its amounts cannot be right (more than there will ever be, or more paid out than spent), so these were not checked: the CoinJoin shape, round amounts and the least spent from one address.",
+      "Its inputs are not listed here, so these were not checked: the CoinJoin shape, outputs paying back to an input's address, script types and the least spent from one funding address.",
+      "Some of its amounts cannot be right (more than there will ever be, or more paid out than spent), so these were not checked: the CoinJoin shape, round amounts and the least spent from one funding address.",
       "What it shows about address reuse and which output is change may be incomplete.",
     ]);
   });
