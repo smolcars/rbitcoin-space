@@ -106,13 +106,16 @@ test.describe("a camera with no code before it", () => {
   });
 
   test("leaving the page closes the scanner and turns the camera off", async ({ page }) => {
+    // One document throughout, so Back is the router's and the recorded stream is this page's.
     await page.goto("/regtest/blocks");
-    await page.goto("/regtest/");
+    await page.getByRole("banner").getByRole("link").first().click();
+    await expect(page).toHaveURL(/\/regtest\/?$/);
     const dialog = await openScanner(page);
     await expect(dialog.getByRole("status")).toHaveText("Hold the code inside the frame.");
     await page.goBack();
     await expect(page).toHaveURL("/regtest/blocks");
     await expect(dialog).toHaveCount(0);
+    expect(await streamsAsked(page)).toBe(1);
     expect(await cameraOn(page)).toBe(false);
   });
 });

@@ -39,8 +39,8 @@ export function ScanButton(props: { onScan: (text: string) => void }) {
   // Each press is a new wish to open; a newer press, a close or leaving the page withdraws it.
   let wish = 0;
   let button: HTMLButtonElement | undefined;
-  // Closed by the reader: focus comes back here once the dialog is gone, as its own closing hands
-  // it to whatever had it before, the page itself after a press (which takes no focus, below).
+  // Closed: focus comes back here once the dialog is gone, as its own closing hands it to whatever
+  // had it before, the page itself after a press (which takes no focus, below).
   let refocus = false;
   createEffect(state, (now) => {
     if (now !== "closed" || !refocus) return;
@@ -48,13 +48,17 @@ export function ScanButton(props: { onScan: (text: string) => void }) {
     button?.focus({ preventScroll: true });
   });
 
+  // While the scanner downloads, Escape gives up waiting for it, as it would close it.
+  let stopEscape: (() => void) | undefined;
   const close = () => {
     wish += 1;
+    stopEscape?.();
     setState("closed");
   };
   useBeforeLeave(close);
   onCleanup(() => {
     wish += 1;
+    stopEscape?.();
   });
 
   const press = () => {
@@ -64,13 +68,25 @@ export function ScanButton(props: { onScan: (text: string) => void }) {
     }
     wish += 1;
     const mine = wish;
+    const key = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close();
+    };
+    document.addEventListener("keydown", key);
+    stopEscape = () => {
+      document.removeEventListener("keydown", key);
+      stopEscape = undefined;
+    };
     setState("loading");
     loader.load().then(
       () => {
-        if (mine === wish) setState("open");
+        if (mine !== wish) return;
+        stopEscape?.();
+        setState("open");
       },
       () => {
-        if (mine === wish) setState("failed");
+        if (mine !== wish) return;
+        stopEscape?.();
+        setState("failed");
       },
     );
   };
@@ -113,6 +129,9 @@ export function ScanButton(props: { onScan: (text: string) => void }) {
               close();
             }}
             onResult={(text) => {
+              // Back on the button, so a code that leads nowhere leaves the reader in the search,
+              // its answer next in the Tab order; one that leads to a page takes focus there.
+              refocus = true;
               close();
               props.onScan(text);
             }}

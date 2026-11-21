@@ -5,14 +5,15 @@ import Scanner from "./Scanner";
 
 // The decoder is stood in for: what it reads is set per test. The real ones are in decode.test.ts
 // and the browser tests (e2e/scan.e2e.ts).
-const read = vi.hoisted(() => ({ text: null as string | null }));
+const read = vi.hoisted(() => ({ text: null as string | null, fails: false }));
 vi.mock(import("./decode"), async (original) => ({
   ...(await original()),
   createDecoder: () =>
     Promise.resolve({
       kind: "jsqr" as const,
       attempts: 1,
-      detect: () => Promise.resolve(read.text),
+      detect: () =>
+        read.fails ? Promise.reject(new Error("no reader")) : Promise.resolve(read.text),
     }),
 }));
 
@@ -31,13 +32,13 @@ function fakeStream() {
   return { stream, track };
 }
 
-/** `getUserMedia` answering as the test says, when it says. */
+/** `getUserMedia` answering as the test says, when it says: the latest request, or the `n`th. */
 function camera() {
-  let answer: { resolve: (s: MediaStream) => void; reject: (e: unknown) => void } | undefined;
+  const answers: { resolve: (s: MediaStream) => void; reject: (e: unknown) => void }[] = [];
   const getUserMedia = vi.fn<() => Promise<MediaStream>>(
     () =>
       new Promise<MediaStream>((resolve, reject) => {
-        answer = { resolve, reject };
+        answers.push({ resolve, reject });
       }),
   );
   Object.defineProperty(navigator, "mediaDevices", {
@@ -46,8 +47,8 @@ function camera() {
   });
   return {
     getUserMedia,
-    grant: (s: MediaStream) => answer?.resolve(s),
-    refuse: (name: string) => answer?.reject(new DOMException("", name)),
+    grant: (s: MediaStream, n = answers.length - 1) => answers[n]?.resolve(s),
+    refuse: (name: string) => answers.at(-1)?.reject(new DOMException("", name)),
   };
 }
 
@@ -72,6 +73,7 @@ const settle = async (check: () => void) =>
 
 beforeEach(() => {
   read.text = null;
+  read.fails = false;
   vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
 });
 afterEach(() => {
@@ -139,22 +141,91 @@ describe("Scanner", () => {
     dispose();
   });
 
+  /** Chooses a picture in the scanner, its code reading as `text`. */
+  const choosePicture = (el: HTMLElement, text: string | null) => {
+    read.text = text;
+    const input = el.querySelector<HTMLInputElement>('input[type="file"]');
+    if (!input) throw new Error("no file input");
+    Object.defineProperty(input, "files", {
+      value: [new File(["x"], "code.png", { type: "image/png" })],
+      configurable: true,
+    });
+    input.dispatchEvent(new Event("change"));
+  };
+
+  it("turns off a camera granted to a request that a newer one replaced", async () => {
+    const { grant, getUserMedia } = camera();
+    const { el, status, button, dispose } = open();
+    vi.stubGlobal("createImageBitmap", () => Promise.resolve({ width: 4, height: 4, close() {} }));
+    // A picture whose reader fails offers Try again while the first request is still asked.
+    read.fails = true;
+    choosePicture(el, null);
+    await settle(() => expect(button("Try again")).toBeDefined());
+    button("Try again")?.click();
+    expect(getUserMedia).toHaveBeenCalledTimes(2);
+    const first = fakeStream();
+    const second = fakeStream();
+    grant(second.stream, 1);
+    await settle(() => expect(status()).toBe("Hold the code inside the frame."));
+    grant(first.stream, 0);
+    await vi.waitFor(() => expect(first.track.stop).toHaveBeenCalledOnce());
+    dispose();
+    expect(second.track.stop).toHaveBeenCalledOnce();
+    vi.unstubAllGlobals();
+  });
+
+  it("lets nothing cancel a code it has read, and offers no try again meanwhile", async () => {
+    document.documentElement.style.setProperty("--dur-base", "60ms");
+    const { refuse } = camera();
+    const { el, button, onResult, dispose } = open();
+    refuse("NotAllowedError");
+    await settle(() => expect(button("Try again")).toBeDefined());
+    vi.stubGlobal("createImageBitmap", () => Promise.resolve({ width: 4, height: 4, close() {} }));
+    choosePicture(el, "bitcoin:bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq");
+    await settle(() => expect(button("Try again")).toBeUndefined());
+    await vi.waitFor(() => expect(onResult).toHaveBeenCalledOnce());
+    document.documentElement.style.removeProperty("--dur-base");
+    vi.unstubAllGlobals();
+    dispose();
+  });
+
+  it("answers only for the latest picture chosen", async () => {
+    const { refuse } = camera();
+    const { el, status, onResult, dispose } = open();
+    refuse("NotFoundError");
+    const pending: ((b: unknown) => void)[] = [];
+    vi.stubGlobal(
+      "createImageBitmap",
+      () =>
+        new Promise((resolve) => {
+          pending.push(resolve);
+        }),
+    );
+    const bitmap = { width: 4, height: 4, close() {} };
+    choosePicture(el, null);
+    choosePicture(el, null);
+    pending[1]?.(bitmap);
+    await settle(() => expect(status()).toMatch(/No QR code found/));
+    // The first picture, read last, holds a code: it was replaced, so it opens nothing.
+    read.text = "bitcoin:bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq";
+    pending[0]?.(bitmap);
+    await new Promise((resolve) => {
+      setTimeout(resolve, 30);
+    });
+    flush();
+    expect(onResult).not.toHaveBeenCalled();
+    expect(status()).toMatch(/No QR code found/);
+    vi.unstubAllGlobals();
+    dispose();
+  });
+
   it("reads a chosen picture, and hands on what its code holds", async () => {
     const { refuse } = camera();
     const { el, status, onResult, dispose } = open();
     refuse("NotFoundError");
     const close = vi.fn<() => void>();
     vi.stubGlobal("createImageBitmap", () => Promise.resolve({ width: 4, height: 4, close }));
-    const choose = (text: string | null) => {
-      read.text = text;
-      const input = el.querySelector<HTMLInputElement>('input[type="file"]');
-      if (!input) throw new Error("no file input");
-      Object.defineProperty(input, "files", {
-        value: [new File(["x"], "code.png", { type: "image/png" })],
-        configurable: true,
-      });
-      input.dispatchEvent(new Event("change"));
-    };
+    const choose = (text: string | null) => choosePicture(el, text);
     choose(null);
     await settle(() => expect(status()).toMatch(/No QR code found in that picture/));
     expect(onResult).not.toHaveBeenCalled();

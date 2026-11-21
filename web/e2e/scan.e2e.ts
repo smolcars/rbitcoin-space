@@ -102,6 +102,10 @@ test.describe("with jsQR", () => {
     await expect(panel.locator("q")).toHaveText(text);
     await expect(panel.locator("img")).toHaveCount(0);
     await expect(page).toHaveURL("/regtest/");
+    // Focus stays in the search, its answer next in the Tab order.
+    await expect(page.getByRole("button", { name: "Scan a QR code" })).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(panel.getByRole("link").first()).toBeFocused();
   });
 
   test("a picture with no code, or no picture at all, says so and keeps the scanner open", async ({
@@ -154,6 +158,32 @@ test.describe("when the scanner's files fail", () => {
   test.use({ consoleErrorsAllowed: [/status of 503/] });
   // WebKit keeps a failed import for the life of the page: there a retry waits for a reload.
   test.skip(({ browserName }) => browserName === "webkit", "WebKit holds a failed import");
+
+  test("Escape while the scanner downloads gives up opening it", async ({ page }) => {
+    let release: (() => void) | undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await page.route(/\/assets\/Scanner-[^/]+\.js$/, async (route) => {
+      await held;
+      await route.continue();
+    });
+    await page.goto("/regtest/");
+    const arrived = page.waitForResponse(/\/assets\/Scanner-[^/]+\.js$/);
+    const button = page.getByRole("button", { name: "Scan a QR code" });
+    await button.click();
+    await expect(button).toHaveAttribute("aria-busy", "true");
+    await page.keyboard.press("Escape");
+    await expect(button).toHaveAttribute("aria-busy", "false");
+    release?.();
+    await arrived;
+    await page.evaluate(async () => {
+      await new Promise((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(resolve));
+      });
+    });
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+  });
 
   test("the page stays, the button says so, and a second press opens it", async ({ page }) => {
     let fail = true;

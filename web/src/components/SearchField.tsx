@@ -198,7 +198,9 @@ export function SearchField(props: SearchFieldProps) {
     setBusy(false);
     if (outcome.kind === "go") {
       setText("");
-      input?.blur();
+      // The field, or its scan button after a scan: the search lets go of focus for the new page.
+      const focused = document.activeElement;
+      if (focused instanceof HTMLElement && root?.contains(focused)) focused.blur();
       navigate(onNetwork(net, outcome.path));
     } else {
       setMiss({ query, miss: outcome, scanned });

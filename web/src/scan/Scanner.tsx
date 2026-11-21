@@ -115,19 +115,27 @@ export default function Scanner(props: ScannerProps) {
     await tick();
   };
 
+  // Each camera request and each picture chosen is numbered: only the latest may act.
+  let asked = 0;
+  let chosen = 0;
+
   const startCamera = async () => {
+    // A code read: its result is on its way, and nothing may cancel it.
+    if (ended) return;
     stopCamera();
     setReaderFailed(false);
     setCamera({ kind: "starting" });
+    asked += 1;
+    const mine = asked;
     let live: MediaStream;
     try {
       live = await openCamera("mediaDevices" in navigator ? navigator.mediaDevices : undefined);
     } catch (error) {
-      if (!ended) setCamera({ kind: "off", problem: cameraProblem(error) });
+      if (!ended && mine === asked) setCamera({ kind: "off", problem: cameraProblem(error) });
       return;
     }
-    // Closed while the browser asked: the camera goes straight off again.
-    if (ended || !video) {
+    // Closed, or asked again, while the browser asked: this camera goes straight off again.
+    if (ended || mine !== asked || !video) {
       stopStream(live);
       return;
     }
@@ -144,23 +152,27 @@ export default function Scanner(props: ScannerProps) {
     await readFrames(live);
   };
 
-  const readPicture = async (chosen: File) => {
+  const readPicture = async (image: File) => {
+    chosen += 1;
+    const mine = chosen;
+    // Only the latest picture speaks: one chosen after it replaces it.
+    const current = () => !ended && mine === chosen;
     setPicture("reading");
     let bitmap: ImageBitmap;
     try {
-      bitmap = await createImageBitmap(chosen);
+      bitmap = await createImageBitmap(image);
     } catch {
-      if (!ended) setPicture("unreadable");
+      if (current()) setPicture("unreadable");
       return;
     }
     try {
       const reader = await decoder();
       const text = await readWays(reader, bitmap, bitmap.width, bitmap.height);
-      if (ended) return;
+      if (!current()) return;
       if (text === null) setPicture("nothing");
       else finish(text);
     } catch {
-      if (!ended) {
+      if (current()) {
         setPicture("idle");
         setReaderFailed(true);
       }
@@ -188,6 +200,7 @@ export default function Scanner(props: ScannerProps) {
     return c.kind === "live" ? c : undefined;
   };
   const canRetry = () => {
+    if (found()) return false;
     const c = camera();
     return (
       readerFailed() || (c.kind === "off" && (c.problem === "blocked" || c.problem === "busy"))
@@ -292,10 +305,10 @@ export default function Scanner(props: ScannerProps) {
           accept="image/*"
           hidden
           onChange={(e) => {
-            const chosen = e.currentTarget.files?.[0];
+            const picked = e.currentTarget.files?.[0];
             // Cleared, so choosing the same picture again reads it again.
             e.currentTarget.value = "";
-            if (chosen) void readPicture(chosen);
+            if (picked) void readPicture(picked);
           }}
         />
       </div>
