@@ -198,3 +198,67 @@ test("a picture chosen while the camera runs has the say over the camera", async
   });
   await expect(page).toHaveURL(`/regtest/tx/${chain.txs.consolidation}`);
 });
+
+test("an open picker holds the camera off, and closing it with nothing chosen hands back", async ({
+  page,
+}) => {
+  // The camera's frames find a transaction once the picker is open.
+  await page.addInitScript((text) => {
+    const state = { pickerOpen: false, frames: 0 };
+    function BarcodeDetector() {
+      return {
+        detect: () => {
+          if (state.pickerOpen) state.frames += 1;
+          return Promise.resolve(state.pickerOpen ? [{ rawValue: text }] : []);
+        },
+      };
+    }
+    BarcodeDetector.getSupportedFormats = () => Promise.resolve(["qr_code"]);
+    Object.assign(window, { BarcodeDetector, scanState: state });
+  }, chain.txs.payment);
+  await page.goto("/regtest/");
+  const dialog = await openScanner(page);
+  await expect(dialog.getByRole("status")).toHaveText("Hold the code inside the frame.");
+  const chooser = page.waitForEvent("filechooser");
+  await dialog.getByRole("button", { name: "Choose a picture" }).click();
+  await chooser;
+  await page.evaluate(() => {
+    (window as unknown as { scanState: { pickerOpen: boolean } }).scanState.pickerOpen = true;
+  });
+  await expect
+    .poll(async () =>
+      page.evaluate(
+        () => (window as unknown as { scanState: { frames: number } }).scanState.frames,
+      ),
+    )
+    .toBeGreaterThan(3);
+  await expect(page).toHaveURL("/regtest/");
+  // The picker closed with nothing chosen, as the browser says with `cancel`.
+  await dialog.locator('input[type="file"]').dispatchEvent("cancel");
+  await expect(page).toHaveURL(`/regtest/tx/${chain.txs.payment}`);
+});
+
+test.describe("when jsQR does not download at first", () => {
+  test.use({ consoleErrorsAllowed: [/status of 503/] });
+
+  test("the camera stops reading and says so, and a picture whose reader loads restarts it", async ({
+    page,
+  }) => {
+    let fail = true;
+    await page.route(/\/assets\/jsQR-[^/]+\.js$/, async (route) =>
+      fail ? route.fulfill({ status: 503, body: "" }) : route.continue(),
+    );
+    await page.goto("/regtest/");
+    const dialog = await openScanner(page);
+    await expect(dialog.getByRole("status")).toHaveText(/The code reader did not load/);
+    await expect(dialog.getByRole("button", { name: "Try again" })).toBeVisible();
+    fail = false;
+    // A file that is no picture: the reader loads for it, and the camera reads its code again.
+    const chooser = page.waitForEvent("filechooser");
+    await dialog.getByRole("button", { name: "Choose a picture" }).click();
+    await (
+      await chooser
+    ).setFiles({ name: "not.png", mimeType: "image/png", buffer: Buffer.alloc(0) });
+    await expect(page).toHaveURL(`/regtest/address/${chain.addresses.p2wpkh}`);
+  });
+});

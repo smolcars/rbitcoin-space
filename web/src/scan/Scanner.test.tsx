@@ -219,6 +219,7 @@ describe("Scanner", () => {
     const bitmap = { width: 4, height: 4, close() {} };
     choosePicture(el, null);
     choosePicture(el, null);
+    await vi.waitFor(() => expect(pending).toHaveLength(2));
     pending[1]?.(bitmap);
     await settle(() => expect(status()).toMatch(/No QR code found/));
     // The first picture, read last, holds a code: it was replaced, so it opens nothing.

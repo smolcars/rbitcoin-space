@@ -85,11 +85,16 @@ export default function Scanner(props: ScannerProps) {
   };
 
   const readFrames = async (live: MediaStream) => {
+    framesFor = live;
     let reader: Decoder;
     try {
       reader = await decoder();
     } catch {
-      if (stream === live) setReaderFailed(true);
+      // The camera shows but reads nothing: Try again, or a picture whose reader loads, restarts it.
+      if (stream === live) {
+        framesFor = undefined;
+        setReaderFailed(true);
+      }
       return;
     }
     // Each frame is read one of the decoder's ways, in turn: a frame is cheap, and the next comes.
@@ -113,7 +118,7 @@ export default function Scanner(props: ScannerProps) {
         }
         if (ended || stream !== live) return;
         // A picture being read has the say: the reader chose it over what the camera sees.
-        if (text !== null && !readingPicture) {
+        if (text !== null && !pictureFirst) {
           finish(text);
           return;
         }
@@ -126,8 +131,11 @@ export default function Scanner(props: ScannerProps) {
   // Each camera request and each picture chosen is numbered: only the latest may act.
   let asked = 0;
   let chosen = 0;
-  // A picture is being read: the camera's frames wait (a variable, read the moment it changes).
-  let readingPicture = false;
+  // The picker is open or a picture is being read: what the camera finds waits (a variable, so the
+  // frame loop reads it the moment it changes).
+  let pictureFirst = false;
+  // The stream whose frames are being read, if any.
+  let framesFor: MediaStream | undefined;
 
   const startCamera = async () => {
     // A code read: its result is on its way, and nothing may cancel it.
@@ -167,10 +175,22 @@ export default function Scanner(props: ScannerProps) {
     const mine = chosen;
     // Only the latest picture speaks: one chosen after it replaces it.
     const current = () => !ended && mine === chosen;
-    setReaderFailed(false);
     setPicture("reading");
-    readingPicture = true;
+    pictureFirst = true;
     try {
+      // The reader first: one that loads now clears its failure and restarts the camera's frames.
+      let reader: Decoder;
+      try {
+        reader = await decoder();
+      } catch {
+        if (current()) {
+          setPicture("idle");
+          setReaderFailed(true);
+        }
+        return;
+      }
+      setReaderFailed(false);
+      if (stream !== undefined && framesFor !== stream) void readFrames(stream);
       let bitmap: ImageBitmap;
       try {
         bitmap = await createImageBitmap(image);
@@ -180,7 +200,7 @@ export default function Scanner(props: ScannerProps) {
       }
       let text: string | null;
       try {
-        text = await readWays(await decoder(), bitmap, bitmap.width, bitmap.height);
+        text = await readWays(reader, bitmap, bitmap.width, bitmap.height);
       } catch {
         if (current()) {
           setPicture("idle");
@@ -194,7 +214,7 @@ export default function Scanner(props: ScannerProps) {
       if (text === null) setPicture("nothing");
       else finish(text);
     } finally {
-      if (mine === chosen) readingPicture = false;
+      if (mine === chosen) pictureFirst = false;
     }
   };
 
@@ -251,6 +271,8 @@ export default function Scanner(props: ScannerProps) {
       class={["scanner", { "scanner--found": found() }]}
       aria-labelledby={titleId}
       onCancel={(e) => {
+        // The file input's own cancel (its picker closed with nothing chosen) bubbles up to here.
+        if (e.target !== dialog) return;
         e.preventDefault();
         close();
       }}
@@ -304,7 +326,16 @@ export default function Scanner(props: ScannerProps) {
           {status()}
         </p>
         <div class="scanner__actions">
-          <button type="button" class="btn btn--accent" onClick={() => file?.click()}>
+          <button
+            type="button"
+            class="btn btn--accent"
+            onClick={() => {
+              // From the moment the picker opens: a code the camera finds meanwhile must not take
+              // the reader away from the picture being chosen.
+              pictureFirst = true;
+              file?.click();
+            }}
+          >
             Choose a picture
           </button>
           <Show when={canRetry()}>
@@ -321,6 +352,10 @@ export default function Scanner(props: ScannerProps) {
           type="file"
           accept="image/*"
           hidden
+          // Closed with nothing chosen: the camera has the say again.
+          onCancel={() => {
+            pictureFirst = false;
+          }}
           onChange={(e) => {
             const picked = e.currentTarget.files?.[0];
             // Cleared, so choosing the same picture again reads it again.
