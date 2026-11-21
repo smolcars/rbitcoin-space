@@ -905,6 +905,71 @@ test("nothing a label adds moves what loads by position: the head's height and t
       expect(results.get(`${state} ${w}`), `${state} at ${w} px`).toEqual(results.get(`none ${w}`));
 });
 
+test("in forced colours with large text the head and the chart stay put for a label too", async ({
+  browser,
+  baseURL,
+  extraHTTPHeaders,
+}) => {
+  test.setTimeout(120_000);
+  const address = chain.addresses.p2tr;
+  // A desktop with a fine pointer, forced colours (the tag gains a border) and a 22 px root.
+  const context = await browser.newContext({
+    ...(baseURL === undefined ? {} : { baseURL }),
+    ...(extraHTTPHeaders === undefined ? {} : { extraHTTPHeaders }),
+    forcedColors: "active",
+    viewport: { width: 1280, height: 900 },
+  });
+  const p = await context.newPage();
+  // The reader's own text size, as the browser's setting gives it: a 22 px root.
+  const cdp = await context.newCDPSession(p);
+  await cdp.send("Page.setFontSizes", { fontSizes: { standard: 22, fixed: 18 } });
+  try {
+    const measure = async (open: boolean, hasTag: boolean) => {
+      const out: number[] = [];
+      for (const [path, head, below] of [
+        [
+          `/regtest/address/${address}`,
+          ".address-head",
+          p.getByRole("region", { name: "Balance over time" }),
+        ],
+        [`/regtest/tx/${TX}`, ".tx-head", p.getByRole("region", { name: "Inputs and outputs" })],
+      ] as const) {
+        await p.goto(path);
+        await expect(below).toBeVisible();
+        await expect(p.locator('.state--loading, [aria-busy="true"]')).toHaveCount(0);
+        await expect(p.locator(`${head} .your-label`)).toHaveCount(hasTag ? 1 : 0);
+        if (open) {
+          await p.locator(`${head} .label-control__open`).click();
+          await expect(p.locator(".label-pop .label-editor__field")).toBeFocused();
+        }
+        out.push(
+          (await p.locator(head).boundingBox())?.height ?? Number.NaN,
+          (await below.boundingBox())?.y ?? Number.NaN,
+        );
+        if (open) await p.keyboard.press("Escape");
+      }
+      return out;
+    };
+    const none = await measure(false, false);
+    const opened = await measure(true, false);
+    await seedLabels(p, [
+      { type: "addr", ref: address, label: "rent" },
+      { type: "tx", ref: TX, label: "rent" },
+    ]);
+    const short = await measure(false, true);
+    await seedLabels(p, [
+      { type: "addr", ref: address, label: "w".repeat(255) },
+      { type: "tx", ref: TX, label: "w".repeat(255) },
+    ]);
+    const long = await measure(false, true);
+    expect(opened, "editor open").toEqual(none);
+    expect(short, "short label").toEqual(none);
+    expect(long, "255-character label").toEqual(none);
+  } finally {
+    await context.close();
+  }
+});
+
 test("a mainnet address's label is not shown above another network's answer", async ({ page }) => {
   const mainnet = "bc1q34aq5drpuwy3wgl9lhup9892qp6svr8ldzyy7c";
   await seedLabels(page, [{ type: "addr", ref: mainnet, label: "not here" }]);

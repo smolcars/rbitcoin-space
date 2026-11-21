@@ -43,11 +43,20 @@
   /* One line, never wrapping: the control keeps its width and the label gives way, cut with an
      ellipsis. This line is all the room the control takes: its editor opens over the page. */
   .label-control {
+    /* One height, whatever the row holds: the tag's line, its 1 px padding and its forced-colours
+       border on each side, or the button's own height, whichever is taller, at any text size. */
+    --label-row: max(28px, calc(var(--text-sm) * var(--leading-snug) + 4px));
     display: flex;
     flex-wrap: nowrap;
     align-items: center;
     gap: var(--space-3);
     min-width: 0;
+    height: var(--label-row);
+  }
+  @media (pointer: coarse) {
+    .label-control {
+      --label-row: max(var(--touch), calc(var(--text-sm) * var(--leading-snug) + 4px));
+    }
   }
   .label-control .your-label {
     flex: 0 1 auto;
