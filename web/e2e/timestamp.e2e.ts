@@ -485,6 +485,9 @@ test.describe("the slots in every state, width and text size", () => {
     [360, 24],
     [320, 32],
     [360, 32],
+    [700, 24],
+    [1280, 24],
+    [1280, 32],
   ];
   /** Every fault in the two slots as they are drawn now. */
   const faults = (page: Page) =>
@@ -539,8 +542,10 @@ test.describe("the slots in every state, width and text size", () => {
         if (n && line && n.scrollWidth > n.clientWidth + 1 && n.scrollWidth <= line.clientWidth)
           out.push(`${name}: "${n.textContent ?? ""}" is cut though it fits`);
       }
-      const [a, b] = slots.map((x) => x.getBoundingClientRect().height);
-      if (Math.abs((a ?? 0) - (b ?? -99)) > 1) out.push(`heights ${a} and ${b}`);
+      // Side by side, one height; stacked, each as tall as it holds, with no blank to fill.
+      const [a, b] = slots.map((x) => x.getBoundingClientRect());
+      if (a && b && Math.abs(a.top - b.top) < 1 && Math.abs(a.height - b.height) > 1)
+        out.push(`side by side, heights ${a.height} and ${b.height}`);
       return out;
     });
   const sweep = async (page: Page, state: string) => {

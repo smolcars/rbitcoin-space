@@ -17,8 +17,8 @@
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(min(18rem, 100%), 1fr));
     align-items: stretch;
-    /* Stacked on a phone too, the two are one height: each row as tall as the tallest. */
-    grid-auto-rows: 1fr;
+    /* Side by side the two are one height (stretched); stacked, each is as tall as it holds, as one
+       height there would only leave a blank under the shorter. */
     gap: var(--space-4);
     margin-top: var(--space-5);
   }
