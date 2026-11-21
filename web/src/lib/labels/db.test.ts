@@ -1,21 +1,21 @@
 import { flush } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { HINT, labelOf, recordKey } from "../labels";
-import { readFile } from "./bip329";
+import { MAX_BYTES, readFile } from "./bip329";
 import {
   exportFile,
-  planImport,
-  records,
+  previewImport,
+  readAll,
   remove,
   removeAll,
-  reset,
   resetStore,
   runImport,
   setLabel,
+  StaleImportError,
   VERSION,
 } from "./db";
 import { fakeIndexedDB, KeyRange } from "./fake-idb";
-import { refresh } from "./store";
+import { changed, refresh } from "./store";
 
 const TXID = "f91d0a8a78462bc59398f2c5d7a84fcff491c26ba54c4833478b202796c8aafd";
 const ADDR = "bc1q34aq5drpuwy3wgl9lhup9892qp6svr8ldzyy7c";
@@ -24,7 +24,6 @@ let fake: ReturnType<typeof fakeIndexedDB>;
 const use = (options?: Parameters<typeof fakeIndexedDB>[0]) => {
   fake = fakeIndexedDB(options);
   Object.defineProperty(globalThis, "indexedDB", { value: fake.factory, configurable: true });
-  reset();
   resetStore();
 };
 
@@ -43,11 +42,10 @@ const shown = (type: Parameters<typeof labelOf>[0], ref: string) => {
 };
 
 const lines = async (text: string) => (await readFile(text)).records;
-const importText = async (text: string) => runImport(await planImport(await lines(text)));
+const importText = async (text: string) => runImport(await previewImport(await lines(text)));
 
 /** As a reload: what this tab read is forgotten and read again from the store. */
 const reload = async () => {
-  reset();
   resetStore();
   await refresh();
 };
@@ -116,7 +114,7 @@ describe("the label store", () => {
   it("imports by BIP329's rule: the file's label wins, an omitted one keeps the reader's", async () => {
     await setLabel("tx", TXID, "mine");
     await setLabel("addr", ADDR, "mine too");
-    const plan = await planImport(
+    const plan = await previewImport(
       await lines(
         [
           `{"type":"tx","ref":"${TXID}","label":"theirs"}`,
@@ -170,34 +168,36 @@ describe("the label store", () => {
       (_, i) => `{"type":"output","ref":"${TXID}:${i}","label":"coin ${i}"}`,
     ).join("\n");
     const seen: number[] = [];
-    await runImport(await planImport(await lines(text)), (done) => seen.push(done));
+    await runImport(await previewImport(await lines(text)), (done) => seen.push(done));
     expect(seen).toHaveLength(100);
     expect(shown("output", `${TXID}:99999`)).toBe("coin 99999");
     await reload();
     expect(shown("output", `${TXID}:99999`)).toBe("coin 99999");
-    reset();
-    expect((await records()).size).toBe(100_000);
+    resetStore();
+    expect((await readAll()).records).toHaveLength(100_000);
   }, 60_000);
 });
 
 describe("a change made against an older read", () => {
   it("refuses a plan made before another change, so a newer label is never undone", async () => {
     await setLabel("tx", TXID, "old");
-    const plan = await planImport(await lines(`{"type":"tx","ref":"${TXID}","height":800000}`));
+    const plan = await previewImport(await lines(`{"type":"tx","ref":"${TXID}","height":800000}`));
     // Another tab, or the editor, changes the label after the file was read.
     await setLabel("tx", TXID, "newer");
     await expect(runImport(plan)).rejects.toMatchObject({ kind: "stale" });
     expect(shown("tx", TXID)).toBe("newer");
     // Planned again, the file's line keeps the newer label.
-    await runImport(await planImport(await lines(`{"type":"tx","ref":"${TXID}","height":800000}`)));
+    await runImport(
+      await previewImport(await lines(`{"type":"tx","ref":"${TXID}","height":800000}`)),
+    );
     expect((await exportFile()).text).toBe(
       `{"type":"tx","ref":"${TXID}","height":800000,"label":"newer"}\n`,
     );
   });
 
   it("lets only one of two plans made together pass, so they cannot pass the limit together", async () => {
-    const a = await planImport(await lines(`{"type":"tx","ref":"${TXID}","label":"a"}`));
-    const b = await planImport(await lines(`{"type":"addr","ref":"${ADDR}","label":"b"}`));
+    const a = await previewImport(await lines(`{"type":"tx","ref":"${TXID}","label":"a"}`));
+    const b = await previewImport(await lines(`{"type":"addr","ref":"${ADDR}","label":"b"}`));
     await runImport(a);
     await expect(runImport(b)).rejects.toMatchObject({ kind: "stale" });
     expect(shown("addr", ADDR)).toBeUndefined();
@@ -211,7 +211,7 @@ describe("a change made against an older read", () => {
     const row = db?.tables.get("records")?.rows.get(key) as { line: string };
     row.line = `{"type":"output","ref":"${TXID}:0","label":"x","spendable":false}`;
     await setLabel("output", `${TXID}:0`, "y");
-    reset();
+    resetStore();
     expect((await exportFile()).text).toBe(
       `{"type":"output","ref":"${TXID}:0","label":"y","spendable":false}\n`,
     );
@@ -228,7 +228,7 @@ describe("when storage fails", () => {
 
   it("says so when opening throws or fails, and tries again next time", async () => {
     use({ throwOnOpen: true });
-    await expect(records()).rejects.toMatchObject({ kind: "unavailable" });
+    await expect(readAll()).rejects.toMatchObject({ kind: "unavailable" });
     use({ failOpen: true });
     await expect(refresh()).rejects.toMatchObject({ kind: "unavailable" });
     // The failure is not kept: once the store answers, the next call opens it.
@@ -248,15 +248,15 @@ describe("when storage fails", () => {
     async (quotaAt) => {
       use({ room: 2, quotaAt });
       await setLabel("tx", TXID, "a");
-      const plan = await planImport(
+      const plan = await previewImport(
         await lines(
           [0, 1, 2].map((i) => `{"type":"output","ref":"${TXID}:${i}","label":"c"}`).join("\n"),
         ),
       );
       await expect(runImport(plan)).rejects.toMatchObject({ kind: "full" });
       expect(shown("output", `${TXID}:0`)).toBeUndefined();
-      reset();
-      expect((await records()).size).toBe(1);
+      resetStore();
+      expect((await readAll()).records).toHaveLength(1);
     },
   );
 
@@ -320,6 +320,100 @@ describe("the store's versions", () => {
     expect(shown("tx", TXID)).toBeUndefined();
     await setLabel("tx", TXID, "new");
     expect(shown("tx", TXID)).toBe("new");
-    expect([...(await records()).keys()]).toStrictEqual([recordKey("tx", TXID, undefined)]);
+    expect((await readAll()).records.map((r) => r.key)).toStrictEqual([
+      recordKey("tx", TXID, undefined),
+    ]);
+  });
+});
+
+/** localStorage refusing everything: no hint is written, so no tab hears another's change. */
+const blockHint = () => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    get() {
+      throw new DOMException("blocked", "SecurityError");
+    },
+  });
+  return () => {
+    if (original) Object.defineProperty(globalThis, "localStorage", original);
+  };
+};
+
+describe("one truth: the database", () => {
+  it("refuses an import whose preview another tab's edit and then this tab's own made old", async () => {
+    const unblock = blockHint();
+    try {
+      await setLabel("tx", TXID, "old");
+      // Tab A reads the file and previews it; its line leaves the label out.
+      const preview = await previewImport(
+        await lines(`{"type":"tx","ref":"${TXID}","height":800000}`),
+      );
+      // Tab B changes the label; A hears nothing (no hint), then A saves a label of its own.
+      await setLabel("tx", TXID, "newer, from tab B");
+      await setLabel("addr", ADDR, "A's own");
+      const refused = runImport(preview);
+      await expect(refused).rejects.toBeInstanceOf(StaleImportError);
+      expect(shown("tx", TXID)).toBe("newer, from tab B");
+      // The refusal carries the import worked out against the store as it is now.
+      const fresh = (await refused.catch((e: unknown) => e)) as StaleImportError;
+      await runImport(fresh.fresh);
+      expect((await exportFile()).text.split("\n")[0]).toBe(
+        `{"type":"tx","ref":"${TXID}","height":800000,"label":"newer, from tab B"}`,
+      );
+    } finally {
+      unblock();
+    }
+  });
+
+  it("throws away a page's read that a write overlapped, and reads again", async () => {
+    const text = Array.from(
+      { length: 5000 },
+      (_, i) => `{"type":"output","ref":"${TXID}:${i}","label":"coin ${i}"}`,
+    ).join("\n");
+    await importText(text);
+    resetStore();
+    // A read in flight, over more rows than one slice...
+    const reading = refresh();
+    await new Promise((resolve) => {
+      setTimeout(resolve, 0);
+    });
+    // ...when another tab writes straight into the store and its storage event arrives.
+    const rows = fake.databases.get("rbitcoin-labels")?.tables.get("shown")?.rows;
+    const key = recordKey("output", `${TXID}:0`, undefined);
+    rows?.set(key, { key, at: `output:${TXID}:0`, label: "from tab B", plain: true, seq: 1 });
+    const heard = changed();
+    await reading;
+    await heard;
+    expect(shown("output", `${TXID}:0`)).toBe("from tab B");
+    expect(shown("output", `${TXID}:4999`)).toBe("coin 4999");
+  });
+
+  it("refuses an edit that would pass the text this browser keeps", async () => {
+    await setLabel("tx", TXID, "a");
+    fake.databases
+      .get("rbitcoin-labels")
+      ?.tables.get("meta")
+      ?.rows.set("bytes", MAX_BYTES - 10);
+    await expect(setLabel("addr", ADDR, "x".repeat(200))).rejects.toMatchObject({
+      kind: "too-big",
+    });
+    expect(shown("addr", ADDR)).toBeUndefined();
+  });
+
+  it("opens again after a failure that came at once, not keeping the failure", async () => {
+    use({ throwOnOpen: true });
+    await expect(setLabel("tx", TXID, "x")).rejects.toMatchObject({ kind: "unavailable" });
+    Object.defineProperty(globalThis, "indexedDB", {
+      value: fakeIndexedDB().factory,
+      configurable: true,
+    });
+    await setLabel("tx", TXID, "x");
+    expect(shown("tx", TXID)).toBe("x");
+  });
+
+  it("asks for a reload when the store is newer than this page", async () => {
+    use({ versionError: true });
+    await expect(setLabel("tx", TXID, "x")).rejects.toMatchObject({ kind: "outdated" });
   });
 });

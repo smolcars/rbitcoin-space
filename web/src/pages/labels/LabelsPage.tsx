@@ -28,12 +28,12 @@ import {
   failureWords,
   type ImportPlan,
   LabelStoreError,
-  planImport,
-  records,
+  previewImport,
   remove,
   removeAll,
+  readAll,
   runImport,
-  snapshot,
+  StaleImportError,
   type Stored,
 } from "../../lib/labels/db";
 import { type Network, onNetwork, paths } from "../../lib/network";
@@ -109,10 +109,9 @@ export default function LabelsPage() {
   const [outdated, setOutdated] = createSignal(false);
   const [list, setList] = createSignal<Stored[]>([]);
   const read = () => {
-    records()
-      .then(() => {
+    readAll()
+      .then(({ records: kept }) => {
         // Newest first.
-        const kept = snapshot();
         const out: Stored[] = [];
         for (let i = kept.length - 1; i >= 0; i--) out.push(kept[i] as Stored);
         setList(out);
@@ -124,8 +123,7 @@ export default function LabelsPage() {
         setState("off");
       });
   };
-  // Read on arrival and after every change, from this page, an editor or another tab: what was
-  // read is kept by the store, so a change made here costs no second read.
+  // Read whole on arrival and after every change, from this page, an editor or another tab.
   createEffect(labelsVersion, read);
   const retry = () => {
     // Another tab updated the site: only a reload of this one can open its store again.
@@ -261,7 +259,7 @@ function Manager(props: { all: Stored[]; network: Network }) {
 
   /** Says what importing what was read would do, against the labels as they are now. */
   const plan = async (run: number, name: string, read: ReadFile, again = false) => {
-    const next = await planImport(read.records);
+    const next = await previewImport(read.records);
     const long = read.records.filter((r) => (r.label?.length ?? 0) > MAX_LABEL).length;
     if (run === reading)
       setPhase({ kind: "planned", name, read, plan: next, long, ...(again ? { again } : {}) });
@@ -279,18 +277,12 @@ function Manager(props: { all: Stored[]; network: Network }) {
           `Imported ${groupDigits(total)} ${total === 1 ? "label" : "labels"}. The server learned nothing from it.`,
         );
       })
-      .catch(async (e: unknown) => {
-        // Labels changed since the plan, here or in another tab: plan again and say so, rather
-        // than lay an old plan over a newer label.
-        if (e instanceof LabelStoreError && e.kind === "stale") {
-          try {
-            await plan(run, p.name, p.read, true);
-            return;
-          } catch (error) {
-            setPhase({ kind: "idle" });
-            fail(error);
-            return;
-          }
+      .catch((e: unknown) => {
+        // Labels changed since the preview, here or in another tab: nothing was written, and the
+        // refused write worked out what importing would do now. Show that, and say so.
+        if (e instanceof StaleImportError) {
+          if (run === reading) setPhase({ ...p, plan: e.fresh, again: true });
+          return;
         }
         setPhase({ kind: "idle" });
         fail(e);

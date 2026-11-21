@@ -11,6 +11,8 @@ interface Options {
   throwOnOpen?: boolean;
   /** Opening fails with an error event, as some private windows do. */
   failOpen?: boolean;
+  /** Opening fails with a VersionError: the store is newer than the page asking for it. */
+  versionError?: boolean;
   /** Opening never answers, as a blocked upgrade or a stuck browser. */
   hangOpen?: boolean;
   /** More rows than this in the records store fail with QuotaExceededError. */
@@ -31,8 +33,9 @@ interface Range {
   lowerOpen: boolean;
 }
 
-const above = (k: Key, r: Range | undefined) =>
-  r === undefined || (r.lowerOpen ? k > r.lower : k >= r.lower);
+/** Whether a key matches a query: none, a lower bound, or one key. */
+const above = (k: Key, r: Range | Key | undefined) =>
+  r === undefined || (typeof r === "object" ? (r.lowerOpen ? k > r.lower : k >= r.lower) : k === r);
 
 class FakeRequest extends EventTarget {
   result: unknown;
@@ -60,7 +63,7 @@ class FakeIndex {
     this.store = store;
     this.path = path;
   }
-  getAll(range?: Range, count?: number): FakeRequest {
+  getAll(range?: Range | Key, count?: number): FakeRequest {
     return this.store.tx.queue(() => {
       const rows = [...this.store.rows().values()] as Row[];
       const by = (r: Row) => r[this.path] as Key;
@@ -131,7 +134,12 @@ class FakeStore {
     return this.tx.queue(() => {
       this.rows().set(k, copy);
       const { room, quotaAt } = this.tx.db.options;
-      if (room !== undefined && quotaAt === "request" && this.rows().size > room)
+      if (
+        room !== undefined &&
+        quotaAt === "request" &&
+        this.name === "records" &&
+        this.rows().size > room
+      )
         throw new DOMException("full", "QuotaExceededError");
       return k;
     });
@@ -154,7 +162,7 @@ class FakeStore {
       return undefined;
     });
   }
-  getAll(range?: Range, count?: number): FakeRequest {
+  getAll(range?: Range | Key, count?: number): FakeRequest {
     return this.tx.queue(() => {
       const rows = this.rows();
       return sortedKeys(rows)
@@ -270,6 +278,9 @@ class FakeDatabase extends EventTarget {
     this.tables.set(name, { keyPath: opts?.keyPath, rows: new Map(), indexes: new Map() });
     return new FakeStore(this.upgrading as FakeTransaction, name);
   }
+  get objectStoreNames(): string[] {
+    return [...this.tables.keys()];
+  }
   deleteObjectStore(name: string): void {
     this.tables.delete(name);
   }
@@ -294,8 +305,11 @@ export function fakeIndexedDB(options: Options = {}) {
       const req = new FakeRequest();
       if (options.hangOpen === true) return req;
       setTimeout(() => {
-        if (options.failOpen === true) {
-          req.error = new DOMException("no", "InvalidStateError");
+        if (options.failOpen === true || options.versionError === true) {
+          req.error =
+            options.versionError === true
+              ? new DOMException("newer", "VersionError")
+              : new DOMException("no", "InvalidStateError");
           req.dispatchEvent(new Event("error"));
           return;
         }

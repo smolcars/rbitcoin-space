@@ -2,7 +2,7 @@ import { flush } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mount } from "../../components/test-utils";
 import { readFile } from "../../lib/labels/bip329";
-import { planImport, reset, resetStore, runImport } from "../../lib/labels/db";
+import { previewImport, resetStore, runImport } from "../../lib/labels/db";
 import { fakeIndexedDB, KeyRange } from "../../lib/labels/fake-idb";
 import LabelsPage, { pageOf, typeName } from "./LabelsPage";
 
@@ -53,7 +53,6 @@ describe("the manager", () => {
       value: fakeIndexedDB().factory,
       configurable: true,
     });
-    reset();
     resetStore();
   });
   afterEach(() => {
@@ -68,7 +67,7 @@ describe("the manager", () => {
 
   it("lists and exports a record named like a plain object's own members", async () => {
     const line = `{"type":"constructor","ref":"__proto__","label":"test"}`;
-    await runImport(await planImport((await readFile(line)).records));
+    await runImport(await previewImport((await readFile(line)).records));
     const el = mount(() => <LabelsPage />, "/regtest/labels");
     await until(() => (el.textContent ?? "").includes("Other (constructor)"));
     expect(el.textContent).toContain("Other (constructor)");

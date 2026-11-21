@@ -63,16 +63,16 @@ export function LabelEditor(props: EditorProps) {
         <button type="submit" class="btn btn--accent" disabled={busy()}>
           Save label
         </button>
-        <Show when={props.current !== undefined}>
-          <button
-            type="button"
-            class="btn"
-            disabled={busy()}
-            onClick={() => write(null, "Label removed")}
-          >
-            Remove label
-          </button>
-        </Show>
+        {/* Always there, so the editor lays out the same with a label or without one: whether a
+            label exists never moves what follows the page's head. */}
+        <button
+          type="button"
+          class="btn"
+          disabled={busy() || props.current === undefined}
+          onClick={() => write(null, "Label removed")}
+        >
+          Remove label
+        </button>
         <button type="button" class="btn" onClick={() => props.done()}>
           Cancel
         </button>
