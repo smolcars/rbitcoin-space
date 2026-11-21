@@ -860,7 +860,11 @@ describe("hostile addresses", () => {
     const long = shownAddress("a".repeat(500));
     expect(long.title).toBe(`${"a".repeat(TITLE_MAX)}…`);
     expect(long.short).toBe("aaaaaaaa…aaaaaaaa");
-    expect(shownAddress("bcrt1qme")).toStrictEqual({ short: "bcrt1qme", title: "bcrt1qme" });
+    expect(shownAddress("bcrt1qme")).toStrictEqual({
+      short: "bcrt1qme",
+      title: "bcrt1qme",
+      cut: 0,
+    });
   });
 });
 
@@ -1053,7 +1057,7 @@ describe("what this checks", () => {
       {
         text: "Which output is change, from four readings:",
         readings: [
-          "An output paying the same address an input spends from, which an observer may read as going back to the sender. This one decides.",
+          "The only output paying the same address an input spends from, which an observer may read as going back to the sender. This one decides.",
           "One round amount beside one that is not: the round one suggests the payment.",
           "The only one of two outputs checked of the inputs' script type: it suggests the change.",
           "The smaller of two outputs checked being less than the least spent from any one funding address, while the larger is not: if the wallet would not add coins it did not need, the larger suggests the payment.",
@@ -1196,21 +1200,72 @@ describe("what the rules counted, by name", () => {
 });
 
 describe("a number or an address in a real sentence", () => {
-  it("keeps the punctuation after it in its tail, in every finding this file says", () => {
-    // Runs last: `seen` holds a finding of every kind and reading from the tests above.
-    expect(new Set(seen.map((x) => x.kind))).toStrictEqual(
+  /** Sentences whose number or address is followed by punctuation outside its tail. */
+  const splits = (x: Said): string[] =>
+    [x.title, ...x.body, ...x.reasons].flatMap((sentence) => {
+      const rs = runs(sentence);
+      return rs.some((r, k) => {
+        const next = rs[k + 1];
+        return (
+          !("text" in r) && next !== undefined && "text" in next && /^[,.;:)!?]/.test(next.text)
+        );
+      })
+        ? [plain(sentence)]
+        : [];
+    });
+  const coins = (n: number, value: number, to: string) =>
+    Array.from({ length: n }, (_, k) => ({ value, to: `${to}${k}` }));
+
+  it("keeps the punctuation after it in its tail, in every kind and reading", () => {
+    const cases: Transaction[] = [
+      // Reuse in and out, and change by pay-back, round amount, script type and smallest coin.
+      tx(
+        [
+          { value: 150_003, to: "a" },
+          { value: 4_990_003, to: "b" },
+        ],
+        [
+          { value: 5_000_000, to: "x", type: "v1_p2tr" },
+          { value: 100_001, to: "a" },
+        ],
+      ),
+      // Readings that disagree, the smallest coin among them: "(input 0), and".
+      tx(
+        [
+          { value: 150_003, to: "a" },
+          { value: 4_990_003, to: "b" },
+        ],
+        [
+          { value: 5_000_000, to: "x" },
+          { value: 100_001, to: "y", type: "v1_p2tr" },
+        ],
+      ),
+      // Reuse among inputs only and among outputs only, several listed: "0, 1".
+      tx(
+        Array.from({ length: 3 }, () => ({ value: 100_000, to: "same" })),
+        [
+          { value: 100_001, to: "out" },
+          { value: 100_002, to: "out" },
+        ],
+      ),
+      // A CoinJoin, one group and several.
+      tx(coins(3, 2_000_000, "i"), coins(3, 1_000_000, "o")),
+      tx(coins(7, 2_000_000, "i"), [...coins(4, 1_000_000, "a"), ...coins(3, 50_000, "b")]),
+      // Coins spent together, listed: "Inputs 0, 1 and 2".
+      tx(coins(3, 100_000, "t"), [{ value: 290_000, to: "x" }]),
+    ];
+    const all = cases.flatMap((t) => {
+      const fs = checkPrivacy(t).findings;
+      return fs.map((f) => sayFinding(f, fs));
+    });
+    expect(new Set(all.map((x) => x.kind))).toStrictEqual(
       new Set(["reuse", "change", "change-disputed", "coinjoin", "spent-together"]),
     );
-    const split: string[] = [];
-    for (const x of seen)
-      for (const sentence of [x.title, ...x.body, ...x.reasons]) {
-        const rs = runs(sentence);
-        rs.forEach((r, k) => {
-          const next = rs[k + 1];
-          if (!("text" in r) && next && "text" in next && /^[,.;:)!?]/.test(next.text))
-            split.push(plain(sentence));
-        });
-      }
-    expect(split).toStrictEqual([]);
+    expect(all.flatMap((x) => splits(x))).toStrictEqual([]);
+  });
+
+  it("does the same for every finding the tests above say", () => {
+    // Each `said` above records its finding; run with the file, this covers every form held.
+    expect(seen.flatMap((x) => splits(x))).toStrictEqual([]);
   });
 });

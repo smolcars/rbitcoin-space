@@ -159,7 +159,7 @@ function Words(props: { s: Sentence }) {
         // An address may break after its "…", never inside its head or its tail, and the
         // punctuation after it stays with its tail: at large text on a phone it then fits.
         const a = shownAddress(run.address);
-        const cut = a.short.indexOf("…") + 1;
+        const cut = a.cut;
         return (
           <span class="pv-addr" title={a.title}>
             <Show when={cut > 0}>

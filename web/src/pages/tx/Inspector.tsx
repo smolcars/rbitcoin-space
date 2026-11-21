@@ -90,13 +90,22 @@ export function Inspector(props: {
 }) {
   const title = () =>
     `${props.selected.side === "in" ? "Input" : "Output"} ${props.selected.index}`;
+  // What opened these details, a card's button or a number in the privacy check: closing them
+  // gives it the focus back, so a keyboard reader carries on from where they were.
+  const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  const close = () => {
+    props.onClose();
+    requestAnimationFrame(() => {
+      if (opener?.isConnected === true) opener.focus();
+    });
+  };
   return (
     <section class="tx-inspector" id="tx-inspector" aria-labelledby="tx-inspector-title">
       <div class="tx-inspector__head">
         <h3 id="tx-inspector-title" tabindex="-1" ref={props.ref}>
           {title()}
         </h3>
-        <button class="btn" type="button" onClick={() => props.onClose()}>
+        <button class="btn" type="button" onClick={close}>
           Close
         </button>
       </div>

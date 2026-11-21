@@ -102,14 +102,12 @@
   .pv-addr__part {
     white-space: nowrap;
   }
-  /* A number or an address and the punctuation after it never part across lines. The mark sits
-     against the chip, and the room a chip's targets need is taken after the mark instead: in
-     "0, 1, 2" neighbours' targets stay 24 px apart. */
+  /* A number and the punctuation after it never part across lines (an address keeps its own in
+     its tail, above). The mark sits against the chip, and the room a chip's target needs is taken
+     after the mark instead: in "0, 1, 2" neighbours' targets stay 24 px apart. */
   .pv-ref-tail {
-    white-space: nowrap;
-  }
-  .pv-ref-tail:has(> .pv-ref) {
     margin-right: 3px;
+    white-space: nowrap;
   }
   .pv-ref-tail > .pv-ref {
     padding-right: 2px;

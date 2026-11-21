@@ -43,6 +43,11 @@ test("a coinbase shows as new coins and pays no fee", async ({ page, request }) 
   const block = await request.get(`/regtest/api/block/${chain.blocks[1]}/txid/0`);
   await page.goto(`/regtest/tx/${await block.text()}`);
   await expect(page.getByRole("list", { name: "Inputs" })).toContainText("Coinbase");
+  // Numbered like every other card, as its details button names it.
+  await expect(page.getByRole("list", { name: "Inputs" }).locator(".tx-flow__index")).toHaveText([
+    "#0",
+  ]);
+  await expect(page.getByRole("button", { name: "Details of input 0" })).toBeVisible();
   await expect(page.getByText("A coinbase,")).toBeVisible();
   // Long past the hundred blocks a reward waits for.
   await expect(page.getByText(/^Spendable: [\d\u202F]+ confirmations$/)).toBeVisible();

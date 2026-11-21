@@ -25,14 +25,15 @@ export const TITLE_MAX = 128;
  * An address as a sentence shows it: cut to its first and last eight characters as the site
  * shortens addresses, each hidden character a replacement character; and its title whole up to
  * `TITLE_MAX` characters, each hidden character written as its code point (`\u{202E}`, a
- * backslash as `\\`), so two different strings never share a title.
+ * backslash as `\\`), so two different strings never share a title; and `cut`, where in `short` a
+ * line may break (after its "…"), 0 when it is whole.
  */
-export function shownAddress(address: string): { short: string; title: string } {
+export function shownAddress(address: string): { short: string; title: string; cut: number } {
   // By code point, so a character outside the basic plane is never cut in half.
   const chars = address.match(/[\s\S]/gu) ?? [];
   const seen = chars.map((c) => (HIDDEN_ONE.test(c) ? "\uFFFD" : c));
-  const short =
-    seen.length > 17 ? `${seen.slice(0, 8).join("")}…${seen.slice(-8).join("")}` : seen.join("");
+  const head = seen.length > 17 ? `${seen.slice(0, 8).join("")}…` : "";
+  const short = head ? `${head}${seen.slice(-8).join("")}` : seen.join("");
   const escaped = chars
     .slice(0, TITLE_MAX)
     .map((c) =>
@@ -43,7 +44,8 @@ export function shownAddress(address: string): { short: string; title: string } 
           : c,
     );
   const title = `${escaped.join("")}${chars.length > TITLE_MAX ? "…" : ""}`;
-  return { short, title };
+  // Where a line may break: after the "…" this function put there, never one in the address.
+  return { short, title, cut: head.length };
 }
 
 /** An input or an output, by its index: the page links it to its card. */
@@ -554,7 +556,7 @@ export const CHECKS: readonly Check[] = [
   {
     text: "Which output is change, from four readings:",
     readings: [
-      "An output paying the same address an input spends from, which an observer may read as going back to the sender. This one decides.",
+      "The only output paying the same address an input spends from, which an observer may read as going back to the sender. This one decides.",
       "One round amount beside one that is not: the round one suggests the payment.",
       "The only one of two outputs checked of the inputs' script type: it suggests the change.",
       "The smaller of two outputs checked being less than the least spent from any one funding address, while the larger is not: if the wallet would not add coins it did not need, the larger suggests the payment.",

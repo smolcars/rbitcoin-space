@@ -128,6 +128,9 @@ export const needsSecondThought = (w: Warnings): boolean => w.rate !== null || w
  * Sends the transaction (`POST /api/tx`) and gives its txid. Never retried by itself: a refusal is
  * shown, and the reader decides whether to press again.
  */
+/** A reply to a broadcast that is not this transaction's txid. */
+export const UNREADABLE = "The server sent a reply that could not be read.";
+
 export async function broadcast(
   network: Network,
   hex: string,
@@ -155,8 +158,7 @@ export async function broadcast(
     );
   }
   const txid = (await res.text()).trim();
-  if (!isHash(txid))
-    throw new ApiError(res.status, "The server sent a reply that could not be read.");
+  if (!isHash(txid)) throw new ApiError(res.status, UNREADABLE);
   return txid;
 }
 

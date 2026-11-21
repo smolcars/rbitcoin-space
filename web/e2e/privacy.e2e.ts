@@ -185,6 +185,29 @@ test("a number far down the flow opens that card's details, never every card bef
   await expect(page.locator("#tx-inspector")).toContainText(chain.addresses.miner.slice(-8));
   await expect(cards).toHaveCount(110);
   await expect(page.locator(".tx-ribbon")).not.toHaveCount(3_002);
+
+  // Closed, they give the focus back to the number that opened them.
+  const far = section.getByRole("link", { name: "Show output 2999" });
+  await page.locator("#tx-inspector").getByRole("button", { name: "Close" }).click();
+  await expect(far).toBeFocused();
+  // And from the keyboard.
+  await far.press("Enter");
+  await expect(page.getByRole("heading", { name: "Output 2999" })).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(page.locator("#tx-inspector").getByRole("button", { name: "Close" })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(far).toBeFocused();
+
+  // Narrow, the details open under the list, which stays in view: following the number again
+  // while they are open brings them back and focuses them.
+  await page.setViewportSize({ width: 360, height: 780 });
+  await far.click();
+  const heading = page.getByRole("heading", { name: "Output 2999" });
+  await expect(heading).toBeFocused();
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await far.click();
+  await expect(heading).toBeFocused();
+  await expect(heading).toBeInViewport();
 });
 
 /** Each output card's meta line now: its children's text and line top, to say what wrapped. */

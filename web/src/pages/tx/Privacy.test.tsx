@@ -161,3 +161,52 @@ describe("a number in a sentence", () => {
     ]);
   });
 });
+
+describe("an address in a sentence", () => {
+  /** Inputs 0 and 1 both from `address`, to one output: "…spend from <address>: an observer…". */
+  function both(address: string): Transaction {
+    const me = out(address, 100_000, `0014${"33".repeat(20)}`);
+    const t = payback("bcrt1qunused");
+    return {
+      ...t,
+      vin: [0, 1].map((n) => ({
+        txid: String(n).repeat(64),
+        vout: 0,
+        is_coinbase: false,
+        prevout: me,
+      })),
+      vout: [out("bcrt1qyou", 190_000, `0014${"22".repeat(20)}`)],
+    };
+  }
+  const parts = (el: HTMLElement) => {
+    const addr = el.querySelector(".pv-item .pv-addr");
+    return {
+      parts: [...(addr?.querySelectorAll(".pv-addr__part") ?? [])].map((p) => p.textContent),
+      breaks: addr?.querySelectorAll("wbr").length,
+      breakAfterHead: addr?.querySelector(".pv-addr__part + wbr") !== null,
+    };
+  };
+
+  it("may break after its ellipsis only, and keeps the mark after it with its tail", () => {
+    const el = mount(() => (
+      <TxPrivacy place="under" report={checkPrivacy(both("bcrt1qaaaaaaaaaaaaaaaaaazzzz"))} />
+    ));
+    expect(parts(el)).toStrictEqual({
+      parts: ["bcrt1qaa…", "aaaazzzz:"],
+      breaks: 1,
+      breakAfterHead: true,
+    });
+  });
+
+  it("an ellipsis of its own in its first characters does not move the break", () => {
+    const el = mount(() => (
+      <TxPrivacy place="under" report={checkPrivacy(both("bc…1qaaaaaaaaaaaaaaaazzzz"))} />
+    ));
+    expect(parts(el).parts).toStrictEqual(["bc…1qaaa…", "aaaazzzz:"]);
+  });
+
+  it("a short one is whole, its mark kept with it", () => {
+    const el = mount(() => <TxPrivacy place="under" report={checkPrivacy(both("bcrt1qme"))} />);
+    expect(parts(el)).toStrictEqual({ parts: ["bcrt1qme:"], breaks: 0, breakAfterHead: false });
+  });
+});

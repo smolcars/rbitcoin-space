@@ -233,7 +233,14 @@ export function Flow(props: {
     // Past one more press of "Show more" the card is not drawn: every card before it would be,
     // thousands on a large payout. Its details open instead, as its own button opens them.
     if (need - presses > 1) {
-      if (!isSel(side, index)) props.onSelect({ side, index });
+      clearFlash();
+      // Already open (the list stays in view above them on a phone): bring them back and focus them.
+      if (isSel(side, index)) {
+        const heading = document.getElementById("tx-inspector-title");
+        const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+        heading?.scrollIntoView({ block: "nearest", behavior: reduce ? "auto" : "smooth" });
+        heading?.focus({ preventScroll: true });
+      } else props.onSelect({ side, index });
       return;
     }
     if (need > presses) (side === "in" ? setInPresses : setOutPresses)(need);
@@ -341,7 +348,10 @@ export function Flow(props: {
               <span class="tx-flow__amt">
                 <Amount sats={totalOut(props.tx)} unit={false} wrap />
               </span>
-              <span class="tx-flow__meta">New coins and fees</span>
+              <span class="tx-flow__meta">
+                <Index n={0} />
+                <span>New coins and fees</span>
+              </span>
               <Memo t={coinbaseText(props.tx)} label={false} />
               {openButton("in", 0)}
             </li>

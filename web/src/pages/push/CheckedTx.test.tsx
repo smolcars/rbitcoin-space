@@ -214,6 +214,48 @@ describe("whether its outputs are spent", () => {
     expect(details(el, 1)).toContain("Being spent");
   });
 
+  it("while the reply is awaited, nothing says whether its outputs are spent", () => {
+    answer = () =>
+      new Promise<Response>(() => {
+        // Never answers.
+      });
+    const c = checked();
+    const el = mount(() => <CheckedTx c={c} hex="00" enabled />, "/regtest/tx/push");
+    press(el);
+    expect(el.querySelectorAll(".tx-flow__status")).toHaveLength(0);
+    expect(spendsAsked()).toStrictEqual([]);
+  });
+
+  it("a reply naming another transaction is not taken as sent", async () => {
+    const c = checked();
+    answer = async () => new Response("b".repeat(64), { status: 200 });
+    const el = mount(() => <CheckedTx c={c} hex="00" enabled />, "/regtest/tx/push");
+    press(el);
+    await vi.waitFor(() =>
+      expect(el.querySelector(".push-send__why")?.textContent).toBe(
+        "The server sent a reply that could not be read.",
+      ),
+    );
+    expect(text(el)).not.toContain("Follow it on its page");
+    expect(spendsAsked()).toStrictEqual([]);
+  });
+
+  it("closed, a card's details give the focus back to its button", async () => {
+    const c = checked();
+    const el = mount(() => <CheckedTx c={c} hex="00" enabled />, "/regtest/tx/push");
+    const open = el.querySelector<HTMLButtonElement>('button[aria-label="Details of output 0"]');
+    open?.focus();
+    open?.click();
+    flush();
+    const close = [...el.querySelectorAll<HTMLButtonElement>("#tx-inspector button")].find(
+      (b) => b.textContent === "Close",
+    );
+    close?.focus();
+    close?.click();
+    flush();
+    await vi.waitFor(() => expect(document.activeElement).toBe(open));
+  });
+
   it("a refusal, or a press with no answer, never makes it known", async () => {
     answer = refusal("min relay fee");
     const c = checked();

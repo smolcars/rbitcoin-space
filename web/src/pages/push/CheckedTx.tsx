@@ -18,7 +18,15 @@ import { checkPrivacy } from "../../lib/privacy";
 import { UnsentPrivacy } from "../tx/Privacy";
 import { cardMarks, shownFindings } from "../tx/privacytext";
 import { markAttempted, wasAttempted } from "./attempted";
-import { broadcast, type Checked, needsSecondThought, rateOf, refusal, warnings } from "./push";
+import {
+  broadcast,
+  type Checked,
+  needsSecondThought,
+  rateOf,
+  refusal,
+  UNREADABLE,
+  warnings,
+} from "./push";
 import "../tx/TransactionPage.css";
 import "./Push.css";
 
@@ -94,8 +102,11 @@ export function CheckedTx(props: {
     setWhy(undefined);
     broadcast(network(), props.hex, signal).then(
       (txid) => {
+        if (signal.aborted) return;
         setSending(false);
-        setSent(txid);
+        // Sent means the node took this transaction: a reply naming another is not that.
+        if (txid === tx().txid) setSent(txid);
+        else setWhy(UNREADABLE);
       },
       (e: unknown) => {
         if (signal.aborted) return;
