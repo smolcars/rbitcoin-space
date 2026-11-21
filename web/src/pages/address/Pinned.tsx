@@ -1,9 +1,8 @@
 // The address page as of a past block (`?at=<height>`): the block field that picks one, the band
 // that says which block the page shows, and the page itself, every read pinned to that block's
 // hash. Nothing live: no topic, no ledger, no refresh. docs/FRONTEND.md "An address as of a block".
-import { useLocation, useNavigate } from "@solidjs/router";
+import { useBeforeLeave, useLocation, useNavigate } from "@solidjs/router";
 import {
-  createEffect,
   createMemo,
   createSignal,
   Match,
@@ -133,18 +132,9 @@ export function AsOfForm(props: {
     }
     go(String(height));
   };
-  // A date's lookup belongs to the page that asked it: moving to another address or network
-  // (the router keeps this form mounted) drops it, so its height never lands on that page. Another
-  // spelling of the same address (upper-case Bech32) is the same page.
-  // A memo, so the key worked out again to the same value (a new spelling) is no change: an
-  // effect runs on every change to what it reads, equal or not.
-  const page = createMemo(() => props.page);
-  createEffect(page, (_, before) => {
-    if (before === undefined) return;
-    ask?.abort();
-    setAsking(false);
-    setNote(undefined);
-  });
+  // The reader's later move wins: any navigation begun while a date is looked up drops the lookup,
+  // so its block cannot overtake a link followed since. Nothing is kept: the field submits again.
+  useBeforeLeave(() => ask?.abort());
   const noteId = `${props.id}-note`;
   const submit = async (e: SubmitEvent) => {
     e.preventDefault();

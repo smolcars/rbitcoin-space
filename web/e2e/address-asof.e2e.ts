@@ -579,30 +579,32 @@ test("a height that keeps missing while the tip reaches it is a failed lookup, n
   expect(lookups).toBe(3);
 });
 
-test("a date's lookup survives a move to another spelling of the same address", async ({
+test("a date's lookup is dropped by any move the reader makes after it, even to another spelling of the address", async ({
   page,
 }) => {
   const { open, shut } = gate();
-  await page.route(
-    (url) => url.pathname.startsWith("/regtest/api/v1/mining/blocks/timestamp/"),
-    async (route) => {
-      await shut;
-      await route.continue().catch(() => undefined);
-    },
-  );
+  const stamp = (url: URL) => url.pathname.startsWith("/regtest/api/v1/mining/blocks/timestamp/");
+  await page.route(stamp, async (route) => {
+    await shut;
+    await route.continue().catch(() => undefined);
+  });
   const address = chain.addresses.p2tr;
   await page.goto(`/regtest/address/${address.toUpperCase()}`);
   await page.getByRole("button", { name: "As of a block" }).click();
   await page.getByLabel("Block height or date").fill("2026-01-01 17:35");
+  // The move below ends the lookup itself, before any answer is let through.
+  const dropped = page.waitForEvent("requestfailed", (r) => stamp(new URL(r.url())));
   await page.getByLabel("Block height or date").press("Enter");
   await expect(page.getByRole("button", { name: "Looking up…" })).toBeVisible();
   const search = page.getByRole("search").getByRole("combobox", { name: "Search" });
   await search.fill(address);
   await search.press("Enter");
   await expect(page).toHaveURL(`/regtest/address/${address}`);
+  await dropped;
   open();
-  // Block 105 is the newest by 17:35 on 1 Jan 2026.
-  await expect(page).toHaveURL(`/regtest/address/${address}?at=105`);
+  // The same page under its other spelling, so the field is still there, idle and ready again.
+  await expect(page.getByRole("button", { name: "Show", exact: true })).toBeVisible();
+  await expect(page).toHaveURL(`/regtest/address/${address}`);
 });
 
 test("an empty history as of a block says only what had confirmed by it", async ({ page }) => {
@@ -851,11 +853,58 @@ test("a block chosen while a move elsewhere is under way lands on this address, 
   await field.press("Enter");
   await expect(page).toHaveURL(`/regtest/address/${address}?at=105`);
   await expect(band(page).getByRole("heading")).toHaveText("As of block 105");
+  // The held code arrives in full before the last look, so a late commit to the block would show.
+  const arrived = page.waitForResponse(/\/assets\/BlockPage-[\w-]+\.js$/);
   chunk.open();
+  await (await arrived).finished();
   await expect(page).toHaveURL(`/regtest/address/${address}?at=105`);
   expect(lookups).toHaveLength(1);
   // Built from this address's own path: no page of another kind ever carried `at`.
   expect(visited.filter((u) => u.includes("/block/") && u.includes("at="))).toStrictEqual([]);
+});
+
+test("a link followed while a date is looked up is where the reader lands, not the date's block", async ({
+  page,
+}) => {
+  const address = chain.addresses.p2tr;
+  const chunk = gate();
+  const lookup = gate();
+  const stamp = (url: URL) => url.pathname.startsWith("/regtest/api/v1/mining/blocks/timestamp/");
+  const visited: string[] = [];
+  page.on("framenavigated", (f) => {
+    if (f === page.mainFrame()) visited.push(f.url());
+  });
+  await page.goto(`/regtest/address/${address}?at=107`);
+  await expect(stat(page, "Balance")).toHaveText("1.49 000 000 BTC");
+  // Both held: the date's answer, and the block page's code, so each waits on the test's word.
+  await page.route(stamp, async (route) => {
+    await lookup.shut;
+    await route.continue().catch(() => undefined);
+  });
+  await page.route(/\/assets\/BlockPage-[\w-]+\.js$/, async (route) => {
+    await chunk.shut;
+    await route.continue().catch(() => undefined);
+  });
+  await band(page).getByRole("button", { name: "Another block" }).click();
+  const field = page.getByLabel("Block height or date");
+  const asked = page.waitForRequest((r) => stamp(new URL(r.url())));
+  await field.fill("2026-01-01 17:35");
+  await field.press("Enter");
+  const request = await asked;
+  // The lookup ends one of two ways: dropped by the move below, or answered once let through.
+  const ended = Promise.race([
+    page.waitForEvent("requestfailed", (r) => r === request),
+    page.waitForEvent("requestfinished", (r) => r === request),
+  ]);
+  // The later choice: the band's link to the block, followed while the date is still looked up.
+  const held = page.waitForRequest(/\/assets\/BlockPage-[\w-]+\.js$/);
+  await band(page).getByRole("link", { name: "107" }).press("Enter");
+  await held;
+  lookup.open();
+  await ended;
+  chunk.open();
+  await expect(page).toHaveURL(/\/regtest\/block\/[0-9a-f]{64}$/);
+  expect(visited.filter((u) => u.includes("at=105"))).toStrictEqual([]);
 });
 
 test("after Back within the same address, the open field still submits", async ({ page }) => {
