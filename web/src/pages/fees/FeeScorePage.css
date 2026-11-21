@@ -31,7 +31,6 @@
      largest text they wrap rather than scroll. Only this page's periods. */
   @container (max-width: 14em) {
     .fee-score__head .periods__item {
-      flex: 1 0 auto;
       min-width: 2.5rem;
       padding-inline: var(--space-1);
     }
@@ -149,6 +148,16 @@
     .fee-score__sep {
       display: none;
     }
+    /* Four figure columns on a 320 px phone in any reader's font: a little less gutter. */
+    .fee-score__cost .table :is(th, td) {
+      padding-inline: 4px;
+    }
+    .fee-score__cost .table :is(th, td):first-child {
+      padding-left: 0;
+    }
+    .fee-score__cost .table :is(th, td):last-child {
+      padding-right: 0;
+    }
   }
   .fee-score__kinds {
     display: block;
@@ -163,8 +172,8 @@
     vertical-align: bottom;
   }
 
-  /* The levels' panel measures itself in its own text: at large text on a phone (under
-     12em of it), each level's parts stack in one column instead of running past the panel. */
+  /* The levels' panel measures itself in its own text: each level's layout below follows the
+     panel's width in em, so it holds at any text size, by the page's or the browser's setting. */
   .fee-score__levels {
     container-type: inline-size;
   }
@@ -377,8 +386,10 @@
     border-left: 1px dashed var(--color-text);
   }
 
-  /* Narrower: the name and the verdict on one line, the share beside its line. */
-  @media (max-width: 65em) {
+  /* The desktop's columns and gaps take 37.5em and the line's 0% and 100% about 4em, so its line
+     is a third of its row only from 62em of panel. Under that: the name and the verdict on one
+     line, then the share beside its line. */
+  @container (max-width: 62em) {
     /* A fixed first column: every row's meter starts at the same x, whatever its share says. */
     .fee-level {
       grid-template-columns: 9rem minmax(0, 1fr);
@@ -391,9 +402,10 @@
       justify-self: end;
     }
   }
-  /* A phone: the name and window at the left, the share over its verdict at the right, the meter
-     under both; how far "in time" reaches is in the window's words. */
-  @media (max-width: 40em) {
+  /* A phone's room (35em: 640 px at default text): the name and window at the left, the share
+     over its verdict at the right, the meter under both; how far "in time" reaches is in the
+     window's words. */
+  @container (max-width: 35em) {
     .fee-level {
       grid-template-columns: 1fr auto;
       grid-template-areas:
@@ -404,6 +416,7 @@
       align-items: start;
       column-gap: var(--space-3);
       row-gap: 0;
+      padding-block: var(--space-2);
     }
     .fee-level__figure {
       justify-items: end;
@@ -416,19 +429,6 @@
     }
     .fee-level__verdict {
       font-size: var(--text-sm);
-    }
-    .fee-level {
-      padding-block: var(--space-2);
-    }
-    /* Four figure columns on a 320 px phone in any reader's font: a little less gutter. */
-    .fee-score__cost .table :is(th, td) {
-      padding-inline: 4px;
-    }
-    .fee-score__cost .table :is(th, td):first-child {
-      padding-left: 0;
-    }
-    .fee-score__cost .table :is(th, td):last-child {
-      padding-right: 0;
     }
     .fee-score__scale {
       display: inline;
@@ -455,23 +455,8 @@
       margin-top: var(--space-1);
     }
   }
-  /* Last, over the layouts above, which go by the window's width: these go by the panel's width in
-     its own text, so they hold at any text size. A wide window at large text (1280 px at 32 px)
-     has the room of a tablet: name and verdict, then the share beside its line. */
-  @container (min-width: 34em) and (max-width: 50em) {
-    .fee-level {
-      grid-template-columns: 9rem minmax(0, 1fr);
-      grid-template-areas:
-        "name verdict"
-        "figure meter"
-        "detail detail";
-    }
-    .fee-level__verdict {
-      justify-self: end;
-    }
-  }
-  /* A phone at large text: each level's parts one under another, the line the panel's full width
-     with the interval's ends under it, so it never gives its width to them. */
+  /* A phone at large text (under 12em): each level's parts one under another, the line the
+     panel's full width with the interval's ends under it, so it never gives its width to them. */
   @container (max-width: 12em) {
     .fee-level {
       grid-template-columns: minmax(0, 1fr);

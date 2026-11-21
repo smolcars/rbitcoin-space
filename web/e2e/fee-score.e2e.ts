@@ -142,7 +142,10 @@ test.describe("on a phone, in a wide prose font", () => {
 });
 
 // Every period at every size, one page load a period, in CI's wider prose font: at 1280, 360 and
-// 320 px with 16, 24 and 32 px text (council F-C8, A-C1, A-C3, N-C6; code review S-1, G-2, G-3).
+// 320 px with 16, 24 and 32 px text, between the layouts at 700, 900 and 1100 px with 24 and 32 px,
+// and at 630 px with 16 px (council F-C8, A-C1, A-C3, N-C6; code review S-1, G-2, G-3, S-5, G-6).
+// - The rows: each is one named layout with its own figure, "mined within" line and line ends,
+//   never a mix of two; no verdict leaves the window and the page never scrolls sideways.
 // - The meters: every line has a real width (a third of its row at least), all start and end at
 //   one x with the target one vertical line, and no interval label touches the tick, the share's
 //   mark or the line.
@@ -162,7 +165,11 @@ test.describe("every period at every width and text size, in a wide prose font",
     "1m": SIGNET_1W,
     all: wide,
   };
-  const SIZES = [1280, 360, 320].flatMap((w) => [16, 24, 32].map((px) => [w, px] as const));
+  const SIZES = [
+    ...[1280, 360, 320].flatMap((w) => [16, 24, 32].map((px) => [w, px] as const)),
+    ...[700, 900, 1100].flatMap((w) => [24, 32].map((px) => [w, px] as const)),
+    [630, 16] as const,
+  ];
 
   /** What is wrong with the meters and the page's width as drawn now. */
   const meterFaults = (page: Page) =>
@@ -190,6 +197,39 @@ test.describe("every period at every width and text size, in a wide prose font",
         if (Math.max(...xs) - Math.min(...xs) > 1)
           out.push(`${["left", "right", "tick"][i]} ${xs.map((x) => Math.round(x)).join(", ")}`);
       }
+      // The row's layout, told by its grid, and the parts that layout shows or hides with it.
+      const LAYOUTS: Record<string, [align: string, said: boolean, ends: boolean]> = {
+        "name figure meter verdict": ["normal", true, true],
+        "name verdict figure meter": ["normal", true, true],
+        "name figure name verdict meter meter": ["end", false, false],
+        "name figure verdict meter": ["start", false, false],
+      };
+      for (const row of rows) {
+        const areas = [...getComputedStyle(row).gridTemplateAreas.matchAll(/[a-z]+/g)]
+          .map((m) => m[0])
+          .filter((a) => a !== "detail")
+          .join(" ");
+        const shown = (sel: string) => {
+          const e = row.querySelector(sel);
+          return !!e && getComputedStyle(e).display !== "none";
+        };
+        const figure = row.querySelector(".fee-level__figure");
+        const has: [string, boolean, boolean] = [
+          figure ? getComputedStyle(figure).justifyItems : "",
+          shown(".fee-level__said"),
+          shown(".fee-meter__end"),
+        ];
+        const want = LAYOUTS[areas];
+        if (!want || want.join(",") !== has.join(","))
+          out.push(`a row laid out as "${areas}" with ${has.join(", ")}: not one layout`);
+        const verdict = row.querySelector(".fee-level__verdict")?.getBoundingClientRect();
+        if (!verdict || verdict.left < -0.5 || verdict.right > window.innerWidth + 0.5)
+          out.push(
+            `a verdict at ${Math.round(verdict?.left ?? -1)}–${Math.round(verdict?.right ?? -1)} px`,
+          );
+      }
+      const root = document.documentElement;
+      if (root.scrollWidth > root.clientWidth) out.push(`the page ${root.scrollWidth} px wide`);
       const periods = document.querySelector(".periods ul");
       if (periods && periods.scrollWidth > periods.clientWidth + 1) out.push("the periods scroll");
       // The site's header is not this page's; the measured table hides within its own box.
@@ -234,14 +274,14 @@ test.describe("every period at every width and text size, in a wide prose font",
         await page.setViewportSize({ width, height: 900 });
         await page.evaluate((f) => (document.documentElement.style.fontSize = `${f}px`), px);
         const at = `${w}, ${width} px, ${px} px text`;
-        for (const f of await meterFaults(page)) faults.push(`${at}: ${f}`);
         // The tables are fitted in the frame after a resize notice: wait for the state, never a
-        // count of frames.
+        // count of frames, and read the page once it is settled.
         await expect
           .poll(async () => (await tables(page)).every((t) => t.wide === t.grouped), {
             message: at,
           })
           .toBe(true);
+        for (const f of await meterFaults(page)) faults.push(`${at}: ${f}`);
         const now = await tables(page);
         for (const t of now)
           if (t.grouped)
