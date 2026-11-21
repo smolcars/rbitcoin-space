@@ -200,6 +200,39 @@ test("mainnet's record: shares beside every channel's, fees, weeks and peers, at
   expect([await top(".ln-record__part--fees"), await top(".ln-record__weeks")]).toStrictEqual(
     before,
   );
+  // As many across as the record's own width holds, at a tablet's width too, down to the
+  // single column; with larger text, fewer. Opening them moves nothing above, and settles.
+  const across = () =>
+    record.locator(".ln-record__peers tbody tr").evaluateAll((rows) => {
+      const first = rows[0]?.getBoundingClientRect().top ?? 0;
+      return rows.filter((r) => Math.round(r.getBoundingClientRect().top) === Math.round(first))
+        .length;
+    });
+  for (const [width, size, least, most] of [
+    [768, 16, 2, 2],
+    [1024, 16, 3, 3],
+    [1280, 16, 4, 4],
+    [768, 24, 1, 1],
+    [1280, 24, 2, 2],
+  ] as const) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.evaluate((px) => {
+      document.documentElement.style.fontSize = `${px}px`;
+    }, size);
+    await frames(page);
+    const n = await across();
+    expect(n, `${width} px, ${size} px text`).toBeGreaterThanOrEqual(least);
+    expect(n, `${width} px, ${size} px text`).toBeLessThanOrEqual(most);
+    const scrolls = await record
+      .locator(".table-scroll")
+      .evaluateAll((ts) => ts.filter((t) => t.scrollWidth > t.clientWidth + 1).length);
+    expect(scrolls, `${width} px, ${size} px text`).toBe(0);
+  }
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = "";
+  });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await frames(page);
   // Folded back none would show, so the button says it hides them all.
   await expect(record.getByRole("button", { name: "Hide the 25 peers" })).toBeVisible();
   // No tone that reads as a verdict.

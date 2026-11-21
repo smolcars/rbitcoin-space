@@ -2586,61 +2586,13 @@
       grid-row: 3;
     }
     /* Every peer shown: with whom takes the panel's width under the fees and the weeks, which stay
-       where they were, and the peers are cards three across, each with its figures named. */
+       where they were (its cards are laid out by the record's own width, below). */
     .ln-record__grid:has(.ln-record__peers--all) .ln-record__part--fees {
       grid-row: 2;
     }
     .ln-record__grid:has(.ln-record__peers--all) .ln-record__peers {
       grid-column: 1 / -1;
       grid-row: 3;
-    }
-    .ln-record__peers--all .table thead {
-      position: absolute;
-      width: 1px;
-      height: 1px;
-      overflow: hidden;
-      clip-path: inset(50%);
-    }
-    .ln-record__peers--all .table {
-      display: block;
-    }
-    .ln-record__peers--all .table tbody {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
-      column-gap: var(--space-6);
-    }
-    .ln-record__peers--all .table tr {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: baseline;
-      gap: 0 var(--space-3);
-      padding: var(--space-2) 0;
-      border-top: 1px solid var(--color-line);
-    }
-    .ln-record__peers--all .table td {
-      padding: 0;
-      border: 0;
-      text-align: left;
-    }
-    .ln-record__peers--all .table td:first-child {
-      flex-basis: 100%;
-    }
-    .ln-record__peers--all .ln-node-row2 {
-      flex-direction: row;
-      flex-wrap: wrap;
-      align-items: baseline;
-      gap: 0 var(--space-2);
-    }
-    .ln-record__peers--all .table td[data-label]:not(:first-child)::before {
-      content: attr(data-label) " ";
-      font-family: var(--font-sans);
-      font-size: var(--text-xs);
-      color: var(--color-text-muted);
-    }
-    .ln-record__peers--all .ln-record__fee {
-      display: inline-flex;
-      gap: var(--space-1);
-      align-items: baseline;
     }
     /* How it ended as wide as what it holds: each count beside its kind's words, no gap between. */
     .ln-record__part--ended .table {
@@ -2775,6 +2727,60 @@
   }
   .ln-record .table__short {
     white-space: nowrap;
+  }
+  /* Every peer shown, where the record has room for two across (two cards of 15rem and their gap,
+     in its own text size): cards as many across as fit, each its name and key with its figures
+     named. Narrower, the table a phone has. By the record's width, not the page's two columns, so
+     a tablet's record lays them out too. */
+  @container record (min-width: 32em) {
+    .ln-record__peers--all .table thead {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+    }
+    .ln-record__peers--all .table {
+      display: block;
+    }
+    .ln-record__peers--all .table tbody {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+      column-gap: var(--space-5);
+    }
+    .ln-record__peers--all .table tr {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: 0 var(--space-3);
+      padding: var(--space-2) 0;
+      border-top: 1px solid var(--color-line);
+    }
+    .ln-record__peers--all .table td {
+      padding: 0;
+      border: 0;
+      text-align: left;
+    }
+    .ln-record__peers--all .table td:first-child {
+      flex-basis: 100%;
+    }
+    .ln-record__peers--all .ln-node-row2 {
+      flex-direction: row;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: 0 var(--space-2);
+    }
+    .ln-record__peers--all .table td[data-label]:not(:first-child)::before {
+      content: attr(data-label) " ";
+      font-family: var(--font-sans);
+      font-size: var(--text-xs);
+      color: var(--color-text-muted);
+    }
+    .ln-record__peers--all .ln-record__fee {
+      display: inline-flex;
+      gap: var(--space-1);
+      align-items: baseline;
+    }
   }
   /* A kind's word is never broken: "Co-op" is one word. */
   .ln-record .ln-tag {
