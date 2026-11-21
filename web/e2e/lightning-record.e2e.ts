@@ -128,6 +128,19 @@ async function holds(page: Page) {
     await page.emulateMedia({ colorScheme: scheme });
     await frames(page);
     expect(await pageFaults(page, ".ln-record"), `${width} px, ${scheme}`).toStrictEqual([]);
+    // Settled: nothing is added and no column comes or goes over the next frames.
+    const shape = () =>
+      page.evaluate(() => ({
+        nodes: document.querySelectorAll("*").length,
+        columns: [...document.querySelectorAll(".ln-record th")].filter((h) => h.checkVisibility())
+          .length,
+      }));
+    const settled = await shape();
+    await frames(page);
+    await frames(page);
+    expect(await shape(), `${width} px, ${scheme}: the record keeps changing`).toStrictEqual(
+      settled,
+    );
     // Every column the record's tables need, whole, also on a phone: nothing scrolls sideways.
     for (const t of await page.locator(".ln-record .table-scroll, .ln-record .table").all()) {
       const over = await t.evaluate((e) => e.scrollWidth - e.clientWidth);
@@ -154,10 +167,13 @@ test("mainnet's record: shares beside every channel's, fees, weeks and peers, at
   await expect(record).toContainText(
     "The 25 force closes were on channels with 25 different peers, at most 1 with any one.",
   );
-  await expect(record).toContainText("not which end or why");
-  await expect(record.locator(".ln-record__part").last().locator("tbody tr")).toHaveCount(10);
-  await record.getByRole("button", { name: "Show the other 15 peers" }).click();
+  // Said once, under the first force figure.
+  await expect(record.getByText("in the record of both of its channel's nodes")).toHaveCount(1);
+  // Every peer has one force close: rows that each say 1 wait behind a press.
+  await expect(record.locator(".ln-record__part").last().locator("tbody tr")).toHaveCount(0);
+  await record.getByRole("button", { name: "Show the 25 peers" }).click();
   await expect(record.locator(".ln-record__part").last().locator("tbody tr")).toHaveCount(25);
+  await expect(record.getByRole("button", { name: "Show fewer peers" })).toBeVisible();
   // No tone that reads as a verdict.
   await expect(record.locator(".ln-tag:not(.ln-tag--muted)")).toHaveCount(0);
   await holds(page);
@@ -185,6 +201,11 @@ test("a record with penalties names them and says the record does not say by whi
     "The 22 force closes and 3 penalties were on channels with 25 different peers",
   );
   await expect(record.getByRole("columnheader", { name: "Penalty", exact: true })).toHaveCount(2);
+  // The peer with two is listed; the 24 with one each are a press away.
+  await expect(record.locator(".ln-record__part").last().locator("tbody tr")).toHaveCount(1);
+  await expect(
+    record.getByRole("button", { name: "Show the 24 peers with one each" }),
+  ).toBeVisible();
   await holds(page);
   if (SHOTS) {
     for (const [width, scheme] of LOOKS) {
@@ -202,8 +223,16 @@ test("too few closes for a share: counts, and why", async ({ page }) => {
   await expect(record).toContainText(
     "Shares are given from 20 closes; with 3, the counts say more",
   );
+  // The record in a line beside every channel's shares, the tables a press away.
+  await expect(record.locator(".ln-record__kinds li")).toHaveCount(3);
+  await expect(record).toContainText("All channels: 91% cooperative, 8.8% force, 0.3% other.");
+  await expect(record.locator("table").first()).toBeHidden();
+  // Opened by the check of every look (pageFaults opens every disclosure in the record).
+  await holds(page);
   await expect(record.getByRole("columnheader", { name: /All channels/ }).first()).toBeVisible();
   await expect(record).not.toContainText("this node, then all");
+  // Beside a node's counts, every channel's share is a figure with no bar to read as the node's.
+  await expect(record.locator(".ln-record__bar")).toHaveCount(0);
   await holds(page);
 });
 
@@ -240,9 +269,14 @@ test.describe("a node that left the graph", () => {
       r.fulfill({ status: 404, json: { error: "node not found" } }),
     );
     await page.goto(`/regtest/lightning/node/${gone}`);
-    await expect(page.getByText("This server knows no such node")).toBeVisible();
+    // Headed by its key, not "no such node" over the record that shows the server knows it.
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("02ababab…ababab");
+    await expect(page.getByText("It has no open channel now")).toBeVisible();
+    await expect(page.getByText("This server knows no such node")).toHaveCount(0);
     await expect(page.locator(".ln-record")).toContainText("3 channels closed");
+    // The check of every look opens the breakdown.
     await holds(page);
+    await page.getByRole("button", { name: "Show the 2 peers" }).click();
     const peers = page.locator(".ln-record .ln-record__part").last();
     await expect(peers.getByRole("link")).toHaveCount(1);
     await expect(peers).toContainText("gone too");
@@ -274,14 +308,15 @@ test("a share under 0.1% parts between its words and fits a 320 px phone", async
   await holds(page);
 });
 
-test("a column left out and the note that says so are never out of step, at any width or text size", async ({
+test("a figure a column leaves out is its row's second line, never both and never neither, at any width or text size", async ({
   page,
 }) => {
   await open(page, ACINQ, { [`nodes/${ACINQ}/closes`]: withPenalties() });
   const parts = page.locator(".ln-record .ln-record__part");
-  const pairs = [
+  const triples = [
     { part: parts.nth(1), header: "All channels" },
-    { part: parts.nth(2), header: "Open now" },
+    { part: parts.nth(2), header: "All channels" },
+    { part: parts.nth(3), header: "Open now" },
   ];
   const faults: string[] = [];
   const seen = new Set<string>();
@@ -293,11 +328,11 @@ test("a column left out and the note that says so are never out of step, at any 
       document.documentElement.style.setProperty("--text-xs", `${px}px`);
       document.documentElement.style.setProperty("--text-sm", `${px}px`);
     }, size);
-    // Phone widths too, where the breakpoint hides the column: the note must show there as well.
-    for (const width of [320, 360, 660, 720, 800, 900, 1040]) {
+    // Phone widths too, where the breakpoint hides the column: the figure must show there as well.
+    for (const width of [320, 360, 660, 720, 800, 900, 1040, 1280]) {
       await page.setViewportSize({ width, height: 900 });
       await frames(page);
-      for (const { part, header } of pairs) {
+      for (const { part, header } of triples) {
         // The table fits in the frame after a resize notice; wait until it has.
         await part.locator(".table-scroll").evaluate(
           () =>
@@ -306,10 +341,12 @@ test("a column left out and the note that says so are never out of step, at any 
             }),
         );
         const shown = await part.getByRole("columnheader", { name: header }).isVisible();
-        const note = await part.locator(".ln-record__phone").isVisible();
+        const second = await part.locator(".ln-record__second").first().isVisible();
         seen.add(shown ? "shown" : "left out");
-        if (shown === note)
-          faults.push(`${size} px text, ${width} px: ${header} shown ${shown}, note ${note}`);
+        if (shown === second)
+          faults.push(
+            `${size} px text, ${width} px: ${header} shown ${shown}, second line ${second}`,
+          );
       }
     }
   }
