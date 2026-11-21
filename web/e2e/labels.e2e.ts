@@ -440,23 +440,26 @@ test.describe("under reduced motion", () => {
 
 /** Every request a page made and every socket message, as text to compare and search. */
 interface Seen {
-  /** Each request: method, whole URL (origin included) and body. */
+  /** Each request: method, whole URL (origin included) and body, in the order made. */
   requests: string[];
   /** Each request with its headers, for the search. */
   raw: string[];
-  /** Every socket message sent, whole. */
+  /** Every socket message the page sent, whole, in order. */
   sent: string[];
-  /** Every socket message received, whole, to wait on. */
+  /** Every socket message the page was given, whole, in order. */
   received: string[];
+  /** What happened when, for the schedule's own checks: "asked <path>", "gave <message>". */
+  events: string[];
   /** Each request's headers, read as they come. */
   pending: Promise<void>[];
 }
 
 function watch(context: BrowserContext): Seen {
-  const seen: Seen = { requests: [], raw: [], sent: [], received: [], pending: [] };
+  const seen: Seen = { requests: [], raw: [], sent: [], received: [], events: [], pending: [] };
   context.on("request", (r) => {
     const line = `${r.method()} ${r.url()} | ${r.postData() ?? ""}`;
     seen.requests.push(line);
+    seen.events.push(`asked ${new URL(r.url()).pathname}`);
     // Every header the browser sent, once it reports them; a request still in flight when the
     // walk ends is searched with the headers known when it was made.
     const known = r.headers();
@@ -469,55 +472,93 @@ function watch(context: BrowserContext): Seen {
       }),
     );
   });
-  context.on("page", (p) => watchSockets(p, seen));
   return seen;
 }
 
-function watchSockets(page: Page, seen: Seen) {
-  page.on("websocket", (ws) => {
-    seen.sent.push(`open ${ws.url()}`);
-    ws.on("framesent", (f) => {
-      seen.sent.push(typeof f.payload === "string" ? f.payload : f.payload.toString("utf8"));
-    });
-    ws.on("framereceived", (f) => {
-      seen.received.push(typeof f.payload === "string" ? f.payload : f.payload.toString("utf8"));
-    });
-  });
+/**
+ * The page's socket, passed through to the real server under the test's own schedule. While
+ * `held`, what the server says is kept back, greeting included, until `release`: a page's first
+ * answers then always come before the socket's, in both runs.
+ */
+interface Gate {
+  held: boolean;
+  release: () => void;
 }
 
-/** What socket messages asked, topic by topic: the client batches what it asks in one turn. */
-function asks(sent: readonly string[]): string[] {
-  return sent.flatMap((text) => {
+async function scheduleSocket(context: BrowserContext, seen: Seen): Promise<Gate> {
+  const waiting: (() => void)[] = [];
+  const gate: Gate = {
+    held: false,
+    release: () => {
+      gate.held = false;
+      for (const give of waiting.splice(0)) give();
+    },
+  };
+  await context.routeWebSocket(/\/app\/ws$/, (ws) => {
+    const server = ws.connectToServer();
+    seen.sent.push(`open ${ws.url()}`);
+    ws.onMessage((m) => {
+      seen.sent.push(typeof m === "string" ? m : m.toString("utf8"));
+      server.send(m);
+    });
+    server.onMessage((m) => {
+      const text = typeof m === "string" ? m : m.toString("utf8");
+      const give = () => {
+        seen.received.push(text);
+        seen.events.push(`gave ${text.slice(0, 80)}`);
+        ws.send(m);
+      };
+      if (gate.held) waiting.push(give);
+      else give();
+    });
+  });
+  return gate;
+}
+
+/** Each topic's socket operations, in the order the page sent them. */
+function opsByTopic(sent: readonly string[]): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const text of sent) {
     try {
       const m = JSON.parse(text) as { op?: unknown; topics?: unknown };
       if (typeof m.op === "string" && Array.isArray(m.topics))
-        return m.topics.map((t) => `${m.op as string} ${String(t)}`);
+        for (const t of m.topics) (out[String(t)] ??= []).push(m.op);
     } catch {
-      // Not JSON: compared whole.
+      (out["(other)"] ??= []).push(text);
     }
-    return [text];
-  });
+  }
+  return out;
 }
 
-/**
- * Goes somewhere and waits for what that page is known to need: each response named, and the
- * socket's message the page waits on before it asks for more. Never a wait for quiet.
- */
+/** Waits for each response named, in any order, `times` of each when asked for more than one. */
+function answers(page: Page, needs: readonly (RegExp | [RegExp, number])[]) {
+  return Promise.all(
+    needs.flatMap((n) => {
+      const [re, times] = Array.isArray(n) ? n : [n, 1];
+      let seenTimes = 0;
+      return [
+        page.waitForResponse(
+          (r) =>
+            re.test(new URL(r.url()).pathname + new URL(r.url()).search) && ++seenTimes >= times,
+          { timeout: 15_000 },
+        ),
+      ];
+    }),
+  );
+}
+
+/** Goes somewhere and waits for what that page is known to need. Never a wait for quiet. */
 async function arrive(
   page: Page,
   seen: Seen,
   go: () => Promise<unknown>,
-  needs: readonly RegExp[],
+  needs: readonly (RegExp | [RegExp, number])[],
   socket?: RegExp,
 ) {
   const since = seen.received.length;
-  const answered = needs.map((re) =>
-    page.waitForResponse((r) => re.test(new URL(r.url()).pathname + new URL(r.url()).search), {
-      timeout: 15_000,
-    }),
-  );
+  const answered = answers(page, needs);
   await go();
-  await Promise.all(answered);
+  await answered;
   if (socket)
     await expect
       .poll(() => seen.received.slice(since).some((m) => socket.test(m)), { timeout: 10_000 })
@@ -559,51 +600,75 @@ async function manage(page: Page, file: string) {
   expect(file2.suggestedFilename()).toMatch(/\.jsonl$/);
 }
 
-/** The same walk through the site, with or without labels already kept. */
-async function walk(page: Page, seen: Seen, block: string, paid: string, file: string) {
-  await arrive(
-    page,
-    seen,
-    () => page.goto(`/regtest/tx/${TX}`),
-    [
-      new RegExp(`/api/tx/${TX}$`),
-      new RegExp(`/api/tx/${TX}/outspends$`),
-      /\/api\/blocks\/tip\/height$/,
-      new RegExp(`/app/tx/${TX}/replacements$`),
-      /\/app\/lightning\/status$/,
-    ],
-    new RegExp(`"topic":"tx:${TX}"`),
-  );
+/**
+ * The same walk through the site, with or without labels already kept, on one schedule:
+ * - The transaction and block pages: the socket's greeting and everything after it are held until
+ *   the page's first answers have come, so the page always has its answers before the socket's.
+ * - The address page: its first status passes straight through, so the page asks once, on that
+ *   status, never on its one-second fallback (checked below); and the address's totals are held
+ *   1.2 s, so their own one-second timer always fires first and the ledger is always asked twice.
+ */
+async function walk(page: Page, seen: Seen, gate: Gate, block: string, paid: string, file: string) {
+  gate.held = true;
+  await arrive(page, seen, () => page.goto(`/regtest/tx/${TX}`), [
+    new RegExp(`/api/tx/${TX}$`),
+    new RegExp(`/api/tx/${TX}/outspends$`),
+    /\/api\/blocks\/tip\/height$/,
+    new RegExp(`/app/tx/${TX}/replacements$`),
+    /\/app\/lightning\/status$/,
+    /\/app\/blocks\/summary\?/,
+  ]);
+  gate.release();
+  await expect
+    .poll(() => seen.received.some((m) => m.includes(`"topic":"tx:${TX}"`)), { timeout: 10_000 })
+    .toBe(true);
   await page.getByRole("button", { name: "Details of output 0" }).click();
   // A label typed and saved: added in one run, an edit in the other.
   await page.locator(".tx-head .label-control__open").click();
   await page.getByRole("textbox", { name: "Your label for this transaction" }).fill("zebra-typed");
   await page.keyboard.press("Enter");
   await expect(page.locator(".tx-head .your-label__text")).toHaveText("zebra-typed");
+  await page.route(new RegExp(`/api/address/${paid}$`), async (route) => {
+    await new Promise((resolve) => {
+      setTimeout(resolve, 1200);
+    });
+    await route.continue();
+  });
   await arrive(
     page,
     seen,
     () => page.getByRole("list", { name: "Outputs" }).getByRole("link").first().click(),
     [
       new RegExp(`/api/address/${paid}$`),
-      new RegExp(`/app/address/${paid}/ledger$`),
       new RegExp(`/api/address/${paid}/txs$`),
       new RegExp(`/api/address/${paid}/txs/summary$`),
+      // Asked when the totals' own timer fires, and again when they come.
+      [new RegExp(`/app/address/${paid}/ledger$`), 2],
     ],
     /"state":"watching"/,
   );
-  await arrive(
-    page,
-    seen,
-    () => page.goto(`/regtest/block/${block}`),
-    [
-      new RegExp(`/api/block/${block}$`),
-      new RegExp(`/api/block/${block}/status$`),
-      new RegExp(`/api/block/${block}/txs/0$`),
-      new RegExp(`/app/block/${block}/txs\\?v=2$`),
-    ],
-    /"network":"regtest"/,
-  );
+  // The schedule held: the page asked for the address's totals only after its first status.
+  const status = seen.events.findIndex((e) => e.startsWith("gave") && e.includes('"watching"'));
+  const totals = seen.events.indexOf(`asked /regtest/api/address/${paid}`);
+  expect(
+    status !== -1 && status < totals,
+    "the server answered the address's subscription before the page's one-second fallback",
+  ).toBe(true);
+  gate.held = true;
+  await arrive(page, seen, () => page.goto(`/regtest/block/${block}`), [
+    new RegExp(`/api/block/${block}$`),
+    new RegExp(`/api/block/${block}/status$`),
+    new RegExp(`/api/block/${block}/txs/0$`),
+    new RegExp(`/app/block/${block}/txs\\?v=2$`),
+    /\/app\/blocks\/summary\?/,
+  ]);
+  gate.release();
+  await expect
+    .poll(() => seen.received.some((m) => m.includes('"network":"regtest"')), { timeout: 10_000 })
+    .toBe(true);
+  await expect
+    .poll(() => seen.sent.some((m) => m.includes('"blocks"')), { timeout: 10_000 })
+    .toBe(true);
   await manage(page, file);
 }
 
@@ -617,14 +682,7 @@ async function visitor(browser: Browser, baseURL: string, headers: Record<string
   return { context, page };
 }
 
-/**
- * Requests whose number follows a clock, not the page: compared by presence, not count.
- * - The address's ledger is asked again when the totals' own 1 s timeout passes before they come.
- * - A block's summary is asked again when a block message arrives on the socket, whenever that is.
- */
-const TIMED = [/\/app\/address\/[^/]+\/ledger /, /\/app\/blocks\/summary\?/];
-
-test("nothing about a label reaches the server: the same requests with labels as without", async ({
+test("nothing about a label reaches the server: exactly the same requests with labels as without", async ({
   browser,
   baseURL,
   extraHTTPHeaders,
@@ -660,9 +718,9 @@ test("nothing about a label reaches the server: the same requests with labels as
       // Watched from the first request: both runs open the same page that loads no app, and only
       // one leaves labels (and the hint) in the browser from it.
       const seen = watch(context);
-      watchSockets(page, seen);
+      const gate = await scheduleSocket(context, seen);
       await (withLabels ? seedLabels(page, labels) : page.goto("/healthz"));
-      await walk(page, seen, block, paid, bip329(labels));
+      await walk(page, seen, gate, block, paid, bip329(labels));
       await Promise.all(seen.pending);
       runs.push(seen);
     } finally {
@@ -670,34 +728,23 @@ test("nothing about a label reaches the server: the same requests with labels as
     }
   }
   const [without, withLabels] = runs as [Seen, Seen];
-  // Every request, its headers and body, and every socket message whole, searched.
+  // Every request, with all its headers and body, and every socket message whole, searched.
   for (const run of runs) {
     const all = [...run.raw, ...run.sent].join("\n");
     for (const n of needles) expect(all.includes(n), `"${n}" was sent`).toBe(false);
   }
-  const distinct = (list: readonly string[]) => {
-    const out = [...new Set(list)];
-    out.sort((a, b) => a.localeCompare(b));
-    return out;
-  };
+  // Under one schedule there is nothing left to timing: the very same requests, each as many
+  // times, and each socket topic's operations in the same order.
   const counted = (list: readonly string[]) => {
-    const n = new Map<string, number>();
-    for (const r of list) if (!TIMED.some((t) => t.test(r))) n.set(r, (n.get(r) ?? 0) + 1);
-    const out = [...n];
-    out.sort(([a], [b]) => a.localeCompare(b));
-    return out;
+    const copy = [...list];
+    copy.sort((x, y) => x.localeCompare(y));
+    return copy;
   };
-  // The same distinct requests, each as many times, but for those a clock decides (TIMED).
-  expect(distinct(withLabels.requests)).toEqual(distinct(without.requests));
   expect(counted(withLabels.requests)).toEqual(counted(without.requests));
-  // The same topics asked of the socket, but for `blocks`: the block page asks for it only when
-  // its first reads beat the socket's greeting, a race of the server's answers, not of labels.
-  const topics = (sent: readonly string[]) =>
-    distinct(asks(sent).filter((a) => !a.endsWith(" blocks")));
-  expect(topics(withLabels.sent)).toEqual(topics(without.sent));
+  expect(opsByTopic(withLabels.sent)).toEqual(opsByTopic(without.sent));
   test.info().annotations.push({
     type: "requests compared",
-    description: `${distinct(withLabels.requests).length} distinct requests, ${withLabels.requests.length} in all; ${withLabels.sent.length} socket messages searched`,
+    description: `${withLabels.requests.length} requests and ${withLabels.sent.length} socket messages, all compared and searched`,
   });
 });
 
