@@ -193,9 +193,9 @@ test.describe("the spends arriving after the cards, in a wide prose font", () =>
           await expect(card.locator(".pv-tag").nth(1)).toHaveAccessibleName("Reads as change");
           // On a phone each mark is one word on one line, its full words its name.
           await expect(card.locator(".pv-tag__short")).toHaveText(["Reused", "Change"]);
-          for (const box of await card.locator(".pv-tag").evaluateAll((ts) =>
-            ts.map((t) => t.getBoundingClientRect().height),
-          ))
+          for (const box of await card
+            .locator(".pv-tag")
+            .evaluateAll((ts) => ts.map((t) => t.getBoundingClientRect().height)))
             expect(box).toBeLessThan(30);
         }
         await expect(page.locator(".tx-flow__spent")).toHaveCount(0);

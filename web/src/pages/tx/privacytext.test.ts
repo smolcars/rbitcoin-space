@@ -954,7 +954,7 @@ describe("the summary's line on a narrow screen", () => {
     expect(sayCount(checkPrivacy(clean))).toBeNull();
     const part = (t: Transaction): Transaction => ({
       ...t,
-      vin: (t.vin ?? []).map((i) => ({ ...i, prevout: null })),
+      vin: (t.vin ?? []).map((i) => Object.assign(structuredClone(i), { prevout: null })),
     });
     expect(sayCount(checkPrivacy(part(clean)))).toBe(
       "What an observer can read: only partly checked",
