@@ -103,7 +103,6 @@
   /* The file's name gives way, cut with an ellipsis (whole in its title); its size never does. */
   .ots-slot__chosen {
     display: flex;
-    flex-wrap: wrap;
     align-items: baseline;
     gap: 0 var(--space-2);
   }
@@ -203,11 +202,18 @@
     align-items: center;
     gap: var(--space-2);
   }
+  /* As tall as what it holds (where the browser sizes a field to its content; three rows where it
+     does not), at least three lines on a phone, where 64 characters wrap to three; and never
+     taller than three lines or 40% of the window, whichever is more: a wrong paste of thousands
+     scrolls inside it, its clear control and its message still on screen. */
   .ots-hex__input {
     box-sizing: border-box;
     flex: 1;
     width: 100%;
+    min-width: 0;
     min-height: var(--touch);
+    max-height: max(calc(3lh + 2 * var(--space-2) + 2px), 40vh);
+    overflow-y: auto;
     resize: none;
     field-sizing: content;
     overflow-wrap: anywhere;
@@ -219,6 +225,11 @@
     background: var(--color-surface-sunken);
     color: var(--color-text);
     font-size: var(--text-sm);
+  }
+  @media (max-width: 40em) {
+    .ots-hex__input {
+      min-height: calc(3lh + 2 * var(--space-2) + 2px);
+    }
   }
   .ots-hex__input:focus-visible {
     outline: 2px solid var(--color-focus);

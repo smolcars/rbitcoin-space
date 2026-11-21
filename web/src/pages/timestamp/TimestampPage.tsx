@@ -510,7 +510,7 @@ function DigestField(props: {
           id="ots-hex"
           class="ots-hex__input mono"
           name="digest"
-          rows={2}
+          rows={3}
           autocomplete="off"
           spellcheck={false}
           autocapitalize="off"

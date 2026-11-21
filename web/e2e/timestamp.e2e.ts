@@ -150,6 +150,11 @@ test("a real proof with two Bitcoin attestations verifies by the earlier block, 
     `/block/${BLOCKS["449397"]?.hash}`,
   );
   await expect(verdict.getByText(/Bitcoin block 449\s399: also verified/)).toBeVisible();
+  // The other verified block is a link to its page, by the hash checked against its header.
+  await expect(verdict.getByRole("link", { name: "block 449 399" })).toHaveAttribute(
+    "href",
+    `/block/${BLOCKS["449399"]?.hash}`,
+  );
   // The calendars it once waited on are named, as text, and not checked.
   await expect(verdict.getByText(CALENDAR)).toBeVisible();
   await expect(verdict.getByText("not checked")).toHaveCount(2);
@@ -408,10 +413,11 @@ test("a pasted digest that is not the proof's is said to differ as a digest, not
 // A phone, in CI's wider prose font: the verdict is brought to the reader when it comes, the filled
 // slots are one row each, and a touch screen is not offered a drop (council F-D1).
 test.describe("on a phone", () => {
+  // Firefox has no mobile emulation, only touch: with `isMobile` its viewport never resizes.
   test.use({
     prose: "wide",
     hasTouch: true,
-    isMobile: true,
+    ...(process.env["E2E_ENGINE"] === "firefox" ? {} : { isMobile: true }),
     viewport: { width: 360, height: 780 },
   });
   test("the verdict comes into view with focus on its heading, and the digest field shows all of it", async ({
@@ -438,17 +444,56 @@ test.describe("on a phone", () => {
     await expect(heading).toBeFocused();
     await expect(heading).toBeInViewport();
     // A slot holding a file is one row: its name, Change and remove on one line.
-    const slot = page.locator(".ots-slot--chosen");
-    const [title, change] = await Promise.all([
-      slot.getByRole("heading", { name: "Proof" }).boundingBox(),
-      slot.getByText("Change").boundingBox(),
-    ]);
-    expect(
-      Math.abs(
-        (title?.y ?? 0) + (title?.height ?? 0) / 2 - ((change?.y ?? 0) + (change?.height ?? 0) / 2),
-      ),
-    ).toBeLessThan(4);
+    // Both read in one go: the page may still be scrolling to the verdict.
+    const apart = await page.locator(".ots-slot--chosen").evaluate((slot) => {
+      const mid = (sel: string) => {
+        const r = slot.querySelector(sel)?.getBoundingClientRect();
+        return r ? (r.top + r.bottom) / 2 : Number.NaN;
+      };
+      return Math.abs(mid(".ots-slot__title") - mid(".ots-slot__choose"));
+    });
+    expect(apart).toBeLessThan(4);
     w.clean([TWO_BLOCKS]);
+  });
+
+  test("Done pressed while the block is looked up brings the verdict when it comes", async ({
+    page,
+  }) => {
+    await withMainnet(page);
+    // The block's answer is held until after Enter.
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await page.route(/\/api\/block-height\/449397$/, async (route) => {
+      await held;
+      await route.fallback();
+    });
+    await page.setViewportSize({ width: 360, height: 560 });
+    await page.goto("/regtest/timestamp");
+    await proofInput(page).setInputFiles(fileURLToPath(fixture("two-blocks.ots")));
+    await digestBox(page).fill(TWO_BLOCKS);
+    await expect(page.getByText("Checking the block")).toBeVisible();
+    await digestBox(page).press("Enter");
+    release();
+    const heading = page.getByRole("heading", {
+      name: "This digest is committed to by block 449 397",
+    });
+    await expect(heading).toBeFocused();
+    await expect(heading).toBeInViewport();
+  });
+
+  test("a wrong paste of any length keeps the field, its clear and its message on screen", async ({
+    page,
+  }) => {
+    await page.goto("/regtest/timestamp");
+    await digestBox(page).fill("f".repeat(4096));
+    await expect(page.getByText(/is 64 hex digits; this is 4096/)).toBeVisible();
+    await digestBox(page).evaluate((t) => t.scrollIntoView({ block: "start" }));
+    const box = await digestBox(page).boundingBox();
+    expect(box?.height ?? 9999).toBeLessThan(780 / 2);
+    await expect(page.getByRole("button", { name: "Clear the digest" })).toBeInViewport();
+    await expect(page.getByText(/this is 4096/)).toBeInViewport();
   });
 
   test("a verdict below the screen is scrolled to when it comes", async ({ page }) => {
@@ -536,11 +581,21 @@ test.describe("the slots in every state, width and text size", () => {
           const lh = Number.parseFloat(getComputedStyle(title).lineHeight);
           if (title.getBoundingClientRect().height > lh * 1.5) out.push(`${name}: label wraps`);
         }
-        // A name is cut only when it does not fit its line alone.
+        // The size stays on the name's line, and the name is cut only when the two do not fit it
+        // (code review S-4).
         const n = slot.querySelector<HTMLElement>(".ots-slot__name");
         const line = slot.querySelector<HTMLElement>(".ots-slot__chosen");
-        if (n && line && n.scrollWidth > n.clientWidth + 1 && n.scrollWidth <= line.clientWidth)
-          out.push(`${name}: "${n.textContent ?? ""}" is cut though it fits`);
+        const size = line?.querySelector<HTMLElement>(".muted");
+        if (n && line && size) {
+          const [nr, sr] = [n.getBoundingClientRect(), size.getBoundingClientRect()];
+          if (Math.abs(nr.bottom - sr.bottom) > 2) out.push(`${name}: its size is on another line`);
+          const room =
+            line.clientWidth -
+            sr.width -
+            Number.parseFloat(getComputedStyle(line).columnGap || "0");
+          if (n.scrollWidth > n.clientWidth + 1 && n.scrollWidth <= room)
+            out.push(`${name}: "${n.textContent ?? ""}" is cut though it fits`);
+        }
       }
       // Side by side, one height; stacked, each as tall as it holds, with no blank to fill.
       const [a, b] = slots.map((x) => x.getBoundingClientRect());
@@ -617,7 +672,11 @@ test.describe("the slots in every state, width and text size", () => {
 // On a touch screen every control of a filled slot and the digest's clear is a thumb's target
 // (council F-D8): the empty page in targets.e2e.ts has none of them.
 test.describe("the slots' controls on a touch screen", () => {
-  test.use({ hasTouch: true, isMobile: true, viewport: { width: 360, height: 780 } });
+  test.use({
+    hasTouch: true,
+    ...(process.env["E2E_ENGINE"] === "firefox" ? {} : { isMobile: true }),
+    viewport: { width: 360, height: 780 },
+  });
   test("are each a thumb's target", async ({ page }) => {
     await page.goto("/regtest/timestamp");
     await proofInput(page).setInputFiles(fileURLToPath(fixture("two-blocks.ots")));
