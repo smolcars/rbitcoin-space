@@ -8,8 +8,10 @@ import "./Label.css";
 
 /** Characters of a label shown in a list or on a card; the whole label is in the title. */
 export const LABEL_IN_LIST = 40;
-/** Characters of a label shown beside a page's subject. */
+/** Characters of a label shown beside a page's subject; its row cuts it shorter where it must. */
 export const LABEL_IN_HEAD = 120;
+/** Characters of a label in its tooltip: the editor's limit, so a label typed here shows whole. */
+export const LABEL_IN_TITLE = 255;
 
 /**
  * A label, marked as the reader's own: a tag shape no part of the site's own interface uses, and
@@ -19,7 +21,7 @@ export function YourLabel(props: { text: string; max?: number }) {
   return (
     <span
       class="your-label"
-      title={`Your label, kept in this browser: ${shownLabel(props.text, 1000)}`}
+      title={`Your label, kept in this browser: ${shownLabel(props.text, LABEL_IN_TITLE)}`}
     >
       <span class="visually-hidden">Your label: </span>
       <span class="your-label__text" dir="auto">
@@ -97,21 +99,25 @@ export function LabelControl(props: { type: Shown; reference: string; what: stri
   };
   return (
     <div class="label-control">
-      <Show when={label()}>{(l) => <YourLabel text={l()} max={LABEL_IN_HEAD} />}</Show>
-      <button
-        ref={button}
-        type="button"
-        class="label-control__open"
-        aria-expanded={open() ? "true" : "false"}
-        aria-controls={id}
-        onClick={start}
-      >
-        <svg viewBox="0 0 16 16" aria-hidden="true">
-          <path d="M2.5 2.5h5.2l6 6-5.2 5.2-6-6z" />
-          <circle cx="5.3" cy="5.3" r="0.9" />
-        </svg>
-        {label() === undefined ? "Add a label" : "Edit label"}
-      </button>
+      {/* One line at every width, the same height with a label or without one: a label never
+          moves what follows the page's head, nor anything the page loads when it comes near. */}
+      <div class="label-control__row">
+        <Show when={label()}>{(l) => <YourLabel text={l()} max={LABEL_IN_HEAD} />}</Show>
+        <button
+          ref={button}
+          type="button"
+          class="label-control__open"
+          aria-expanded={open() ? "true" : "false"}
+          aria-controls={id}
+          onClick={start}
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M2.5 2.5h5.2l6 6-5.2 5.2-6-6z" />
+            <circle cx="5.3" cy="5.3" r="0.9" />
+          </svg>
+          {label() === undefined ? "Add a label" : "Edit label"}
+        </button>
+      </div>
       <span class="visually-hidden" role="status">
         {said()}
       </span>

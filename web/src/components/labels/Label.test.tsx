@@ -1,8 +1,8 @@
 import { flush } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { indexKey, showLabels } from "../../lib/labels";
-import { reset } from "../../lib/labels/db";
-import { fakeIndexedDB } from "../../lib/labels/fake-idb";
+import { reset, resetStore } from "../../lib/labels/db";
+import { fakeIndexedDB, KeyRange } from "../../lib/labels/fake-idb";
 import { mount } from "../test-utils";
 import { LabelControl, LabelOf, YourLabel } from "./Label";
 
@@ -85,11 +85,13 @@ describe("LabelOf", () => {
 
 describe("LabelControl", () => {
   beforeEach(() => {
+    Object.defineProperty(globalThis, "IDBKeyRange", { value: KeyRange, configurable: true });
     Object.defineProperty(globalThis, "indexedDB", {
       value: fakeIndexedDB().factory,
       configurable: true,
     });
     reset();
+    resetStore();
     localStorage.clear();
   });
   afterEach(() => {
@@ -140,6 +142,7 @@ describe("LabelControl", () => {
   it("says plainly when this browser cannot keep labels", async () => {
     Object.defineProperty(globalThis, "indexedDB", { value: undefined, configurable: true });
     reset();
+    resetStore();
     const el = mount(() => <LabelControl type="tx" reference={TXID} what="this transaction" />);
     el.querySelector<HTMLButtonElement>(".label-control__open")?.click();
     await until(() => el.querySelector("input") !== null);

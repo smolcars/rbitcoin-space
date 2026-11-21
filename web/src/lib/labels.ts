@@ -1,7 +1,7 @@
 // The reader's own labels, as the pages read them: a map from a BIP329 reference to its label,
-// kept in this browser only (docs/FRONTEND.md "Your labels"). This is the part every page loads;
-// the store (labels/db.ts), the file format (labels/bip329.ts), the editor and the manager load
-// only when a reader has labels or asks for them. Nothing here ever reaches the network.
+// kept in this browser only (docs/FRONTEND.md "Your labels"). This is the part every page loads,
+// with labels/store.ts that fills it; writing (labels/db.ts), the file format (labels/bip329.ts),
+// the editor and the manager load when the reader asks for them. Nothing here reaches the network.
 import { createSignal } from "solid-js";
 
 /** The record types a page can show a label for. */
@@ -9,12 +9,14 @@ export type Shown = "tx" | "addr" | "pubkey" | "input" | "output";
 
 /**
  * Set in `localStorage` while this browser holds any label, so a reader without labels never
- * opens the database. Its value changes on every write, which tells the reader's other tabs.
+ * opens the database. Its value is the store's revision, new on every write, which tells the
+ * reader's other tabs.
  */
 export const HINT = "labels";
 
-const EMPTY: ReadonlyMap<string, string> = new Map();
-const [index, setIndex] = createSignal<ReadonlyMap<string, string>>(EMPTY);
+// The map is changed in place by the store; the version says that it changed.
+let index: ReadonlyMap<string, string> = new Map();
+const [version, setVersion] = createSignal(0);
 
 const BECH32 = /^(?:bc|tb|bcrt|sp|tsp|sprt)1[02-9ac-hj-np-z]+$/;
 
@@ -48,26 +50,31 @@ export function normalRef(type: string, ref: string): string | null {
   }
 }
 
+/**
+ * A record's identity: its type, its reference as compared, and its origin (two wallets' labels of
+ * one thing differ). Written as a JSON array, so no two different triples can share it.
+ */
+export const recordKey = (type: string, ref: string, origin: string | undefined): string =>
+  JSON.stringify([type, ref, origin ?? null]);
+
 /** The key a shown label is found by. */
 export const indexKey = (type: Shown, ref: string): string => `${type}:${ref}`;
 
 /** The reader's label for a transaction, address, key, input or output, if they gave it one. */
 export function labelOf(type: Shown, ref: string): string | undefined {
-  const map = index();
-  if (map.size === 0) return undefined;
+  version();
+  if (index.size === 0) return undefined;
   const norm = normalRef(type, ref);
-  return norm === null ? undefined : map.get(indexKey(type, norm));
+  return norm === null ? undefined : index.get(indexKey(type, norm));
 }
 
-/** Every label a page can show, by `indexKey`: read it to follow every change. */
-export const shownLabels = index;
+/** A number that moves on every change to the labels, from this tab or another: read it to follow them. */
+export const labelsVersion = version;
 
-/** Whether this browser holds any label to show. */
-export const hasLabels = (): boolean => index().size > 0;
-
-/** Replaces what pages show. Called by the store after it reads or writes. */
+/** Shows `map` on every page; the store calls it again after it changes the same map. */
 export function showLabels(map: ReadonlyMap<string, string>): void {
-  setIndex(map);
+  index = map;
+  setVersion((v) => v + 1);
 }
 
 const CONTROL = /[\p{Cc}\p{Zl}\p{Zp}]/gu;
@@ -79,17 +86,29 @@ const MARKS = /(\p{M}{2})\p{M}+/gu;
 /**
  * A label fit to show as text: control, line-breaking and invisible format characters become
  * U+FFFD, so a reader sees something is there, stacked marks are thinned, and at most `max`
- * characters are kept, an ellipsis after them. The label is still only ever a text node.
+ * characters are kept, an ellipsis after them. A character here is what a reader counts (an emoji
+ * is one), and none may stand for more than four code units of text, so one cluster of joined
+ * emoji cannot carry a long label past the limit. The label is still only ever a text node.
  */
 export function shownLabel(label: string, max: number): string {
+  // Only the start is ever shown, so only the start is cleaned and counted.
+  const units = max * 4;
   const clean = label
+    .slice(0, units + 1)
     .replaceAll(CONTROL, "\u{FFFD}")
     .replaceAll(FORMAT, "\u{FFFD}")
     .replaceAll(MARKS, "$1");
+  const cut = label.length > units + 1 || clean.length > units;
   // Fewer code units than `max` is fewer characters too; only a long label is counted.
-  if (clean.length <= max) return clean;
-  const chars = Array.from(graphemes().segment(clean), (g) => g.segment);
-  return chars.length > max ? `${chars.slice(0, max).join("")}…` : clean;
+  if (!cut && clean.length <= max) return clean;
+  let out = "";
+  let count = 0;
+  for (const { segment } of graphemes().segment(clean)) {
+    if (count === max || out.length + segment.length > units) return `${out}…`;
+    out += segment;
+    count++;
+  }
+  return cut ? `${out}…` : out;
 }
 
 let segmenter: Intl.Segmenter | undefined;

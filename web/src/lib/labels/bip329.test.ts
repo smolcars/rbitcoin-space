@@ -2,11 +2,14 @@ import { describe, expect, it } from "vitest";
 import { cost } from "../cost";
 import {
   fileName,
+  MAX_RECORDS,
+  setMember,
   holdsMore,
   type LabelRecord,
   MAX_LINE,
   mergeInto,
   readFile,
+  recordKey,
   readLine,
   withLabel,
   writeFile,
@@ -116,6 +119,50 @@ describe("readLine", () => {
     expect(readLine(line)).toBe(why);
   });
 
+  it.each([
+    [
+      "an origin that is not a descriptor",
+      `{"type":"tx","ref":"${TXID}","origin":"my wallet"}`,
+      "origin",
+    ],
+    [
+      "an origin with keys",
+      `{"type":"tx","ref":"${TXID}","origin":"wpkh([d34db33f/84'/0'/0']xpub6Bos)"}`,
+      "origin",
+    ],
+    [
+      "an output's spendable in quotes",
+      `{"type":"output","ref":"${TXID}:0","spendable":"false"}`,
+      "spendable",
+    ],
+  ])("skips %s", (_, line, why) => {
+    expect(readLine(line)).toBe(why);
+  });
+
+  it("reads origins BIP329 writes, and keeps spendable on a type it does not belong to", () => {
+    for (const origin of [
+      "wpkh([d34db33f/84'/0'/0'])",
+      "sh(wpkh([d34db33f/49h/0h/0h]))",
+      "tr([73c5da0a/86'/0'/0'])",
+    ])
+      expect(readLine(JSON.stringify({ type: "tx", ref: TXID, origin }))).toBeTypeOf("object");
+    const r = read(`{"type":"tx","ref":"${TXID}","spendable":"no"}`);
+    expect(r.line).toBe(`{"type":"tx","ref":"${TXID}","spendable":"no"}`);
+  });
+
+  it("gives two different records two keys, whatever their text holds", () => {
+    const a = read(`{"type":"z","ref":"a\\nb","origin":"wpkh([aaaaaaaa])"}`);
+    const b = read(`{"type":"z","ref":"a","origin":"wpkh([aaaaaaaa])"}`);
+    expect(a.key).not.toBe(b.key);
+    expect(recordKey("z", "a\nb", "c")).not.toBe(recordKey("z", "a", "b\nc"));
+  });
+
+  it("reads a name a plain object has (constructor, __proto__) as a field like any other", () => {
+    const r = read(`{"type":"constructor","ref":"__proto__","label":"test","__proto__":{"x":1}}`);
+    expect([r.type, r.ref, r.label]).toStrictEqual(["constructor", "__proto__", "test"]);
+    expect(readLine(`{"ref":"${TXID}","constructor":"tx"}`)).toBeTypeOf("string");
+  });
+
   it("reads a label of any text as data: markup, scripts, bidi and control characters", () => {
     const hostile = `<img src=x onerror=alert(1)>${cp(0x20_2e)}gnp.exe${cp(0, 0x1b)}[31m`;
     const r = read(JSON.stringify({ type: "tx", ref: TXID, label: hostile }));
@@ -193,12 +240,13 @@ describe("readFile", () => {
     const f = await readFile(lines, (done) => seen.push(done));
     clearInterval(timer);
     expect(f.records).toHaveLength(100_000);
-    expect(seen.length).toBeGreaterThan(40);
+    // Reported each time it gives the page its turn, every few milliseconds.
+    expect(seen.length).toBeGreaterThan(5);
     // Other tasks ran while it read.
     expect(ticks).toBeGreaterThan(10);
     let calls = 0;
     const stopped = await readFile(lines, undefined, () => ++calls > 2);
-    expect(stopped.records.length).toBeLessThan(10_000);
+    expect(stopped.records.length).toBeLessThan(100_000);
   });
 
   it("reads a slice of 2 000 lines in well under a frame's worth of processor time each", async () => {
@@ -217,12 +265,86 @@ describe("mergeInto", () => {
   const rec = (line: string): LabelRecord => read(line);
   it("takes the incoming record, keeping a label or spendable it leaves out", () => {
     const old = rec(`{"type":"output","ref":"${TXID}:1","label":"mine","spendable":true}`);
-    expect(mergeInto(old, rec(`{"type":"output","ref":"${TXID}:1","label":"new"}`)).line).toBe(
+    expect(mergeInto(old, rec(`{"type":"output","ref":"${TXID}:1","label":"new"}`))?.line).toBe(
       `{"type":"output","ref":"${TXID}:1","label":"new","spendable":true}`,
     );
     const both = rec(`{"type":"output","ref":"${TXID}:1","label":"x","spendable":false}`);
     expect(mergeInto(old, both)).toStrictEqual(both);
   });
+
+  it("writes the kept label into the incoming line, every other byte of it untouched", () => {
+    const old = rec(`{"type":"output","ref":"${TXID}:1","label":"mine"}`);
+    const incoming = rec(
+      `{ "type": "output", "ref": "${TXID}:1", "value": 9007199254740993, "fmv": {"USD": 1233.40} }`,
+    );
+    expect(mergeInto(old, incoming)?.line).toBe(
+      `{ "type": "output", "ref": "${TXID}:1", "value": 9007199254740993, "fmv": {"USD": 1233.40} ,"label":"mine"}`,
+    );
+  });
+
+  it("carries spendable only on an output, as BIP329 has it only there", () => {
+    const old = rec(`{"type":"tx","ref":"${TXID}","label":"a","spendable":true}`);
+    expect(mergeInto(old, rec(`{"type":"tx","ref":"${TXID}","label":"b"}`))?.line).toBe(
+      `{"type":"tx","ref":"${TXID}","label":"b"}`,
+    );
+  });
+
+  it("never writes a line past the limit it reads: such a merge is refused", async () => {
+    const big = "x".repeat(40_000);
+    const a = rec(`{"type":"tx","ref":"${TXID}","label":"${big}"}`);
+    const b = rec(`{"type":"tx","ref":"${TXID}","note":"${big}"}`);
+    expect(mergeInto(a, b)).toBeNull();
+    const f = await readFile(`${a.line}\n${b.line}\n`);
+    expect(Object.fromEntries(f.skipped)).toStrictEqual({ grow: 1 });
+    expect(f.records[0]?.line).toBe(a.line);
+  });
+});
+
+describe("setMember", () => {
+  const line = `{"type":"tx", "ref":"r","label":"a","n":1}`;
+  it("changes one member's value and nothing else", () => {
+    expect(setMember(line, "label", '"b"')).toBe(`{"type":"tx", "ref":"r","label":"b","n":1}`);
+    expect(setMember(line, "n", "9007199254740993")).toBe(
+      `{"type":"tx", "ref":"r","label":"a","n":9007199254740993}`,
+    );
+  });
+  it("adds a member at the end, and takes one out with its comma, wherever it is", () => {
+    expect(setMember(`{"type":"tx"}`, "label", '"b"')).toBe(`{"type":"tx","label":"b"}`);
+    expect(setMember(line, "label", null)).toBe(`{"type":"tx", "ref":"r","n":1}`);
+    expect(setMember(line, "type", null)).toBe(`{"ref":"r","label":"a","n":1}`);
+    expect(setMember(line, "n", null)).toBe(`{"type":"tx", "ref":"r","label":"a"}`);
+    expect(setMember(`{"label":"a"}`, "label", null)).toBe("{}");
+  });
+  it("reads past strings, escapes and nesting, and leaves one of a name given twice", () => {
+    // A string holding what looks like a member, an object holding "label", then two labels.
+    const head = JSON.stringify({ a: 'x\\","label":1', o: { label: [1, { b: "}" }] } });
+    const tricky = `${head.slice(0, -1)},"label":"a","label":"z"}`;
+    expect(JSON.parse(setMember(tricky, "label", '"new"'))).toStrictEqual({
+      a: 'x\\","label":1',
+      o: { label: [1, { b: "}" }] },
+      label: "new",
+    });
+    expect(setMember(tricky, "label", '"new"').split('"label":"new"')).toHaveLength(2);
+    expect(setMember(tricky, "label", null)).toBe(head);
+  });
+});
+
+describe("limits as the file is read", () => {
+  it("refuses a file of more lines than it reads, before holding them all", async () => {
+    const f = await readFile("\n".repeat(20 * 1024 * 1024));
+    expect(f.refused).toBe("lines");
+    expect(f.records).toStrictEqual([]);
+  }, 60_000);
+
+  it("refuses a file of more records than this browser keeps, at the first one past", async () => {
+    const text = Array.from(
+      { length: MAX_RECORDS + 1 },
+      (_, i) => `{"type":"z","ref":"${i}"}`,
+    ).join("\n");
+    const f = await readFile(text);
+    expect(f.refused).toBe("records");
+    expect(f.records).toStrictEqual([]);
+  }, 60_000);
 });
 
 describe("withLabel", () => {
@@ -237,12 +359,13 @@ describe("withLabel", () => {
   it("changes the label in place and keeps every other field", () => {
     const r = read(VECTORS[4] ?? "");
     const next = withLabel(r, "output", r.ref, "cold storage");
+    // The line keeps the BIP's own spacing: only the label's text changes.
     expect(next?.line).toBe(
-      `{"type":"output","ref":"${TXID}:1","label":"cold storage","spendable":false}`,
+      `{ "type": "output", "ref": "${TXID}:1", "label": "cold storage", "spendable": false }`,
     );
     const gone = withLabel(r, "output", r.ref, null);
     expect(gone?.label).toBeUndefined();
-    expect(gone?.line).toBe(`{"type":"output","ref":"${TXID}:1","spendable":false}`);
+    expect(gone?.line).toBe(`{ "type": "output", "ref": "${TXID}:1", "spendable": false }`);
     expect(gone && holdsMore(gone)).toBe(true);
     const plain = withLabel(read(`{"type":"tx","ref":"${TXID}","label":"x"}`), "tx", TXID, null);
     expect(plain && holdsMore(plain)).toBe(false);

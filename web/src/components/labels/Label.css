@@ -41,14 +41,26 @@
   }
 
   .label-control {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-2) var(--space-3);
+    display: grid;
+    gap: var(--space-2);
     min-width: 0;
+  }
+  /* One line, never wrapping: the control keeps its width and the label gives way, cut with an
+     ellipsis. Its height is the control's, with a label or without. */
+  .label-control__row {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: var(--space-3);
+    min-width: 0;
+  }
+  .label-control__row .your-label {
+    flex: 0 1 auto;
   }
   /* Quiet: a line of muted text with the tag's outline, not a button's box. */
   .label-control__open {
+    flex: none;
+    white-space: nowrap;
     display: inline-flex;
     align-items: center;
     gap: var(--space-1);
@@ -83,7 +95,6 @@
     stroke-linejoin: round;
   }
   .label-control__editor {
-    flex-basis: 100%;
     min-width: 0;
   }
   .label-control__failed,

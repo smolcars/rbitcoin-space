@@ -133,7 +133,9 @@ export default function AddressPage() {
             </HashFull>
           )}
         </Show>
-        <Show when={found()} keyed>
+        {/* Only on the address's own network, as the body below: a label of a mainnet address
+            never shows above another network's "wrong network" answer. */}
+        <Show when={key() !== undefined && found()} keyed>
           {(f) => (
             <LabelControl
               type={f.type === "p2pk" ? "pubkey" : "addr"}

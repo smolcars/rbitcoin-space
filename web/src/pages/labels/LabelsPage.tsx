@@ -1,7 +1,8 @@
 // The reader's labels: every one this browser keeps, to find, edit and delete, and BIP329 files in
-// and out (docs/FRONTEND.md "Your labels"). Everything here happens in the browser: the page asks
-// the server for nothing, and nothing typed or read here goes into a URL.
-import { createMemo, createSignal, onSettled, Show } from "solid-js";
+// and out (docs/FRONTEND.md "Your labels"). Everything here happens in the browser: loading,
+// searching, editing, deleting, importing and exporting ask the server for nothing, and nothing
+// typed or read here goes into a URL. Only following a reference's link asks for its page.
+import { createEffect, createMemo, createSignal, Show } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { type Column, DataTable } from "../../components/DataTable";
 import { Hash } from "../../components/Hash";
@@ -12,17 +13,19 @@ import { SectionHeader } from "../../components/SectionHeader";
 import { Loading } from "../../components/States";
 import { recognise } from "../../lib/address";
 import { groupDigits } from "../../lib/format";
-import { shownLabels } from "../../lib/labels";
+import { labelsVersion } from "../../lib/labels";
 import {
   fileName,
   MAX_FILE,
   MAX_LABEL,
   readFile,
   type ReadFile,
+  REFUSAL_WORDS,
   SKIP_WORDS,
 } from "../../lib/labels/bip329";
 import {
   exportFile,
+  FAILURE_WORDS,
   type ImportPlan,
   LabelStoreError,
   planImport,
@@ -40,18 +43,19 @@ import "./LabelsPage.css";
 
 const PER_PAGE = 50;
 
-const TYPE_NAMES: Record<string, string> = {
-  tx: "Transaction",
-  addr: "Address",
-  pubkey: "Public key",
-  input: "Input",
-  output: "Output",
-  xpub: "Extended public key",
-  spscan: "Silent payments scan key",
-};
+// A Map, not an object: a type comes from a file, and `constructor` must not find Object's.
+const TYPE_NAMES = new Map([
+  ["tx", "Transaction"],
+  ["addr", "Address"],
+  ["pubkey", "Public key"],
+  ["input", "Input"],
+  ["output", "Output"],
+  ["xpub", "Extended public key"],
+  ["spscan", "Silent payments scan key"],
+]);
 
 /** What a record names, in words; a type this site does not know is named by its own word. */
-const typeName = (type: string) => TYPE_NAMES[type] ?? `Other (${type})`;
+export const typeName = (type: string): string => TYPE_NAMES.get(type) ?? `Other (${type})`;
 
 /**
  * Where a record's page is, or undefined for one the site cannot show (an xpub is never looked up:
@@ -85,33 +89,52 @@ const megabytes = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 type Phase =
   | { kind: "idle" }
   | { kind: "reading"; name: string; done: number; total: number }
-  | { kind: "planned"; name: string; read: ReadFile; plan: ImportPlan; long: number }
+  | {
+      kind: "planned";
+      name: string;
+      read: ReadFile;
+      plan: ImportPlan;
+      long: number;
+      /** Planned again because the labels changed after the first plan. */
+      again?: boolean;
+    }
   | { kind: "saving"; done: number; total: number }
   | { kind: "refused"; words: string };
 
 export default function LabelsPage() {
   usePageTitle(() => "Your labels");
   const network = useNetwork();
-  const [state, setState] = createSignal<"loading" | "ready" | "unavailable">("loading");
-  onSettled(() => {
+  const [state, setState] = createSignal<"loading" | "ready" | "off">("loading");
+  const [why, setWhy] = createSignal("");
+  const [list, setList] = createSignal<Stored[]>([]);
+  const read = () => {
     records()
-      .then(() => setState("ready"))
+      .then(() => {
+        // Newest first.
+        const kept = snapshot();
+        const out: Stored[] = [];
+        for (let i = kept.length - 1; i >= 0; i--) out.push(kept[i] as Stored);
+        setList(out);
+        setState("ready");
+      })
       .catch((e: unknown) => {
-        setState(
-          e instanceof LabelStoreError && e.kind !== "unavailable" ? "ready" : "unavailable",
-        );
+        setWhy(e instanceof LabelStoreError ? e.message : "");
+        setState("off");
       });
-  });
-  // Follows every write, from this page, an editor, or another tab.
-  const all = createMemo(() => {
-    shownLabels();
-    if (state() !== "ready") return [];
-    // Newest first.
-    const list = snapshot();
-    const out: Stored[] = [];
-    for (let i = list.length - 1; i >= 0; i--) out.push(list[i] as Stored);
-    return out;
-  });
+  };
+  // Read on arrival and after every change, from this page, an editor or another tab: what was
+  // read is kept by the store, so a change made here costs no second read.
+  createEffect(labelsVersion, read);
+  const retry = () => {
+    // Another tab updated the site: only a reload of this one can open its store again.
+    if (why() === FAILURE_WORDS.outdated) {
+      location.reload();
+      return;
+    }
+    setState("loading");
+    read();
+  };
+  const all = () => list();
 
   return (
     <div class="wrap labels-page">
@@ -126,10 +149,14 @@ export default function LabelsPage() {
       <aside class="labels-page__where" aria-labelledby="labels-where">
         <h2 id="labels-where">Kept in this browser only</h2>
         <p>
-          Your labels never leave this browser: the site does not send them to its server or
-          anywhere else, and it cannot see them. They are lost if this site's data is cleared, and
-          another browser or device does not have them. Export them to keep a copy: the file is in
-          BIP329, the label format wallets such as Sparrow and Nunchuk import.
+          Your labels, and the list of what you have labelled, stay in this browser: the site never
+          sends them to its server or anywhere else. Opening one of them on the explorer asks the
+          server for that transaction or address, as any lookup does.
+        </p>
+        <p>
+          They are lost if this site's data is cleared, and another browser or device does not have
+          them. Export them to keep a copy: the file is in BIP329, the label format wallets such as
+          Sparrow and Nunchuk import.
         </p>
       </aside>
       <Show when={state() !== "loading"} fallback={<Loading label="Reading your labels" />}>
@@ -139,10 +166,15 @@ export default function LabelsPage() {
             <section class="labels-page__off" aria-labelledby="labels-off">
               <SectionHeader title="Labels cannot be kept here" id="labels-off" />
               <p>
-                This browser is not letting the site keep anything (a private window, or site data
-                blocked for this site), so there is nowhere to keep labels. The rest of the site
-                works as before.
+                {why() ||
+                  "This browser is not letting the site keep anything here, so there is nowhere to keep labels."}{" "}
+                The rest of the site works as before.
               </p>
+              <div>
+                <button type="button" class="btn" onClick={retry}>
+                  Try again
+                </button>
+              </div>
             </section>
           }
         >
@@ -209,9 +241,11 @@ function Manager(props: { all: Stored[]; network: Network }) {
     try {
       const read = await readFile(await file.text(), heard, () => run !== reading);
       if (run !== reading) return;
-      const next = await planImport(read.records);
-      const long = read.records.filter((r) => (r.label?.length ?? 0) > MAX_LABEL).length;
-      if (run === reading) setPhase({ kind: "planned", name: file.name, read, plan: next, long });
+      if (read.refused) {
+        setPhase({ kind: "refused", words: REFUSAL_WORDS[read.refused] });
+        return;
+      }
+      await plan(run, file.name, read);
     } catch (error) {
       if (run !== reading) return;
       setPhase({
@@ -224,16 +258,39 @@ function Manager(props: { all: Stored[]; network: Network }) {
     }
   };
 
-  const commitImport = (plan: ImportPlan) => {
-    const total = plan.added.length + plan.replaced.length;
+  /** Says what importing what was read would do, against the labels as they are now. */
+  const plan = async (run: number, name: string, read: ReadFile, again = false) => {
+    const next = await planImport(read.records);
+    const long = read.records.filter((r) => (r.label?.length ?? 0) > MAX_LABEL).length;
+    if (run === reading)
+      setPhase({ kind: "planned", name, read, plan: next, long, ...(again ? { again } : {}) });
+  };
+
+  const commitImport = (p: Extract<Phase, { kind: "planned" }>) => {
+    const total = p.plan.added.length + p.plan.replaced.length;
+    const run = reading;
     setPhase({ kind: "saving", done: 0, total });
-    runImport(plan, (done) => setPhase({ kind: "saving", done, total }))
+    runImport(p.plan, (done) => setPhase({ kind: "saving", done, total }))
       .then(() => {
         setPhase({ kind: "idle" });
         setPage(1);
-        setSaid(`Imported ${groupDigits(total)} ${total === 1 ? "label" : "labels"}.`);
+        setSaid(
+          `Imported ${groupDigits(total)} ${total === 1 ? "label" : "labels"}. The server learned nothing from it.`,
+        );
       })
-      .catch((e: unknown) => {
+      .catch(async (e: unknown) => {
+        // Labels changed since the plan, here or in another tab: plan again and say so, rather
+        // than lay an old plan over a newer label.
+        if (e instanceof LabelStoreError && e.kind === "stale") {
+          try {
+            await plan(run, p.name, p.read, true);
+            return;
+          } catch (error) {
+            setPhase({ kind: "idle" });
+            fail(error);
+            return;
+          }
+        }
         setPhase({ kind: "idle" });
         fail(e);
       });
@@ -468,7 +525,7 @@ function Reference(props: { r: Stored; network: Network }) {
 
 function ImportState(props: {
   phase: Phase;
-  onImport: (plan: ImportPlan) => void;
+  onImport: (p: Extract<Phase, { kind: "planned" }>) => void;
   onCancel: () => void;
 }): JSX.Element {
   return (
@@ -517,7 +574,7 @@ function ImportState(props: {
 /** What an import will do, said before it does it. */
 function Plan(props: {
   p: Extract<Phase, { kind: "planned" }>;
-  onImport: (plan: ImportPlan) => void;
+  onImport: (p: Extract<Phase, { kind: "planned" }>) => void;
   onCancel: () => void;
 }) {
   const n = (x: number, one: string, many: string) => `${groupDigits(x)} ${x === 1 ? one : many}`;
@@ -527,6 +584,12 @@ function Plan(props: {
   const skipped = () => [...props.p.read.skipped.values()].reduce((a, b) => a + b, 0);
   return (
     <div class="labels-page__import" role="status">
+      <Show when={props.p.again}>
+        <p class="labels-page__again">
+          Your labels changed since this file was read, in this tab or another. This is what
+          importing it would do now.
+        </p>
+      </Show>
       <p class="labels-page__import-title">
         {props.p.name}: {n(props.p.read.lines, "line", "lines")} read
       </p>
@@ -542,6 +605,12 @@ function Plan(props: {
           <li>
             {n(props.p.read.replaced, "line repeats", "lines repeat")} an earlier line for the same
             thing: the later line is kept.
+          </li>
+        </Show>
+        <Show when={props.p.plan.grown > 0}>
+          <li>
+            {n(props.p.plan.grown, "line is", "lines are")} left out: with the label you have kept
+            in, the line would pass the 64 KiB a line may be.
           </li>
         </Show>
         <Show when={props.p.long > 0}>
@@ -564,13 +633,13 @@ function Plan(props: {
           </li>
         </Show>
       </ul>
+      <p class="labels-page__private">
+        Importing tells the server nothing. It learns of a transaction or address in this file only
+        if you open its page on the explorer.
+      </p>
       <div class="labels-page__buttons">
         <Show when={total() > 0}>
-          <button
-            type="button"
-            class="btn btn--accent"
-            onClick={() => props.onImport(props.p.plan)}
-          >
+          <button type="button" class="btn btn--accent" onClick={() => props.onImport(props.p)}>
             Import {n(total(), "label", "labels")}
           </button>
         </Show>

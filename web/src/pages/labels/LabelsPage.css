@@ -77,6 +77,10 @@
   .labels-page__problem {
     color: var(--color-negative);
   }
+  .labels-page__private,
+  .labels-page__again {
+    font-size: var(--text-sm);
+  }
   .labels-page__import-title {
     font-weight: var(--weight-medium);
     overflow-wrap: anywhere;

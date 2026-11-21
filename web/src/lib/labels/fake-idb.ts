@@ -1,58 +1,175 @@
-// A test stand-in for the part of IndexedDB the label store uses: open with an upgrade, one
-// object store with a key path, read-write transactions that commit whole or not at all, put,
-// delete, clear and getAll. Requests answer in a task after they are made, as a browser's do. It
-// can refuse to open, and run out of room after a number of records, as a full disk does.
-// oxlint-disable max-classes-per-file -- the database, its transaction, store and request are one stand-in
+// A test stand-in for the part of IndexedDB the label store uses: open with an upgrade (its
+// transaction included), object stores with or without a key path, an index, transactions over
+// several stores that commit whole or not at all, get, getAll over a lower bound with a count,
+// count, put, delete, clear and a cursor. Requests answer in order, in tasks after they are made.
+// A failure follows the specification's order: the request's error event, the same event at the
+// transaction (with `tx.error` still null), then the transaction's error set and its abort event.
+// oxlint-disable max-classes-per-file -- the database, its transaction, stores, index, cursor and request are one stand-in
 
 interface Options {
   /** Opening throws, as blocked site data does. */
   throwOnOpen?: boolean;
   /** Opening fails with an error event, as some private windows do. */
   failOpen?: boolean;
-  /** Writes past this many records fail with QuotaExceededError. */
+  /** Opening never answers, as a blocked upgrade or a stuck browser. */
+  hangOpen?: boolean;
+  /** More rows than this in the records store fail with QuotaExceededError. */
   room?: number;
+  /** Where that failure is reported: by the put that passes the room (Firefox), or at commit. */
+  quotaAt?: "request" | "commit";
 }
 
 type Row = Record<string, unknown>;
+type Key = string | number;
+
+/** IDBKeyRange's lower bound, which the store uses; installed where the test runner has none. */
+export const KeyRange = {
+  lowerBound: (lower: Key, lowerOpen = false) => ({ lower, lowerOpen }),
+};
+interface Range {
+  lower: Key;
+  lowerOpen: boolean;
+}
+
+const above = (k: Key, r: Range | undefined) =>
+  r === undefined || (r.lowerOpen ? k > r.lower : k >= r.lower);
 
 class FakeRequest extends EventTarget {
   result: unknown;
   error: DOMException | null = null;
+  transaction: FakeTransaction | null = null;
+}
+
+interface Table {
+  keyPath: string | undefined;
+  rows: Map<Key, unknown>;
+  indexes: Map<string, string>;
+}
+
+const order = (a: Key, b: Key) => (a < b ? -1 : a > b ? 1 : 0);
+const sortedKeys = (rows: Map<Key, unknown>) => {
+  const keys = [...rows.keys()];
+  keys.sort(order);
+  return keys;
+};
+
+class FakeIndex {
+  readonly store: FakeStore;
+  readonly path: string;
+  constructor(store: FakeStore, path: string) {
+    this.store = store;
+    this.path = path;
+  }
+  getAll(range?: Range, count?: number): FakeRequest {
+    return this.store.tx.queue(() => {
+      const rows = [...this.store.rows().values()] as Row[];
+      const by = (r: Row) => r[this.path] as Key;
+      rows.sort((a, b) => (by(a) < by(b) ? -1 : by(a) > by(b) ? 1 : 0));
+      return rows
+        .filter((r) => above(by(r), range))
+        .slice(0, count)
+        .map((r) => structuredClone(r));
+    });
+  }
+}
+
+class FakeCursor {
+  readonly store: FakeStore;
+  readonly req: FakeRequest;
+  key: Key;
+  value: unknown;
+  constructor(store: FakeStore, req: FakeRequest, key: Key) {
+    this.store = store;
+    this.req = req;
+    this.key = key;
+    this.value = structuredClone(store.rows().get(key));
+  }
+  delete(): FakeRequest {
+    const key = this.key;
+    return this.store.tx.queue(() => {
+      this.store.rows().delete(key);
+      return undefined;
+    });
+  }
+  continue(): void {
+    const key = this.key;
+    this.store.tx.requeue(this.req, () => {
+      const next = sortedKeys(this.store.rows()).find((k) => k > key);
+      return next === undefined ? null : new FakeCursor(this.store, this.req, next);
+    });
+  }
 }
 
 class FakeStore {
   readonly tx: FakeTransaction;
-  readonly rows: Map<string, Row>;
-  readonly keyPath: string;
-  constructor(tx: FakeTransaction, rows: Map<string, Row>, keyPath: string) {
+  readonly name: string;
+  constructor(tx: FakeTransaction, name: string) {
     this.tx = tx;
-    this.rows = rows;
-    this.keyPath = keyPath;
+    this.name = name;
   }
-  put(value: Row): FakeRequest {
+  table(): Table {
+    const t = this.tx.db.tables.get(this.name);
+    if (!t) throw new DOMException("no store", "NotFoundError");
+    return t;
+  }
+  rows(): Map<Key, unknown> {
+    return this.tx.staged(this.name);
+  }
+  createIndex(name: string, path: string): void {
+    this.table().indexes.set(name, path);
+  }
+  index(name: string): FakeIndex {
+    const path = this.table().indexes.get(name);
+    if (path === undefined) throw new DOMException("no index", "NotFoundError");
+    return new FakeIndex(this, path);
+  }
+  put(value: unknown, key?: Key): FakeRequest {
     const copy = structuredClone(value);
+    const path = this.table().keyPath;
+    const k = path === undefined ? key : ((copy as Row)[path] as Key);
+    if (k === undefined) throw new DOMException("no key", "DataError");
     return this.tx.queue(() => {
-      this.rows.set(String(copy[this.keyPath]), copy);
-      const room = this.tx.db.options.room;
-      if (room !== undefined && this.rows.size > room)
+      this.rows().set(k, copy);
+      const { room, quotaAt } = this.tx.db.options;
+      if (room !== undefined && quotaAt === "request" && this.rows().size > room)
         throw new DOMException("full", "QuotaExceededError");
-      return copy[this.keyPath];
+      return k;
     });
   }
-  delete(key: string): FakeRequest {
+  get(key: Key): FakeRequest {
+    return this.tx.queue(() => structuredClone(this.rows().get(key)));
+  }
+  count(): FakeRequest {
+    return this.tx.queue(() => this.rows().size);
+  }
+  delete(key: Key): FakeRequest {
     return this.tx.queue(() => {
-      this.rows.delete(key);
+      this.rows().delete(key);
       return undefined;
     });
   }
   clear(): FakeRequest {
     return this.tx.queue(() => {
-      this.rows.clear();
+      this.rows().clear();
       return undefined;
     });
   }
-  getAll(): FakeRequest {
-    return this.tx.queue(() => [...this.rows.values()].map((r) => structuredClone(r)));
+  getAll(range?: Range, count?: number): FakeRequest {
+    return this.tx.queue(() => {
+      const rows = this.rows();
+      return sortedKeys(rows)
+        .filter((k) => above(k, range))
+        .slice(0, count)
+        .map((k) => structuredClone(rows.get(k)));
+    });
+  }
+  openCursor(): FakeRequest {
+    const req = new FakeRequest();
+    this.tx.requeue(req, () => {
+      const first = sortedKeys(this.rows())[0];
+      return first === undefined ? null : new FakeCursor(this, req, first);
+    });
+    return req;
   }
 }
 
@@ -60,26 +177,36 @@ class FakeTransaction extends EventTarget {
   error: DOMException | null = null;
   readonly db: FakeDatabase;
   private readonly pending: [FakeRequest, () => unknown][] = [];
-  private readonly staged: Map<string, Map<string, Row>>;
+  private readonly copies = new Map<string, Map<Key, unknown>>();
   private done = false;
   constructor(db: FakeDatabase) {
     super();
     this.db = db;
-    // Changes apply to a copy, kept only if the transaction completes.
-    this.staged = new Map([...db.stores].map(([n, s]) => [n, new Map(s.rows)]));
     setTimeout(() => this.step(), 0);
   }
+  /** The store's rows as this transaction sees them: a copy, kept only if it completes. */
+  staged(name: string): Map<Key, unknown> {
+    let rows = this.copies.get(name);
+    if (!rows) {
+      const table = this.db.tables.get(name);
+      rows = table ? new Map(table.rows) : new Map<Key, unknown>();
+      this.copies.set(name, rows);
+    }
+    return rows;
+  }
   objectStore(name: string): FakeStore {
-    const rows = this.staged.get(name);
-    const keyPath = this.db.stores.get(name)?.keyPath;
-    if (!rows || keyPath === undefined) throw new DOMException("no store", "NotFoundError");
-    return new FakeStore(this, rows, keyPath);
+    if (!this.db.tables.has(name)) throw new DOMException("no store", "NotFoundError");
+    return new FakeStore(this, name);
   }
   queue(run: () => unknown): FakeRequest {
-    if (this.done) throw new DOMException("finished", "TransactionInactiveError");
     const req = new FakeRequest();
-    this.pending.push([req, run]);
+    this.requeue(req, run);
     return req;
+  }
+  requeue(req: FakeRequest, run: () => unknown): void {
+    if (this.done) throw new DOMException("finished", "TransactionInactiveError");
+    req.transaction = this;
+    this.pending.push([req, run]);
   }
   abort(): void {
     this.finish(new DOMException("aborted", "AbortError"));
@@ -87,15 +214,19 @@ class FakeTransaction extends EventTarget {
   private finish(error: DOMException | null): void {
     if (this.done) return;
     this.done = true;
-    if (error) {
-      this.error = error;
-      this.dispatchEvent(new Event("error"));
+    const room = this.db.options.room;
+    const rows = this.copies.get("records")?.size ?? 0;
+    const full =
+      error === null && room !== undefined && this.db.options.quotaAt !== "request" && rows > room;
+    const why = error ?? (full ? new DOMException("full", "QuotaExceededError") : null);
+    if (why) {
+      this.error = why;
       this.dispatchEvent(new Event("abort"));
       return;
     }
-    for (const [name, rows] of this.staged) {
-      const store = this.db.stores.get(name);
-      if (store) store.rows = rows;
+    for (const [name, staged] of this.copies) {
+      const table = this.db.tables.get(name);
+      if (table) table.rows = staged;
     }
     this.dispatchEvent(new Event("complete"));
   }
@@ -110,34 +241,40 @@ class FakeTransaction extends EventTarget {
       const [req, run] = next;
       try {
         req.result = run();
-        req.dispatchEvent(new Event("success"));
       } catch (error) {
         req.error =
           error instanceof DOMException ? error : new DOMException(String(error), "UnknownError");
         req.dispatchEvent(new Event("error"));
+        // The same event reaches the transaction before it aborts: its error is not set yet.
+        this.dispatchEvent(new Event("error"));
         this.finish(req.error);
         return;
       }
+      req.dispatchEvent(new Event("success"));
+      if (this.done) return;
     }
     setTimeout(() => this.step(), 0);
   }
 }
 
-class FakeDatabase {
-  stores = new Map<string, { keyPath: string; rows: Map<string, Row> }>();
+class FakeDatabase extends EventTarget {
+  tables = new Map<string, Table>();
   version = 0;
   closed = false;
-  onversionchange: (() => void) | null = null;
   readonly options: Options;
   constructor(options: Options) {
+    super();
     this.options = options;
   }
-  createObjectStore(name: string, opts: { keyPath: string }): void {
-    this.stores.set(name, { keyPath: opts.keyPath, rows: new Map() });
+  createObjectStore(name: string, opts?: { keyPath: string }): FakeStore {
+    this.tables.set(name, { keyPath: opts?.keyPath, rows: new Map(), indexes: new Map() });
+    return new FakeStore(this.upgrading as FakeTransaction, name);
   }
-  transaction(name: string): FakeTransaction {
+  upgrading: FakeTransaction | undefined;
+  transaction(names: string | string[]): FakeTransaction {
     if (this.closed) throw new DOMException("closed", "InvalidStateError");
-    if (!this.stores.has(name)) throw new DOMException("no store", "NotFoundError");
+    for (const n of Array.isArray(names) ? names : [names])
+      if (!this.tables.has(n)) throw new DOMException("no store", "NotFoundError");
     return new FakeTransaction(this);
   }
   close(): void {
@@ -152,6 +289,7 @@ export function fakeIndexedDB(options: Options = {}) {
     open(name: string, version: number): FakeRequest {
       if (options.throwOnOpen === true) throw new DOMException("blocked", "SecurityError");
       const req = new FakeRequest();
+      if (options.hangOpen === true) return req;
       setTimeout(() => {
         if (options.failOpen === true) {
           req.error = new DOMException("no", "InvalidStateError");
@@ -165,13 +303,22 @@ export function fakeIndexedDB(options: Options = {}) {
         }
         db.closed = false;
         req.result = db;
-        if (db.version < version) {
-          const e = new Event("upgradeneeded");
-          Object.defineProperty(e, "oldVersion", { value: db.version });
-          db.version = version;
-          req.dispatchEvent(e);
+        if (db.version >= version) {
+          req.dispatchEvent(new Event("success"));
+          return;
         }
-        req.dispatchEvent(new Event("success"));
+        const tx = new FakeTransaction(db);
+        db.upgrading = tx;
+        req.transaction = tx;
+        const e = new Event("upgradeneeded");
+        Object.defineProperty(e, "oldVersion", { value: db.version });
+        db.version = version;
+        req.dispatchEvent(e);
+        tx.addEventListener("complete", () => {
+          req.transaction = null;
+          db.upgrading = undefined;
+          req.dispatchEvent(new Event("success"));
+        });
       }, 0);
       return req;
     },

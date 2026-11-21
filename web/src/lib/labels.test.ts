@@ -71,6 +71,18 @@ describe("shownLabel", () => {
     expect(shownLabel(`Z${cp(0x03_01).repeat(40)}`, 100)).toBe(`Z${cp(0x03_01, 0x03_01)}`);
   });
 
+  it("bounds a label in code units too: one long cluster of joined emoji cannot pass the cap", () => {
+    // 512 emoji joined by U+200D: one grapheme cluster of 1 535 code units.
+    const one = Array.from({ length: 512 }, () => cp(0x1_f4_69)).join(cp(0x20_0d));
+    expect(one.length).toBeGreaterThan(1500);
+    const out = shownLabel(`ab${one}cd`, 40);
+    expect(out.length).toBeLessThanOrEqual(40 * 4 + 1);
+    expect(out).toBe("ab…");
+    expect(shownLabel(one, 255).length).toBeLessThanOrEqual(255 * 4 + 1);
+    // A very long label is looked at only as far as it can be shown.
+    expect(shownLabel("x".repeat(5_000_000), 40)).toBe(`${"x".repeat(40)}…`);
+  });
+
   it("cuts a long label at whole characters, with an ellipsis", () => {
     expect(shownLabel("x".repeat(10_000), 40)).toBe(`${"x".repeat(40)}…`);
     expect(shownLabel("👍🏽".repeat(5), 3)).toBe("👍🏽👍🏽👍🏽…");

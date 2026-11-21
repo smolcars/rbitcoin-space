@@ -143,8 +143,12 @@ export function Flow(props: {
   const [view, setView] = createSignal("0 0 0 0");
 
   // Ribbon geometry from where the cards actually sit. One layout read per draw.
+  // Watches every card too: one that grows (a label added, its text wrapping) moves the cards
+  // under it without changing the flow's own size.
+  let watcher: ResizeObserver | undefined;
   const draw = () => {
     if (!svgEl || !inCol || !outCol) return;
+    for (const el of [...inCol.children, ...outCol.children]) watcher?.observe(el);
     const box = svgEl.getBoundingClientRect();
     const W = box.width;
     const H = box.height;
@@ -219,6 +223,7 @@ export function Flow(props: {
 
   onSettled(() => {
     const ro = new ResizeObserver(() => draw());
+    watcher = ro;
     if (flowEl) ro.observe(flowEl);
     requestAnimationFrame(() => {
       draw();

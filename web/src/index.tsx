@@ -51,13 +51,13 @@ if (root) {
             link.addEventListener("error", resolve, { once: true });
           }),
   );
-  // The reader's own labels, read before the first render so they never arrive under a page
-  // already drawn; within the font's wait, and nothing at all for a reader without labels.
-  const labels = Promise.race([startLabels(), timeout]);
-  void Promise.all([Promise.race([font, timeout]), labels, ...styled]).then(([faces]) => {
+  void Promise.all([Promise.race([font, timeout]), ...styled]).then(([faces]) => {
     if (!faces.some((f) => f.status === "loaded")) useFallbackFonts();
     // The browser restores scroll on back and forward, as it did before the router could.
     const Router = createRouter({ routes, scrollRestoration: false });
     render(() => <Router>{(page) => <Shell>{page.children}</Shell>}</Router>, root);
+    // The reader's own labels, read after the page has started its own requests, so whether
+    // labels are kept, and how many, never changes when or what the page asks the server.
+    startLabels();
   });
 }
