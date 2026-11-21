@@ -1,7 +1,7 @@
 // The reader's own label beside what it names, and the control that sets it (docs/FRONTEND.md
 // "Your labels"). In the shell's group: small, and on most pages that show a hash. The editor it
 // opens loads on first use.
-import { type Component, createSignal, createUniqueId, Show } from "solid-js";
+import { type Component, createSignal, createUniqueId, onCleanup, Show } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { labelOf, type Shown, shownLabel } from "../../lib/labels";
 import "../Button.css";
@@ -97,20 +97,55 @@ export function LabelControl(props: { type: Shown; reference: string; what: stri
   // Each opening is a session: a save that ends after its editor was closed, or after another
   // was opened, acts on nothing.
   let session = 0;
+  // While the editor's code downloads: what gives the wait up. Escape, a press anywhere else,
+  // focus moving elsewhere, or the button pressed again: the editor then never opens.
+  let giveUp: (() => void) | undefined;
+  onCleanup(() => giveUp?.());
   const start = () => {
     setSaid("");
     setFailed(false);
     session++;
+    if (giveUp) {
+      giveUp();
+      return;
+    }
     if (open()) {
       setOpen(false);
       return;
     }
+    let cancelled = false;
+    const key = (e: KeyboardEvent) => {
+      if (e.key === "Escape") stop();
+    };
+    const pointer = (e: PointerEvent) => {
+      if (!(e.target instanceof Node && button?.contains(e.target))) stop();
+    };
+    const focus = (e: FocusEvent) => {
+      if (e.target !== button) stop();
+    };
+    const stop = () => {
+      cancelled = true;
+      document.removeEventListener("keydown", key);
+      document.removeEventListener("pointerdown", pointer, true);
+      document.removeEventListener("focusin", focus);
+      if (giveUp === stop) giveUp = undefined;
+    };
+    document.addEventListener("keydown", key);
+    document.addEventListener("pointerdown", pointer, true);
+    document.addEventListener("focusin", focus);
+    giveUp = stop;
     import("./LabelEditor")
       .then((m) => {
+        if (cancelled) return;
+        stop();
         setEditor({ LabelEditor: m.LabelEditor, EditorPop: m.EditorPop });
         setOpen(true);
       })
-      .catch(() => setFailed(true));
+      .catch(() => {
+        if (cancelled) return;
+        stop();
+        setFailed(true);
+      });
   };
   const finish = () => {
     session++;
