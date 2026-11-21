@@ -1,7 +1,8 @@
 // A node's close record (docs/FRONTEND.md "Lightning pages"): how its channels this server watched
 // ended, beside every channel's as last worked out, by week, and with whom. A record, not a
 // verdict: kinds keep their icon and word in the muted tone, and a force close is never the node's.
-import { createSignal, For, Show } from "solid-js";
+import { createSignal, For, Show, untrack } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import { formatDay, formatMoment } from "../../components/chart/scale";
 import { type Column, DataTable } from "../../components/DataTable";
 import { Link } from "../../components/Link";
@@ -30,8 +31,9 @@ import {
   shareText,
   type WeekRow,
   weekRows,
+  weeksInWords,
 } from "./lightning";
-import { Alias, ask, Tag } from "./parts";
+import { Alias, ask, Tag, usePhone } from "./parts";
 
 /** Asks for a node's record: its own request, so a page that needs the answer first can hold it. */
 export const askRecord = (network: Network, id: () => string): ApiRequest<NodeCloses> =>
@@ -41,14 +43,11 @@ export const askRecord = (network: Network, id: () => string): ApiRequest<NodeCl
 export function CloseRecord(props: { network: Network; id: string }) {
   // Made once, here: a JSX prop is a getter, so a request made inside it is made on every read.
   const request = askRecord(props.network, () => props.id);
-  return <RecordSection request={request} gone={false} />;
+  return <RecordSection request={request} />;
 }
 
-/**
- * The record's section. `gone`: for a node the graph no longer holds, whose page shows it only once
- * its record answers with a close; there its peers lead to their own pages.
- */
-export function RecordSection(props: { request: ApiRequest<NodeCloses>; gone: boolean }) {
+/** The record's section, from a request made once by the page that shows it. */
+export function RecordSection(props: { request: ApiRequest<NodeCloses> }) {
   const answer = () => props.request[0];
   return (
     <section aria-labelledby="ln-record-title" class="ln-record">
@@ -73,7 +72,7 @@ export function RecordSection(props: { request: ApiRequest<NodeCloses>; gone: bo
           </Show>
         }
       >
-        {(r) => <Body record={r} gone={props.gone} />}
+        {(r) => <Body record={r} />}
       </Show>
     </section>
   );
@@ -143,9 +142,9 @@ const sats = (n: number | null) => (n === null ? MISSING : groupDigits(n));
 
 /** Said once, where a reader meets the first force figure. */
 const BOTH_ENDS =
-  "A force close is in the record of both of its channel's nodes: the chain does not say which end broadcast it.";
+  "A force close is in both nodes' records; the chain does not say which end broadcast it.";
 
-function Body(props: { record: NodeCloses; gone: boolean }) {
+function Body(props: { record: NodeCloses }) {
   const r = () => props.record;
   const rated = () => r().node.shares !== null;
   const forced = () => r().node.force + r().node.penalty > 0;
@@ -185,12 +184,12 @@ function Body(props: { record: NodeCloses; gone: boolean }) {
               </p>
               <details class="more ln-record__breakdown">
                 <summary class="more__summary">Show the breakdown</summary>
-                <Breakdown record={r()} gone={props.gone} />
+                <Breakdown record={r()} />
               </details>
             </>
           }
         >
-          <Breakdown record={r()} gone={props.gone} />
+          <Breakdown record={r()} />
         </Show>
       </Show>
       <More label="How this record is made">
@@ -253,15 +252,54 @@ function Few(props: { record: NodeCloses }) {
   );
 }
 
-/** The tables: how it ended across the panel, fees and weeks side by side, then with whom. */
-function Breakdown(props: { record: NodeCloses; gone: boolean }) {
+/**
+ * The tables: how it ended across the panel, then on a wide screen the fees on the left beside the
+ * weeks over with whom; on a phone the weeks and with whom are folded to their sentences.
+ */
+function Breakdown(props: { record: NodeCloses }) {
   return (
     <div class="ln-record__grid">
       <Ended record={props.record} />
       <Fees record={props.record} />
-      <Weeks record={props.record} />
-      <Peers record={props.record} gone={props.gone} />
+      <div class="ln-record__side">
+        <Weeks record={props.record} />
+        <Peers record={props.record} />
+      </div>
     </div>
+  );
+}
+
+/**
+ * A part folded to its sentence on a phone and open on a wider screen, as the page first opened;
+ * the reader's own toggle is kept after that. The sentence stays in sight when `always`.
+ */
+function Fold(props: {
+  title: string;
+  line: JSX.Element;
+  /** Beside the heading while the part is open: a note that would otherwise take a line. */
+  aside?: JSX.Element;
+  always?: boolean;
+  class?: string | undefined;
+  children: JSX.Element;
+}) {
+  const phone = usePhone();
+  return (
+    <details class={["ln-record__fold", props.class]} open={!untrack(phone)}>
+      <summary class="ln-record__summary">
+        <h3 class="ln-record__h">{props.title}</h3>
+        <Show when={props.aside}>
+          <span class="ln-record__aside">{props.aside}</span>
+        </Show>
+        <span
+          class={
+            props.always === true ? "ln-record__line" : "ln-record__line ln-record__line--closed"
+          }
+        >
+          {props.line}
+        </span>
+      </summary>
+      <div class="ln-record__part">{props.children}</div>
+    </details>
   );
 }
 
@@ -285,9 +323,11 @@ function Ended(props: { record: NodeCloses }) {
     },
     { header: "Closes", numeric: true, cell: (k) => groupDigits(r().node[k]) },
     {
-      header: rated() ? "Share" : "All channels",
+      header: rated() ? "Share, this node then all" : "All channels",
+      // A phone has room for the word: "all" before every channel's figure says whose each is.
+      ...(rated() ? { short: "Share" } : {}),
       // Under every channel's minimum too, their column holds counts, and says so.
-      sub: rated() ? "this node, then all" : net()?.shares === null ? "closes" : "share",
+      ...(rated() ? {} : { sub: net()?.shares === null ? "closes" : "share" }),
       cell: (k) => {
         const n = net();
         const sh = r().node.shares;
@@ -312,7 +352,7 @@ function Ended(props: { record: NodeCloses }) {
     },
   ];
   return (
-    <div class={`ln-record__part ln-record__part--wide${rated() ? "" : " ln-record__part--fit"}`}>
+    <div class="ln-record__part ln-record__part--wide ln-record__part--ended">
       <DataTable
         caption="How its channels ended, beside every channel's as of the time above"
         columns={columns()}
@@ -382,7 +422,9 @@ function Fees(props: { record: NodeCloses }) {
   ];
   const unknown = () => kinds().reduce((a, k) => a + r().node[k] - r().node.fees[k].known, 0);
   return (
-    <div class={`ln-record__part${dropped() > 0 ? " ln-record__part--dropped" : ""}`}>
+    <div
+      class={`ln-record__part ln-record__part--fees${dropped() > 0 ? " ln-record__part--dropped" : ""}`}
+    >
       <h3 class="ln-record__h">Closing fees</h3>
       <DataTable
         caption="The fees of its channels' closing transactions, beside every channel's"
@@ -456,27 +498,30 @@ function Weeks(props: { record: NodeCloses }) {
     },
   ];
   return (
-    <div class={`ln-record__part${dropped() > 0 ? " ln-record__part--dropped" : ""}`}>
-      <h3 class="ln-record__h">Week by week</h3>
+    <Fold
+      title="Week by week"
+      line={weeksInWords(props.record.node.weeks)}
+      aside="Each from Monday, 00:00 UTC"
+      class={dropped() > 0 ? "ln-record__part--dropped" : undefined}
+    >
       <DataTable
         caption="Its closes each week, newest first, beside every channel's"
         columns={columns()}
         rows={rows()}
         onDropped={setDropped}
       />
-      <p class="ln-record__note">
-        Each week runs from Monday, 00:00 UTC.
-        <Show when={rows().some((w) => w.network === null)}>
+      <Show when={rows().some((w) => w.network === null)}>
+        <p class="ln-record__note">
           {props.record.network === null
-            ? " No figure for every channel yet: the server works them out every ten minutes, the first a moment after it starts."
-            : " A dash: every channel's figures, worked out every ten minutes, do not reach that week yet."}
-        </Show>
-      </p>
-    </div>
+            ? "No figure for every channel yet: the server works them out every ten minutes, the first a moment after it starts."
+            : "A dash: every channel's figures, worked out every ten minutes, do not reach that week yet."}
+        </p>
+      </Show>
+    </Fold>
   );
 }
 
-function Peers(props: { record: NodeCloses; gone: boolean }) {
+function Peers(props: { record: NodeCloses }) {
   const [dropped, setDropped] = createSignal(0);
   const base = () => paths.lightningNode(props.record.id);
   const [all, setAll] = createSignal(false);
@@ -488,27 +533,15 @@ function Peers(props: { record: NodeCloses; gone: boolean }) {
       header: "Peer",
       cell: (p) => (
         <span class="ln-node-row2">
-          {/* A node the graph no longer holds has no closed list to filter: its peers lead to
-              their own pages, or are text where they have left too. */}
-          <Show
-            when={!props.gone}
-            fallback={
-              <Show when={p.held} fallback={<Alias alias={p.alias} max={24} />}>
-                <Link class="ln-node-peer" href={paths.lightningNode(p.id)}>
-                  <Alias alias={p.alias} max={24} />
-                </Link>
-              </Show>
-            }
+          {/* To the closed list below, filtered to this peer: a node that left the graph has one too. */}
+          <Link
+            class="ln-node-peer"
+            href={`${base()}?view=closed&peer=${p.id}`}
+            noscroll
+            title="Show only closes with this peer"
           >
-            <Link
-              class="ln-node-peer"
-              href={`${base()}?view=closed&peer=${p.id}`}
-              noscroll
-              title="Show only closes with this peer"
-            >
-              <Alias alias={p.alias} max={24} />
-            </Link>
-          </Show>
+            <Alias alias={p.alias} max={24} />
+          </Link>
           <span class="ln-key" title={p.id}>
             {truncateMiddle(p.id, 6, 4)}
           </span>
@@ -553,16 +586,16 @@ function Peers(props: { record: NodeCloses; gone: boolean }) {
     },
   ];
   return (
-    <div
-      class={`ln-record__part ln-record__part--wide ln-record__part--fit${dropped() > 0 ? " ln-record__part--dropped" : ""}`}
-    >
-      <h3 class="ln-record__h">With whom</h3>
-      <p class="ln-record__lead">
-        {peersInWords(props.record)}
-        {props.record.capped
+    <Fold
+      title="With whom"
+      always
+      line={`${peersInWords(props.record)}${
+        props.record.capped
           ? " These count the closes in this record, its newest; a peer may have older ones with it too."
-          : ""}
-      </p>
+          : ""
+      }`}
+      class={dropped() > 0 ? "ln-record__part--dropped" : undefined}
+    >
       <Show when={shown().rows.length > 0}>
         <DataTable
           caption="The other ends of its channels that ended in a force close or a penalty, most first"
@@ -587,10 +620,10 @@ function Peers(props: { record: NodeCloses; gone: boolean }) {
       </Show>
       <Show when={props.record.peers.more > 0}>
         <p class="ln-record__note">
-          And {count(props.record.peers.more, "more peer")} with a force close or a penalty.
-          {props.gone ? "" : " Filter its closed channels below by peer to see them."}
+          And {count(props.record.peers.more, "more peer")} with a force close or a penalty. Filter
+          its closed channels below by peer to see them.
         </p>
       </Show>
-    </div>
+    </Fold>
   );
 }

@@ -31,6 +31,7 @@ import {
   KIND_TAG,
   NAME_IN_TITLE,
   NODE_VIEWS,
+  type NodeCloses,
   type NodeDetail,
   type NodeHistory as HistoryAnswer,
   ordinal,
@@ -38,7 +39,7 @@ import {
   weekAgo,
 } from "./lightning";
 import { askRecord, CloseRecord, RecordSection } from "./CloseRecord";
-import { ClosedList, OpenList } from "./NodeChannels";
+import { type ClosedOf, ClosedList, OpenList } from "./NodeChannels";
 import { FeeFigures, NodeFees, NodeHistory, RecentChanges } from "./NodeCharts";
 import { ask, Gate, LightningNav, rememberList, SatsFig, Stat, Tag } from "./parts";
 import { dragScroll } from "../../components/dragScroll";
@@ -106,12 +107,21 @@ function Node(props: { network: Network; id: string }) {
  */
 function Gone(props: { network: Network; id: string }) {
   const request = askRecord(props.network, () => props.id);
+  const now = Math.floor(Date.now() / 1000);
   const answer = () => request[0];
   return (
     <Switch>
-      <Match when={(answer().latest?.node.closed ?? 0) > 0}>
-        <GoneHeader id={props.id} />
-        <RecordSection request={request} gone />
+      <Match when={(answer().latest?.node.closed ?? 0) > 0 ? answer().latest : undefined}>
+        {(r) => (
+          <>
+            <GoneHeader id={props.id} />
+            <div class="ln-node-closed">
+              <RecordSection request={request} />
+              {/* Its closes are in the store, so its list is too: the same list a held node has. */}
+              <ClosedList node={closedOf(r())} network={props.network} now={now} />
+            </div>
+          </>
+        )}
       </Match>
       <Match when={answer().state === "ready" || answer().state === "errored"}>
         <NotFound
@@ -126,6 +136,18 @@ function Gone(props: { network: Network; id: string }) {
   );
 }
 
+/** The closed list's node, from the record: a node the graph no longer holds has no other. */
+const closedOf = (r: NodeCloses): ClosedOf => ({
+  id: r.id,
+  channels: {
+    closed: r.node.closed,
+    cooperative: r.node.cooperative,
+    force: r.node.force,
+    penalty: r.node.penalty,
+    other: r.node.other,
+  },
+});
+
 function GoneHeader(props: { id: string }) {
   usePageTitle(() => `Lightning node ${props.id.slice(0, 20)}`);
   return (
@@ -137,7 +159,7 @@ function GoneHeader(props: { id: string }) {
       <p class="ln-node-head__line">
         <span>
           It has no open channel now, so this server no longer holds it as a node. Below is what it
-          holds: the closes of its channels.
+          holds: the record of its closes and its closed channels.
         </span>
       </p>
     </header>

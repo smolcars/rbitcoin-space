@@ -956,7 +956,7 @@ describe("a node's close record", () => {
     });
     expect(requests.filter((r) => r.endsWith(`${ACINQ}/closes`))).toHaveLength(1);
     // That a force close is in both nodes' records is said once, under the first force figure.
-    expect(t.split("in the record of both of its channel's nodes")).toHaveLength(2);
+    expect(t.split("in both nodes' records")).toHaveLength(2);
     expect(t).toContain("68%all 91%");
     expect(t).toContain("32%all 8.8%");
     // Other: none here, some among every channel, so its row is there: one line, every channel's
@@ -1098,6 +1098,8 @@ describe("a node's close record", () => {
       recordPeer(2, { held: false }),
     ]);
     replies[record] = json({ ...gone, peers: { ...gone.peers, forced: 53, more: 51 } });
+    // Its closed list answers from the store, as for any node.
+    replies[`${node}/channels?status=closed`] = emptyList;
     const el = open(`/lightning/node/${ACINQ}`);
     // Headed by its key, and said to have no open channel: not "no such node" over its record.
     await shows(el, "12 channels closed");
@@ -1117,15 +1119,16 @@ describe("a node's close record", () => {
         b.textContent.startsWith("Show the 2 peers"),
       ) as HTMLButtonElement
     ).click();
-    await shows(el, "Show fewer peers");
-    // Its peers lead to their own pages, the closed list being gone with the node; one that has
-    // left too is text. The capped list does not point at a filter that is not there.
-    expect(links(el)).toContain(`/lightning/node/${recordPeer(1).id}`);
-    expect(links(el).some((h) => (h ?? "").includes("view=closed"))).toBe(false);
-    expect(links(el)).not.toContain(`/lightning/node/${recordPeer(2).id}`);
-    expect(sectionText(el)).toContain("peer 2");
+    // Folded back, none would show: the button says it hides them all.
+    await shows(el, "Hide the 2 peers");
+    // Its closed list is under the record, as the heading promises, and its peers filter it, as
+    // a held node's do, whether or not the graph still holds the peer.
+    expect(text(el)).toContain("Closed channels");
+    expect(requests).toContain(`${node}/channels?status=closed`);
+    expect(links(el)).toContain(`/lightning/node/${ACINQ}?view=closed&peer=${recordPeer(1).id}`);
+    expect(links(el)).toContain(`/lightning/node/${ACINQ}?view=closed&peer=${recordPeer(2).id}`);
     expect(sectionText(el)).toContain("And 51 more peers with a force close or a penalty.");
-    expect(sectionText(el)).not.toContain("Filter its closed channels");
+    expect(sectionText(el)).toContain("Filter its closed channels below by peer to see them.");
     replies[record] = json({ error: "node not found" }, 404);
     clearApiCache();
     const other = open(`/lightning/node/${BFX}`);

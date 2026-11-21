@@ -93,7 +93,7 @@ interface ListProps {
  * a slower earlier answer never replaces a newer one.
  */
 function useList<T>(
-  props: ListProps,
+  props: { node: { id: string }; network: Network },
   closed: boolean,
   check: (v: unknown) => v is ChannelPage<T>,
   first: () => ChannelPage<T> | undefined,
@@ -797,7 +797,16 @@ const CLOSED_SORTS = ["closed", "capacity", "fee", "lived"] as const;
 const lived = (c: ClosedChannel) =>
   c.funded === null ? null : Math.max(0, Math.floor((c.closed.block.time - c.funded) / 86_400));
 
-export function ClosedList(props: ListProps) {
+/**
+ * What the closed list needs of its node: its key and its closes by kind. A node the graph no
+ * longer holds has these from its close record, so its page lists its closes too.
+ */
+export interface ClosedOf {
+  id: string;
+  channels: Pick<NodeDetail["channels"], "closed" | "cooperative" | "force" | "penalty" | "other">;
+}
+
+export function ClosedList(props: { node: ClosedOf; network: Network; now: number }) {
   const phone = usePhone();
   const l = useList(props, true, isClosedPage, () => undefined);
   const page = () => l.held()?.page;

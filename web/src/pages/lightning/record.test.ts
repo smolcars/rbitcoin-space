@@ -6,10 +6,12 @@ import {
   isNodeCloses,
   kindsIn,
   peersInWords,
+  peersShown,
   perClose,
   RECORD_WORDS,
   shareText,
   weekRows,
+  weeksInWords,
 } from "./lightning";
 import { closeRecord, recordPeer, tally, WEEK1 } from "./testdata";
 
@@ -148,5 +150,29 @@ describe("a node's close record", () => {
       // Neither which end acted nor that a force close was the latest state, which no kind establishes.
       expect(w).not.toMatch(/cheated end|latest state|its commitment/i);
     }
+  });
+
+  it("folds the weeks to one sentence: how many, from when, and the most in one", () => {
+    const w = (time: number, cooperative: number, force: number) => ({
+      time,
+      cooperative,
+      force,
+      penalty: 0,
+      other: 0,
+    });
+    expect(weeksInWords([])).toBe("No week in the record yet.");
+    expect(weeksInWords([w(WEEK1, 1, 0)])).toBe("One week, from 9 Nov 2026: 1 close.");
+    expect(weeksInWords([w(WEEK1, 20, 20), w(WEEK1 + WEEK, 36, 5)])).toBe(
+      "2 weeks from 9 Nov 2026, at most 41 closes in one.",
+    );
+  });
+
+  it("says a list folded to none hides them all, and one folded to some shows fewer", () => {
+    const ones = [recordPeer(1), recordPeer(2), recordPeer(3)];
+    expect(peersShown(ones, false)).toStrictEqual({ rows: [], button: "Show the 3 peers" });
+    expect(peersShown(ones, true).button).toBe("Hide the 3 peers");
+    const some = [recordPeer(1, { force: 2 }), recordPeer(2), recordPeer(3)];
+    expect(peersShown(some, false).button).toBe("Show the 2 peers with one each");
+    expect(peersShown(some, true).button).toBe("Show fewer peers");
   });
 });

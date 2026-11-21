@@ -2,6 +2,7 @@
 // pages say about them. Pure. Aliases are gossip, chosen by whoever runs the node (SECURITY.md
 // rule 14): they reach the page only as text, through cleanAlias.
 import { cap, recentMoment, share } from "../mempool/history";
+import { formatDay } from "../../components/chart/scale";
 import { formatBtcShort, groupDigits, MISSING, NNBSP } from "../../lib/format";
 
 export type State = "off" | "starting" | "syncing" | "synced" | "failed" | "stopped";
@@ -1721,7 +1722,12 @@ export function peersShown(
   const top = repeat.slice(0, PEERS_SHOWN);
   const hidden = peers.length - top.length;
   if (hidden === 0) return { rows: peers, button: null };
-  if (all) return { rows: peers, button: "Show fewer peers" };
+  // Where folding the list back shows none of it, the button says it hides them all.
+  if (all)
+    return {
+      rows: peers,
+      button: repeat.length === 0 ? `Hide the ${count(peers.length, "peer")}` : "Show fewer peers",
+    };
   const button =
     repeat.length === 0
       ? `Show the ${count(peers.length, "peer")}`
@@ -1760,4 +1766,17 @@ export function recordInWords(r: NodeCloses): {
       : `${shareText(n.shares[k], n[k])} ${KIND_SHORT[k].toLowerCase()}`,
   );
   return { node, network: `All channels: ${parts.join(", ")}.` };
+}
+
+/**
+ * A record's weeks in one sentence, for its folded table's summary: how many, from when, and the
+ * most closes in one of them.
+ */
+export function weeksInWords(weeks: readonly (ByKind & { time: number })[]): string {
+  const first = weeks[0];
+  if (first === undefined) return "No week in the record yet.";
+  const most = Math.max(...weeks.map((w) => sum(w)));
+  if (weeks.length === 1)
+    return `One week, from ${formatDay(first.time)}: ${count(sum(first), "close")}.`;
+  return `${count(weeks.length, "week")} from ${formatDay(first.time)}, at most ${count(most, "close")} in one.`;
 }

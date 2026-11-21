@@ -2564,6 +2564,12 @@
     display: grid;
     gap: var(--space-5) var(--space-6);
   }
+  /* The weeks over with whom: beside the fees on a wide screen, so the record is two rows. */
+  .ln-record__side {
+    display: grid;
+    gap: var(--space-5);
+    min-width: 0;
+  }
   @media (min-width: 65em) {
     .ln-record__grid {
       grid-template-columns: 1fr 1fr;
@@ -2572,10 +2578,83 @@
     .ln-record__part--wide {
       grid-column: 1 / -1;
     }
-    /* A table across the panel with no bars to fill it: as wide as what it holds, not wider. */
-    .ln-record__part--fit .table {
+    /* How it ended as wide as what it holds: each count beside its kind's words, no gap between. */
+    .ln-record__part--ended .table {
       width: auto;
-      min-width: min(100%, 32rem);
+    }
+    .ln-record__part--ended .ln-record__note {
+      max-width: none;
+    }
+    /* This node's share and every channel's on one line, each figure before its bar. */
+    .ln-record__part--ended .ln-record__shares:not(.ln-record__shares--one) {
+      grid-template-columns: minmax(3.5em, auto) minmax(5rem, 1fr) minmax(5em, auto) minmax(
+          5rem,
+          1fr
+        );
+      min-width: 26rem;
+    }
+  }
+  /* Weeks and with whom: a heading and the part's sentence, which folds the part on a phone. */
+  .ln-record__fold > .ln-record__part {
+    margin-top: var(--space-2);
+  }
+  .ln-record__summary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 var(--space-2);
+    cursor: pointer;
+    list-style: none;
+  }
+  /* A thumb's height on a touch screen; a pointer needs only the heading's. */
+  @media (pointer: coarse) {
+    .ln-record__summary {
+      min-height: var(--touch);
+      align-content: center;
+    }
+  }
+  .ln-record__summary::-webkit-details-marker {
+    display: none;
+  }
+  /* A chevron that turns when the part is open, as "How this record is made" has. */
+  .ln-record__summary::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-right: 1.5px solid var(--color-text-muted);
+    border-bottom: 1.5px solid var(--color-text-muted);
+    transform: translateY(-2px) rotate(-45deg);
+    transition: transform var(--dur-quick) var(--ease-out);
+  }
+  .ln-record__fold[open] > .ln-record__summary::before {
+    transform: translateY(-3px) rotate(45deg);
+  }
+  /* The part's sentence on its own line under the heading, in from the chevron. */
+  .ln-record__line {
+    flex-basis: 100%;
+    padding-left: calc(6px + var(--space-2));
+    font-size: var(--text-sm);
+  }
+  .ln-record__aside {
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+  }
+  /* The weeks' sentence says what the open table shows: only while it is folded. Its note on the
+     heading's line only while open. */
+  .ln-record__fold[open] .ln-record__line--closed,
+  .ln-record__fold:not([open]) .ln-record__aside {
+    display: none;
+  }
+  /* Tables with no link in a row keep the usual row height on a touch screen too. */
+  .ln-record :is(.ln-record__part--ended, .ln-record__part--fees) .table td {
+    padding-block: var(--space-2);
+  }
+  @media (max-width: 40em) {
+    .ln-record__grid {
+      gap: var(--space-4);
+    }
+    .ln-record__side {
+      gap: var(--space-3);
     }
   }
   .ln-record__part {
