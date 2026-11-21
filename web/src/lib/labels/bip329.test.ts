@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { cost } from "../cost";
 import {
   fileName,
+  MAX_LINES,
   MAX_RECORDS,
   setMember,
   holdsMore,
@@ -120,16 +121,7 @@ describe("readLine", () => {
   });
 
   it.each([
-    [
-      "an origin that is not a descriptor",
-      `{"type":"tx","ref":"${TXID}","origin":"my wallet"}`,
-      "origin",
-    ],
-    [
-      "an origin with keys",
-      `{"type":"tx","ref":"${TXID}","origin":"wpkh([d34db33f/84'/0'/0']xpub6Bos)"}`,
-      "origin",
-    ],
+    ["an origin that is not text", `{"type":"tx","ref":"${TXID}","origin":{"x":1}}`, "origin"],
     [
       "an output's spendable in quotes",
       `{"type":"output","ref":"${TXID}:0","spendable":"false"}`,
@@ -139,15 +131,32 @@ describe("readLine", () => {
     expect(readLine(line)).toBe(why);
   });
 
-  it("reads origins BIP329 writes, and keeps spendable on a type it does not belong to", () => {
-    for (const origin of [
-      "wpkh([d34db33f/84'/0'/0'])",
-      "sh(wpkh([d34db33f/49h/0h/0h]))",
-      "tr([73c5da0a/86'/0'/0'])",
-    ])
-      expect(readLine(JSON.stringify({ type: "tx", ref: TXID, origin }))).toBeTypeOf("object");
+  it("keeps spendable on a type it does not belong to, as an unknown field", () => {
     const r = read(`{"type":"tx","ref":"${TXID}","spendable":"no"}`);
     expect(r.line).toBe(`{"type":"tx","ref":"${TXID}","spendable":"no"}`);
+  });
+
+  // Lines in the form wallets write them: Sparrow's exporter writes the wallet's descriptor, its
+  // keys left out, as `origin` (one key, a multisig with its threshold and every signer, Taproot);
+  // Nunchuk writes no origin. Fingerprints and txids here are made up.
+  const WALLETS = [
+    `{"type":"tx","ref":"${TXID}","label":"Single key","origin":"wpkh([d34db33f/84h/0h/0h])"}`,
+    `{"type":"tx","ref":"${TXID}","label":"Nested","origin":"sh(wpkh([d34db33f/49h/0h/0h]))"}`,
+    `{"type":"tx","ref":"${TXID}","label":"2 of 2","origin":"wsh(sortedmulti(2,[d34db33f/48h/0h/0h/2h],[deadbeef/48h/0h/0h/2h]))"}`,
+    `{"type":"addr","ref":"bc1q34aq5drpuwy3wgl9lhup9892qp6svr8ldzyy7c","label":"Taproot","origin":"tr([73c5da0a/86h/0h/0h])"}`,
+    `{"type":"output","ref":"${TXID}:0","label":"Script tree","origin":"tr([73c5da0a/86h/0h/0h],{pk([d34db33f/86h/0h/1h]),pk([deadbeef/86h/0h/2h])})","spendable":true}`,
+    `{"type":"tx","ref":"${TXID}","label":"Nunchuk, no origin"}`,
+  ];
+  it.each(WALLETS)("reads a wallet's line whatever its origin says: %s", (line) => {
+    const r = read(line);
+    expect(r.line).toBe(line);
+  });
+
+  it("tells records apart by their origin, the multisig's and the single key's alike", async () => {
+    const f = await readFile(WALLETS.join("\n"));
+    expect(f.records).toHaveLength(WALLETS.length);
+    expect(f.skipped.size).toBe(0);
+    expect(writeFile(f.records)).toBe(`${WALLETS.join("\n")}\n`);
   });
 
   it("gives two different records two keys, whatever their text holds", () => {
@@ -385,4 +394,25 @@ describe("writeFile and fileName", () => {
     expect(fileName(new Date(Date.UTC(2026, 10, 20, 23)))).toBe("rbitcoin-labels-2026-11-20.jsonl");
     expect(fileName(new Date(Number.NaN))).toBe("rbitcoin-labels.jsonl");
   });
+});
+
+describe("the work a line or a file costs", () => {
+  it("edits a line with thousands of repeated members in one pass", () => {
+    const repeated = Array.from({ length: 6000 }, () => `"label":0`).join(",");
+    const line = `{"type":"tx","ref":"${TXID}",${repeated},"note":"${"x".repeat(1000)}"}`;
+    expect(line.length).toBeGreaterThan(60_000);
+    const { value, ms } = cost(() => setMember(line, "label", '"one"'));
+    expect(value).toBe(`{"type":"tx","ref":"${TXID}","label":"one","note":"${"x".repeat(1000)}"}`);
+    // Each removal once scanned and copied the whole line: 1.8 s for this one.
+    expect(ms).toBeLessThan(100);
+  });
+
+  it("reads a file of exactly the most lines, a final line feed or not, and refuses one more", async () => {
+    const lines = (n: number) => Array.from({ length: n }, () => `{"type":"z","ref":"r"}`);
+    const most = lines(MAX_LINES).join("\n");
+    expect((await readFile(most)).refused).toBeUndefined();
+    expect((await readFile(`${most}\n`)).refused).toBeUndefined();
+    expect((await readFile(`${most}\n{"type":"z","ref":"r"}`)).refused).toBe("lines");
+    expect((await readFile(`${most}\n\n`)).refused).toBe("lines");
+  }, 60_000);
 });

@@ -52,7 +52,7 @@ export const SKIP_WORDS: Record<Skip, string> = {
   type: "no type, or a type that is not a word",
   ref: "no reference, or one that does not fit its type",
   label: "a label that is not text",
-  origin: "an origin that is not a key origin descriptor",
+  origin: "an origin that is not text",
   spendable: "an output's spendable that is not true or false",
   long: `longer than ${MAX_LINE / 1024} KiB`,
   grow: `would pass ${MAX_LINE / 1024} KiB with the label kept from before`,
@@ -67,12 +67,6 @@ export const REFUSAL_WORDS: Record<Refusal, string> = {
 };
 
 const UNKNOWN_TYPE = /^[a-z][a-z0-9_-]{0,31}$/;
-/**
- * BIP329's origin: an abbreviated output descriptor, its key origin and no keys, child path or
- * checksum: `wpkh([d34db33f/84'/0'/0'])`, `sh(wpkh([…]))`, `tr([…])`.
- */
-const ORIGIN = /^[a-z]+\((?:[a-z]+\()*\[[0-9a-fA-F]{8}(?:\/\d+['hH]?)*\]\)+$/;
-
 const isObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
 
@@ -97,7 +91,9 @@ export function readLine(line: string): LabelRecord | Skip {
   const label = own("label") ?? undefined;
   const origin = own("origin") ?? undefined;
   if (label !== undefined && typeof label !== "string") return "label";
-  if (origin !== undefined && (typeof origin !== "string" || !ORIGIN.test(origin))) return "origin";
+  // Any text: kept as written and used only as part of the record's identity. Which descriptors a
+  // wallet writes there (multisig, taproot trees) is the wallet's business, not the explorer's.
+  if (origin !== undefined && typeof origin !== "string") return "origin";
   const spendable = own("spendable");
   if (type === "output" && spendable !== undefined && typeof spendable !== "boolean")
     return "spendable";
@@ -173,43 +169,40 @@ function rawValue(line: string, name: string): string | undefined {
   return m ? line.slice(m.valueStart, m.end) : undefined;
 }
 
-/** The line without the first member named `name`, with its comma, or null when it has none. */
-function withoutFirst(line: string, name: string): string | null {
-  const list = members(line);
-  const k = list.findIndex((m) => m.name === name);
-  const at = list[k];
-  if (!at) return null;
-  const prev = list[k - 1];
-  const next = list[k + 1];
-  if (prev) return `${line.slice(0, prev.end)}${line.slice(at.end)}`;
-  if (next) return `${line.slice(0, at.start)}${line.slice(next.start)}`;
-  return `${line.slice(0, at.start)}${line.slice(space(line, at.end))}`;
-}
-
 /**
  * The line with one member set to `json` (raw JSON text), or taken out for null. Only that
  * member's text changes: every other byte of the line is kept as it was. A name given twice ends
- * as one, so the line says one thing whatever reads it.
+ * as one (the last, which is the one JSON reads), so the line says one thing whatever reads it.
+ * One scan of the line and one join, however many times the name appears.
  */
 export function setMember(line: string, name: string, json: string | null): string {
-  let out = line;
-  const list = members(out);
-  const m = lastNamed(list, name);
-  if (json === null) {
-    for (let next = withoutFirst(out, name); next !== null; next = withoutFirst(out, name))
-      out = next;
-    return out;
-  }
-  if (m) out = `${out.slice(0, m.valueStart)}${json}${out.slice(m.end)}`;
-  else {
-    const close = out.lastIndexOf("}");
+  const list = members(line);
+  const last = lastNamed(list, name);
+  if (!last) {
+    if (json === null) return line;
+    const close = line.lastIndexOf("}");
     const sep = list.length > 0 ? "," : "";
-    return `${out.slice(0, close)}${sep}${JSON.stringify(name)}:${json}${out.slice(close)}`;
+    return `${line.slice(0, close)}${sep}${JSON.stringify(name)}:${json}${line.slice(close)}`;
   }
-  // Earlier duplicates go; the one just set is the last.
-  while (members(out).filter((x) => x.name === name).length > 1)
-    out = withoutFirst(out, name) ?? out;
-  return out;
+  const open = line.indexOf("{") + 1;
+  const parts = [line.slice(0, open)];
+  let kept = 0;
+  let prevEnd = open;
+  for (const m of list) {
+    // What lies before a member: the opening space for the first, a comma and space after that.
+    const gap = line.slice(prevEnd, m.start);
+    prevEnd = m.end;
+    if (m.name === name && (m !== last || json === null)) continue;
+    // The first member kept takes the opening space, so a member taken out takes its comma along.
+    parts.push(
+      kept === 0 ? line.slice(open, list[0]?.start ?? open) : gap,
+      m === last ? `${line.slice(m.start, m.valueStart)}${json ?? ""}` : line.slice(m.start, m.end),
+    );
+    kept++;
+  }
+  // Nothing kept: the space that stood before the first member goes too.
+  parts.push(line.slice(kept === 0 ? space(line, prevEnd) : prevEnd));
+  return parts.join("");
 }
 
 export interface ReadFile {
@@ -265,7 +258,8 @@ export async function readFile(
   let number = 0;
   let at = text.startsWith("\u{FEFF}") ? 1 : 0;
   let sliceStart = performance.now();
-  while (at <= text.length) {
+  // A final line feed ends the last line; it does not start another.
+  while (at < text.length) {
     if ((number & 255) === 0 && performance.now() - sliceStart > SLICE_MS) {
       progress?.(at, text.length);
       // oxlint-disable-next-line no-await-in-loop -- one slice after another, the page given a turn between
