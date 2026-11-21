@@ -992,7 +992,7 @@ export function ClosedList(props: { node: ClosedOf; network: Network; now: numbe
                 when={filtered()}
                 // Unfiltered, the count is the whole list's once known; until then (its answer on
                 // its way, after a filter is cleared) the held page's count is not it.
-                fallback={<Show when={total()}>{(n) => count(n(), "close")}</Show>}
+                fallback={<Show when={total()}>{(n) => <>{count(n(), "close")}</>}</Show>}
               >
                 <Show
                   when={total()}

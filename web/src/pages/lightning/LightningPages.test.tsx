@@ -1140,6 +1140,18 @@ describe("a node's close record", () => {
     expect(t).toContain("all 5 closes");
   });
 
+  it("gives the list's own count once it answers, though the record read one close fewer", async () => {
+    // Another channel closed between the record's read and the list's.
+    replies[node] = json(closedCounts({ closed: 5, cooperative: 5 }));
+    replies[record] = json(closeRecord(tally({ cooperative: 5, force: 0, penalty: 0, other: 0 })));
+    replies[`${node}/channels?status=closed`] = closedList(6);
+    const el = open(`/lightning/node/${ACINQ}?view=closed`);
+    const list = () => el.querySelector<HTMLElement>("[aria-labelledby=ln-node-closed-title]");
+    await vi.waitFor(() => expect(text(list() ?? el)).toContain("All 6"));
+    const line = () => text(list()?.querySelector(".ln-node-total") ?? el);
+    await vi.waitFor(() => expect(line()).toBe("6 closes"));
+  });
+
   it("never takes the graph's count as the whole beside a capped record", async () => {
     // The graph's answer says 10 000; the store has one more; the record holds its newest 10 000.
     replies[node] = json(closedCounts({ closed: 10_000, cooperative: 10_000 }));
