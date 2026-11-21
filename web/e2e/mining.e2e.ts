@@ -212,7 +212,7 @@ test.describe("in a wide prose font", () => {
     await expect(shown).toHaveText(names, { timeout: 30_000 });
     await wideFaceDrawn(page);
     await shown.evaluateAll((all) => {
-      for (const el of all) el.style.fontSize = "20px";
+      for (const el of all) el.style.fontSize = "17px";
     });
     await tablesSettled(page);
     // What each name shows: the characters on its first line, and how wide they are drawn.
@@ -251,7 +251,9 @@ test.describe("in a wide prose font", () => {
         d.next + 0.5,
       );
     }
-    const btc = drawn.filter((d) => d.name.startsWith("BTC ")).map((d) => d.shows);
+    // The ellipsis is painted over the end of the line, which a range cannot see: the two must
+    // still differ with the last character taken away.
+    const btc = drawn.filter((d) => d.name.startsWith("BTC ")).map((d) => d.shows.slice(0, -1));
     expect(new Set(btc).size, `the two BTC pools show ${JSON.stringify(btc)}`).toBe(2);
   });
 });
