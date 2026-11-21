@@ -677,21 +677,32 @@ It is read as soon as it is pasted, so the answer comes before the button: what 
 
 ```text
 Check a timestamp
-What a proof is, in two sentences. Your file never leaves this page.
-┌ Proof ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─┐ ┌ Your file ─ ─ ─ ─ ─ ─ ─ ─ ─┐
+What a proof shows, in one sentence. Your file is read here and never sent.
+┌ Proof ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─┐ ┌ Your file ─ ─ ─ ─ ─ ─ ─ ─ ─┐   empty: dashed, a button each
   [Choose a file] or drop it     [Choose a file] or drop it
-                                 Or its SHA-256, in hex [   ]
 └ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─┘ └ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─┘
+Or its SHA-256, in hex, instead of the file       64 characters, 0 to 9 and a to f
+[6fd9c1c4f096b77e6d4457bac1c7f51010d318db483f2868d3795843f098d378               ] (×)
+┌ Proof  two-blocks.ots  1 768 B  [Change] (×) ┐                filled: one row
 ┌ (✓ Verified) ─────────────────────────────────────────────┐
-│ This file existed before block 449 397                     │
-│ Block 449 397 was mined on 21 Jan 2017, 23:47:07 UTC       │
+│ This digest is committed to by block 449 397               │
+│ Block          Its header time                             │
+│ 449 397        21 Jan 2017, 23:47:07 UTC                   │
+│ proven …       3 590 days ago                              │
+│ The header time is the miner's claim: … (one sentence)     │
 │ What it proves and what it does not                        │
-│ Also in this proof: other blocks, calendars (not checked)  │
-│ > Show the 47 steps from your file to the block            │
+│ Also in this proof: block 449 399 (a link), calendars      │
+│ > Show the 47 steps from the digest to the block           │
 └────────────────────────────────────────────────────────────┘
 ```
 
-The two inputs are drawn as the site draws what has not settled: a dashed outline while empty, solid once each holds its file, as a projected tile sets when mined. The verdict is the answer: a status pill with an icon and a word (positive Verified, caution Pending or Not checked, negative for a different file or a proof that does not verify), then the sentence that says it as the page title's size, and below it the one paragraph that says what a timestamp does and does not prove. The steps are a core drawn down the page: one line from the file's digest at the top to the block's merkle root at the bottom, a small square at each step, larger ones at the two ends. Side by side above 40em; stacked on a phone.
+The two inputs are drawn as the site draws what has not settled: a dashed outline while empty, solid once each holds its file, as a projected tile sets when mined. A slot holding a file is one row, its name, the file's name and size, Change and remove, so the verdict is on the first screen at 1280 × 900 and starts within a 360 × 780 one; on a phone the file's name goes under that row. "Or drop it here" is shown only where there is a pointer to drop with. The digest field sits under both slots, the full width, so neither card has an empty foot: a monospace field that shows all 64 characters at once and wraps them on a phone, with what it takes said beside its label and a clear control once it holds anything.
+
+The introduction is one sentence on what a proof shows and one that the file never leaves the browser; how the proof is followed, and what is asked of the server, is said inside "Show the steps".
+
+The verdict is the answer: a status pill with an icon and a word (positive Verified, caution Pending or Not checked, negative for a different file or a proof that does not verify), then the sentence that says it as the page title's size. When a verdict comes, its heading takes focus (so a screen reader says it) and it is scrolled into view if it is not, at once under reduced motion, except while the reader is typing a digest: then nothing moves until they press Enter. Under a verified headline, two figures in the summary style: the block, the proven fact, and its header time with its age in days, then the one sentence that the time is the miner's claim and what a node checks of it, then the paragraph on what a timestamp does and does not prove. Every block named under "Also in this proof" that this node has is a link.
+
+The steps are a core drawn down the page: one line from the file's digest at the top to the block's merkle root at the bottom, a small square at each step, larger ones at the two ends. Values are shortened, each kept whole on one line; "Show the values in full" (a toggle button, pressed state) writes every one out in monospace, wrapping, so no value needs a hover or a long press. On a phone each step's operation is its own line and each value its own. The two inputs sit side by side above 40em; stacked on a phone.
 
 ### Ark (not in the prototype)
 
