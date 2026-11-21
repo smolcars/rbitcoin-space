@@ -958,7 +958,12 @@ describe("a node's close record", () => {
       "the chain shows that one end broadcast a commitment transaction, not which end or why",
     );
     // Fees: in all, a close's mean, and every channel's mean.
-    expect(t).toContain("Force25 0001 000 a close1 000");
+    // Spoken as two figures, never as one number: the visible pair is hidden from screen readers.
+    expect(t).toContain("25 000 sats in all. 1 000 sats a close.");
+    const fee = section(el)?.querySelector(".ln-record__fee");
+    expect(fee?.querySelectorAll("[aria-hidden='true']")).toHaveLength(2);
+    // "a close" stays together under its figure.
+    expect(fee?.textContent).toContain("a\u00A0close");
     // The second week is past every channel's figures: none, not a zero, said in words to a
     // screen reader and in a note under the table.
     expect(t).toContain("16 Nov 2026345–No figure for this week yet");

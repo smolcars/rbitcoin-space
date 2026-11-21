@@ -252,3 +252,67 @@ test.describe("a node that left the graph", () => {
     await expect(page.getByRole("heading", { name: "At a glance" })).toBeVisible();
   });
 });
+
+/** Every channel's penalty share under 0.1%: one penalty in 1,802 closes, as mainnet could see. */
+function tinyShare(): Answer {
+  const a = withPenalties();
+  const network = a["network"] as Record<string, unknown> & { shares: Record<string, number> };
+  a["network"] = {
+    ...network,
+    penalty: 1,
+    closed: 1_803,
+    shares: { ...network.shares, penalty: 0 },
+  };
+  return a;
+}
+
+test("a share under 0.1% parts between its words and fits a 320 px phone", async ({ page }) => {
+  await open(page, ACINQ, { [`nodes/${ACINQ}/closes`]: tinyShare() });
+  await expect(page.locator(".ln-record")).toContainText("all under 0.1%");
+  // Only the figure is a figure: the words round it are outside `.num`.
+  await expect(page.locator(".ln-record .num", { hasText: "under" })).toHaveCount(0);
+  await holds(page);
+});
+
+test("a column left out and the note that says so are never out of step, at any width or text size", async ({
+  page,
+}) => {
+  await open(page, ACINQ, { [`nodes/${ACINQ}/closes`]: withPenalties() });
+  const parts = page.locator(".ln-record .ln-record__part");
+  const pairs = [
+    { part: parts.nth(1), header: "All channels" },
+    { part: parts.nth(2), header: "Open now" },
+  ];
+  const faults: string[] = [];
+  const seen = new Set<string>();
+  // The breakpoint is in em: the standard text size stays at 16 px, so it stays at 640 px.
+  for (const size of [14, 20, 28]) {
+    // A minimum font size, as a reader sets one: small text grows, the layout's widths do not.
+    // No test can set the browser's own, so the page's small sizes are raised to it instead.
+    await page.evaluate((px) => {
+      document.documentElement.style.setProperty("--text-xs", `${px}px`);
+      document.documentElement.style.setProperty("--text-sm", `${px}px`);
+    }, size);
+    for (const width of [660, 720, 800, 900, 1040]) {
+      await page.setViewportSize({ width, height: 900 });
+      await frames(page);
+      for (const { part, header } of pairs) {
+        // The table fits in the frame after a resize notice; wait until it has.
+        await part.locator(".table-scroll").evaluate(
+          () =>
+            new Promise<void>((resolve) => {
+              requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+            }),
+        );
+        const shown = await part.getByRole("columnheader", { name: header }).isVisible();
+        const note = await part.locator(".ln-record__phone").isVisible();
+        seen.add(shown ? "shown" : "left out");
+        if (shown === note)
+          faults.push(`${size} px text, ${width} px: ${header} shown ${shown}, note ${note}`);
+      }
+    }
+  }
+  expect(faults).toStrictEqual([]);
+  // Both cases happened above the phone's breakpoint, or the test proved nothing.
+  expect(seen.has("left out") && seen.has("shown"), [...seen].join(", ")).toBe(true);
+});

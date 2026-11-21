@@ -2612,11 +2612,11 @@
     gap: var(--space-2);
     min-width: 4rem;
   }
-  /* "all under 0.1%" may part between its words; the figure itself has no space to part at. */
-  .ln-record__share .num {
+  /* "all under 0.1%" may part between its words; only the figure is in `.num`, whole. */
+  .ln-record__share .ln-record__words {
     white-space: normal;
   }
-  .ln-record__share--all .num {
+  .ln-record__share--all .ln-record__words {
     font-size: var(--text-xs);
     color: var(--color-text-muted);
   }
@@ -2662,6 +2662,9 @@
   }
   .ln-record__phone {
     display: none;
+  }
+  .ln-record__phone--dropped {
+    display: block;
   }
   @media (max-width: 40em) {
     .ln-record__phone {

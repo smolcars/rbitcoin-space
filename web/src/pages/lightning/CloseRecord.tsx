@@ -86,9 +86,11 @@ function Kind(props: { kind: CloseKind }) {
 function Share(props: { share: number; count: number; whose: "node" | "all" }) {
   return (
     <span class={`ln-record__share ln-record__share--${props.whose}`}>
-      <span class="num">
+      {/* Only the figure is a figure: "all under 0.1%" may part between its words. */}
+      <span class="ln-record__words">
         {props.whose === "all" ? "all " : ""}
-        {shareText(props.share, props.count)}
+        {shareText(props.share, props.count).startsWith("under ") ? "under " : ""}
+        <span class="num">{shareText(props.share, props.count).replace(/^under /, "")}</span>
       </span>
       <span class={`ln-record__bar ln-record__bar--${props.whose}`} aria-hidden="true">
         <span style={{ "--w": `${Math.min(100, props.share)}%` }} />
@@ -247,9 +249,17 @@ function Fees(props: { record: NodeCloses }) {
       numeric: true,
       cell: (k) => (
         <span class="ln-record__fee">
-          <span>{r().node.fees[k].known === 0 ? MISSING : groupDigits(r().node.fees[k].sum)}</span>
-          <span class="ln-record__all">
-            <span class="num">{sats(perClose(r().node.fees[k]))}</span> a close
+          {/* Two figures, spoken apart: read as one they make one large number. */}
+          <span class="visually-hidden">
+            {r().node.fees[k].known === 0
+              ? "No fee known."
+              : `${groupDigits(r().node.fees[k].sum)} sats in all. ${sats(perClose(r().node.fees[k]))} sats a close.`}
+          </span>
+          <span aria-hidden="true">
+            {r().node.fees[k].known === 0 ? MISSING : groupDigits(r().node.fees[k].sum)}
+          </span>
+          <span class="ln-record__all" aria-hidden="true">
+            <span class="num">{sats(perClose(r().node.fees[k]))}</span> a{"\u00A0"}close
           </span>
         </span>
       ),
@@ -282,6 +292,7 @@ function Fees(props: { record: NodeCloses }) {
 }
 
 function Weeks(props: { record: NodeCloses }) {
+  const [dropped, setDropped] = createSignal(0);
   const rows = () => weekRows(props.record.node.weeks, props.record.network?.weeks ?? null);
   const kinds = () => kindsIn(props.record.node);
   const columns = (): Column<WeekRow>[] => [
@@ -334,10 +345,15 @@ function Weeks(props: { record: NodeCloses }) {
         caption="Its closes each week, newest first, beside every channel's"
         columns={columns()}
         rows={rows()}
+        onDropped={setDropped}
       />
       <p class="ln-record__note">Each week runs from Monday, 00:00 UTC.</p>
-      <p class="ln-record__note ln-record__phone">
-        On a phone this table leaves out every channel's figure each week; a wider screen shows it.
+      {/* Shown where the column is hidden: by a phone's breakpoint, or dropped to fit. */}
+      <p
+        class={`ln-record__note ln-record__phone${dropped() > 0 ? " ln-record__phone--dropped" : ""}`}
+      >
+        To fit the screen this table leaves out every channel's figure each week; a wider screen
+        shows it.
       </p>
       <Show when={rows().some((w) => w.network === null)}>
         <p class="ln-record__note">
@@ -351,6 +367,7 @@ function Weeks(props: { record: NodeCloses }) {
 }
 
 function Peers(props: { record: NodeCloses; gone: boolean }) {
+  const [dropped, setDropped] = createSignal(0);
   const base = () => paths.lightningNode(props.record.id);
   const [all, setAll] = createSignal(false);
   const shown = () =>
@@ -432,10 +449,14 @@ function Peers(props: { record: NodeCloses; gone: boolean }) {
           caption="The other ends of its channels that ended in a force close or a penalty, most first"
           columns={columns()}
           rows={shown()}
+          onDropped={setDropped}
         />
-        <p class="ln-record__note ln-record__phone">
-          On a phone this table leaves out how many channels with each peer are open now; a wider
-          screen shows it.
+        {/* Shown where the column is hidden: by a phone's breakpoint, or dropped to fit. */}
+        <p
+          class={`ln-record__note ln-record__phone${dropped() > 0 ? " ln-record__phone--dropped" : ""}`}
+        >
+          To fit the screen this table leaves out how many channels with each peer are open now; a
+          wider screen shows it.
         </p>
         <Show when={hidden() > 0}>
           <div>

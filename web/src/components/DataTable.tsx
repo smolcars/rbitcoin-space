@@ -58,6 +58,11 @@ export interface DataTableProps<T> {
    * It is not part of the row's link.
    */
   rowNote?: { when: (row: T) => boolean; render: (row: T) => JSX.Element };
+  /**
+   * Told the step the table dropped its columns to after each fit (0: none dropped), so a page can
+   * say what is left out. A phone's CSS hiding of `optional` columns is the page's own breakpoint.
+   */
+  onDropped?: (step: number) => void;
 }
 
 /** A table with units in headers, right-aligned numbers and row rules. */
@@ -91,6 +96,7 @@ export function DataTable<T>(props: DataTableProps<T>) {
         flush();
         if (!over()) break;
       }
+      props.onDropped?.(dropped());
     };
     // Absent where there is no layout (tests): the phone's CSS still drops the optional columns.
     if (typeof ResizeObserver === "undefined") return;
