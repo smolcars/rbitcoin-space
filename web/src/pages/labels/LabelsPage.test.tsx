@@ -201,7 +201,9 @@ describe("the manager", () => {
     await agree(el, 1);
     // The manager says so, with the draft, as text, and focus on its Dismiss.
     const said = el.querySelector(".labels-page__said");
-    expect(said?.textContent).toContain("was deleted in another tab, so nothing was saved");
+    expect(said?.textContent).toContain(
+      "was deleted or replaced in another tab, so nothing was saved",
+    );
     expect(el.querySelector(".labels-page__draft")?.textContent).toBe("wallet, my draft");
     const dismiss = [...(said?.querySelectorAll("button") ?? [])].find(
       (b) => b.textContent === "Dismiss",
@@ -215,6 +217,35 @@ describe("the manager", () => {
     flush();
     expect(el.querySelector(".labels-page__draft")).toBeNull();
     await expect(stored()).resolves.toContain(plain);
+  });
+
+  it("closes the editor and gives the draft back when another tab deletes the record and makes one again under its key", async () => {
+    const A = "aa".repeat(32);
+    await importLines([`{"type":"tx","ref":"${A}","label":"A"}`]);
+    const el = mount(() => <LabelsPage />, "/regtest/labels");
+    const edit = () =>
+      [...el.querySelectorAll("button")].find((b) =>
+        (b.textContent ?? "").startsWith("Edit the label of transaction aaaaaaaa"),
+      );
+    await until(() => edit() !== undefined);
+    edit()?.click();
+    await until(() => el.querySelector<HTMLInputElement>("input.label-editor__field") !== null);
+    const field = el.querySelector<HTMLInputElement>("input.label-editor__field");
+    if (!field) throw new TypeError("no field");
+    field.value = "A, my draft";
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+    // Another tab: deleted, then the same key imported again, in a new place.
+    await remove([recordKey("tx", A, undefined)]);
+    await importLines([`{"type":"tx","ref":"${A}","label":"theirs","note":"new"}`]);
+    await until(() => el.querySelector(".labels-page__draft") !== null);
+    expect(el.querySelector("input.label-editor__field")).toBeNull();
+    expect(el.querySelector(".labels-page__said")?.textContent).toContain(
+      "was deleted or replaced in another tab, so nothing was saved",
+    );
+    expect(el.querySelector(".labels-page__draft")?.textContent).toBe("A, my draft");
+    await expect(stored()).resolves.toBe(
+      `{"type":"tx","ref":"${A}","label":"theirs","note":"new"}\n`,
+    );
   });
 
   it("clears the message about a deleted label when another edit starts", async () => {
@@ -394,6 +425,7 @@ describe("the manager", () => {
           type="tx"
           reference={TXID}
           record={recordKey("tx", TXID, origin)}
+          opened={{ key: recordKey("tx", TXID, origin), seq: 1 }}
           what="transaction f91d0a8a"
           current="wallet"
           gone={(text) => {

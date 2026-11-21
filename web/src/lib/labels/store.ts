@@ -6,7 +6,7 @@
 // The database is the only truth. Nothing read from it is ever changed in memory: after any write,
 // this tab's or another's, what pages show is thrown away and read again whole, and a read that
 // started earlier never covers one that started later. Writing is db.ts, loaded when asked for.
-import { HINT, showLabels } from "../labels";
+import { HINT, type Opened, showLabels } from "../labels";
 
 const NAME = "rbitcoin-labels";
 /**
@@ -55,7 +55,8 @@ export type Failure =
   | "too-big"
   | "stale"
   | "long"
-  | "gone";
+  | "gone"
+  | "changed";
 
 /** Why the store could not do what it was asked; db.ts has the words a reader is shown. */
 export class LabelStoreError extends Error {
@@ -88,9 +89,20 @@ function upgrade(db: IDBDatabase, from: number): void {
   db.createObjectStore(RECORDS, { keyPath: "key" }).createIndex("seq", "seq");
   db.createObjectStore(SHOWN, { keyPath: "key" }).createIndex("at", "at");
   const meta = db.createObjectStore(META);
-  meta.put(0, "seq");
+  meta.put(firstSeq(), "seq");
   meta.put(1, "rev");
   meta.put(0, "bytes");
+}
+
+/**
+ * Where a new store's places start: random, below 2^40. Places only grow within a store (a delete
+ * or delete-all never gives one back), but a store made afresh (site data cleared) starts again:
+ * from zero, a label made again there would take the very place a record had before, and an
+ * editor still open on that record would take it for the one it opened.
+ */
+function firstSeq(): number {
+  const [high = 0, low = 0] = crypto.getRandomValues(new Uint32Array(2));
+  return (high % 256) * 2 ** 32 + low;
 }
 
 let conn: Promise<IDBDatabase> | undefined;
@@ -189,7 +201,9 @@ function readShown(db: IDBDatabase): Promise<ShownRow[]> {
 }
 
 /** What pages show, from the rows read: each place's winning label, built a batch at a time. */
-async function build(rows: readonly ShownRow[]): Promise<Map<string, string>> {
+async function build(
+  rows: readonly ShownRow[],
+): Promise<{ view: Map<string, string>; from: Map<string, Opened> }> {
   const best = new Map<string, ShownRow>();
   for (let i = 0; i < rows.length; i += BATCH) {
     // oxlint-disable-next-line no-await-in-loop -- one batch after another, the page given a turn between
@@ -200,8 +214,12 @@ async function build(rows: readonly ShownRow[]): Promise<Map<string, string>> {
     }
   }
   const view = new Map<string, string>();
-  for (const [at, row] of best) view.set(at, row.label);
-  return view;
+  const from = new Map<string, Opened>();
+  for (const [at, row] of best) {
+    view.set(at, row.label);
+    from.set(at, { key: row.key, seq: row.seq });
+  }
+  return { view, from };
 }
 
 // Reads are numbered as they start; one shows what it read only if no read that started after it
@@ -212,10 +230,10 @@ let shownRead = 0;
 /** One whole read of what pages show, shown unless a newer read has shown already. */
 async function readOnce(): Promise<void> {
   const mine = ++started;
-  const view = await build(await readShown(await open()));
+  const { view, from } = await build(await readShown(await open()));
   if (mine > shownRead) {
     shownRead = mine;
-    showLabels(view);
+    showLabels(view, from);
   }
 }
 

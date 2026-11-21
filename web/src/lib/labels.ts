@@ -14,8 +14,19 @@ export type Shown = "tx" | "addr" | "pubkey" | "input" | "output";
  */
 export const HINT = "labels";
 
+/**
+ * Which record an editor opened on: its key and its place (`seq`). A record deleted and made again
+ * under the same key gets a new place, so the pair names one record, never its replacement.
+ */
+export interface Opened {
+  key: string;
+  seq: number;
+}
+
 // The map is changed in place by the store; the version says that it changed.
 let index: ReadonlyMap<string, string> = new Map();
+// The record behind each label shown, by the same key.
+let records: ReadonlyMap<string, Opened> = new Map();
 const [version, setVersion] = createSignal(0);
 
 const BECH32 = /^(?:bc|tb|bcrt|sp|tsp|sprt)1[02-9ac-hj-np-z]+$/;
@@ -68,12 +79,26 @@ export function labelOf(type: Shown, ref: string): string | undefined {
   return norm === null ? undefined : index.get(indexKey(type, norm));
 }
 
+/** The record whose label pages show for a thing, if there is one: what a page's editor opens on. */
+export function shownRecord(type: Shown, ref: string): Opened | undefined {
+  version();
+  const norm = normalRef(type, ref);
+  return norm === null ? undefined : records.get(indexKey(type, norm));
+}
+
 /** A number that moves on every change to the labels, from this tab or another: read it to follow them. */
 export const labelsVersion = version;
 
-/** Shows `map` on every page; the store calls it again after it changes the same map. */
-export function showLabels(map: ReadonlyMap<string, string>): void {
+/**
+ * Shows `map` on every page, with the record behind each label (`from`); the store calls it again
+ * after it changes the same map.
+ */
+export function showLabels(
+  map: ReadonlyMap<string, string>,
+  from: ReadonlyMap<string, Opened> = new Map(),
+): void {
   index = map;
+  records = from;
   setVersion((v) => v + 1);
 }
 

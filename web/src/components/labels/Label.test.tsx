@@ -2,7 +2,14 @@ import { flush } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { indexKey, showLabels } from "../../lib/labels";
 import { readFile, recordKey } from "../../lib/labels/bip329";
-import { previewImport, readAll, resetStore, runImport, setLabel } from "../../lib/labels/db";
+import {
+  previewImport,
+  readAll,
+  remove,
+  resetStore,
+  runImport,
+  setLabel,
+} from "../../lib/labels/db";
 import { fakeIndexedDB, KeyRange } from "../../lib/labels/fake-idb";
 import { mount } from "../test-utils";
 import { LabelControl, LabelOf, YourLabel } from "./Label";
@@ -131,8 +138,8 @@ describe("LabelControl", () => {
 
     button?.click();
     await until(() => el.querySelector("input") !== null);
-    const remove = [...el.querySelectorAll("button")].find((b) => b.textContent === "Remove label");
-    remove?.click();
+    const removeButton = [...el.querySelectorAll("button")].find((b) => b.textContent === "Remove label");
+    removeButton?.click();
     await until(() => el.querySelector(".your-label") === null);
     expect(el.querySelector(".your-label")).toBeNull();
     expect(button?.textContent).toBe("Add a label");
@@ -218,6 +225,57 @@ describe("LabelControl", () => {
     expect(records.map((r) => [r.key, r.label])).toStrictEqual([
       [recordKey("tx", TXID, origin), "wallet, renamed"],
     ]);
+  });
+
+  describe("a save applies only to what the editor opened on", () => {
+    const open = async (el: HTMLElement) => {
+      el.querySelector<HTMLButtonElement>(".label-control__open")?.click();
+      await until(() => el.querySelector("input") !== null);
+      const field = el.querySelector<HTMLInputElement>("input");
+      if (!field) throw new TypeError("no field");
+      return field;
+    };
+    const submit = (el: HTMLElement) =>
+      el.querySelector("form")?.dispatchEvent(new Event("submit", { cancelable: true }));
+    const status = (el: HTMLElement) => el.querySelector(".label-editor__elsewhere")?.textContent;
+    const label = async () => (await readAll()).records.map((r) => r.label);
+
+    it("refuses to save over a label deleted and made again elsewhere, keeps the draft, and saves on a second Save", async () => {
+      await setLabel("tx", TXID, "first");
+      const el = mount(() => <LabelControl type="tx" reference={TXID} what="this transaction" />);
+      await until(() => el.querySelector(".your-label__text")?.textContent === "first");
+      const field = await open(el);
+      field.value = "my draft";
+      // Another tab deletes the label and makes one again under the same key.
+      await remove([recordKey("tx", TXID, undefined)]);
+      await setLabel("tx", TXID, "made again");
+      submit(el);
+      await until(() => (status(el) ?? "") !== "");
+      expect(status(el)).toContain("changed in another tab since you opened it, to “made again”");
+      expect(el.querySelector("input")).toBe(field);
+      expect(field.value).toBe("my draft");
+      expect(document.activeElement).toBe(field);
+      await expect(label()).resolves.toStrictEqual(["made again"]);
+      submit(el);
+      await until(() => el.querySelector("input") === null);
+      await expect(label()).resolves.toStrictEqual(["my draft"]);
+    });
+
+    it("refuses to save over a label another tab added after it opened on none, keeps the draft, and saves on a second Save", async () => {
+      const el = mount(() => <LabelControl type="tx" reference={TXID} what="this transaction" />);
+      flush();
+      const field = await open(el);
+      field.value = "mine";
+      await setLabel("tx", TXID, "theirs");
+      submit(el);
+      await until(() => (status(el) ?? "") !== "");
+      expect(status(el)).toContain("to “theirs”");
+      expect(field.value).toBe("mine");
+      await expect(label()).resolves.toStrictEqual(["theirs"]);
+      submit(el);
+      await until(() => el.querySelector("input") === null);
+      await expect(label()).resolves.toStrictEqual(["mine"]);
+    });
   });
 
   it("opens its editor as a named dialog that leaves the page usable", async () => {

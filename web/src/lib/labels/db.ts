@@ -6,7 +6,7 @@
 // that transaction, and moves the store's revision. Nothing is kept in memory between calls: the
 // manager reads the store whole each time it shows it, and an import's preview is only a preview,
 // computed again inside the write and not written if the store changed since.
-import { HINT, indexKey, normalRef, type Shown } from "../labels";
+import { HINT, indexKey, normalRef, type Opened, type Shown } from "../labels";
 import {
   holdsMore,
   type LabelRecord,
@@ -18,6 +18,7 @@ import {
   withLabel,
   writeFile,
 } from "./bip329";
+import { ChangedElsewhereError } from "./changed";
 import {
   BATCH,
   better,
@@ -34,6 +35,7 @@ import {
 } from "./store";
 
 export { LabelStoreError, reset as resetStore, type Stored, VERSION } from "./store";
+export { ChangedElsewhereError } from "./changed";
 
 /** What a reader is told when the store could not do what they asked. */
 export const FAILURE_WORDS: Record<Failure, string> = {
@@ -46,7 +48,8 @@ export const FAILURE_WORDS: Record<Failure, string> = {
   "too-big": "This browser keeps at most 16 000 000 characters of labels.",
   stale: "Your labels changed since this was read, in this tab or another. Look again.",
   long: "That would make the record longer than a label file's line may be.",
-  gone: "This label was deleted in another tab, so nothing was saved.",
+  gone: "This label was deleted or replaced in another tab, so nothing was saved.",
+  changed: "This label was changed in another tab since you opened it, so nothing was saved.",
 };
 
 /** An error in words a reader can act on: the store's own, or `fallback` for anything else. */
@@ -231,15 +234,21 @@ function putBoth(c: Ctx, r: Stored): IDBRequest {
 /**
  * Sets a label, or removes it for `null` or blank: the record a page shows for the reference, or
  * the record `key` names (the manager edits any). The record is found, read and written in one
- * transaction, so an edit never undoes another tab's. A record `key` names that is gone by then
- * is never made again: the save is refused ("gone"), so it cannot land on another record. A record that holds more than its label (an
+ * transaction, so an edit never undoes another tab's. A record that holds more than its label (an
  * origin, `spendable`, a wallet's other fields) keeps the rest when its label is removed.
+ *
+ * An editor's save applies only to the state it opened on (`opened`): the record, by its key and
+ * its place, or no record (`null`), checked here, inside the write. The manager's (`key`) is
+ * refused as "gone" when that record is deleted or replaced, and a page's as "changed"
+ * (`ChangedElsewhereError`) when the page now shows another record, or one where it showed none.
+ * Without `opened` (tests, and a tab's own scripted change) nothing is checked.
  */
 export async function setLabel(
   type: string,
   ref: string,
   text: string | null,
   key?: string,
+  opened?: Opened | null,
 ): Promise<{ shown: boolean }> {
   const label = text === null || text.trim() === "" ? null : text;
   const norm = normalRef(type, ref);
@@ -249,7 +258,12 @@ export async function setLabel(
       const got = c.records.get(target);
       got.addEventListener("success", () => {
         const existing = got.result as Stored | undefined;
-        if (!existing && key !== undefined) {
+        // The manager edits only the record it opened: gone, or a new one under its key, is
+        // refused, and nothing is ever made in its place.
+        if (
+          key !== undefined &&
+          (!existing || (opened !== undefined && existing.seq !== opened?.seq))
+        ) {
           c.fail(new LabelStoreError("gone"));
           return;
         }
@@ -303,6 +317,21 @@ export async function setLabel(
     at.addEventListener("success", () => {
       let best: ShownRow | undefined;
       for (const row of at.result as ShownRow[]) if (!best || better(row, best)) best = row;
+      // A page's editor writes only over what it opened on: the same record, or still none.
+      if (
+        opened !== undefined &&
+        (opened === null
+          ? best !== undefined
+          : best === undefined || best.key !== opened.key || best.seq !== opened.seq)
+      ) {
+        c.fail(
+          new ChangedElsewhereError({
+            label: best?.label,
+            opened: best === undefined ? null : { key: best.key, seq: best.seq },
+          }),
+        );
+        return;
+      }
       write(best?.key ?? recordKey(type, norm ?? ref, undefined));
     });
   });

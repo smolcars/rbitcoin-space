@@ -4,7 +4,12 @@ import { createSignal, createUniqueId, onCleanup, onSettled, Show, untrack } fro
 import type { JSX } from "@solidjs/web";
 import { shownLabel } from "../../lib/labels";
 import { MAX_LABEL } from "../../lib/labels/bip329";
-import { failureWords, LabelStoreError, setLabel } from "../../lib/labels/db";
+import {
+  ChangedElsewhereError,
+  failureWords,
+  LabelStoreError,
+  setLabel,
+} from "../../lib/labels/db";
 import { paths } from "../../lib/network";
 import { Link } from "../Link";
 import { openPop } from "../pop";
@@ -14,6 +19,10 @@ export function LabelEditor(props: EditorProps) {
   const id = createUniqueId();
   const [error, setError] = createSignal("");
   const [busy, setBusy] = createSignal(false);
+  // What this editor's save applies to (docs/FRONTEND.md "Your labels"): the record it opened on,
+  // or none. A save refused because that changed opens on what is there now, and says so.
+  let identity = untrack(() => props.opened);
+  const [refused, setRefused] = createSignal<string | undefined>();
   let field: HTMLInputElement | undefined;
   // The label as it was when the editor opened: a change landing later (another tab, a save that
   // ended late) never overwrites what is being typed.
@@ -36,7 +45,7 @@ export function LabelEditor(props: EditorProps) {
   const write = (text: string | null, said: string) => {
     setBusy(true);
     setError("");
-    void setLabel(props.type, props.reference, text, props.record)
+    void setLabel(props.type, props.reference, text, props.record, identity)
       .then(({ shown }) => {
         if (!alive) return;
         // Saved when its write committed; said so even if this page could not read it back yet.
@@ -46,6 +55,18 @@ export function LabelEditor(props: EditorProps) {
         if (!alive) return;
         if (e instanceof LabelStoreError && e.kind === "gone" && props.gone) {
           props.gone(field?.value ?? "");
+          return;
+        }
+        // Another tab changed what this page shows for the thing: nothing was written, the
+        // draft stays, and the next Save applies to what is there now.
+        if (e instanceof ChangedElsewhereError) {
+          identity = e.now.opened;
+          setRefused(
+            e.now.label === undefined
+              ? "This label was deleted in another tab since you opened it, so nothing was saved. Save again to add what you typed."
+              : `This label was changed in another tab since you opened it, to “${shownLabel(e.now.label, 80)}”, so nothing was saved. Save again to replace it with what you typed.`,
+          );
+          field?.focus();
           return;
         }
         setError(failureWords(e, "The label could not be saved. Try again."));
@@ -60,7 +81,7 @@ export function LabelEditor(props: EditorProps) {
     // Unchanged from what the editor opened with: nothing to write, so nothing is written. A
     // label another tab saved meanwhile stays, and one with a line break keeps it; only a
     // deliberate edit replaces it.
-    if (text === opened) {
+    if (text === opened && refused() === undefined) {
       props.done();
       return;
     }
@@ -120,11 +141,12 @@ export function LabelEditor(props: EditorProps) {
       {/* Mounted from the start, so a change of its words is announced while focus stays in the
           field; empty when nothing happened elsewhere, or when it was undone. */}
       <p class="label-editor__elsewhere" role="status">
-        {props.elsewhere === undefined
-          ? ""
-          : "changed" in props.elsewhere
-            ? `This label was changed elsewhere since you opened it, to “${shownLabel(props.elsewhere.changed, 80)}”. Saving replaces it with what you type.`
-            : "This label was removed elsewhere since you opened it. Saving puts back what you type."}
+        {refused() ??
+          (props.elsewhere === undefined
+            ? ""
+            : "changed" in props.elsewhere
+              ? `This label was changed elsewhere since you opened it, to “${shownLabel(props.elsewhere.changed, 80)}”. Saving replaces it with what you type.`
+              : "This label was removed elsewhere since you opened it. Saving puts back what you type.")}
       </p>
       <Show when={error()}>
         <p class="label-editor__error" role="alert">

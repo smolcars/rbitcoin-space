@@ -142,7 +142,12 @@ export default function LabelsPage() {
         const out: Stored[] = [];
         for (let i = kept.length - 1; i >= 0; i--) {
           const fresh = kept[i] as Stored;
-          const old = shownByKey.get(fresh.key);
+          const known = shownByKey.get(fresh.key);
+          // The same key in a new place is another record, made after the one shown was deleted:
+          // to an editor open on the old one, that one is gone.
+          const replaced =
+            known !== undefined && known.seq !== fresh.seq && fresh.key === untrack(editing);
+          const old = replaced ? undefined : known;
           const same = old !== undefined && old.line === fresh.line && old.seq === fresh.seq;
           // The row being edited keeps its object, and with it the editor and its draft, even when
           // another tab changed it: the editor says so, and shows what it was changed to.
@@ -164,7 +169,9 @@ export default function LabelsPage() {
         // The record being edited, deleted by another tab: its row goes like any deleted row, the
         // editor closes, and the manager gives the reader back what they had typed.
         const held = untrack(editing);
-        if (held !== undefined && !next.has(held)) lose(shownByKey.get(held), draft);
+        const was = held === undefined ? undefined : shownByKey.get(held);
+        if (held !== undefined && (!next.has(held) || next.get(held)?.seq !== was?.seq))
+          lose(was, draft);
         shownByKey = next;
         setList(out);
         setState("ready");
@@ -574,8 +581,8 @@ function Manager(props: {
           {(l) => (
             <div class="labels-page__lost">
               <p>
-                The label you were editing, of {l().what}, was deleted in another tab, so nothing
-                was saved.
+                The label you were editing, of {l().what}, was deleted or replaced in another tab,
+                so nothing was saved.
                 <Show when={l().draft !== ""}>
                   {" "}
                   What you had typed:{" "}
@@ -635,6 +642,7 @@ function Manager(props: {
               type={r.type}
               reference={r.ref}
               record={r.key}
+              opened={{ key: r.key, seq: r.seq }}
               what={describe(r)}
               current={r.label}
               {...(props.elsewhere ? { elsewhere: props.elsewhere } : {})}

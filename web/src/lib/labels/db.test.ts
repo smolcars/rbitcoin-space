@@ -1,8 +1,9 @@
 import { flush } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { HINT, labelOf, recordKey } from "../labels";
+import { HINT, labelOf, recordKey, shownRecord } from "../labels";
 import { MAX_BYTES, readFile } from "./bip329";
 import {
+  ChangedElsewhereError,
   exportFile,
   previewImport,
   readAll,
@@ -494,5 +495,102 @@ describe("a save and the reads after it", () => {
     resetStore();
     await refresh();
     expect(shown("tx", TXID)).toBe("b");
+  });
+});
+
+describe("a save applies only to the state its editor opened on", () => {
+  const K = recordKey("tx", TXID, undefined);
+  const record = async () => (await readAll()).records.find((r) => r.key === K);
+  const openedOn = async () => {
+    const r = await record();
+    if (!r) throw new TypeError("no record");
+    return { key: r.key, seq: r.seq };
+  };
+
+  it("the manager's save is refused when another tab deleted and made the record again before it, queued", async () => {
+    await setLabel("tx", TXID, "first");
+    const opened = await openedOn();
+    // Another tab's deletion and new label, and this tab's save, queued one after another.
+    const deleted = remove([K]);
+    const made = setLabel("tx", TXID, "made again");
+    const saved = setLabel("tx", TXID, "my draft", K, opened);
+    await Promise.all([deleted, made, expect(saved).rejects.toMatchObject({ kind: "gone" })]);
+    expect((await record())?.label).toBe("made again");
+  });
+
+  it("the manager's save is refused when another tab imported the same key again", async () => {
+    await importText(`{"type":"tx","ref":"${TXID}","label":"first","note":"one"}`);
+    const opened = await openedOn();
+    await remove([K]);
+    await importText(`{"type":"tx","ref":"${TXID}","label":"imported again","note":"two"}`);
+    expect((await record())?.seq).not.toBe(opened.seq);
+    await expect(setLabel("tx", TXID, "my draft", K, opened)).rejects.toMatchObject({
+      kind: "gone",
+    });
+    expect((await exportFile()).text).toBe(
+      `{"type":"tx","ref":"${TXID}","label":"imported again","note":"two"}\n`,
+    );
+  });
+
+  it("the manager's save still applies over an ordinary change to the record it opened", async () => {
+    await setLabel("tx", TXID, "first");
+    const opened = await openedOn();
+    // An edit and an import over it keep its place: it is the same record.
+    await setLabel("tx", TXID, "changed");
+    await importText(`{"type":"tx","ref":"${TXID}","label":"imported","note":"n"}`);
+    expect((await record())?.seq).toBe(opened.seq);
+    await setLabel("tx", TXID, "my draft", K, opened);
+    expect((await record())?.label).toBe("my draft");
+  });
+
+  it("a page's save is refused when the record it shows was deleted and made again, and applies once opened on that", async () => {
+    await setLabel("tx", TXID, "first");
+    flush();
+    const opened = shownRecord("tx", TXID) ?? null;
+    expect(opened).toStrictEqual(await openedOn());
+    await remove([K]);
+    await setLabel("tx", TXID, "made again");
+    const refused = await setLabel("tx", TXID, "my draft", undefined, opened).then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+    expect(refused).toBeInstanceOf(ChangedElsewhereError);
+    const { now } = refused as ChangedElsewhereError;
+    expect(now).toStrictEqual({ label: "made again", opened: await openedOn() });
+    expect((await record())?.label).toBe("made again");
+    // Saved again, opened on what is there now: it applies.
+    await setLabel("tx", TXID, "my draft", undefined, now.opened);
+    expect((await record())?.label).toBe("my draft");
+  });
+
+  it("a page's save opened on no label is refused when another tab added one meanwhile", async () => {
+    // Opened on nothing; another tab adds a label.
+    await setLabel("tx", TXID, "theirs");
+    await expect(setLabel("tx", TXID, "mine", undefined, null)).rejects.toMatchObject({
+      kind: "changed",
+      now: { label: "theirs" },
+    });
+    expect((await record())?.label).toBe("theirs");
+    // A page's save opened on a deleted label, nothing there now: refused too, and says so.
+    const opened = await openedOn();
+    await remove([K]);
+    await expect(setLabel("tx", TXID, "mine", undefined, opened)).rejects.toMatchObject({
+      kind: "changed",
+      now: { label: undefined, opened: null },
+    });
+    await expect(exportFile()).resolves.toMatchObject({ text: "" });
+  });
+
+  it("never gives a place twice: not after a delete-all, nor in a store made afresh", async () => {
+    await setLabel("tx", TXID, "first");
+    const before = (await openedOn()).seq;
+    await removeAll();
+    await importText(`{"type":"tx","ref":"${TXID}","label":"again"}`);
+    expect((await openedOn()).seq).toBeGreaterThan(before);
+    // Site data cleared: a new store, whose places start elsewhere.
+    use();
+    await setLabel("tx", TXID, "afresh");
+    expect((await openedOn()).seq).not.toBe(before);
+    expect((await openedOn()).seq).not.toBe(before + 1);
   });
 });

@@ -3,7 +3,7 @@
 // opens loads on first use.
 import { type Component, createSignal, createUniqueId, onCleanup, Show } from "solid-js";
 import type { JSX } from "@solidjs/web";
-import { labelOf, type Shown, shownLabel } from "../../lib/labels";
+import { labelOf, type Opened, type Shown, shownLabel, shownRecord } from "../../lib/labels";
 import "../Button.css";
 import "./Label.css";
 
@@ -66,6 +66,8 @@ export interface EditorProps {
   record?: string;
   what: string;
   current: string | undefined;
+  /** The record the editor opens on, by key and place, or `null` for none: a save applies only to it. */
+  opened: Opened | null;
   /** What another tab did to this label while it was being edited. */
   elsewhere?: Elsewhere;
   /** Told what the field holds, as it opens and as it is typed in (the manager keeps the draft). */
@@ -208,6 +210,7 @@ export function LabelControl(props: { type: Shown; reference: string; what: stri
                 reference={props.reference}
                 what={props.what}
                 current={label()}
+                opened={shownRecord(props.type, props.reference) ?? null}
                 done={done}
               />
             </EditorPop>
