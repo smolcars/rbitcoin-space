@@ -661,6 +661,7 @@ describe("coinbase", () => {
       inputsMissing: false,
       notRun: [],
       unreliable: [],
+      amountsValid: true,
     });
   });
 });
@@ -731,6 +732,7 @@ describe("partly checked", () => {
   });
   it("a fully known transaction runs everything", () => {
     const r = checkPrivacy(recorded("2a0a2891"));
+    expect(r.amountsValid).toBe(true);
     expect(r.notRun).toStrictEqual([]);
     expect(r.unreliable).toStrictEqual([]);
   });
@@ -814,6 +816,7 @@ describe("unreliable names only what missing data could change (R9)", () => {
         ],
       ),
     );
+    expect(r.amountsValid).toBe(false);
     expect(r.notRun).toStrictEqual(["coinjoin"]);
     expect(r.unreliable).toStrictEqual([]);
   });
@@ -849,6 +852,7 @@ describe("amounts that are not valid (R4, R8)", () => {
         ],
       ),
     );
+    expect(r.amountsValid).toBe(false);
     expect(reasons(r)).toStrictEqual([]);
     expect(r.notRun).toContain("round");
   });
@@ -864,6 +868,7 @@ describe("amounts that are not valid (R4, R8)", () => {
     );
   it("2^53 and 2^53 + 1, read as one number, are no CoinJoin", () => {
     const r = checkPrivacy(claimed([2 ** 53, 2 ** 53 + 1, 2 ** 53]));
+    expect(r.amountsValid).toBe(false);
     expect(kinds(r)).not.toContain("coinjoin");
     // Three outputs: round and unnecessary input do not apply, so only the CoinJoin is held back.
     expect(r.notRun).toStrictEqual(["coinjoin"]);
@@ -876,6 +881,7 @@ describe("amounts that are not valid (R4, R8)", () => {
     ["over 21 million BTC", 21_000_000 * 100_000_000 + 1],
   ])("a %s output is no ragged side of a round pair", (_, bad) => {
     const r = checkPrivacy(pair(500_000, bad));
+    expect(r.amountsValid).toBe(false);
     expect(reasons(r)).toStrictEqual([]);
     expect(r.notRun).toStrictEqual(expect.arrayContaining(AMOUNT_RULES));
     expect(r.unreliable).toContain("change");
@@ -883,6 +889,7 @@ describe("amounts that are not valid (R4, R8)", () => {
   it("21 million BTC exactly, in and out, is valid", () => {
     // The outputs add up to the whole supply and the fee is zero.
     const r = checkPrivacy(pair(500_000, SUPPLY - 500_000, SUPPLY));
+    expect(r.amountsValid).toBe(true);
     expect(r.notRun).toStrictEqual([]);
     expect(r.unreliable).toStrictEqual([]);
   });
@@ -890,6 +897,7 @@ describe("amounts that are not valid (R4, R8)", () => {
     const r = checkPrivacy(
       claimed([700_000_000_000_001, 700_000_000_000_001, 700_000_000_000_001]),
     );
+    expect(r.amountsValid).toBe(false);
     expect(kinds(r)).not.toContain("coinjoin");
     expect(r.notRun).toStrictEqual(["coinjoin"]);
     expect(r.unreliable).toContain("coinjoin");
@@ -904,6 +912,7 @@ describe("amounts that are not valid (R4, R8)", () => {
         ],
       ),
     );
+    expect(r.amountsValid).toBe(false);
     expect(reasons(r)).toStrictEqual([]);
     expect(r.notRun).toContain("round");
     expect(r.unreliable).toContain("change");
@@ -923,16 +932,19 @@ describe("amounts that are not valid (R4, R8)", () => {
         ],
       ),
     );
+    expect(r.amountsValid).toBe(false);
     expect(kinds(r)).not.toContain("coinjoin");
     expect(r.notRun).toStrictEqual(["coinjoin"]);
   });
   it("a transaction paying exactly what its inputs hold, fee zero, is valid (R8)", () => {
     const r = checkPrivacy(pair(500_000, 123_457, 623_457));
+    expect(r.amountsValid).toBe(true);
     expect(r.notRun).toStrictEqual([]);
     expect(reasons(r)).toStrictEqual(["round>1"]);
   });
   it("a zero-value output is a valid amount", () => {
     const r = checkPrivacy(pair(500_000, 0, 600_000));
+    expect(r.amountsValid).toBe(true);
     expect(r.notRun).toStrictEqual([]);
   });
   it("a bad input amount stops the amount rules too", () => {
@@ -948,6 +960,7 @@ describe("amounts that are not valid (R4, R8)", () => {
         ],
       ),
     );
+    expect(r.amountsValid).toBe(false);
     expect(reasons(r)).toStrictEqual([]);
     expect(r.notRun).toStrictEqual(expect.arrayContaining(AMOUNT_RULES));
   });
@@ -961,6 +974,7 @@ describe("amounts that are not valid (R4, R8)", () => {
         ],
       ),
     );
+    expect(r.amountsValid).toBe(false);
     expect(kinds(r)).toContain("reuse");
     expect(finding(r, "change")).toMatchObject({ change: 1 });
     expect(reasons(r)).toStrictEqual(["payback>1"]);

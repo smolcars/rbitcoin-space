@@ -127,6 +127,13 @@ export interface PrivacyReport {
    * could change, and it may list one that data could not in fact change.
    */
   unreliable: FindingKind[];
+  /**
+   * False when an amount or a total failed the amount check (each a safe whole number of sats no
+   * larger than the supply, the outputs and the known inputs each within it together, the inputs
+   * covering the outputs when all are known), so the rules that read amounts were held back. True
+   * otherwise, a coinbase included, which is not checked.
+   */
+  amountsValid: boolean;
 }
 
 /** Whether a value is a round amount (`ROUND_UNIT`, `ROUND_DIGITS`). */
@@ -322,6 +329,7 @@ export function checkPrivacy(tx: Transaction): PrivacyReport {
     inputsMissing: vin.length === 0,
     notRun: [],
     unreliable: [],
+    amountsValid: true,
   };
   if (vin[0]?.is_coinbase === true) return { ...report, coinbase: true, inputsMissing: false };
 
@@ -347,6 +355,7 @@ export function checkPrivacy(tx: Transaction): PrivacyReport {
   const inTotal = amounts ? total(known) : null;
   if (outTotal === null || inTotal === null) amounts = false;
   else if (complete && inTotal < outTotal) amounts = false;
+  report.amountsValid = amounts;
   const s: Shape = { funding, outs, inputsBy, complete, amounts };
   const { findings, notRun } = report;
 

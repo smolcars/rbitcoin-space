@@ -17,7 +17,15 @@ import { isCoinbase, totalOut, vsize } from "../tx/tx";
 import { checkPrivacy } from "../../lib/privacy";
 import { UnsentPrivacy } from "../tx/Privacy";
 import { cardMarks, shownFindings } from "../tx/privacytext";
-import { broadcast, type Checked, needsSecondThought, rateOf, refusal, warnings } from "./push";
+import {
+  broadcast,
+  type Checked,
+  mayHaveSent,
+  needsSecondThought,
+  rateOf,
+  refusal,
+  warnings,
+} from "./push";
 import "../tx/TransactionPage.css";
 import "./Push.css";
 
@@ -47,13 +55,16 @@ export function CheckedTx(props: {
   const [sending, setSending] = createSignal(false);
   /** The txid the node accepted. */
   const [sent, setSent] = createSignal<string>();
+  /** A press failed with no answer the node refused it: it may have been sent. */
+  const [lost, setLost] = createSignal(false);
+  const state = () => (sent() === undefined ? (lost() ? "lost" : "unsent") : "sent");
   // What sending it would show an observer: said while it can still change, so not for one the
   // node already has, nor for a coinbase, which has no sender.
   const privacy = createMemo(() => checkPrivacy(tx()));
   const shown = () => !props.c.known && !privacy().coinbase;
   // Sent from this page, it is what the transaction page shows: nothing for an unsent one.
   const privacyMarks = createMemo(() =>
-    shown() ? cardMarks(shownFindings(privacy(), sent() === undefined)) : undefined,
+    shown() ? cardMarks(shownFindings(privacy(), state() === "unsent")) : undefined,
   );
   // Nothing can spend a transaction the node does not have; one it has may be spent already.
   const [spends] = createApi<Outspend[]>(() =>
@@ -74,6 +85,7 @@ export function CheckedTx(props: {
       controller?.abort();
       setSending(false);
       setSent(undefined);
+      setLost(false);
       setWhy(undefined);
     },
   );
@@ -91,6 +103,7 @@ export function CheckedTx(props: {
       (e: unknown) => {
         if (signal.aborted) return;
         setSending(false);
+        setLost(mayHaveSent(e));
         setWhy(refusal(e));
       },
     );
@@ -230,7 +243,7 @@ export function CheckedTx(props: {
       </Show>
 
       <Show when={shown()}>
-        <UnsentPrivacy report={privacy()} sent={sent() !== undefined} />
+        <UnsentPrivacy report={privacy()} state={state()} />
       </Show>
 
       <Show when={props.action}>

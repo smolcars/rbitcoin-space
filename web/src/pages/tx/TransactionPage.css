@@ -973,7 +973,15 @@
   /* An output's meta line holds its spent link once the spends arrive: it has that link's height
      from the start, so the link arriving later moves nothing. */
   .tx-flow__col--out .tx-flow__item:not(.tx-flow__item--fee, .tx-flow__item--more) .tx-flow__meta {
+    min-height: 24px;
     line-height: 24px;
+  }
+  /* With no address there is no type label before the link: marks that would open the line keep
+     the link's line above them until it arrives. */
+  .tx-flow__col--out
+    .tx-flow__item:not(.tx-flow__item--fee, .tx-flow__item--more)
+    .tx-flow__meta:has(> .pv-tags:first-child) {
+    padding-top: 24px;
   }
   /* A 24 px target (WCAG 2.2) in the meta line. */
   .tx-flow__spent {

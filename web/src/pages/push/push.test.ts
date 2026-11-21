@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ApiError } from "../../lib/api";
 import type { ScriptType, Transaction, Vout } from "../../lib/esplora";
-import { MAX_HEX, readChecked, readPasted, refusal, warnings } from "./push";
+import { MAX_HEX, mayHaveSent, readChecked, readPasted, refusal, warnings } from "./push";
 
 const TXID = "fc40c92d9763e584976a4c55b50b231c214f2a5ae0514dadc8e1bf0958d68fa6";
 const PARENT = "547d53d4e4290dac860915c0c88f8212b3aeb440c400a0b31bc92ccb77dfa527";
@@ -133,5 +133,18 @@ describe("refusal", () => {
       "This server does not broadcast.",
     );
     expect(refusal(new Error("x"))).toBe("It could not be sent.");
+  });
+});
+
+describe("mayHaveSent", () => {
+  it("a refusal means it was not sent", () => {
+    for (const status of [400, 403, 413, 429])
+      expect(mayHaveSent(new ApiError(status, "no"))).toBe(false);
+  });
+  it("no answer, or the server failing, means it may have been sent", () => {
+    expect(mayHaveSent(new ApiError(0, "The server cannot be reached."))).toBe(true);
+    expect(mayHaveSent(new ApiError(502, "bad gateway"))).toBe(true);
+    expect(mayHaveSent(new ApiError(504, "request timed out"))).toBe(true);
+    expect(mayHaveSent(new TypeError("Failed to fetch"))).toBe(true);
   });
 });

@@ -160,6 +160,14 @@ export async function broadcast(
   return txid;
 }
 
+/**
+ * Whether a broadcast that failed may still have reached the node: no answer came back (the
+ * connection failed), or the server failed without saying the node refused it. A refusal (`4xx`:
+ * the node's reason, broadcast off, too many) means it was not sent.
+ */
+export const mayHaveSent = (e: unknown): boolean =>
+  !(e instanceof ApiError) || e.status === 0 || e.status >= 500;
+
 /** The line shown when a broadcast is refused. The node's reason is one of a fixed list. */
 export function refusal(e: unknown): string {
   if (!(e instanceof ApiError)) return "It could not be sent.";

@@ -9,6 +9,7 @@ import {
   isPartial,
   LIMITS,
   LIST_TITLE,
+  LOST_CLOSING,
   type Mark,
   type Said,
   type Sentence,
@@ -180,17 +181,18 @@ export function TxPrivacy(props: { report: PrivacyReport }) {
 
 /**
  * On Broadcast and the decoder, before the action: what sending it would show, always whole
- * (heading, findings or the one line, closing). Once sent it says what the transaction page says.
+ * (heading, findings or the one line, closing). Once sent it says what the transaction page says;
+ * when a broadcast's answer was lost, the same, saying it may have been sent.
  */
-export function UnsentPrivacy(props: { report: PrivacyReport; sent: boolean }) {
+export function UnsentPrivacy(props: { report: PrivacyReport; state: "unsent" | "sent" | "lost" }) {
   const w = useWords(
     () => props.report,
-    () => !props.sent,
+    () => props.state === "unsent",
   );
   return (
     <section class="pv-send" aria-labelledby="pv-send-title">
       <h2 class="pv-title" id="pv-send-title">
-        {props.sent ? LIST_TITLE : UNSENT_TITLE}
+        {props.state === "unsent" ? UNSENT_TITLE : LIST_TITLE}
       </h2>
       <Show
         when={w.said().length > 0}
@@ -204,8 +206,8 @@ export function UnsentPrivacy(props: { report: PrivacyReport; sent: boolean }) {
         <FindingList said={w.said()} />
       </Show>
       <Partial lines={w.partial()} />
-      <Show when={!props.sent}>
-        <p class="pv-closing">{UNSENT_CLOSING}</p>
+      <Show when={props.state !== "sent"}>
+        <p class="pv-closing">{props.state === "lost" ? LOST_CLOSING : UNSENT_CLOSING}</p>
       </Show>
       <WhatThisChecks />
     </section>
