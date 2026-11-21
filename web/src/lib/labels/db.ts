@@ -194,15 +194,13 @@ function putBoth(c: Ctx, r: Stored): IDBRequest {
 function settleWrite(before: number, out: { rev: number; count: number; change: Change }): void {
   const { change } = out;
   const rows: ShownRow[] = [];
+  // A record put without a row (its label gone) leaves the pages too.
+  const gone = [...change.gone];
   for (const r of change.puts) {
     const row = shownRow(r, originOf(r.key));
     if (row) rows.push(row);
+    else gone.push(r.key);
   }
-  // A record put without a row (its label gone) leaves the pages too.
-  const gone = [
-    ...change.gone,
-    ...change.puts.filter((r) => !rows.some((x) => x.key === r.key)).map((r) => r.key),
-  ];
   noteWrite(rows, gone, change.clear);
   hint(out.rev, out.count);
   if (cache && cacheRev === before) {

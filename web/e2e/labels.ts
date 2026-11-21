@@ -28,6 +28,8 @@ export async function seedLabels(page: Page, lines: readonly Line[]): Promise<vo
   await page.evaluate(
     (records) =>
       new Promise<void>((resolve, reject) => {
+        // From nothing, as version 1 kept it: the app moves it to its current version on opening.
+        indexedDB.deleteDatabase("rbitcoin-labels");
         const req = indexedDB.open("rbitcoin-labels", 1);
         req.addEventListener("upgradeneeded", () => {
           req.result.createObjectStore("records", { keyPath: "key" });

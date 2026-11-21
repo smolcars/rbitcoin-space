@@ -1,11 +1,12 @@
 // The reader's own labels (docs/FRONTEND.md "Your labels"): set where a thing is looked at, shown
 // wherever it is listed, managed and moved as BIP329 files, kept across a reload, harmless when
 // hostile, the site unchanged without storage, and never sent anywhere.
+import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import type { Browser, BrowserContext, Page } from "@playwright/test";
 import { chain, expect, test } from "./fixtures";
-import { bip329, type Line, seedLabels } from "./labels";
+import { bip329, labelled, type Line, seedLabels } from "./labels";
 
 const TX = chain.txs.script_types;
 const AXE = await readFile(createRequire(import.meta.url).resolve("axe-core/axe.min.js"), "utf8");
@@ -142,7 +143,7 @@ test.describe("the manager", () => {
     await expect(page).toHaveURL(/\/regtest\/labels$/);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Your labels");
     await expect(page.getByRole("complementary")).toContainText(
-      "Your labels never leave this browser",
+      "Your labels, and the list of what you have labelled, stay in this browser",
     );
     await expect(page.getByRole("complementary")).toContainText("lost if this site's data");
     await expect(page.getByText("No labels yet.")).toBeVisible();
@@ -358,61 +359,67 @@ test.describe("without storage", () => {
     await expect(page.getByRole("alert")).toContainText("labels cannot be kept here");
     await page.goto("/regtest/labels");
     await expect(page.getByRole("heading", { name: "Labels cannot be kept here" })).toBeVisible();
-    await expect(page.getByRole("complementary")).toContainText("never leave this browser");
+    await expect(page.getByRole("complementary")).toContainText("stay in this browser");
   });
 });
 
-test("axe finds nothing on a labelled page, the editor open, and the manager with an import planned", async ({
-  page,
-}) => {
-  await seedLabels(page, [
-    { type: "tx", ref: TX, label: "rent, March" },
-    { type: "output", ref: `${TX}:0`, label: "change" },
-  ]);
-  const axe = async () => {
-    await page.evaluate(AXE);
-    return page.evaluate(async () => {
-      const run = (window as unknown as { axe: { run: (...a: unknown[]) => Promise<unknown> } }).axe
-        .run;
-      const r = (await run(document, {
-        runOnly: {
-          type: "tag",
-          values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"],
-        },
-        rules: { "label-content-name-mismatch": { enabled: false } },
-        resultTypes: ["violations"],
-      })) as { violations: { id: string; nodes: { target: string[] }[] }[] };
-      return r.violations.flatMap((v) => v.nodes.map((n) => `${v.id} at ${n.target.join(" ")}`));
-    });
-  };
-  await page.goto(`/regtest/tx/${TX}`);
-  await expect(tagIn(page.locator(".tx-head"))).toHaveText("rent, March");
-  await page.locator(".tx-head").getByRole("button", { name: "Edit label" }).click();
-  await expect(
-    page.getByRole("textbox", { name: "Your label for this transaction" }),
-  ).toBeFocused();
-  for (const scheme of ["light", "dark"] as const) {
-    await page.emulateMedia({ colorScheme: scheme });
-    expect.soft(await axe(), `transaction page, ${scheme}`).toEqual([]);
-  }
-  await importFile(
+// Under reduced motion, as the accessibility pass runs: a theme switch otherwise leaves the
+// buttons' colours mid-transition when axe measures them.
+test.describe("under reduced motion", () => {
+  test.use({ reducedMotion: "reduce" });
+  test("axe finds nothing on a labelled page, the editor open, and the manager with an import planned", async ({
     page,
-    `${bip329([{ type: "addr", ref: chain.addresses.p2wpkh, label: "a" }])}x\n`,
-  );
-  await expect(page.getByRole("button", { name: "Import 1 label" })).toBeVisible();
-  for (const scheme of ["light", "dark"] as const) {
-    await page.emulateMedia({ colorScheme: scheme });
-    expect.soft(await axe(), `manager, ${scheme}`).toEqual([]);
-  }
+  }) => {
+    await seedLabels(page, [
+      { type: "tx", ref: TX, label: "rent, March" },
+      { type: "output", ref: `${TX}:0`, label: "change" },
+    ]);
+    const axe = async () => {
+      await page.evaluate(AXE);
+      return page.evaluate(async () => {
+        const run = (window as unknown as { axe: { run: (...a: unknown[]) => Promise<unknown> } })
+          .axe.run;
+        const r = (await run(document, {
+          runOnly: {
+            type: "tag",
+            values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"],
+          },
+          rules: { "label-content-name-mismatch": { enabled: false } },
+          resultTypes: ["violations"],
+        })) as { violations: { id: string; nodes: { target: string[] }[] }[] };
+        return r.violations.flatMap((v) => v.nodes.map((n) => `${v.id} at ${n.target.join(" ")}`));
+      });
+    };
+    await page.goto(`/regtest/tx/${TX}`);
+    await expect(tagIn(page.locator(".tx-head"))).toHaveText("rent, March");
+    await page.locator(".tx-head").getByRole("button", { name: "Edit label" }).click();
+    await expect(
+      page.getByRole("textbox", { name: "Your label for this transaction" }),
+    ).toBeFocused();
+    for (const scheme of ["light", "dark"] as const) {
+      await page.emulateMedia({ colorScheme: scheme });
+      expect.soft(await axe(), `transaction page, ${scheme}`).toEqual([]);
+    }
+    await importFile(
+      page,
+      `${bip329([{ type: "addr", ref: chain.addresses.p2wpkh, label: "a" }])}x\n`,
+    );
+    await expect(page.getByRole("button", { name: "Import 1 label" })).toBeVisible();
+    for (const scheme of ["light", "dark"] as const) {
+      await page.emulateMedia({ colorScheme: scheme });
+      expect.soft(await axe(), `manager, ${scheme}`).toEqual([]);
+    }
+  });
 });
 
 // ---- Nothing about a label reaches the server ----
 
-/** Every request a page made, and every WebSocket frame it sent, as text to search. */
+/** Every request a page made and every WebSocket frame it sent, in order, as text to compare and search. */
 interface Seen {
-  requests: Set<string>;
-  frames: Set<string>;
-  everything: string[];
+  /** Each request: method, whole URL (origin included), its headers and its body. */
+  requests: string[];
+  /** What each socket message asked, topic by topic, in order. */
+  frames: string[];
   /** Each request's headers, read as they come. */
   pending: Promise<void>[];
   /** Resolves once no request has been in flight for a moment, or after a few seconds regardless. */
@@ -438,23 +445,18 @@ function watch(context: BrowserContext): Seen {
       };
       look();
     });
-  const seen: Seen = {
-    requests: new Set(),
-    frames: new Set(),
-    everything: [],
-    pending: [],
-    quiet,
-  };
+  const seen: Seen = { requests: [], frames: [], pending: [], quiet };
   context.on("request", (r) => {
     flying++;
     last = Date.now();
-    const url = new URL(r.url());
-    seen.requests.add(`${r.method()} ${url.pathname}${url.search}`);
-    seen.everything.push(r.url(), r.postData() ?? "");
+    const at = seen.requests.push(`${r.method()} ${r.url()}`) - 1;
     seen.pending.push(
       r.allHeaders().then(
         (h) => {
-          seen.everything.push(JSON.stringify(h));
+          const names = Object.keys(h);
+          names.sort((x, y) => x.localeCompare(y));
+          const head = names.map((n) => `${n}: ${h[n] ?? ""}`).join("; ");
+          seen.requests[at] += ` | ${head} | ${r.postData() ?? ""}`;
         },
         () => undefined,
       ),
@@ -466,13 +468,12 @@ function watch(context: BrowserContext): Seen {
 
 function watchSockets(page: Page, seen: Seen) {
   page.on("websocket", (ws) => {
-    seen.everything.push(ws.url());
+    seen.frames.push(`open ${ws.url()}`);
     ws.on("framesent", (f) => {
       const text = typeof f.payload === "string" ? f.payload : f.payload.toString("utf8");
-      seen.everything.push(text);
       // What a frame asks, topic by topic: the client batches what it asks in one turn, so how
       // topics share frames follows timing, not labels.
-      for (const each of asks(text)) seen.frames.add(each);
+      seen.frames.push(...asks(text));
     });
   });
 }
@@ -489,15 +490,52 @@ function asks(text: string): string[] {
   return [text];
 }
 
-/** The same walk through the site, with or without labels. */
-async function walk(page: Page, seen: Seen, block: string, paid: string) {
+/** What the walk imports, in both runs: labels on things the walk shows and on things it never does. */
+const UNSEEN_TX = "ab".repeat(32);
+const XPUB =
+  "xpub661MyMwAqRbcFtXgS5sYJABqqG9YLmC4Q1Rdap9gSE8NqtwybGhePY2gZ29ESFjqJoCu1Rupje8YtGqsefD265TMg7usUDFdp6W1EGMcet8";
+const UNSEEN_ADDR = "bcrt1qq8u9ac5wpyv7q4mmtvnq7l3wnxkfsgxh4dlz6p";
+
+/** Uses the manager: imports, finds, edits, deletes and exports, as a reader would. */
+async function manage(page: Page, file: string) {
+  await page.goto("/regtest/labels");
+  await expect(page.getByRole("button", { name: "Import a file" })).toBeEnabled();
+  await page
+    .locator('input[type="file"]')
+    .setInputFiles({ name: "w.jsonl", mimeType: "application/jsonl", buffer: Buffer.from(file) });
+  await page.getByRole("button", { name: /^Import \d+ labels?$/ }).click();
+  await expect(page.getByText(/^Imported /)).toBeVisible();
+  await page.getByLabel("Find a label").fill("zebra-quartz-label-four");
+  await page.getByRole("button", { name: /^Edit the label of transaction/ }).click();
+  await page
+    .getByRole("textbox", { name: /^Your label for transaction/ })
+    .fill("zebra-quartz-edited");
+  await page.keyboard.press("Enter");
+  await expect(page.getByText("Label saved")).toBeAttached();
+  // It no longer matches what was searched for, so it leaves the list until the search is cleared.
+  await page.getByLabel("Find a label").fill("zebra-quartz-edited");
+  await expect(page.getByRole("table")).toContainText("zebra-quartz-edited");
+  await page.getByLabel("Find a label").fill("zebra-quartz-label-six");
+  await page.getByRole("button", { name: /^Delete the label of address/ }).click();
+  await expect(page.getByText("No label matches.")).toBeVisible();
+  await page.getByLabel("Find a label").fill("");
+  const [file2] = await Promise.all([
+    page.waitForEvent("download"),
+    page.getByRole("button", { name: "Export a file" }).click(),
+  ]);
+  expect(file2.suggestedFilename()).toMatch(/\.jsonl$/);
+}
+
+/** The same walk through the site, with or without labels already kept. */
+async function walk(page: Page, seen: Seen, block: string, paid: string, file: string) {
   await page.goto(`/regtest/tx/${TX}`);
   await expect(page.getByRole("list", { name: "Outputs" })).toBeVisible();
   await page.getByRole("button", { name: "Details of output 0" }).click();
-  // The editor's code is fetched on a press, whether the press adds a label or edits one.
+  // A label typed and saved: added in one run, an edit in the other.
   await page.locator(".tx-head .label-control__open").click();
-  await expect(page.locator(".tx-head .label-editor")).toBeVisible();
-  await page.keyboard.press("Escape");
+  await page.getByRole("textbox", { name: "Your label for this transaction" }).fill("zebra-typed");
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".tx-head .your-label__text")).toHaveText("zebra-typed");
   await page.getByRole("list", { name: "Outputs" }).getByRole("link").first().click();
   await expect(page).toHaveURL(new RegExp(`/address/${paid}$`));
   await expect(page.locator(".address-head")).toBeVisible();
@@ -505,47 +543,46 @@ async function walk(page: Page, seen: Seen, block: string, paid: string) {
   await page.goto(`/regtest/block/${block}`);
   await expect(page.locator(`a[href$="/tx/${TX}"]`).first()).toBeVisible();
   await seen.quiet();
-  await page.goto("/regtest/labels");
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Your labels");
+  await manage(page, file);
   await seen.quiet();
 }
 
 async function visitor(browser: Browser, baseURL: string, headers: Record<string, string>) {
-  const context = await browser.newContext({ baseURL, extraHTTPHeaders: headers });
+  const context = await browser.newContext({
+    baseURL,
+    extraHTTPHeaders: headers,
+    acceptDownloads: true,
+  });
   const page = await context.newPage();
   return { context, page };
 }
 
-test("nothing about a label reaches the server: the same requests with labels as without, none naming one", async ({
+test("nothing about a label reaches the server: the same requests, in the same order, with labels as without", async ({
   browser,
   baseURL,
   extraHTTPHeaders,
   page: helper,
 }) => {
+  test.setTimeout(90_000);
   const tx = await scriptTypes(helper);
   const paid = tx.vout[0]?.scriptpubkey_address ?? "";
   const block = tx.status.block_hash ?? "";
-  // Labels on what the walk shows, and on things it never shows: their references must not leave
-  // either. Every label's text is a word no page of the site holds.
-  const unseenTx = "ab".repeat(32);
-  const xpub =
-    "xpub661MyMwAqRbcFtXgS5sYJABqqG9YLmC4Q1Rdap9gSE8NqtwybGhePY2gZ29ESFjqJoCu1Rupje8YtGqsefD265TMg7usUDFdp6W1EGMcet8";
-  const unseenAddr = "bcrt1qq8u9ac5wpyv7q4mmtvnq7l3wnxkfsgxh4dlz6p";
+  // Every label's text is a word no page of the site holds.
   const labels: Line[] = [
     { type: "tx", ref: TX, label: "zebra-quartz-label-one" },
     { type: "addr", ref: paid, label: "zebra-quartz-label-two" },
     { type: "output", ref: `${TX}:0`, label: "zebra-quartz-label-three" },
-    { type: "tx", ref: unseenTx, label: "zebra-quartz-label-four" },
-    { type: "xpub", ref: xpub, label: "zebra-quartz-label-five" },
-    { type: "addr", ref: unseenAddr, label: "zebra-quartz-label-six" },
+    { type: "tx", ref: UNSEEN_TX, label: "zebra-quartz-label-four" },
+    { type: "xpub", ref: XPUB, label: "zebra-quartz-label-five" },
+    { type: "addr", ref: UNSEEN_ADDR, label: "zebra-quartz-label-six" },
   ];
   const needles = [
     "zebra",
     "quartz",
-    unseenTx,
-    xpub,
+    UNSEEN_TX,
+    XPUB,
     "xpub661MyMwAqRbc",
-    unseenAddr,
+    UNSEEN_ADDR,
     encodeURIComponent("zebra-quartz"),
   ];
 
@@ -553,17 +590,15 @@ test("nothing about a label reaches the server: the same requests with labels as
   for (const withLabels of [false, true]) {
     const { context, page } = await visitor(browser, baseURL ?? "", extraHTTPHeaders ?? {});
     try {
-      // Both start on the same page that loads no app; only one leaves labels in the store.
-      await (withLabels ? seedLabels(page, labels) : page.goto("/healthz"));
+      // Watched from the first request: both runs open the same page that loads no app, and only
+      // one leaves labels (and the hint) in the browser from it.
       const seen = watch(context);
       watchSockets(page, seen);
-      await walk(page, seen, block, paid);
-      // The labels were on screen in the one run, so the walk did meet them.
-      await expect(
-        page.getByText(withLabels ? "zebra-quartz-label-six" : "No labels yet."),
-      ).toBeVisible();
+      await (withLabels ? seedLabels(page, labels) : page.goto("/healthz"));
+      await walk(page, seen, block, paid, bip329(labels));
+      // The file imported in the manager labels it last, in both runs.
       await page.goto(`/regtest/tx/${TX}`);
-      await expect(page.locator(".tx-head .your-label")).toHaveCount(withLabels ? 1 : 0);
+      await expect(page.locator(".tx-head .your-label__text")).toHaveText("zebra-quartz-label-one");
       await seen.quiet();
       await Promise.all(seen.pending);
       runs.push(seen);
@@ -572,18 +607,206 @@ test("nothing about a label reaches the server: the same requests with labels as
     }
   }
   const [without, withLabels] = runs as [Seen, Seen];
-  const all = withLabels.everything.join("\n");
-  for (const n of needles) expect(all.includes(n), `"${n}" was sent`).toBe(false);
-  // The very same requests and socket messages, as sets: polling may repeat a request, never add one.
-  const sorted = (s: Set<string>) => {
-    const list = [...s];
-    list.sort((a, b) => a.localeCompare(b));
-    return list;
+  for (const run of runs) {
+    const all = [...run.requests, ...run.frames].join("\n");
+    for (const n of needles) expect(all.includes(n), `"${n}" was sent`).toBe(false);
+  }
+  // The very same requests, each as many times, with the same headers and body.
+  const counted = (list: readonly string[]) => {
+    const copy = [...list];
+    copy.sort((x, y) => x.localeCompare(y));
+    return copy;
   };
-  expect(sorted(withLabels.requests)).toEqual(sorted(without.requests));
-  expect(sorted(withLabels.frames)).toEqual(sorted(without.frames));
+  expect(counted(withLabels.requests)).toEqual(counted(without.requests));
+  // And in the same order, but for the block summaries a socket message asks for: those go out
+  // when a block message arrives, a moment that follows the socket, not the page or its labels.
+  const ordered = (list: readonly string[]) => list.filter((r) => !r.includes("/blocks/summary?"));
+  expect(ordered(withLabels.requests)).toEqual(ordered(without.requests));
+  expect(withLabels.frames).toEqual(without.frames);
   test.info().annotations.push({
     type: "requests compared",
-    description: `${withLabels.requests.size} distinct requests, ${withLabels.everything.length} URLs, headers, bodies and frames searched`,
+    description: `${withLabels.requests.length} requests and ${withLabels.frames.length} socket asks, in order, with headers and bodies`,
   });
+});
+
+test.describe("the manager", () => {
+  // The transaction a label names is not on regtest: opening it is answered "not found".
+  test.use({ consoleErrorsAllowed: [/status of 404/] });
+  test("the manager asks the server for nothing: loading, finding, editing, deleting, importing, exporting", async ({
+    page,
+    context,
+  }) => {
+    await seedLabels(page, labelled(TX, [chain.addresses.p2wpkh]));
+    await page.goto("/regtest/labels");
+    await expect(page.getByRole("cell").first()).toBeVisible();
+    const seen = watch(context);
+    await seen.quiet();
+    const settled = seen.requests.length;
+    const file = bip329([
+      { type: "tx", ref: UNSEEN_TX, label: "zebra-quartz-label-four" },
+      { type: "addr", ref: UNSEEN_ADDR, label: "zebra-quartz-label-six" },
+      { type: "xpub", ref: XPUB, label: "x" },
+    ]);
+    await page
+      .locator('input[type="file"]')
+      .setInputFiles({ name: "w.jsonl", mimeType: "application/jsonl", buffer: Buffer.from(file) });
+    await page.getByRole("button", { name: "Import 3 labels" }).click();
+    await expect(
+      page.getByText(/^Imported 3 labels\. The server learned nothing from it\.$/),
+    ).toBeVisible();
+    await page.getByLabel("Find a label").fill("zebra-quartz-label-four");
+    await page.getByRole("button", { name: /^Edit the label of transaction/ }).click();
+    await page.getByRole("textbox", { name: /^Your label for transaction/ }).fill("renamed");
+    await page.keyboard.press("Enter");
+    await page.getByLabel("Find a label").fill("zebra-quartz-label-six");
+    await page.getByRole("button", { name: /^Delete the label of address/ }).click();
+    await page.getByLabel("Find a label").fill("");
+    await Promise.all([
+      page.waitForEvent("download"),
+      page.getByRole("button", { name: "Export a file" }).click(),
+    ]);
+    await page.getByRole("button", { name: "Delete all" }).click();
+    await page.getByRole("button", { name: "Keep them" }).click();
+    await seen.quiet();
+    expect(seen.requests.slice(settled), "requests made by the manager's own actions").toEqual([]);
+    // Following a reference's link is a lookup like any other: it asks for that transaction.
+    await page.getByRole("link", { name: new RegExp(UNSEEN_TX.slice(-8)) }).click();
+    await seen.quiet();
+    expect(seen.requests.slice(settled).some((r) => r.includes(`/api/tx/${UNSEEN_TX}`))).toBe(true);
+  });
+});
+
+// ---- A label moves nothing the page loads ----
+
+test("a page's head is as tall with a long label as with none, at every width, so nothing below moves", async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  const address = chain.addresses.p2tr;
+  const long = "w".repeat(255);
+  const measure = async (width: number) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(`/regtest/address/${address}`);
+    const chart = page.getByRole("region", { name: "Balance over time" });
+    await expect(chart).toBeVisible();
+    // Labels are read after the page has started; wait for them before measuring.
+    await page.waitForFunction(() => document.readyState === "complete");
+    await page.waitForTimeout(300);
+    const head = await page.locator(".address-head").boundingBox();
+    const box = await chart.boundingBox();
+    await page.goto(`/regtest/tx/${TX}`);
+    await expect(page.getByRole("list", { name: "Outputs" })).toBeVisible();
+    await page.waitForTimeout(300);
+    const txHead = await page.locator(".tx-head").boundingBox();
+    return { head: head?.height, chart: box?.y, tx: txHead?.height };
+  };
+  const results: Record<string, Awaited<ReturnType<typeof measure>>> = {};
+  for (const [name, label] of [
+    ["none", undefined],
+    ["short", "rent"],
+    ["255 characters", long],
+  ] as const) {
+    if (label !== undefined)
+      await seedLabels(page, [
+        { type: "addr", ref: address, label },
+        { type: "tx", ref: TX, label },
+      ]);
+    for (const width of [320, 360, 1280]) results[`${name} ${width}`] = await measure(width);
+    if (label !== undefined) {
+      await page.goto(`/regtest/address/${address}`);
+      await expect(page.locator(".address-head .your-label")).toBeVisible();
+    }
+  }
+  for (const width of [320, 360, 1280])
+    for (const name of ["short", "255 characters"])
+      expect(results[`${name} ${width}`], `${name} at ${width} px`).toEqual(
+        results[`none ${width}`],
+      );
+});
+
+test("a mainnet address's label is not shown above another network's answer", async ({ page }) => {
+  const mainnet = "bc1q34aq5drpuwy3wgl9lhup9892qp6svr8ldzyy7c";
+  await seedLabels(page, [{ type: "addr", ref: mainnet, label: "not here" }]);
+  await page.goto(`/regtest/address/${mainnet}`);
+  await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+  await expect(page.getByText(/Mainnet/).first()).toBeVisible();
+  await expect(page.locator(".your-label")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /label/ })).toHaveCount(0);
+});
+
+test("the flow's ribbons follow the cards when a label is added", async ({ page }) => {
+  // A transaction whose input column is shorter than its output column: a card that grows there
+  // changes no size but its own.
+  const candidates = Object.values(chain.txs);
+  let txid: string = TX;
+  for (const id of candidates) {
+    const res = await page.request.get(`/regtest/api/tx/${id}`);
+    // A replaced transaction is not on the node.
+    if (!res.ok()) continue;
+    const t = (await res.json()) as Tx;
+    if (t.vin.length >= 2 && t.vout.length > t.vin.length + 1) {
+      txid = id;
+      break;
+    }
+  }
+  await page.goto(`/regtest/tx/${txid}`);
+  await expect(page.locator(".tx-ribbon").first()).toBeAttached();
+  await page.getByRole("button", { name: "Details of input 0" }).click();
+  await page.locator("#tx-inspector").getByRole("button", { name: "Add a label" }).click();
+  await page
+    .getByRole("textbox", { name: "Your label for input 0" })
+    .fill("a label that makes the card taller");
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("list", { name: "Inputs" }).locator(".your-label")).toBeVisible();
+  // Each ribbon's end is centred on its card, once the flow has drawn again.
+  const off = () =>
+    page.evaluate(() => {
+      const box = document.querySelector(".tx-flow__ribbons")?.getBoundingClientRect();
+      const cards = [
+        ...document.querySelectorAll(".tx-flow__col--in > li, .tx-flow__col--out > li"),
+      ];
+      const paths = [...document.querySelectorAll<SVGPathElement>(".tx-ribbon")];
+      return Math.max(
+        ...paths.map((p, i) => {
+          const n = (p.getAttribute("d") ?? "").match(/-?\d+(?:\.\d+)?/g)?.map(Number) ?? [];
+          const mid = ((n[1] ?? 0) + (n.at(-1) ?? 0)) / 2;
+          const r = cards[i]?.getBoundingClientRect();
+          return Math.abs(mid - ((r?.top ?? 0) + (r?.height ?? 0) / 2 - (box?.top ?? 0)));
+        }),
+      );
+    });
+  await expect.poll(off, { timeout: 3000 }).toBeLessThan(2);
+});
+
+test("a browser out of room says so, and keeps nothing of the import", async ({
+  page,
+  browserName,
+}) => {
+  test.skip(browserName !== "chromium", "the quota is set through Chromium's own protocol");
+  // The quota is set before the page opens the store; labels of random text, which no storage
+  // engine can squeeze below it.
+  await page.goto("/healthz");
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Storage.overrideQuotaForOrigin", {
+    origin: new URL(page.url()).origin,
+    // Room for the store itself, not for 5 000 labels of 128 random characters each.
+    quotaSize: 256 * 1024,
+  });
+  await page.goto("/regtest/labels");
+  await expect(page.getByRole("button", { name: "Import a file" })).toBeEnabled();
+  const noise = () => randomBytes(64).toString("hex");
+  const lines = Array.from(
+    { length: 5000 },
+    (_, i) => `{"type":"output","ref":"${TX}:${i}","label":"${noise()}"}`,
+  ).join("\n");
+  await page.locator('input[type="file"]').setInputFiles({
+    name: "big.jsonl",
+    mimeType: "application/jsonl",
+    buffer: Buffer.from(lines),
+  });
+  await page.getByRole("button", { name: "Import 5 000 labels" }).click();
+  await expect(page.getByRole("alert")).toHaveText(
+    "This browser has no room left for the site's data, so the labels were not saved.",
+  );
+  await expect(page.getByText("No labels yet.")).toBeVisible();
 });
