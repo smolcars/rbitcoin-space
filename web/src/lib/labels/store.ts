@@ -4,8 +4,8 @@
 // up the page: it starts after the router has mounted, and reads a slice at a time.
 //
 // The database is the only truth. Nothing read from it is ever changed in memory: after any write,
-// this tab's or another's, what pages show is thrown away and read again, and a read that a write
-// overlapped is discarded and done again. Writing is db.ts, loaded when the reader asks for it.
+// this tab's or another's, what pages show is thrown away and read again whole, and a read that
+// started earlier never covers one that started later. Writing is db.ts, loaded when asked for.
 import { HINT, showLabels } from "../labels";
 
 const NAME = "rbitcoin-labels";
@@ -203,37 +203,52 @@ async function build(rows: readonly ShownRow[]): Promise<Map<string, string>> {
   return view;
 }
 
-// One more each time the store may have changed: a read begun before it is out of date.
-let changes = 0;
-let reading: Promise<void> | undefined;
+// Reads are numbered as they start; one shows what it read only if no read that started after it
+// has shown already, so an older read answering late never covers a newer one.
+let started = 0;
+let shownRead = 0;
 
-/**
- * Reads what pages show and shows it. A read that a change overlapped, this tab's or another's,
- * is thrown away and done again, so what is shown is always one whole read of the store.
- */
-export function refresh(): Promise<void> {
-  reading ??= (async () => {
-    try {
-      for (;;) {
-        const before = changes;
-        // oxlint-disable-next-line no-await-in-loop -- read again only when a change overlapped the read
-        const view = await build(await readShown(await open()));
-        if (before === changes) {
-          showLabels(view);
-          return;
-        }
-      }
-    } finally {
-      reading = undefined;
-    }
-  })();
-  return reading;
+/** One whole read of what pages show, shown unless a newer read has shown already. */
+async function readOnce(): Promise<void> {
+  const mine = ++started;
+  const view = await build(await readShown(await open()));
+  if (mine > shownRead) {
+    shownRead = mine;
+    showLabels(view);
+  }
 }
 
-/** The store may have changed (a write here, or another tab's): read again. */
+/** Reads what pages show and shows it: one read, which this call waits for. */
+export function refresh(): Promise<void> {
+  return readOnce();
+}
+
+// Reads in the background after a change heard: at most one in flight and one queued, however
+// many changes land, so nothing waits on them and they never pile up.
+let inFlight: Promise<void> | undefined;
+let queued = false;
+
+/**
+ * The store may have changed (another tab wrote): read again in the background. Returns when the
+ * reads this asked for are done.
+ */
 export function changed(): Promise<void> {
-  changes++;
-  return refresh();
+  if (inFlight) {
+    queued = true;
+    return inFlight;
+  }
+  const run: Promise<void> = readOnce()
+    .catch(() => undefined)
+    .then(() => {
+      inFlight = undefined;
+      if (queued) {
+        queued = false;
+        return changed();
+      }
+      return undefined;
+    });
+  inFlight = run;
+  return run;
 }
 
 /**
@@ -260,6 +275,6 @@ export function startLabels(): void {
 export function reset(): void {
   conn = undefined;
   outdated = false;
-  changes++;
+  shownRead = ++started;
   showLabels(new Map());
 }

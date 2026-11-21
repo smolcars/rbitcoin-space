@@ -152,4 +152,28 @@ describe("LabelControl", () => {
     expect(el.querySelector("[role=alert]")?.textContent).toMatch(/cannot be kept here/);
     expect(el.querySelector(".your-label")).toBeNull();
   });
+
+  it("a save that ends after its editor closed leaves the editor opened since, and its draft, alone", async () => {
+    const el = mount(() => <LabelControl type="tx" reference={TXID} what="this transaction" />);
+    flush();
+    const button = el.querySelector<HTMLButtonElement>(".label-control__open");
+    button?.click();
+    await until(() => el.querySelector("input") !== null);
+    const first = el.querySelector<HTMLInputElement>("input");
+    if (!first) throw new TypeError("no field");
+    first.value = "first";
+    el.querySelector("form")?.dispatchEvent(new Event("submit", { cancelable: true }));
+    // Closed before that save has ended, and opened again, with something typed.
+    first.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    flush();
+    button?.click();
+    await until(() => el.querySelector("input") !== null && el.querySelector("input") !== first);
+    const second = el.querySelector<HTMLInputElement>("input");
+    if (!second) throw new TypeError("no field");
+    second.value = "a draft";
+    // The first save ends.
+    await until(() => el.querySelector(".your-label__text")?.textContent === "first");
+    expect(el.querySelector("input")).toBe(second);
+    expect(second.value).toBe("a draft");
+  });
 });

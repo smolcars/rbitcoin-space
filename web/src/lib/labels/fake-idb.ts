@@ -17,6 +17,8 @@ interface Options {
   hangOpen?: boolean;
   /** More rows than this in the records store fail with QuotaExceededError. */
   room?: number;
+  /** Read-only transactions over this store fail to start, as a store the browser lost would. */
+  failReadOf?: string;
   /** Where that failure is reported: by the put that passes the room (Firefox), or at commit. */
   quotaAt?: "request" | "commit";
 }
@@ -295,8 +297,11 @@ class FakeDatabase extends EventTarget {
     this.tables.delete(name);
   }
   upgrading: FakeTransaction | undefined;
-  transaction(names: string | string[]): FakeTransaction {
+  transaction(names: string | string[], mode: IDBTransactionMode = "readonly"): FakeTransaction {
     if (this.closed) throw new DOMException("closed", "InvalidStateError");
+    const list = Array.isArray(names) ? names : [names];
+    if (mode === "readonly" && list.includes(this.options.failReadOf ?? "\u0000"))
+      throw new DOMException("lost", "UnknownError");
     for (const n of Array.isArray(names) ? names : [names])
       if (!this.tables.has(n)) throw new DOMException("no store", "NotFoundError");
     return new FakeTransaction(this);

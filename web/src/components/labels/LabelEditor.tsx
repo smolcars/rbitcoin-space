@@ -1,6 +1,6 @@
 // The label editor, loaded on first use by `LabelControl` and the manager. It writes to this
 // browser's store only; the form has no action and nothing it holds goes into a URL.
-import { createSignal, createUniqueId, onCleanup, onSettled, Show } from "solid-js";
+import { createSignal, createUniqueId, onCleanup, onSettled, Show, untrack } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { MAX_LABEL } from "../../lib/labels/bip329";
 import { failureWords, setLabel } from "../../lib/labels/db";
@@ -14,19 +14,34 @@ export function LabelEditor(props: EditorProps) {
   const [error, setError] = createSignal("");
   const [busy, setBusy] = createSignal(false);
   let field: HTMLInputElement | undefined;
+  // The label as it was when the editor opened: a change landing later (another tab, a save that
+  // ended late) never overwrites what is being typed.
+  const initial = untrack(() => props.current) ?? "";
   onSettled(() => {
     field?.focus();
     field?.select();
+  });
+  // A save ends on this editor only: once it is closed, its save's end changes nothing, so it
+  // can never close an editor opened after it, nor lose what is typed there.
+  let alive = true;
+  onCleanup(() => {
+    alive = false;
   });
   const write = (text: string | null, said: string) => {
     setBusy(true);
     setError("");
     void setLabel(props.type, props.reference, text, props.record)
-      .then(() => props.done(said))
-      .catch((e: unknown) => {
-        setError(failureWords(e, "The label could not be saved. Try again."));
+      .then(({ shown }) => {
+        if (!alive) return;
+        // Saved when its write committed; said so even if this page could not read it back yet.
+        props.done(shown ? said : `${said}. This page could not show it yet.`);
       })
-      .finally(() => setBusy(false));
+      .catch((e: unknown) => {
+        if (alive) setError(failureWords(e, "The label could not be saved. Try again."));
+      })
+      .finally(() => {
+        if (alive) setBusy(false);
+      });
   };
   const save = (e: SubmitEvent) => {
     e.preventDefault();
@@ -48,7 +63,7 @@ export function LabelEditor(props: EditorProps) {
         id={`${id}-field`}
         class="label-editor__field"
         type="text"
-        value={props.current ?? ""}
+        value={initial}
         maxlength={MAX_LABEL}
         autocomplete="off"
         spellcheck="false"

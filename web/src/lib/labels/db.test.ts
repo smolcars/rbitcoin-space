@@ -433,3 +433,41 @@ describe("the hint", () => {
     expect(shown("addr", ADDR)).toBe("from tab B");
   });
 });
+
+describe("a save and the reads after it", () => {
+  it("resolves when its write commits and one read after it, however many changes keep landing", async () => {
+    await setLabel("tx", TXID, "a");
+    let landing = true;
+    // Other tabs' changes, heard one after another the whole time.
+    const barrage = new Promise<void>((resolve) => {
+      const hear = () => {
+        if (!landing) {
+          resolve();
+          return;
+        }
+        void changed();
+        setTimeout(hear, 0);
+      };
+      hear();
+    });
+    const saved = await setLabel("tx", TXID, "b");
+    const stillLanding = landing;
+    landing = false;
+    await barrage;
+    expect(stillLanding).toBe(true);
+    expect(saved).toStrictEqual({ shown: true });
+    expect(shown("tx", TXID)).toBe("b");
+  });
+
+  it("says a save committed even when the read after it fails", async () => {
+    const options: Parameters<typeof fakeIndexedDB>[0] = {};
+    use(options);
+    await setLabel("tx", TXID, "a");
+    options.failReadOf = "shown";
+    await expect(setLabel("tx", TXID, "b")).resolves.toStrictEqual({ shown: false });
+    delete options.failReadOf;
+    resetStore();
+    await refresh();
+    expect(shown("tx", TXID)).toBe("b");
+  });
+});

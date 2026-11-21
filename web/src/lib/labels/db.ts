@@ -21,7 +21,7 @@ import {
 import {
   BATCH,
   better,
-  changed,
+  refresh,
   type Failure,
   LabelStoreError,
   META,
@@ -150,7 +150,9 @@ interface Done {
  * or none: a refusal or a failure of any part keeps nothing. Afterwards the pages and the reader's
  * other tabs read the store again.
  */
-async function transact(run: (c: Ctx, done: (d: Done) => void) => void): Promise<void> {
+async function transact(
+  run: (c: Ctx, done: (d: Done) => void) => void,
+): Promise<{ shown: boolean }> {
   const db = await open();
   const out = await new Promise<{ rev: number; count: number }>((resolve, reject) => {
     let tx: IDBTransaction;
@@ -205,7 +207,15 @@ async function transact(run: (c: Ctx, done: (d: Done) => void) => void): Promise
   } catch {
     // Storage blocked: every page opens the database instead.
   }
-  await changed().catch(() => undefined);
+  // One read after this write, which the change waits for, and nothing more: what other tabs do
+  // meanwhile is read in the background (`changed` in store.ts). Whether it could be shown is
+  // said, so a reader is never told a label shows when it does not.
+  try {
+    await refresh();
+    return { shown: true };
+  } catch {
+    return { shown: false };
+  }
 }
 
 /** Writes a record and what pages show for it; returns the record's request. */
@@ -228,11 +238,11 @@ export async function setLabel(
   ref: string,
   text: string | null,
   key?: string,
-): Promise<void> {
+): Promise<{ shown: boolean }> {
   const label = text === null || text.trim() === "" ? null : text;
   const norm = normalRef(type, ref);
-  if (key === undefined && norm === null) return;
-  await transact((c, done) => {
+  if (key === undefined && norm === null) return { shown: true };
+  return transact((c, done) => {
     const write = (target: string) => {
       const got = c.records.get(target);
       got.addEventListener("success", () => {
