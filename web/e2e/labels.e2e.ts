@@ -342,8 +342,8 @@ test.describe("the manager", () => {
     const big = file("replacing.jsonl", replacing);
     expect(big.buffer.length).toBeGreaterThan(7.5 * 1024 * 1024);
     expect(big.buffer.length).toBeLessThan(8 * 1024 * 1024);
-    // Handing Playwright's file to the input holds the page by itself before the page hears of
-    // it; what is measured starts after, while the page reads, previews, and then saves.
+    // Handing Playwright's file to the input holds the page by itself, so the window opens once
+    // that returns, when the page may have begun reading: a stall before then is not measured.
     const idle = await idleGap(page);
     await page.locator('input[type="file"]').setInputFiles(big);
     let longest = await watchGaps(page);
@@ -772,8 +772,8 @@ async function manage(page: Page, file: string) {
  *   first answers have come. The block page: its status is held until it shows its other first
  *   answers (its miner, its first transactions, its map), so it always opens its socket; the
  *   greeting is held until it shows its status too.
- * - The address page: its first status passes straight through, so the page asks once, on that
- *   status, never on its one-second fallback (checked below); and the address's totals are held
+ * - The address page: its first status passes straight through (checked below only as far as
+ *   Playwright forwarding it before it saw the page ask for the totals); and the address's totals are held
  *   until the first ledger answer has come, so the ledger is always asked first on the totals'
  *   own timer and again once they come, and the first is never cut short by the second.
  */
@@ -834,7 +834,7 @@ async function walk(page: Page, seen: Seen, gate: Gate, block: string, paid: str
   const totals = visit.indexOf(`asked /regtest/api/address/${paid}`);
   expect(
     status !== -1 && status < totals,
-    "the server answered the address's subscription before the page's one-second fallback",
+    "Playwright forwarded the address's first status before it saw the page ask for the totals",
   ).toBe(true);
   // The block's status is held too, until the page shows its other first answers: until then the
   // page listens for a next block, so it always opens its socket, whichever answer would have
