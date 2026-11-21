@@ -160,15 +160,13 @@ describe("fee track record page", () => {
     expect(tableRow(cost, "No rush")).toStrictEqual({
       Level: "No rush",
       "Recommended, median": "0.12",
-      "Overpaid when met, mean": "0.04",
-      "Overpaid when met, median": "under 0.01",
+      "Overpaid when met, mean · median": "0.04 · under 0.01",
       "Short when missed, mean": "0.01",
     });
     expect(tableRow(cost, "High")).toStrictEqual({
       Level: "High",
       "Recommended, median": "2.00",
-      "Overpaid when met, mean": "1.06",
-      "Overpaid when met, median": "0.98",
+      "Overpaid when met, mean · median": "1.06 · 0.98",
       "Short when missed, mean": "0.75",
     });
     expect(tableRow(evidence, "High")).toStrictEqual({

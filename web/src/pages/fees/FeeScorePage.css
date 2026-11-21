@@ -38,22 +38,21 @@
     transition: opacity var(--dur-quick) var(--ease-out);
   }
 
-  /* The period covered, and the key to the meters: one line each, or one line on a wide screen. */
+  /* The key to the meters, at the right of the panel's title (under it on a phone). */
   .fee-score__key {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: space-between;
-    gap: var(--space-1) var(--space-5);
-    margin: calc(var(--space-2) * -1) 0 var(--space-3);
-    font-size: var(--text-sm);
-    color: var(--color-text-muted);
-  }
-  .fee-score__key p {
-    display: flex;
+    display: inline-flex;
     align-items: center;
     flex-wrap: wrap;
     gap: var(--space-1) var(--space-2);
-    margin: 0;
+  }
+  /* Said once on a phone, where the lines drop their 0% and 100% for room. */
+  .fee-score__scale {
+    display: none;
+  }
+  .fee-score__coverage {
+    margin: var(--space-3) 0 0;
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
   }
   .fee-key {
     display: inline-block;
@@ -76,7 +75,7 @@
     display: flex;
     gap: var(--space-2);
     max-width: 44rem;
-    margin: 0 0 var(--space-3);
+    margin: var(--space-3) 0 0;
     font-size: var(--text-sm);
     color: var(--color-text-muted);
   }
@@ -105,11 +104,34 @@
   .fee-score__prose p {
     margin: 0;
   }
+  /* Why a cost cell is empty, in words: the text face, wrapping, so it never widens its column. */
+  .fee-score__gap {
+    font-family: var(--font-sans);
+    color: var(--color-text-muted);
+    white-space: normal;
+  }
+  /* A cost cell's words ("under 0.01", "none met") may wrap; a figure's digits never part. */
+  .fee-score__cost td.table__num {
+    white-space: normal;
+  }
+  /* Two figures in one cell: they may part at the dot on a phone, never inside a figure. */
+  .fee-score__pair {
+    white-space: normal;
+  }
+  .fee-score__pair .num {
+    white-space: nowrap;
+  }
   .fee-score__kinds {
     display: block;
+    font-family: var(--font-sans);
     font-size: var(--text-xs);
     color: var(--color-text-muted);
     white-space: normal;
+  }
+  /* Long headers take two lines rather than widen a panel that sits beside another. */
+  .fee-score__tables .table th {
+    white-space: normal;
+    vertical-align: bottom;
   }
 
   /* One row per level: its name, its share, the share on a line against the target, the verdict. */
@@ -300,8 +322,26 @@
     .fee-level__verdict {
       font-size: var(--text-sm);
     }
+    .fee-level {
+      padding-block: var(--space-2);
+    }
+    /* The line and the interval's ends beside it, one line: under the band they would take a
+       second on each row, and the four rows would not fit a phone's first screen. */
+    .fee-score__scale {
+      display: inline;
+    }
     .fee-meter {
-      margin-top: var(--space-2);
+      grid-template-columns: 1fr auto;
+      margin-top: var(--space-1);
+    }
+    .fee-meter__end {
+      display: none;
+    }
+    .fee-meter__range {
+      grid-column: 2;
+      grid-row: 1;
+      margin-left: var(--space-1);
+      transform: none;
     }
     .fee-level__detail {
       margin-top: var(--space-1);

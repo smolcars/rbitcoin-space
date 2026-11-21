@@ -86,9 +86,9 @@ function FeeScore(props: { network: Network }) {
         <Periods choices={WINDOWS} current={win().id} href={paths.feeScore} fitted={false} />
       </header>
       <p class="fee-score__intro">
-        How often this server's recommended fees, the numbers behind the home page's{" "}
-        <Link href={paths.home()}>Fee to pay now</Link>, were mined in time. Each level is held to{" "}
-        {TARGET_TEXT}.
+        How often this server's recommended fees, behind the home page's{" "}
+        <Link href={paths.home()}>Fee to pay now</Link>, were mined in time, against a target of{" "}
+        {TARGET_TEXT} for each level.
       </p>
       <Show
         when={request.state !== "errored"}
@@ -183,23 +183,18 @@ function Board(props: { score: Score; testNet: boolean }) {
   return (
     <>
       <section class="fee-score__levels" aria-labelledby="fee-score-met">
-        <SectionHeader title="Mined in time" id="fee-score-met" />
-        <div class="fee-score__key">
-          <Show when={coverage()}>
-            {(text) => (
-              <p>
-                <span class="visually-hidden">The period these figures cover: </span>
-                {text()}
-              </p>
-            )}
-          </Show>
-          <p aria-hidden="true">
+        <SectionHeader title="Mined in time" id="fee-score-met">
+          <span class="fee-score__key" aria-hidden="true">
+            <span class="fee-score__scale">Each line 0–100%:</span>
             <span class="fee-key fee-key--target" />
             {TARGET_TEXT} target
             <span class="fee-key fee-key--band" />
             95% interval
-          </p>
-        </div>
+          </span>
+        </SectionHeader>
+        <ul class="fee-levels">
+          <For each={views()}>{(v) => <LevelRow view={v} />}</For>
+        </ul>
         <Show when={props.testNet}>
           <p class="fee-score__caveat">
             <DashedCircle />
@@ -210,9 +205,9 @@ function Board(props: { score: Score; testNet: boolean }) {
             </span>
           </p>
         </Show>
-        <ul class="fee-levels">
-          <For each={views()}>{(v) => <LevelRow view={v} />}</For>
-        </ul>
+        <Show when={coverage()}>
+          {(text) => <p class="fee-score__coverage">These figures cover {text()}.</p>}
+        </Show>
       </section>
       <div class="fee-score__tables">
         <CostPanel views={views()} />
@@ -378,7 +373,7 @@ function Meter(props: { view: LevelView }) {
 
 function CostPanel(props: { views: LevelView[] }) {
   const cell = (v: LevelView, value: string | undefined, kind: "met" | "missed") => (
-    <Show when={value} fallback={<span class="muted">{costGap(v, kind)}</span>}>
+    <Show when={value} fallback={<span class="fee-score__gap">{costGap(v, kind)}</span>}>
       {(text) => <span class="num">{text()}</span>}
     </Show>
   );
@@ -386,31 +381,38 @@ function CostPanel(props: { views: LevelView[] }) {
     { header: "Level", cell: (v) => v.name },
     {
       header: "Recommended, median",
-      short: "Rate",
+      short: "Rate, median",
       sub: "sat/vB",
       numeric: true,
       cell: (v) => (
         <Show
           when={costView(v).recommended}
-          fallback={<span class="muted">{v.standing === "too-few" ? "too few blocks" : "–"}</span>}
+          fallback={
+            <span class="fee-score__gap">{v.standing === "too-few" ? "too few blocks" : "–"}</span>
+          }
         >
           {(text) => <span class="num">{text()}</span>}
         </Show>
       ),
     },
     {
-      header: "Overpaid when met, mean",
-      short: "Over, mean",
+      header: "Overpaid when met, mean · median",
+      short: "Over, mean · median",
       sub: "sat/vB",
       numeric: true,
-      cell: (v) => cell(v, costView(v).overpayMean, "met"),
-    },
-    {
-      header: "Overpaid when met, median",
-      short: "Over, median",
-      sub: "sat/vB",
-      numeric: true,
-      cell: (v) => cell(v, costView(v).overpayMedian, "met"),
+      cell: (v) => {
+        const c = costView(v);
+        return (
+          <Show
+            when={c.overpayMean !== undefined && c.overpayMedian !== undefined}
+            fallback={<span class="fee-score__gap">{costGap(v, "met")}</span>}
+          >
+            <span class="fee-score__pair">
+              <span class="num">{c.overpayMean}</span> · <span class="num">{c.overpayMedian}</span>
+            </span>
+          </Show>
+        );
+      },
     },
     {
       header: "Short when missed, mean",
@@ -428,11 +430,13 @@ function CostPanel(props: { views: LevelView[] }) {
         columns={columns}
         rows={props.views}
       />
-      <p class="fee-score__prose">
-        Measured from the lowest rate that would have got in, 0.001 sat/vB over the cheapest
-        clearing rate among the blocks an answer promised: <strong>overpaid</strong> is how far a
-        met answer paid above it, <strong>short</strong> how far a missed one fell below it.
-      </p>
+      <div class="fee-score__prose">
+        <p>
+          Measured from the lowest rate that would have got in, 0.001 sat/vB over the cheapest
+          clearing rate among the blocks an answer promised: <strong>overpaid</strong> is how far a
+          met answer paid above it, <strong>short</strong> how far a missed one fell below it.
+        </p>
+      </div>
     </section>
   );
 }
