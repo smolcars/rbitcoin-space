@@ -3,13 +3,12 @@
 // hostile, the site unchanged without storage, and never sent anywhere.
 import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { createRequire } from "node:module";
 import type { Browser, BrowserContext, Page } from "@playwright/test";
+import { axe as runAxe } from "./axe";
 import { chain, expect, test } from "./fixtures";
 import { bip329, labelled, type Line, seedLabels } from "./labels";
 
 const TX = chain.txs.script_types;
-const AXE = await readFile(createRequire(import.meta.url).resolve("axe-core/axe.min.js"), "utf8");
 
 interface Tx {
   vout: { scriptpubkey_address?: string }[];
@@ -626,22 +625,7 @@ test.describe("under reduced motion", () => {
       { type: "tx", ref: TX, label: "rent, March" },
       { type: "output", ref: `${TX}:0`, label: "change" },
     ]);
-    const axe = async () => {
-      await page.evaluate(AXE);
-      return page.evaluate(async () => {
-        const run = (window as unknown as { axe: { run: (...a: unknown[]) => Promise<unknown> } })
-          .axe.run;
-        const r = (await run(document, {
-          runOnly: {
-            type: "tag",
-            values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"],
-          },
-          rules: { "label-content-name-mismatch": { enabled: false } },
-          resultTypes: ["violations"],
-        })) as { violations: { id: string; nodes: { target: string[] }[] }[] };
-        return r.violations.flatMap((v) => v.nodes.map((n) => `${v.id} at ${n.target.join(" ")}`));
-      });
-    };
+    const axe = () => runAxe(page);
     await page.goto(`/regtest/tx/${TX}`);
     await expect(tagIn(page.locator(".tx-head"))).toHaveText("rent, March");
     await page.locator(".tx-head").getByRole("button", { name: "Edit label" }).click();
