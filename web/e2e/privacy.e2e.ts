@@ -53,7 +53,7 @@ test("a transaction with findings: marks on its cards and what an observer can r
   // The address shortened as the site shortens one: its first and last eight characters.
   const miner = `${chain.addresses.miner.slice(0, 8)}…${chain.addresses.miner.slice(-8)}`;
   await expect(section).toContainText(
-    `Inputs 0 and 1 spend from ${miner}, and output 1 pays the same address, so the same locking script. An observer will usually read one address as one owner, which ties that output to those inputs.`,
+    `Inputs 0 and 1 spend from ${miner}, and output 1 pays the same address, so the same locking script. An observer may read one address as one owner, which ties that output to those inputs.`,
   );
   await expect(
     section.getByText("Output 1 reads as change, output 0 as the payment", { exact: true }),
@@ -61,9 +61,9 @@ test("a transaction with findings: marks on its cards and what an observer can r
   await expect(section.getByRole("listitem")).toHaveText([
     /^Address reused/,
     /^Output 1 reads as change/,
-    "It pays the same address inputs 0 and 1 spend from, which an observer will usually read as going back to the sender.",
+    "It pays the same address inputs 0 and 1 spend from, which an observer may read as going back to the sender.",
     "Output 0 is a round 90 BTC and this one is not, which suggests output 0 is the payment.",
-    "Every input that funds it is P2WSH, and of the two outputs only this one is, which suggests it is the change.",
+    "Every input that funds it is P2WSH, and of the two outputs that are paid only this one is, which suggests it is the change.",
   ]);
 
   // The cards say the same, in words.
@@ -94,8 +94,22 @@ test("a transaction with findings: marks on its cards and what an observer can r
   expect(await axe(page)).toStrictEqual([]);
 });
 
-test("at 360 px, the spends arriving after the cards move nothing", async ({ page }) => {
-  // `script_types`: two of its outputs are spent, so the spends bring two links.
+test("at 360 px, the spends arriving after the cards move nothing", async ({ page, request }) => {
+  // `script_types`: its P2SH and pay-to-anchor outputs are spent. The P2SH one is served here with
+  // no address and the miner's script, so it is a spent card with no type label before its link,
+  // and with a mark (the miner's address is reused): the hardest line to hold.
+  const real = (await (await request.get(`/regtest/api/tx/${chain.txs.script_types}`)).json()) as {
+    vout: Record<string, unknown>[];
+  };
+  const p2sh = real.vout.findIndex((o) => o["scriptpubkey_type"] === "p2sh");
+  const bare = real.vout[p2sh];
+  if (bare) {
+    delete bare["scriptpubkey_address"];
+    bare["scriptpubkey"] = MINER_SCRIPT;
+  }
+  await page.route(new RegExp(`/regtest/api/tx/${chain.txs.script_types}$`), (r) =>
+    r.fulfill({ json: real }),
+  );
   let release: () => void = () => undefined;
   const held = new Promise<void>((resolve) => {
     release = resolve;
@@ -107,10 +121,14 @@ test("at 360 px, the spends arriving after the cards move nothing", async ({ pag
   await page.setViewportSize({ width: 360, height: 780 });
   await page.goto(`/regtest/tx/${chain.txs.script_types}`);
   await expect(page.locator(".pv-under")).toBeVisible();
+  const card = page.getByRole("list", { name: "Outputs" }).getByRole("listitem").nth(p2sh);
+  await expect(card.getByRole("link")).toHaveCount(0);
+  await expect(card).toContainText("Reused address");
   await expect(page.locator(".tx-flow__spent")).toHaveCount(0);
   const before = await heights(page);
   release();
   await expect(page.locator(".tx-flow__spent")).toHaveCount(2);
+  await expect(card.locator(".tx-flow__spent")).toHaveCount(1);
   expect(await heights(page)).toStrictEqual(before);
 });
 
@@ -200,5 +218,51 @@ test.describe("before sending", () => {
     expect(await axe(page)).toStrictEqual([]);
     await page.setViewportSize({ width: 360, height: 780 });
     expect(await sideways(page)).toBeLessThanOrEqual(0);
+  });
+});
+
+test.describe("a broadcast that does not go through", () => {
+  // One pattern: Playwright reads a two-item array here as a value and its options.
+  test.use({ consoleErrorsAllowed: [/status of (400|503)|ERR_CONNECTION_FAILED|Failed to fetch/] });
+  const NOT_SENT =
+    "It is not sent yet: a wallet can still change which coins it spends and where the change goes.";
+
+  test("refused by the node, it is still not sent", async ({ page, request }) => {
+    const hex = await unsent(request);
+    await page.route(/\/regtest\/api\/tx$/, (r) =>
+      r.request().method() === "POST"
+        ? r.fulfill({ status: 400, json: { error: "bad-txns-inputs-missingorspent" } })
+        : r.continue(),
+    );
+    await page.goto("/regtest/tx/push");
+    await page.getByRole("textbox", { name: "Signed transaction in hex" }).fill(hex);
+    await page.getByRole("button", { name: "Broadcast" }).click();
+    await expect(page.getByText(/^The node refused it/)).toBeVisible();
+    const notice = page.getByRole("region", {
+      name: "Once it is sent, anyone can read this from it",
+    });
+    await expect(notice).toContainText(NOT_SENT);
+  });
+
+  test("with no answer, it may have been sent, and nothing says it can still change", async ({
+    page,
+    request,
+  }) => {
+    const hex = await unsent(request);
+    await page.route(/\/regtest\/api\/tx$/, (r) =>
+      r.request().method() === "POST" ? r.abort("connectionfailed") : r.continue(),
+    );
+    await page.goto("/regtest/tx/push");
+    await page.getByRole("textbox", { name: "Signed transaction in hex" }).fill(hex);
+    await page.getByRole("button", { name: "Broadcast" }).click();
+    await expect(
+      page.getByText("The server cannot be reached. Check your connection."),
+    ).toBeVisible();
+    const notice = page.getByRole("region", { name: "What an observer can read" });
+    await expect(notice).toContainText(
+      "It may have been sent: no answer came back. If it was, anyone can read this from it.",
+    );
+    await expect(notice).toContainText("Output 1 reads as change, output 0 as the payment");
+    await expect(page.getByText(NOT_SENT)).toHaveCount(0);
   });
 });
