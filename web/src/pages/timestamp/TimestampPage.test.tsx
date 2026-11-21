@@ -3,6 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mount } from "../../components/test-utils";
 import { clearApiCache } from "../../lib/api";
+import { CHUNK } from "./digest";
 import { hash, toHex } from "./hashes";
 import { headerHash } from "./verify";
 import TimestampPage from "./TimestampPage";
@@ -431,10 +432,27 @@ describe("when a verdict takes the reader's focus", () => {
     choose(proof, fakeFile("bad.ots", new TextEncoder().encode("not a proof")));
     await vi.waitFor(() => expect(document.activeElement).toBe(heading(el)));
     button(el, "Remove the proof").click();
-    await vi.waitFor(() => expect(said(el)).toContain("Your file could not be read"));
-    await settle();
+    await vi.waitFor(() => expect(said(el)).toBe("Your file could not be read"));
     expect(document.activeElement).toBe(proof);
-    expect(said(el)).toBe("Your file could not be read");
+  });
+
+  it("forgets the chooser of a proof once hashing is stopped (round 3 S-11)", async () => {
+    const { el, proof, file } = open();
+    const bytes = deferred();
+    choose(file, fakeFile("big.bin", new Uint8Array(CHUNK + 1), bytes.promise));
+    await vi.waitFor(() => expect(text(el)).toContain("Hashing, 0%"));
+    const slow = deferred();
+    if (proof instanceof HTMLElement) proof.focus();
+    choose(proof, fakeFile("bad.ots", new TextEncoder().encode("not a proof"), slow.promise));
+    button(el, "Stop").click();
+    // The hash sees the Stop once the read under way returns.
+    bytes.resolve();
+    await vi.waitFor(() => expect(text(el)).toContain("Hashing stopped"));
+    // Back to the proof's chooser before its read finishes.
+    if (proof instanceof HTMLElement) proof.focus();
+    slow.resolve();
+    await vi.waitFor(() => expect(said(el)).toBe("This is not a timestamp proof"));
+    expect(document.activeElement).toBe(proof);
   });
 
   it("takes focus for a file dropped while another control has it (round 2 G-7, C)", async () => {

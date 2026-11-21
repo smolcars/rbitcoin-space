@@ -322,7 +322,16 @@ export default function TimestampPage() {
           filled={readDigest(hex(), algorithm()) !== null}
         >
           <Show when={running()}>
-            {(h) => <Progress done={h().done} total={h().total} onCancel={() => cancel?.()} />}
+            {(h) => (
+              <Progress
+                done={h().done}
+                total={h().total}
+                onCancel={() => {
+                  end();
+                  cancel?.();
+                }}
+              />
+            )}
           </Show>
           <Show when={hashing()?.kind === "cancelled"}>
             <p class="ots-slot__note">Hashing stopped. Choose the file again to start over.</p>
