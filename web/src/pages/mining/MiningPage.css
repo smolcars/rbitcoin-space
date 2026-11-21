@@ -560,6 +560,11 @@
     width: 100%;
     max-width: 0;
   }
+  /* A pool takes what is left, but never less than its name and empty count can be read in: at a
+     large text size the table drops columns, then scrolls, before it cuts them. */
+  .mining-compact .table td:has(> .mining-pool) {
+    min-width: 6.5em;
+  }
   .mining-pool {
     display: flex;
     align-items: center;
@@ -585,9 +590,18 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  /* The note stays inside the column: it breaks between the figure and the word, and the word
+     breaks where it must; the figure never does. */
   .mining-pool__empty {
     font-size: var(--text-xs);
     color: var(--color-text-muted);
+    white-space: normal;
+  }
+  .mining-pool__count {
+    white-space: nowrap;
+  }
+  .mining-pool__word {
+    overflow-wrap: anywhere;
   }
   .mining-foot {
     display: flex;

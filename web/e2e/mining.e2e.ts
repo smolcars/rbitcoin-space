@@ -1,3 +1,4 @@
+import type { Page } from "@playwright/test";
 import { chain, expect, stubRetargets, test } from "./fixtures";
 import { tapRow } from "./rows";
 
@@ -51,6 +52,7 @@ test.describe("in a wide prose font", () => {
       await expect(page.getByText(/^4\.66\s×\s10⁻¹⁰$/).first()).toBeVisible();
       const table = page.getByRole("table", { name: /Pools ranked by blocks found/ });
       await expect(table).toBeVisible({ timeout: 30_000 });
+      await wideFaceDrawn(page);
       const scrolled = await page.evaluate(() => document.documentElement.scrollWidth);
       expect(scrolled, `page width at ${width} px`).toBeLessThanOrEqual(width);
       // Unknown's "98 empty" once kept its width and cut the name beside it to under a pixel.
@@ -64,7 +66,107 @@ test.describe("in a wide prose font", () => {
       expect(cut, `pool names cut at ${width} px`).toEqual([]);
     }
   });
+
+  // Regtest's own "98 empty", and counts as large as mainnet's all-time ones from a routed answer.
+  // Under its name the note once ran on past its column and over the Share figure beside it.
+  for (const counts of ["regtest's", "large"] as const) {
+    test(`each pool's empty count stays in its own cell, ${counts}, at 16 and 24 px text`, async ({
+      page,
+      browserName,
+    }) => {
+      test.skip(
+        browserName !== "chromium",
+        "only Chromium lets a test set the browser's text size",
+      );
+      if (counts === "large") await routeLargeCounts(page);
+      const cdp = await page.context().newCDPSession(page);
+      const faults: string[] = [];
+      for (const text of [16, 24]) {
+        await cdp.send("Page.setFontSizes", {
+          fontSizes: { standard: text, fixed: Math.round((text * 13) / 16) },
+        });
+        for (const width of [320, 360]) {
+          await page.setViewportSize({ width, height: 900 });
+          await page.goto("/regtest/mining?period=all");
+          const notes = page.locator(".mining-pool__empty");
+          await expect(notes.first()).toBeVisible({ timeout: 30_000 });
+          await wideFaceDrawn(page);
+          const found = await notes.evaluateAll((all) =>
+            all.flatMap((note) => {
+              const cell = note.closest("td") as HTMLTableCellElement;
+              const share = cell.nextElementSibling as HTMLElement;
+              const edge =
+                cell.getBoundingClientRect().right -
+                Number.parseFloat(getComputedStyle(cell).paddingRight);
+              const box = note.getBoundingClientRect();
+              const range = document.createRange();
+              range.selectNodeContents(share);
+              const figure = range.getBoundingClientRect();
+              const what = `"${note.textContent?.trim() ?? ""}"`;
+              return [
+                // Half a pixel of slack for rounding.
+                ...(box.right > edge + 0.5
+                  ? [`${what} runs ${(box.right - edge).toFixed(1)} px past its cell`]
+                  : []),
+                ...(box.right > figure.left &&
+                box.left < figure.right &&
+                box.bottom > figure.top &&
+                box.top < figure.bottom
+                  ? [`${what} covers the share "${share.textContent ?? ""}"`]
+                  : []),
+              ];
+            }),
+          );
+          faults.push(...found.map((f) => `${width} px, ${text} px text: ${f}`));
+        }
+      }
+      expect(faults).toStrictEqual([]);
+    });
+  }
 });
+
+/** Waits until the wide stand-in face draws the page: it loads on its own time. */
+async function wideFaceDrawn(page: Page) {
+  const loaded = await page.evaluate(async () => {
+    await document.fonts.ready;
+    return [...document.fonts].some(
+      (f) => f.family.includes("Prose stand-in") && f.status === "loaded",
+    );
+  });
+  expect(loaded, "the wide stand-in face drew the page").toBe(true);
+}
+
+/** All of history as a busy network's, three pools with empty counts of five, five and two digits. */
+async function routeLargeCounts(page: Page) {
+  const pools = (
+    [
+      ["Foundry USA", 60_000, 52_560],
+      ["Unknown", 30_000, 12_345],
+      ["AntPool", 9_000, 98],
+    ] as const
+  ).map(([name, blockCount, emptyBlocks], i) => ({
+    poolId: i + 1,
+    name,
+    link: "",
+    blockCount,
+    rank: i + 1,
+    emptyBlocks,
+    slug: name.toLowerCase().replaceAll(" ", ""),
+    avgMatchRate: null,
+    avgFeeDelta: null,
+    poolUniqueId: i + 1,
+  }));
+  await page.route(/\/api\/v1\/mining\/pools\/all$/, (route) =>
+    route.fulfill({
+      json: {
+        pools,
+        blockCount: 99_000,
+        lastEstimatedHashrate: 1e18,
+        lastEstimatedHashrate1w: 1e18,
+      },
+    }),
+  );
+}
 
 test("a chart draws and its readout shows the route's figure", async ({ page }) => {
   const route = "/regtest/api/v1/mining/blocks/fees/all";

@@ -498,7 +498,10 @@ function Pools(props: {
                           {p.name}
                         </Link>
                         <Show when={p.emptyBlocks > 0}>
-                          <span class="mining-pool__empty">{groupDigits(p.emptyBlocks)} empty</span>
+                          <span class="mining-pool__empty">
+                            <span class="mining-pool__count">{groupDigits(p.emptyBlocks)}</span>{" "}
+                            <span class="mining-pool__word">empty</span>
+                          </span>
                         </Show>
                       </span>
                     </span>
