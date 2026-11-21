@@ -188,7 +188,7 @@ test("a file is hashed in the page and never sent; a pending proof says what to 
   await fileInput(page).setInputFiles({ name: "note.txt", mimeType: "text/plain", buffer: file });
   const verdict = page.getByRole("article");
   await expect(verdict.getByRole("heading", { name: "Not verified yet" })).toBeVisible();
-  await expect(verdict.getByText("Pending")).toBeVisible();
+  await expect(verdict.getByText("Pending", { exact: true })).toBeVisible();
   await expect(verdict.getByText(/ots upgrade/)).toBeVisible();
   await expect(verdict.getByRole("listitem").filter({ hasText: CALENDAR })).toBeVisible();
   await expect(verdict.getByRole("link")).toHaveCount(0);
@@ -354,7 +354,7 @@ test("a file the page hashed is said to have existed; the block's time is its he
   // The two checks a node makes of a header's time, and nothing said about when it was mined.
   await expect(
     verdict.getByText(
-      /later than the median of the eleven blocks before it and no more than two hours ahead of the node's own clock when it checks\./,
+      /later than the median of the blocks before it, up to eleven, and no more than two hours ahead of the node's own clock when it checks\./,
     ),
   ).toBeVisible();
   await expect(verdict.getByText(/ahead of when the block was mined/)).toHaveCount(0);
