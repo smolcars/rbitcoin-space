@@ -494,6 +494,14 @@ test.describe("on a phone", () => {
     expect(box?.height ?? 9999).toBeLessThan(780 / 2);
     await expect(page.getByRole("button", { name: "Clear the digest" })).toBeInViewport();
     await expect(page.getByText(/this is 4096/)).toBeInViewport();
+    // A valid digest is shown whole, with nothing to scroll, even at 320 px with 32 px text.
+    await page.setViewportSize({ width: 320, height: 780 });
+    await page.evaluate(() => (document.documentElement.style.fontSize = "32px"));
+    await digestBox(page).fill(TWO_BLOCKS);
+    const whole = await digestBox(page).evaluate(
+      (t) => t.scrollHeight <= t.clientHeight + 1 && t.scrollWidth <= t.clientWidth + 1,
+    );
+    expect(whole).toBe(true);
   });
 
   test("a verdict below the screen is scrolled to when it comes", async ({ page }) => {
@@ -577,6 +585,10 @@ test.describe("the slots in every state, width and text size", () => {
             )
               out.push(`${name}: ${a} overlaps ${b}`);
         if (title && title.scrollWidth > title.clientWidth + 1) out.push(`${name}: label squeezed`);
+        // A control's words stay inside it.
+        for (const c of slot.querySelectorAll<HTMLElement>(".ots-slot__choose, .ots-slot__clear"))
+          if (c.getClientRects().length > 0 && c.scrollWidth > c.clientWidth + 1)
+            out.push(`${name}: "${c.textContent ?? ""}" spills out of its control`);
         if (title && title.getClientRects().length > 0) {
           const lh = Number.parseFloat(getComputedStyle(title).lineHeight);
           if (title.getBoundingClientRect().height > lh * 1.5) out.push(`${name}: label wraps`);

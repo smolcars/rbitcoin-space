@@ -73,6 +73,8 @@
     order: 1;
     display: flex;
     flex: 0 1 auto;
+    flex-wrap: wrap;
+    justify-content: flex-end;
     max-width: 100%;
     gap: var(--space-3);
     margin-inline-start: auto;
@@ -81,13 +83,23 @@
      largest text on a phone. */
   .ots-slot__choose {
     flex: 0 1 auto;
-    min-width: 0;
+    /* It may wrap between words ("Choose a / file"), never shrink under one ("Change"). */
+    min-width: min-content;
     min-height: var(--touch);
     text-align: center;
   }
   .ots-slot__choose:focus-within {
     outline: 2px solid var(--color-focus);
     outline-offset: 2px;
+  }
+  /* A phone: Change and remove a little closer, so at the largest text they still share a line. */
+  @media (max-width: 40em) {
+    .ots-slot__pick {
+      gap: var(--space-2);
+    }
+    .ots-slot__choose {
+      padding-inline: var(--space-2);
+    }
   }
   /* Nothing to drop with on a touch screen. Under 50em the words would take the hint a second
      line, so they go; the slot still takes a file dropped on it. */
@@ -204,15 +216,16 @@
   }
   /* As tall as what it holds (where the browser sizes a field to its content; three rows where it
      does not), at least three lines on a phone, where 64 characters wrap to three; and never
-     taller than three lines or 40% of the window, whichever is more: a wrong paste of thousands
-     scrolls inside it, its clear control and its message still on screen. */
+     taller than ten lines, what 64 characters take at 320 px with 32 px text, nor 70% of the
+     window: a wrong paste of thousands scrolls inside it, its clear control and its message still
+     on screen. */
   .ots-hex__input {
     box-sizing: border-box;
     flex: 1;
     width: 100%;
     min-width: 0;
     min-height: var(--touch);
-    max-height: max(calc(3lh + 2 * var(--space-2) + 2px), 40vh);
+    max-height: min(calc(10lh + 2 * var(--space-2) + 2px), 70vh);
     overflow-y: auto;
     resize: none;
     field-sizing: content;
