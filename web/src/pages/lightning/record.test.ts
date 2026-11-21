@@ -119,6 +119,8 @@ describe("a node's close record", () => {
     expect(words(1, 0, [recordPeer(1)])).toBe(
       "The 1 force close was on a channel with the peer below.",
     );
+    // A close whose two ends are the node lists no peer: nothing is said of one.
+    expect(words(1, 0, [])).toBe("The record holds 1 force close.");
     expect(words(0, 1, [recordPeer(1, { force: 0, penalty: 1 })])).toBe(
       "The 1 penalty was on a channel with the peer below.",
     );

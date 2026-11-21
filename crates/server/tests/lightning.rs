@@ -1669,7 +1669,32 @@ async fn a_node_s_close_record_comes_from_its_stored_closes() {
         store.close().await;
     }
     let (addr, calls, _server, _stop, ln) = start(&d.0, true).await;
-    graph::install(&d.0, &ln.unwrap(), nodes, channels).await;
+    let ln = ln.unwrap();
+    // The overview waits for an index, and setting one is what wakes it, not its retry five
+    // seconds on: observed through its counters, not a clock.
+    let waits = || async {
+        for _ in 0..1_000 {
+            if ln.overview_wakes().0 > 0 {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        panic!("the overview never waited for an index");
+    };
+    waits().await;
+    let (_, woken) = ln.overview_wakes();
+    graph::install(&d.0, &ln, nodes, channels).await;
+    for _ in 0..1_000 {
+        if ln.overview_wakes().1 > woken {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(
+        ln.overview_wakes().1,
+        woken + 1,
+        "setting the index did not wake the overview"
+    );
     let record = |n: u8| {
         let addr = addr.clone();
         async move {
@@ -1788,14 +1813,11 @@ async fn a_node_s_close_record_comes_from_its_stored_closes() {
         ),
         (Some(0), Some(0))
     );
-    // The network's figures come with the overview's computation, each channel once, which starts
-    // when the index is set rather than at its next retry, five seconds on.
-    let waited = std::time::Instant::now();
-    while record(1).await.json()["network"].is_null() {
-        assert!(
-            waited.elapsed() < Duration::from_secs(2),
-            "the overview waited for its retry"
-        );
+    // The network's figures come with the overview's computation, each channel once.
+    for _ in 0..1_000 {
+        if !record(1).await.json()["network"].is_null() {
+            break;
+        }
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     let net = record(1).await.json()["network"].clone();

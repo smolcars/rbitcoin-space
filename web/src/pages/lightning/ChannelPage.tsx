@@ -31,7 +31,7 @@ import {
   movesIn,
   type ChannelDetail,
   channelTag,
-  CLOSE_WORDS,
+  closeWords,
   type Close,
   closeShown,
   count,
@@ -254,7 +254,7 @@ function Moment(props: { time: number; block: { height: number; hash: string; ti
 function Outcome(props: { channel: ChannelDetail; close: Close }) {
   const x = () => props.close;
   // A breach found after the close keeps its kind ("force") with the sweep beside it.
-  const words = () => CLOSE_WORDS[props.channel.penalty ? "penalty" : x().kind];
+  const words = () => closeWords({ closed: x(), penalty: props.channel.penalty });
   return (
     <section aria-labelledby="ln-outcome-title">
       <SectionHeader title="How it ended" id="ln-outcome-title" />

@@ -3,7 +3,7 @@ import { For, Show } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { Amount } from "../../components/Amount";
 import { SectionHeader } from "../../components/SectionHeader";
-import { CLOSE_WORDS, isTxChannels, type ListedChannel } from "./lightning";
+import { closeWords, isTxChannels, type ListedChannel } from "./lightning";
 import { ChannelLink, Ends } from "./parts";
 
 export default function TxChannels(props: { found: unknown }) {
@@ -26,13 +26,17 @@ export default function TxChannels(props: { found: unknown }) {
             {(c) => (
               <Item channel={c} lead="This transaction closed Lightning channel">
                 <Show when={c.closed}>
-                  {(x) => (
-                    <p>
-                      <strong>{CLOSE_WORDS[x().kind].name}</strong>
-                      {` (${CLOSE_WORDS[x().kind].sure.toLowerCase()}). `}
-                      {CLOSE_WORDS[x().kind].why}
-                    </p>
-                  )}
+                  {(x) => {
+                    // A sweep recorded for this close makes it a penalty, as the channel page says.
+                    const words = () => closeWords({ closed: x(), penalty: c.penalty });
+                    return (
+                      <p>
+                        <strong>{words().name}</strong>
+                        {` (${words().sure.toLowerCase()}). `}
+                        {words().why}
+                      </p>
+                    );
+                  }}
                 </Show>
               </Item>
             )}

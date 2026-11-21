@@ -117,6 +117,10 @@ pub struct Lightning {
     overview_read_us: AtomicU64,
     overview_us: AtomicU64,
     overview_failures: AtomicU64,
+    /// Times the overview began waiting for an index, and times setting one woke it: what the
+    /// tests observe of [`movers::keep`].
+    overview_waits: AtomicU64,
+    overview_wakes: AtomicU64,
 }
 
 impl std::fmt::Debug for Lightning {
@@ -160,6 +164,8 @@ impl Lightning {
             overview_read_us: AtomicU64::new(0),
             overview_us: AtomicU64::new(0),
             overview_failures: AtomicU64::new(0),
+            overview_waits: AtomicU64::new(0),
+            overview_wakes: AtomicU64::new(0),
         }
     }
 
@@ -218,6 +224,16 @@ impl Lightning {
     pub fn set_index(&self, index: Index) {
         *self.index.write().unwrap_or_else(PoisonError::into_inner) = Some(Arc::new(index));
         self.indexed.notify_one();
+    }
+
+    /// How many times the overview began waiting for an index, and how many times setting one woke
+    /// it. For tests.
+    #[doc(hidden)]
+    pub fn overview_wakes(&self) -> (u64, u64) {
+        (
+            self.overview_waits.load(Ordering::Relaxed),
+            self.overview_wakes.load(Ordering::Relaxed),
+        )
     }
 
     /// Replaces the fee history's heads, as the index task loads them at its first round. Tests

@@ -701,6 +701,13 @@ export const CLOSE_WORDS: Record<CloseKind, { name: string; sure: string; why: s
   },
 };
 
+/**
+ * The words for one closed channel: a penalty's once its revocation sweep is recorded, whatever
+ * kind its closing transaction itself shows (a breach keeps "force" with the sweep beside it).
+ */
+export const closeWords = (c: { closed: Close; penalty?: Sweep | null }) =>
+  CLOSE_WORDS[c.penalty ? "penalty" : c.closed.kind];
+
 /** A close kind as one word for a list. */
 export const KIND_SHORT: Record<CloseKind, string> = {
   cooperative: "Cooperative",
@@ -1691,6 +1698,8 @@ export function peersInWords(r: NodeCloses): string {
   const peers = r.peers.forced;
   const top = r.peers.list[0];
   const most = top === undefined ? 0 : top.force + top.penalty;
+  // A close whose two ends are the node itself lists no peer: then nothing is said of peers.
+  if (r.peers.list.length === 0) return `The record holds ${what}.`;
   if (forced === 1) return `The ${what} was on a channel with the peer below.`;
   if (peers === 1) return `The ${what} were all on channels with one peer.`;
   return `The ${what} were on channels with ${groupDigits(peers)} different peers, at most ${groupDigits(most)} with any one.`;

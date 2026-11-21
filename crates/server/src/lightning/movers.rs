@@ -23,7 +23,7 @@ use crate::error::ApiError;
 
 /// How often the figures are worked out again: the statistics sampler's period.
 const EVERY: Duration = Duration::from_secs(store_ln::EVERY);
-/// How soon a first computation is tried again while there is no index, or after a failure.
+/// How soon a computation is tried again after a failure.
 const RETRY: Duration = Duration::from_secs(5);
 /// The periods `?period=` names, and their length.
 const PERIODS: [(&str, u64); 3] = [("24h", DAY), ("1w", 7 * DAY), ("1m", 30 * DAY)];
@@ -51,9 +51,12 @@ pub(crate) async fn keep(store: Arc<Store>, l: Arc<Lightning>) {
                 tokio::time::sleep(EVERY).await;
             }
             Some(_) => tokio::time::sleep(RETRY).await,
-            // No index yet: start as soon as one is set, not up to a retry later.
+            // No index yet: start as soon as one is set. Setting one is the only way one appears,
+            // and it leaves a permit, so this cannot miss it; the task is cancelled at shutdown.
             None => {
-                let _ = tokio::time::timeout(RETRY, l.indexed.notified()).await;
+                l.overview_waits.fetch_add(1, Ordering::Relaxed);
+                l.indexed.notified().await;
+                l.overview_wakes.fetch_add(1, Ordering::Relaxed);
             }
         }
     }

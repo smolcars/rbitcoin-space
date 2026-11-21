@@ -959,8 +959,14 @@ describe("a node's close record", () => {
     );
     // Fees: in all, a close's mean, and every channel's mean.
     expect(t).toContain("Force25 0001 0001 000");
-    // The second week is past every channel's figures: none, not a zero.
-    expect(t).toContain("16 Nov 2026345–");
+    // The second week is past every channel's figures: none, not a zero, said in words to a
+    // screen reader and in a note under the table.
+    expect(t).toContain("16 Nov 2026345–No figure for this week yet");
+    expect(t).toContain(
+      "A dash: every channel's figures, worked out every ten minutes, do not reach that week yet.",
+    );
+    // Not capped: every close with a peer is in the record.
+    expect(t).toContain("All closeswith this peer");
     expect(t).toContain(
       "The 25 force closes were on channels with 2 different peers, at most 2 with any one.",
     );
@@ -1027,6 +1033,12 @@ describe("a node's close record", () => {
     await shows(el, "its newest closes, the most this record reads. It has older ones too.");
     const t = sectionText(el);
     expect(t).toContain("10 000 channels closed");
+    // Capped: a peer's counts are of the closes in this record, not all with it.
+    expect(t).toContain("Closeswith it, in this record");
+    expect(t).not.toContain("All closes");
+    expect(t).toContain(
+      "These count the closes in this record, its newest; a peer may have older ones with it too.",
+    );
     // How many more, never "fewer": they may tie the last shown.
     expect(t).toContain("And 51 more peers with a force close or a penalty.");
     expect(t).not.toContain("fewer");
@@ -1546,6 +1558,18 @@ describe("the transaction page's note", () => {
     await shows(el, "This transaction closed Lightning channel");
     expect(text(el)).toContain("Force close (certain)");
     expect(links(el)).toContain("/lightning/channel/811984x2037x1");
+  });
+
+  it("says a commitment whose revocation sweep is recorded was a penalty, as the channel page does", async () => {
+    // As the server lists a breach: the close keeps its kind, the sweep beside it.
+    const breached = { ...closedOf("force"), penalty: closedOf("penalty").penalty };
+    replies[`/app/lightning/tx/${CLOSING}`] = json({ opened: [], closed: [breached] });
+    const el = mount(() => <Note />, `/tx/${CLOSING}`);
+    await shows(el, "This transaction closed Lightning channel");
+    expect(text(el)).toContain("Penalty (certain)");
+    expect(text(el)).toContain("this server saw the sweep");
+    expect(text(el)).not.toContain("Force close");
+    expect(text(el)).not.toContain("once a sweep");
   });
 
   it("says a transaction opened a channel", async () => {

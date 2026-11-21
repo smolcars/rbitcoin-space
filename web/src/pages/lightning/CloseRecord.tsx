@@ -300,7 +300,13 @@ function Weeks(props: { record: NodeCloses }) {
       drop: 1,
       cell: (w) => {
         const n = w.network;
-        if (n === null) return MISSING;
+        if (n === null)
+          return (
+            <span>
+              <span aria-hidden="true">{MISSING}</span>
+              <span class="visually-hidden">No figure for this week yet</span>
+            </span>
+          );
         if (n.closed < props.record.minimum)
           return `${groupDigits(n.forced)} of ${groupDigits(n.closed)}`;
         return shareText((n.forced * 100) / n.closed, n.forced);
@@ -315,6 +321,13 @@ function Weeks(props: { record: NodeCloses }) {
         columns={columns()}
         rows={rows()}
       />
+      <Show when={rows().some((w) => w.network === null)}>
+        <p class="ln-record__note">
+          {props.record.network === null
+            ? "No figure for every channel yet: the server works them out every ten minutes, the first a moment after it starts."
+            : "A dash: every channel's figures, worked out every ten minutes, do not reach that week yet."}
+        </p>
+      </Show>
     </div>
   );
 }
@@ -365,8 +378,9 @@ function Peers(props: { record: NodeCloses; gone: boolean }) {
       ? [{ header: "Penalty", numeric: true, cell: (p: RecordPeer) => groupDigits(p.penalty) }]
       : []),
     {
-      header: "All closes",
-      sub: "with this peer",
+      // Over the closes this record read: on a capped record a peer may have older ones too.
+      header: props.record.capped ? "Closes" : "All closes",
+      sub: props.record.capped ? "with it, in this record" : "with this peer",
       numeric: true,
       cell: (p) => (
         <span class="ln-record__fee">
@@ -388,7 +402,12 @@ function Peers(props: { record: NodeCloses; gone: boolean }) {
   return (
     <div class="ln-record__part">
       <h3 class="ln-record__h">With whom</h3>
-      <p class="ln-record__lead">{peersInWords(props.record)}</p>
+      <p class="ln-record__lead">
+        {peersInWords(props.record)}
+        {props.record.capped
+          ? " These count the closes in this record, its newest; a peer may have older ones with it too."
+          : ""}
+      </p>
       <Show when={props.record.peers.list.length > 0}>
         <DataTable
           caption="The other ends of its channels that ended in a force close or a penalty, most first"
