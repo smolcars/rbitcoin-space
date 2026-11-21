@@ -293,7 +293,8 @@ test("a column left out and the note that says so are never out of step, at any 
       document.documentElement.style.setProperty("--text-xs", `${px}px`);
       document.documentElement.style.setProperty("--text-sm", `${px}px`);
     }, size);
-    for (const width of [660, 720, 800, 900, 1040]) {
+    // Phone widths too, where the breakpoint hides the column: the note must show there as well.
+    for (const width of [320, 360, 660, 720, 800, 900, 1040]) {
       await page.setViewportSize({ width, height: 900 });
       await frames(page);
       for (const { part, header } of pairs) {
@@ -313,6 +314,6 @@ test("a column left out and the note that says so are never out of step, at any 
     }
   }
   expect(faults).toStrictEqual([]);
-  // Both cases happened above the phone's breakpoint, or the test proved nothing.
+  // Both cases happened, or the test proved nothing.
   expect(seen.has("left out") && seen.has("shown"), [...seen].join(", ")).toBe(true);
 });
