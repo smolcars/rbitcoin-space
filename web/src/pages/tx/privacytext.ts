@@ -562,7 +562,7 @@ export const CHECKS: readonly Check[] = [
       "The smaller of the two outputs checked being less than the least spent from any one funding address, while the larger is not: if the wallet would not add coins it did not need, the larger suggests the payment.",
     ],
     after:
-      "The last three look only at a transaction that pays exactly two outputs, the two outputs checked. Readings that point at different outputs leave it unclear, unless one is the pay-back, which decides.",
+      "The last three look only at a transaction that pays exactly two outputs, the two outputs checked. Readings that point at different outputs leave it unclear, unless one is the pay-back, which decides. With more than one output paying an address an input spends from, no output is read as change.",
   },
   {
     text: "The shape of a CoinJoin, where several people pay into one transaction: among other conditions, three or more outputs of one amount, each to a different address, with the inputs that fund it from at least as many different addresses. Equal amounts alone do not tell which output is whose, though other things still may; on that shape, which output is change is not read.",

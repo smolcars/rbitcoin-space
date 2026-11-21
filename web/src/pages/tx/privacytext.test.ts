@@ -1063,7 +1063,7 @@ describe("what this checks", () => {
           "The smaller of the two outputs checked being less than the least spent from any one funding address, while the larger is not: if the wallet would not add coins it did not need, the larger suggests the payment.",
         ],
         after:
-          "The last three look only at a transaction that pays exactly two outputs, the two outputs checked. Readings that point at different outputs leave it unclear, unless one is the pay-back, which decides.",
+          "The last three look only at a transaction that pays exactly two outputs, the two outputs checked. Readings that point at different outputs leave it unclear, unless one is the pay-back, which decides. With more than one output paying an address an input spends from, no output is read as change.",
       },
       {
         text: "The shape of a CoinJoin, where several people pay into one transaction: among other conditions, three or more outputs of one amount, each to a different address, with the inputs that fund it from at least as many different addresses. Equal amounts alone do not tell which output is whose, though other things still may; on that shape, which output is change is not read.",
@@ -1446,6 +1446,15 @@ describe("what this checks says no more than the rules do", () => {
       ),
       // Unless one is the pay-back, which decides: output 1 pays back and is the round one.
       no: [tx([me(10_000_000)], [{ value: 4_987_654, to: "you" }, me(5_000_000)])],
+    },
+    {
+      line: "With more than one output paying an input's address back, no output is read as change",
+      fires: (t) => has("reuse")(t) && readings(t).length === 0,
+      // 0.05 and 0.04987654 BTC, both back to the input's own address: the amounts fit the round
+      // reading, but neither is read as change.
+      yes: tx([me(10_000_000)], [me(5_000_000), me(4_987_654)]),
+      // One of them paying elsewhere: the pay-back is read.
+      no: [tx([me(10_000_000)], [{ value: 5_000_000, to: "you" }, me(4_987_654)])],
     },
     {
       line: "CoinJoin: three or more equal outputs to different addresses, as many funding addresses",

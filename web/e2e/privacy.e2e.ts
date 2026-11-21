@@ -198,15 +198,16 @@ test("a number far down the flow opens that card's details, never every card bef
   await page.keyboard.press("Enter");
   await expect(far).toBeFocused();
 
-  // Opened from the number at 1280, then narrowed, which replaces the list and the number in it:
-  // following the new number and closing gives the focus to the new number, never to the page.
+  // Opened from the number at 1280, then narrowed, which replaces the list and the number in it,
+  // and closed at once: the number that opened them is gone, so the focus goes to the new one.
   const heading = page.getByRole("heading", { name: "Output 2999" });
   const close = page.locator("#tx-inspector").getByRole("button", { name: "Close" });
   await far.click();
   await expect(heading).toBeFocused();
+  const first = await far.elementHandle();
   await page.setViewportSize({ width: 360, height: 780 });
-  await far.click();
-  await expect(heading).toBeFocused();
+  await expect(heading).toBeVisible();
+  expect(await first?.evaluate((a) => a.isConnected)).toBe(false);
   await close.click();
   await expect(far).toBeFocused();
 

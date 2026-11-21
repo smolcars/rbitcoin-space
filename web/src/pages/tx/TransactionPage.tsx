@@ -70,7 +70,7 @@ import { confirmations, features, isCoinbase, isTxid, lockTimeMeaning, vsize } f
 import { checkPrivacy } from "../../lib/privacy";
 import { Eye, LIST_ID, TxPrivacy } from "./Privacy";
 import { cardMarks, countTone, sayCount, shownFindings } from "./privacytext";
-import { bringIntoView } from "./flash";
+import { bringIntoView, returnFocus, setOpener } from "./flash";
 import { judgeFee, parentsOf, verdictDetail, verdictText, verdictTitle } from "./verdict";
 import "./TransactionPage.css";
 
@@ -784,7 +784,9 @@ function Body(props: {
   const select = (s: Selection) => {
     const cur = selected();
     if (cur && cur.side === s.side && cur.index === s.index) {
+      // Its own button pressed again: closed like Close, the focus to that button (flash.ts).
       setSelected(null);
+      requestAnimationFrame(() => returnFocus(s.side, s.index));
       return;
     }
     setSelected(s);
@@ -1349,7 +1351,11 @@ function Body(props: {
             onSelect={select}
             lookalike={marks()}
             marks={privacyMarks()}
-            onMark={() => setSelected(null)}
+            onMark={() => {
+              // The finding followed takes the focus; nothing is given back to the opener.
+              setOpener(null);
+              setSelected(null);
+            }}
           />
           <Show when={stacked() && !privacy().coinbase}>
             <TxPrivacy report={privacy()} place="under" />

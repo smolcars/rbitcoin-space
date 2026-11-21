@@ -292,6 +292,23 @@ describe("whether its outputs are spent", () => {
     await vi.waitFor(() => expect(document.activeElement).toBe(open));
   });
 
+  it("a card's button pressed again closes its details and keeps the focus, never the page's", async () => {
+    const c = checked();
+    const el = mount(() => <CheckedTx c={c} hex="00" enabled />, "/regtest/tx/push");
+    const open = el.querySelector<HTMLButtonElement>('button[aria-label="Details of output 1"]');
+    if (!open) throw new Error("no details button for output 1");
+    // Clicks that do not move the focus, as Safari's on a button do not.
+    open.click();
+    flush();
+    const heading = el.querySelector("#tx-inspector-title");
+    expect(heading?.textContent).toBe("Output 1");
+    await vi.waitFor(() => expect(document.activeElement).toBe(heading));
+    open.click();
+    flush();
+    expect(el.querySelector("#tx-inspector")).toBeNull();
+    await vi.waitFor(() => expect(document.activeElement).toBe(open));
+  });
+
   it("closed, details give the focus to the button clicked, not to one focused before", async () => {
     const c = checked();
     const el = mount(() => <CheckedTx c={c} hex="00" enabled />, "/regtest/tx/push");
@@ -317,6 +334,21 @@ describe("whether its outputs are spent", () => {
     expect(others.length).toBeGreaterThan(0);
     closeDetails(el);
     await vi.waitFor(() => expect(others).toContain(document.activeElement));
+  });
+
+  it("closed after another number for the same output was followed, details give the focus to that one", async () => {
+    const c = farPayback();
+    const el = mount(() => <CheckedTx c={c} hex="00" enabled />, "/regtest/tx/push");
+    const first = openFar(el);
+    const second = numbersFor299(el).find((a) => a !== first);
+    if (!second) throw new Error("no second number for output 299");
+    // Followed while the details are open: it is now what opened them.
+    second.click();
+    flush();
+    expect(el.querySelector("#tx-inspector")?.textContent).toContain("Output 299");
+    closeDetails(el);
+    await vi.waitFor(() => expect(document.activeElement).toBe(second));
+    expect(first.isConnected).toBe(true);
   });
 
   it("closed with no number for that output left, details give the focus to that side's Show more", async () => {

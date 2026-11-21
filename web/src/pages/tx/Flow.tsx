@@ -265,6 +265,8 @@ export function Flow(props: {
       ro.disconnect();
       document.removeEventListener(SHOW, onShow);
       clearFlash();
+      // The page is going: keep no element of it.
+      setOpener(null);
     };
   });
   // Cards added or relabelled: redraw after they are laid out.

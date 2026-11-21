@@ -11,6 +11,7 @@ import type { Outspend } from "../../lib/esplora";
 import { formatSize, groupDigits, MISSING } from "../../lib/format";
 import { NETWORK_NAMES, paths } from "../../lib/network";
 import { useNetwork } from "../../lib/page";
+import { returnFocus } from "../tx/flash";
 import { Flow, type Selection } from "../tx/Flow";
 import { Inspector } from "../tx/Inspector";
 import { isCoinbase, totalOut, vsize } from "../tx/tx";
@@ -121,7 +122,9 @@ export function CheckedTx(props: {
   const select = (s: Selection) => {
     const cur = selected();
     if (cur && cur.side === s.side && cur.index === s.index) {
+      // Its own button pressed again: closed like Close, the focus to that button (flash.ts).
       setSelected(null);
+      requestAnimationFrame(() => returnFocus(s.side, s.index));
       return;
     }
     setSelected(s);
