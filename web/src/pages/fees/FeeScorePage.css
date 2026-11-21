@@ -22,6 +22,23 @@
   .fee-score__head h1 {
     margin: 0;
   }
+  /* The header measures itself in its own text, for the periods below. */
+  .fee-score__head {
+    container-type: inline-size;
+  }
+  /* A phone at large text (under 14em of it: 320 px at 24 px text): the four periods a little
+     narrower, each still a thumb's width, so all four show with no fade over the last; at the
+     largest text they wrap rather than scroll. Only this page's periods. */
+  @container (max-width: 14em) {
+    .fee-score__head .periods__item {
+      flex: 1 0 auto;
+      min-width: 2.5rem;
+      padding-inline: var(--space-1);
+    }
+    .fee-score__head .periods ul {
+      flex-wrap: wrap;
+    }
+  }
   .fee-score__intro {
     max-width: 44rem;
     margin: 0;
@@ -438,7 +455,23 @@
       margin-top: var(--space-1);
     }
   }
-  /* Last, over the phone's layout above. */
+  /* Last, over the layouts above, which go by the window's width: these go by the panel's width in
+     its own text, so they hold at any text size. A wide window at large text (1280 px at 32 px)
+     has the room of a tablet: name and verdict, then the share beside its line. */
+  @container (min-width: 34em) and (max-width: 50em) {
+    .fee-level {
+      grid-template-columns: 9rem minmax(0, 1fr);
+      grid-template-areas:
+        "name verdict"
+        "figure meter"
+        "detail detail";
+    }
+    .fee-level__verdict {
+      justify-self: end;
+    }
+  }
+  /* A phone at large text: each level's parts one under another, the line the panel's full width
+     with the interval's ends under it, so it never gives its width to them. */
   @container (max-width: 12em) {
     .fee-level {
       grid-template-columns: minmax(0, 1fr);
@@ -454,6 +487,19 @@
     }
     .fee-level__verdict {
       justify-self: start;
+    }
+    .fee-meter {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .fee-meter__end {
+      display: none;
+    }
+    .fee-meter__range {
+      grid-column: 1;
+      grid-row: 2;
+      justify-self: end;
+      margin-left: 0;
+      transform: none;
     }
   }
 }

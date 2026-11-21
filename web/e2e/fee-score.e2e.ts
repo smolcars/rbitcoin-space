@@ -62,15 +62,16 @@ test("on a test network a level under its target is no fair test, beside those t
 // CI's prose font is wider than this machine's (docs/FRONTEND.md "Other systems' fonts").
 test.describe("on a phone, in a wide prose font", () => {
   test.use({ prose: "wide" });
-  for (const width of [320, 360]) {
-    test(`at ${width} px every figure is in sight and every table fits its panel`, async ({
-      page,
-    }) => {
+  test("at 320 and 360 px every figure is in sight and every table fits its panel", async ({
+    page,
+  }) => {
+    await serveScore(page, MAINNET_1W);
+    await page.setViewportSize({ width: 320, height: 780 });
+    await page.goto("/regtest/fees/score");
+    await expect(levels(page)).toHaveCount(4);
+    await page.evaluate(() => document.fonts.ready);
+    for (const width of [320, 360]) {
       await page.setViewportSize({ width, height: 780 });
-      await serveScore(page, MAINNET_1W);
-      await page.goto("/regtest/fees/score");
-      await expect(levels(page)).toHaveCount(4);
-      await page.evaluate(() => document.fonts.ready);
       const fit = await page.evaluate(() => ({
         page: document.documentElement.scrollWidth - document.documentElement.clientWidth,
         tables: [...document.querySelectorAll(".fee-score .table-scroll")].map(
@@ -136,53 +137,22 @@ test.describe("on a phone, in a wide prose font", () => {
       ]);
       expect(periods?.y).toBeGreaterThan((title?.y ?? 0) + (title?.height ?? 0) - 1);
       expect(Math.round(periods?.x ?? -1)).toBe(Math.round(title?.x ?? 0));
-    });
-  }
-});
-
-// Each meter's written interval is clear of the target's tick, the share's mark and the track, at
-// a desktop width and at 24 px text, on mainnet's figures and on signet's (all at 0%) (council F-C8).
-test.describe("the meters' labels, in a wide prose font", () => {
-  test.use({ prose: "wide" });
-  for (const [name, answer] of [
-    ["mainnet", MAINNET_1W],
-    ["signet", SIGNET_1W],
-  ] as const) {
-    for (const big of [false, true]) {
-      test(`on ${name}'s figures${big ? " at 24 px text" : ""}, no label touches the tick, the mark or the line`, async ({
-        page,
-      }) => {
-        await page.setViewportSize({ width: 1280, height: 900 });
-        await serveScore(page, answer);
-        await page.goto("/regtest/fees/score");
-        await expect(levels(page)).toHaveCount(4);
-        if (big) await page.evaluate(() => (document.documentElement.style.fontSize = "24px"));
-        await page.evaluate(() => document.fonts.ready);
-        const touching = await page.evaluate(() => {
-          const meet = (a: DOMRect, b: DOMRect) =>
-            a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
-          const found: string[] = [];
-          for (const meter of document.querySelectorAll(".fee-meter")) {
-            const label = meter.querySelector(".fee-meter__range")?.getBoundingClientRect();
-            if (!label) continue;
-            for (const part of [".fee-meter__target", ".fee-meter__mark", ".fee-meter__track"]) {
-              const r = meter.querySelector(part)?.getBoundingClientRect();
-              if (r && meet(label, r)) found.push(`${meter.textContent ?? ""} ${part}`);
-            }
-          }
-          return found;
-        });
-        expect(touching).toStrictEqual([]);
-      });
     }
-  }
+  });
 });
 
-// One coordinate system down the panel: every level's line starts and ends at the same x, and its
-// target tick is one vertical line, whatever each row holds (a share or none, a short or a wide
-// interval), on every period and at every width (council A-C1). Each period is served a different
-// answer: too few blocks, mainnet's week, signet's all-zero week, and the widest labels there are.
-test.describe("the meters share one line, in a wide prose font", () => {
+// Every period at every size, one page load a period, in CI's wider prose font: at 1280, 360 and
+// 320 px with 16, 24 and 32 px text (council F-C8, A-C1, A-C3, N-C6; code review S-1, G-2, G-3).
+// - The meters: every line has a real width (a third of its row at least), all start and end at
+//   one x with the target one vertical line, and no interval label touches the tick, the share's
+//   mark or the line.
+// - The tables: a table is shown only where it fits and grouped only where it does not, each group
+//   its level's name over all its figures; at 32 px on a phone one is grouped, and back at 16 px
+//   mainnet's week is two tables again.
+// - The periods show all four with nothing to scroll; nothing of the page runs past the window.
+// Each period is served a different answer: too few blocks, mainnet's week, signet's all-zero
+// week, and the widest labels there are.
+test.describe("every period at every width and text size, in a wide prose font", () => {
   test.use({ prose: "wide" });
   const wide = structuredClone(MAINNET_1W) as { levels: Record<string, unknown>[] };
   for (const l of wide.levels) Object.assign(l, { met: 0.9985, interval: [0.9975, 0.9992] });
@@ -192,99 +162,107 @@ test.describe("the meters share one line, in a wide prose font", () => {
     "1m": SIGNET_1W,
     all: wide,
   };
-  for (const width of [1280, 360, 320]) {
-    test(`at ${width} px on every period`, async ({ page }) => {
-      await page.setViewportSize({ width, height: 900 });
-      await page.route(/\/regtest\/app\/fees\/score\?window=(\w+)$/, (r) => {
-        const w = new URL(r.request().url()).searchParams.get("window") ?? "";
-        return r.fulfill({ json: { ...(answers[w] as object), window: w } });
-      });
-      const faults: string[] = [];
-      for (const w of Object.keys(answers)) {
-        await page.goto(`/regtest/fees/score?window=${w}`);
-        await expect(page.locator(".fee-level")).toHaveCount(4);
-        await page.evaluate(() => document.fonts.ready);
-        const edges = await page.evaluate(() =>
-          [...document.querySelectorAll(".fee-meter")].map((m) => {
-            const t = m.querySelector(".fee-meter__track")?.getBoundingClientRect();
-            const tick = m.querySelector(".fee-meter__target")?.getBoundingClientRect();
-            return [t?.left ?? -1, t?.right ?? -1, tick?.left ?? -1];
-          }),
-        );
-        for (const i of [0, 1, 2]) {
-          const xs = edges.map((e) => e[i] ?? -1);
-          if (Math.max(...xs) - Math.min(...xs) > 1)
-            faults.push(
-              `${w}: ${["left", "right", "tick"][i]} ${xs.map((x) => Math.round(x)).join(", ")}`,
-            );
-        }
-      }
-      expect(faults).toStrictEqual([]);
-    });
-  }
-});
+  const SIZES = [1280, 360, 320].flatMap((w) => [16, 24, 32].map((px) => [w, px] as const));
 
-// At a phone's width and any text size neither table scrolls sideways: where one does not fit
-// its panel each level is a labelled group, its figures under its name; where it fits, the compact
-// table stays (council A-C3).
-test.describe("the two tables at larger text, in a wide prose font", () => {
-  test.use({ prose: "wide" });
-  for (const width of [320, 360]) {
-    test(`at ${width} px, no figure is scrolled away from its level`, async ({ page }) => {
-      await page.setViewportSize({ width, height: 900 });
-      await serveScore(page, MAINNET_1W);
-      await page.goto("/regtest/fees/score");
-      await expect(levels(page)).toHaveCount(4);
-      const faults: string[] = [];
-      for (const px of [16, 24, 32]) {
-        await page.evaluate((f) => (document.documentElement.style.fontSize = `${f}px`), px);
-        await page.evaluate(() => document.fonts.ready);
-        // Two frames: the fit is measured in the next one.
-        await page.evaluate(
-          () =>
-            new Promise<void>((resolve) => {
-              requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-            }),
-        );
-        const state = await page.evaluate(() =>
-          [...document.querySelectorAll(".level-table")].map((box) => {
-            const scroller = box.querySelector<HTMLElement>(".table-scroll");
-            const grouped = box.classList.contains("level-table--grouped");
-            const groups = [...box.querySelectorAll(".level-group")].map((g) => ({
-              name: g.querySelector(".level-group__name")?.textContent ?? "",
-              figures: g.querySelectorAll("dd").length,
-            }));
-            const wide = (scroller?.scrollWidth ?? 0) > (scroller?.clientWidth ?? 0) + 1;
-            return { grouped, wide, groups };
-          }),
-        );
-        for (const [i, t] of state.entries()) {
-          const at = `${px} px text, table ${i + 1}`;
-          // Shown as a table only where it fits; grouped only where it does not.
-          if (t.wide !== t.grouped) faults.push(`${at}: wide ${t.wide}, grouped ${t.grouped}`);
-          if (t.grouped) {
-            expect(
-              t.groups.map((g) => g.name),
-              at,
-            ).toStrictEqual(["No rush", "Low", "Medium", "High"]);
-            for (const g of t.groups) expect(g.figures, at).toBe(3);
-          }
+  /** What is wrong with the meters and the page's width as drawn now. */
+  const meterFaults = (page: Page) =>
+    page.evaluate(() => {
+      const out: string[] = [];
+      const meet = (a: DOMRect, b: DOMRect) =>
+        a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+      const rows = [...document.querySelectorAll(".fee-level")];
+      const edges = rows.map((row) => {
+        const meter = row.querySelector(".fee-meter");
+        const t = meter?.querySelector(".fee-meter__track")?.getBoundingClientRect();
+        const tick = meter?.querySelector(".fee-meter__target")?.getBoundingClientRect();
+        const width = row.getBoundingClientRect().width;
+        if (!t || t.width < width / 3)
+          out.push(`a line ${Math.round(t?.width ?? 0)} px wide in a ${Math.round(width)} px row`);
+        const label = meter?.querySelector(".fee-meter__range")?.getBoundingClientRect();
+        for (const part of [".fee-meter__target", ".fee-meter__mark", ".fee-meter__track"]) {
+          const r = meter?.querySelector(part)?.getBoundingClientRect();
+          if (label && r && meet(label, r)) out.push(`the interval's label touches ${part}`);
         }
-        // At the default size both compact tables stay.
-        if (px === 16) for (const t of state) expect(t.grouped).toBe(false);
-        // Nothing of the page's own runs past the window (the site's header is not this page's;
-        // the periods and the measured table scroll or hide within their own boxes).
-        const past = await page.evaluate(() =>
-          [...document.querySelectorAll(".fee-score *")]
-            .filter((e) => !e.closest(".periods, .level-table__table, .visually-hidden"))
-            .filter((e) => e.getBoundingClientRect().right > window.innerWidth + 0.5)
-            .map((e) => `${e.tagName.toLowerCase()}.${e.className}`),
-        );
-        expect(past, `${px} px text`).toStrictEqual([]);
+        return [t?.left ?? -1, t?.right ?? -1, tick?.left ?? -1];
+      });
+      for (const i of [0, 1, 2]) {
+        const xs = edges.map((e) => e[i] ?? -1);
+        if (Math.max(...xs) - Math.min(...xs) > 1)
+          out.push(`${["left", "right", "tick"][i]} ${xs.map((x) => Math.round(x)).join(", ")}`);
       }
-      expect(faults).toStrictEqual([]);
+      const periods = document.querySelector(".periods ul");
+      if (periods && periods.scrollWidth > periods.clientWidth + 1) out.push("the periods scroll");
+      // The site's header is not this page's; the measured table hides within its own box.
+      for (const e of document.querySelectorAll(".fee-score *"))
+        if (
+          !e.closest(".level-table__table, .visually-hidden") &&
+          e.getBoundingClientRect().right > window.innerWidth + 0.5
+        )
+          out.push(`${e.tagName.toLowerCase()}.${e.className} runs past the window`);
+      return out;
     });
-  }
+
+  /** Each table: whether it is too wide for its panel, whether it is grouped, and its groups. */
+  const tables = (page: Page) =>
+    page.evaluate(() =>
+      [...document.querySelectorAll(".level-table")].map((box) => {
+        const scroller = box.querySelector<HTMLElement>(".table-scroll");
+        return {
+          wide: (scroller?.scrollWidth ?? 0) > (scroller?.clientWidth ?? 0) + 1,
+          grouped: box.classList.contains("level-table--grouped"),
+          groups: [...box.querySelectorAll(".level-group")].map(
+            (g) =>
+              `${g.querySelector(".level-group__name")?.textContent ?? ""}:${g.querySelectorAll("dd").length}`,
+          ),
+        };
+      }),
+    );
+
+  test("the meters, the tables and the periods hold", async ({ page }) => {
+    test.setTimeout(60_000);
+    await page.route(/\/regtest\/app\/fees\/score\?window=(\w+)$/, (r) => {
+      const w = new URL(r.request().url()).searchParams.get("window") ?? "";
+      return r.fulfill({ json: { ...(answers[w] as object), window: w } });
+    });
+    const faults: string[] = [];
+    for (const w of Object.keys(answers)) {
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.goto(`/regtest/fees/score?window=${w}`);
+      await expect(page.locator(".fee-level")).toHaveCount(4);
+      await page.evaluate(() => document.fonts.ready);
+      for (const [width, px] of SIZES) {
+        await page.setViewportSize({ width, height: 900 });
+        await page.evaluate((f) => (document.documentElement.style.fontSize = `${f}px`), px);
+        const at = `${w}, ${width} px, ${px} px text`;
+        for (const f of await meterFaults(page)) faults.push(`${at}: ${f}`);
+        // The tables are fitted in the frame after a resize notice: wait for the state, never a
+        // count of frames.
+        await expect
+          .poll(async () => (await tables(page)).every((t) => t.wide === t.grouped), {
+            message: at,
+          })
+          .toBe(true);
+        const now = await tables(page);
+        for (const t of now)
+          if (t.grouped)
+            expect(t.groups, at).toStrictEqual(["No rush:3", "Low:3", "Medium:3", "High:3"]);
+        if (width < 400 && px === 32)
+          expect(
+            now.some((t) => t.grouped),
+            at,
+          ).toBe(true);
+      }
+      // Back to the default text on a phone: mainnet's week fits as two tables again.
+      if (w === "1w") {
+        await page.evaluate(() => (document.documentElement.style.fontSize = ""));
+        await expect
+          .poll(async () => (await tables(page)).map((t) => t.grouped))
+          .toStrictEqual([false, false]);
+      }
+      await page.evaluate(() => (document.documentElement.style.fontSize = ""));
+    }
+    expect(faults).toStrictEqual([]);
+  });
 });
 
 test("switching the window replaces every figure with that window's", async ({ page }) => {
