@@ -318,3 +318,49 @@ describe("review round 1", () => {
     await expect(none(9, signal)).resolves.toBeNull();
   });
 });
+
+describe("review round 2", () => {
+  const root = BLOCKS.get(449_397)?.merkleRoot ?? new Uint8Array();
+  const blockA = BLOCKS.get(449_397) as Block;
+  /** A block at `height` whose root no path here reaches. */
+  const other = (height: number): Block => ({
+    height,
+    hash: "cd".repeat(32),
+    merkleRoot: new Uint8Array(32).fill(2),
+    time: 1,
+  });
+
+  it("is not fully checked, never broken, when the only match is past the cap (T11)", async () => {
+    // Eight lower heights that mismatch, and 449 397, which matches, ninth.
+    const att = [
+      ...Array.from({ length: 8 }, (_, i) => ATT.bitcoin(100 + i)),
+      ATT.bitcoin(449_397),
+    ];
+    const p = parseProof(writeProof(root, { att }));
+    const fetchBlock: FetchBlock = (h) => Promise.resolve(h === 449_397 ? blockA : other(h));
+    const v = await verify(p, root, { mainnet: true, fetchBlock, signal });
+    expect(v).toMatchObject({
+      kind: "incomplete",
+      checks: [...Array.from({ length: 8 }, () => ({ kind: "mismatch" })), { kind: "skipped" }],
+    });
+  });
+
+  it("is not fully checked when the path that could match had a failed request (T11)", async () => {
+    const p = parseProof(writeProof(root, { att: [ATT.bitcoin(100), ATT.bitcoin(449_397)] }));
+    const fetchBlock: FetchBlock = (h) =>
+      h === 100 ? Promise.resolve(other(h)) : Promise.reject(new Error("503"));
+    const v = await verify(p, root, { mainnet: true, fetchBlock, signal });
+    expect(v.kind).toBe("incomplete");
+  });
+
+  it("is broken only when every Bitcoin attestation was checked and none matched (T11)", async () => {
+    const p = parseProof(writeProof(root, { att: [ATT.bitcoin(100), ATT.bitcoin(101)] }));
+    const fetchBlock: FetchBlock = (h) => Promise.resolve(other(h));
+    expect((await verify(p, root, { mainnet: true, fetchBlock, signal })).kind).toBe("broken");
+    // A mismatch beside a block the node does not have is not every attestation checked.
+    const missing: FetchBlock = (h) => Promise.resolve(h === 100 ? other(h) : null);
+    expect((await verify(p, root, { mainnet: true, fetchBlock: missing, signal })).kind).toBe(
+      "incomplete",
+    );
+  });
+});

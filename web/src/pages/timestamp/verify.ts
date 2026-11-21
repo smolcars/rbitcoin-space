@@ -59,8 +59,13 @@ export type Verdict =
   | { kind: "verified"; check: Check & { kind: "verified" }; checks: Check[]; others: Leaf[] }
   /** The reader's digest is not the proof's. Nothing was asked. */
   | { kind: "wrong-file"; proofDigest: Uint8Array; fileDigest: Uint8Array }
-  /** No attestation verified and at least one led somewhere other than its block's root. */
+  /** Every Bitcoin attestation was checked and none reached its block's root. */
   | { kind: "broken"; checks: Check[]; others: Leaf[] }
+  /**
+   * None verified, but not every one was checked: some were past the cap, their request failed,
+   * or their block is not known here, beside others that did not match.
+   */
+  | { kind: "incomplete"; checks: Check[]; others: Leaf[] }
   /** Every Bitcoin attestation names a block the node does not have. */
   | { kind: "unknown-block"; checks: Check[]; others: Leaf[] }
   /** No Bitcoin attestation, and at least one calendar's promise. */
@@ -164,12 +169,12 @@ export async function verify(
   });
   const verified = checks.find((c) => c.kind === "verified");
   if (verified) return { kind: "verified", check: verified, checks, others };
-  if (checks.some((c) => c.kind === "mismatch")) return { kind: "broken", checks, others };
-  if (checks.some((c) => c.kind === "missing")) return { kind: "unknown-block", checks, others };
+  if (checks.every((c) => c.kind === "mismatch")) return { kind: "broken", checks, others };
+  if (checks.every((c) => c.kind === "missing")) return { kind: "unknown-block", checks, others };
   // Nothing was learned from the node: the first failure is the answer, to be asked again.
   const failed = checks.find((c) => c.kind === "failed");
-  if (failed) throw failed.error;
-  return { kind: "unknown-block", checks, others };
+  if (failed && checks.every((c) => c.kind === "failed")) throw failed.error;
+  return { kind: "incomplete", checks, others };
 }
 
 /** One step of the path as the page lists it. */

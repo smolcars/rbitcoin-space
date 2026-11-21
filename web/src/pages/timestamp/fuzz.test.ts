@@ -200,3 +200,46 @@ describe("fuzzing the proof reader", () => {
     expect(varuint(300)).toStrictEqual([0xac, 0x02]);
   });
 });
+
+describe("the work bound, exactly (review round 2, T15)", () => {
+  // Rounds of a hash of 4,096 bytes then seven hex steps, in branches of at most 124 rounds (the
+  // depth bound), the rounds split as given.
+  const hex7 = Array.from({ length: 7 }, () => 0xf3);
+  const branch = (op: number, n: number) => [
+    ...Array.from({ length: n }, () => [op, ...hex7]).flat(),
+    0x00,
+    ...ATT.bitcoin(1),
+  ];
+  /** The branches in the file's form: a fork byte before each but the last. */
+  const forks = (op: number, rounds: number[]): number[] => {
+    const out: number[] = [];
+    rounds.forEach((n, i) => {
+      if (i < rounds.length - 1) out.push(0xff);
+      out.push(...branch(op, n));
+    });
+    return out;
+  };
+  const proof = (op: number, rounds: number[]) =>
+    new Uint8Array([...MAGIC, 1, 0x08, ...new Uint8Array(32), ...hex7, ...forks(op, rounds)]);
+  // 1,024 hashes of 4,096 bytes is the bound itself: 8 branches of 124 and one of 32.
+  const exact = [...Array.from({ length: 8 }, () => 124), 32];
+
+  it("accepts the bound itself and refuses one hash more, counting only what was hashed", () => {
+    const stats = { hashed: 0 };
+    walk(parseProof(proof(0x08, exact)), undefined, stats);
+    expect(stats.hashed).toBe(LIMITS.work);
+    const over = { hashed: 0 };
+    expect(() =>
+      walk(parseProof(proof(0x08, [...exact.slice(0, -1), 33])), undefined, over),
+    ).toThrow(ProofError);
+    expect(over.hashed).toBe(LIMITS.work);
+  });
+
+  it("plays the bound in Keccak-256, the slowest hash, in under 2 s of processor time", () => {
+    const stats = { hashed: 0 };
+    const { ms } = cost(() => walk(parseProof(proof(0x67, exact)), undefined, stats));
+    expect(stats.hashed).toBe(LIMITS.work);
+    // About 0.3 s on the dev machine (docs/FRONTEND.md "Timestamp proofs").
+    expect(ms).toBeLessThan(2000);
+  });
+});

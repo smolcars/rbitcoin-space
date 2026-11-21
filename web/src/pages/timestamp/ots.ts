@@ -314,12 +314,15 @@ export function walk(
       continue;
     }
     top.next++;
-    work += cost(branch.op, top.message);
-    if (stats) stats.hashed = work;
-    if (work > LIMITS.work)
+    const hashed = work + cost(branch.op, top.message);
+    if (hashed > LIMITS.work)
       throw new ProofError("too-large", "The proof asks for more hashing than this page does.");
+    const message = apply(branch.op, top.message);
+    // Counted once the hash is done: a refused or failed step adds nothing.
+    work = hashed;
+    if (stats) stats.hashed = work;
     path.push(branch.op);
-    stack.push({ stamp: branch.next, message: apply(branch.op, top.message), next: 0 });
+    stack.push({ stamp: branch.next, message, next: 0 });
   }
   return leaves;
 }

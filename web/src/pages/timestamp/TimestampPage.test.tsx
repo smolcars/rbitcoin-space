@@ -3,9 +3,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mount } from "../../components/test-utils";
 import { clearApiCache } from "../../lib/api";
-import { hash } from "./hashes";
+import { hash, toHex } from "./hashes";
+import { headerHash } from "./verify";
 import TimestampPage from "./TimestampPage";
-import { ATT, writeProof } from "./testdata";
+import { ATT, chain, OP, writeProof } from "./testdata";
 
 beforeEach(() => {
   clearApiCache();
@@ -101,5 +102,64 @@ describe("choices that finish out of order", () => {
     await settle();
     expect(text(el)).not.toContain("Hashing stopped");
     expect(text(el)).toContain("Not verified yet");
+  });
+});
+
+/** A made-up block 100 whose root is reached from `content`'s digest by one append and SHA-256. */
+function madeBlock(): { hash: string; header: string } {
+  const root = hash("sha256", new Uint8Array([...hash("sha256", content), 1, 2, 3, 4]));
+  const header = new Uint8Array(80);
+  header.set(root, 36);
+  return { hash: headerHash(header), header: toHex(header) };
+}
+const verifiedProof = writeProof(
+  hash("sha256", content),
+  chain([OP.append([1, 2, 3, 4]), OP.sha256], ATT.bitcoin(100)),
+);
+
+describe("a replacement chosen while a verdict shows (review round 2, T12)", () => {
+  let heights = 0;
+  beforeEach(() => {
+    const block = madeBlock();
+    heights = 0;
+    vi.stubGlobal("fetch", (url: string) => {
+      if (url.includes("/api/block-height/")) heights++;
+      if (url.endsWith("/api/block-height/100")) return Promise.resolve(new Response(block.hash));
+      if (url.endsWith(`/api/block/${block.hash}/header`))
+        return Promise.resolve(new Response(block.header));
+      return Promise.resolve(Response.json({ networks: ["mainnet"], version: "0" }));
+    });
+  });
+
+  it("takes the old verdict down at once when another proof is chosen, and says it is reading", async () => {
+    const { el, proof, file } = open();
+    choose(proof, fakeFile("a.ots", verifiedProof));
+    choose(file, fakeFile("the-file.txt", content));
+    await vi.waitFor(() => expect(text(el)).toContain("This file existed before block 100"));
+    const slow = deferred();
+    choose(proof, fakeFile("b.ots", verifiedProof, slow.promise));
+    await settle();
+    expect(text(el)).not.toContain("This file existed before block 100");
+    expect(text(el)).not.toContain("a.ots");
+    expect(text(el)).toContain("Reading the proof");
+    slow.resolve();
+    await vi.waitFor(() => expect(text(el)).toContain("This file existed before block 100"));
+  });
+
+  it("takes the old verdict down at once when another file is chosen", async () => {
+    const { el, proof, file } = open();
+    choose(proof, fakeFile("a.ots", verifiedProof));
+    choose(file, fakeFile("the-file.txt", content));
+    await vi.waitFor(() => expect(text(el)).toContain("This file existed before block 100"));
+    const asked = heights;
+    const slow = deferred();
+    choose(file, fakeFile("other.bin", new Uint8Array(1000), slow.promise));
+    await settle();
+    // Nothing is asked for a file not yet hashed: the last file's digest is not this one's.
+    expect(heights).toBe(asked);
+    expect(text(el)).not.toContain("This file existed before block 100");
+    expect(text(el)).toContain("Hashing, 0%");
+    slow.resolve();
+    await vi.waitFor(() => expect(text(el)).toContain("This proof is not for this file"));
   });
 });

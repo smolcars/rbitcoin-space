@@ -213,7 +213,7 @@ test("another file is said to be one, and nothing is asked", async ({ page }) =>
   const other = Buffer.from("not the file\n");
   await fileInput(page).setInputFiles({ name: "other.txt", mimeType: "text/plain", buffer: other });
   await expect(
-    page.getByRole("heading", { name: "This proof is for a different file" }),
+    page.getByRole("heading", { name: "This proof is not for this file" }),
   ).toBeVisible();
   await expect(page.getByText(sha256(other).toString("hex"))).toBeVisible();
   await expect(page.getByText(TWO_BLOCKS)).toBeVisible();
@@ -351,7 +351,13 @@ test("a file the page hashed is said to have existed; the block's time is its he
     verdict.getByRole("heading", { name: "This file existed before block 100" }),
   ).toBeVisible();
   await expect(verdict.getByText(/header time is 14 Nov 2023, 22:13:20 UTC/)).toBeVisible();
-  await expect(verdict.getByText(/two hours ahead/)).toBeVisible();
+  // The two checks a node makes of a header's time, and nothing said about when it was mined.
+  await expect(
+    verdict.getByText(
+      /later than the median of the eleven blocks before it and no more than two hours ahead of the node's own clock when it checks\./,
+    ),
+  ).toBeVisible();
+  await expect(verdict.getByText(/ahead of when the block was mined/)).toHaveCount(0);
   w.clean([digest.toString("hex")]);
 });
 
@@ -370,4 +376,28 @@ test("a height's answer that is no hash is never asked about", async ({ page }) 
     page.getByRole("heading", { name: "This digest is committed to by block 449 399" }),
   ).toBeVisible();
   expect(w.api().filter((p) => p.includes("not-a-hash"))).toStrictEqual([]);
+});
+
+test("a pasted digest that is not the proof's is said to differ as a digest, not as a file", async ({
+  page,
+}) => {
+  await withMainnet(page);
+  const w = watch(page);
+  const other = "ab".repeat(32);
+  await page.goto("/regtest/timestamp");
+  await proofInput(page).setInputFiles(fileURLToPath(fixture("two-blocks.ots")));
+  await digestBox(page).fill(other);
+  const verdict = page.getByRole("article");
+  await expect(
+    verdict.getByRole("heading", {
+      name: "The digest you gave is not the one this proof starts from",
+    }),
+  ).toBeVisible();
+  await expect(verdict.getByText("Different digest", { exact: true })).toBeVisible();
+  await expect(verdict.getByText(/file/)).toHaveText([/digest of the right file/]);
+  await expect(verdict.getByText(other)).toBeVisible();
+  await expect(verdict.getByText(TWO_BLOCKS)).toBeVisible();
+  expect(await axe(page), "axe-core, a different digest").toStrictEqual([]);
+  expect(w.api().filter((p) => p.includes("/api/"))).toStrictEqual([]);
+  w.clean([other]);
 });
