@@ -54,7 +54,7 @@ test("a transaction with findings: marks on its cards and what an observer can r
   // The address shortened as the site shortens one: its first and last eight characters.
   const miner = `${chain.addresses.miner.slice(0, 8)}…${chain.addresses.miner.slice(-8)}`;
   await expect(section).toContainText(
-    `Inputs 0 and 1 spend from ${miner}, and output 1 pays the same address, so the same locking script. An observer may read one address as one owner, which ties that output to those inputs.`,
+    `Inputs 0 and 1 spend from ${miner} and output 1 pays it too: an observer may read them as one owner's.`,
   );
   await expect(
     section.getByText("Output 1 reads as change, output 0 as the payment", { exact: true }),
@@ -62,9 +62,9 @@ test("a transaction with findings: marks on its cards and what an observer can r
   await expect(section.getByRole("listitem")).toHaveText([
     /^Address reused/,
     /^Output 1 reads as change/,
-    "It pays the same address inputs 0 and 1 spend from, which an observer may read as going back to the sender.",
-    "Output 0 is a round 90 BTC and this one is not, which suggests output 0 is the payment.",
-    "Every input that funds it is P2WSH, and of the two outputs checked only this one is, which suggests it is the change.",
+    "It pays the same address inputs 0 and 1 spend from.",
+    "Output 0 is a round 90 BTC and this one is not.",
+    "Every input that funds it is P2WSH, and of the two outputs checked only this one is.",
   ]);
 
   // The cards say the same, in words.

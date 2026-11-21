@@ -65,7 +65,7 @@ test("a transaction shaped like a CoinJoin is a neutral finding, with no change 
   const section = page.getByRole("region", { name: "What an observer can read" });
   await expect(section.getByText("Shaped like a CoinJoin", { exact: true })).toBeVisible();
   await expect(section).toContainText(
-    "Outputs 0, 1 and 2 each pay exactly 1.9999 BTC, each to a different address, and the inputs that fund it come from 3 different addresses.",
+    "Outputs 0, 1 and 2 each pay exactly 1.9999 BTC to a different address, and its inputs spend from 3 different addresses.",
   );
   await expect(section).not.toContainText("reads as change");
   const outputs = page.getByRole("list", { name: "Outputs" });

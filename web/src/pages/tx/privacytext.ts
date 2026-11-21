@@ -141,23 +141,19 @@ function reusedSentence(a: ReusedAddress): Sentence {
   const { inputs, outputs } = a;
   const addr = { address: a.address };
   const it = what(a.isAddress);
-  const owner = `An observer may read one ${it} as one owner`;
+  const owner = "an observer may read them as one owner's";
   if (inputs.length > 0 && outputs.length > 0) {
     const ins = listedRefs("input", inputs);
     const outs = listedRefs("output", outputs);
     const spends = inputs.length === 1 ? "spends" : "spend";
     const pays = outputs.length === 1 ? "pays" : "pay";
-    const thoseOut = outputs.length === 1 ? "that output" : "those outputs";
-    const thoseIn = inputs.length === 1 ? "that input" : "those inputs";
-    const same =
-      it === "address" ? "the same address, so the same locking script" : "the same locking script";
     return says(
       capS(ins),
       ` ${spends} from ${it === "address" ? "" : "the locking script "}`,
       addr,
-      ", and ",
+      " and ",
       outs,
-      ` ${pays} ${same}. ${owner}, which ties ${thoseOut} to ${thoseIn}.`,
+      ` ${pays} it too: ${owner}.`,
     );
   }
   if (inputs.length > 0)
@@ -165,13 +161,13 @@ function reusedSentence(a: ReusedAddress): Sentence {
       capS(listedRefs("input", inputs)),
       ` ${inputs.length === 2 ? "both" : "all"} spend from ${it === "address" ? "" : "the locking script "}`,
       addr,
-      `. ${owner}, which ties those coins together, and to anything else paid to that ${it === "address" ? "address" : "script"}.`,
+      `: ${owner}, with anything else paid to it.`,
     );
   return says(
     capS(listedRefs("output", outputs)),
     ` ${outputs.length === 2 ? "both" : "all"} pay ${it === "address" ? "" : "the locking script "}`,
     addr,
-    `. ${owner}, which ties those outputs together.`,
+    `: ${owner}.`,
   );
 }
 
@@ -182,29 +178,26 @@ function agreeing(r: ChangeReading): Sentence {
     return says(
       `It pays the same ${what(why.isAddress)} `,
       listedRefs("input", why.inputs),
-      ` ${why.inputs.length === 1 ? "spends" : "spend"} from, which an observer may read as going back to the sender.`,
+      ` ${why.inputs.length === 1 ? "spends" : "spend"} from.`,
     );
   }
   if (why.kind === "round") {
-    const o = ref("out", why.roundOutput);
     return says(
       "Output ",
-      o,
-      ` is a round ${btc(why.value)} and this one is not, which suggests output `,
-      o,
-      " is the payment.",
+      ref("out", why.roundOutput),
+      ` is a round ${btc(why.value)} and this one is not.`,
     );
   }
   if (why.kind === "script") {
     return [
-      `Every input that funds it is ${typeName(why.scriptType)}, and of the two outputs checked only this one is, which suggests it is the change.`,
+      `Every input that funds it is ${typeName(why.scriptType)}, and of the two outputs checked only this one is.`,
     ];
   }
   // unneeded
   return says(
     "It is less than ",
     least(why.inputs, why.value),
-    ", and the other output checked is not. If the wallet would not add coins it did not need, that suggests the other output checked is the payment.",
+    ", and the other output checked is not.",
   );
 }
 
@@ -342,7 +335,7 @@ export function sayFinding(f: PrivacyFinding, all: readonly PrivacyFinding[] = [
         title,
         body: [
           [
-            `Suggested by one reading, which is not proof: it pays the reused ${what(back.isAddress)}, which an observer may read as going back to the sender.`,
+            `Suggested by one reading, which is not proof: it pays the reused ${what(back.isAddress)}.`,
           ],
         ],
         reasons: [],
@@ -361,11 +354,7 @@ export function sayFinding(f: PrivacyFinding, all: readonly PrivacyFinding[] = [
       tone: "caution",
       title: ["No output clearly reads as change"],
       body: [
-        [
-          f.readings.length === 2
-            ? "These two readings point at different outputs, so neither is strong:"
-            : "These readings point at different outputs, so none of them is strong:",
-        ],
+        [f.readings.length === 2 ? "These two readings disagree:" : "These readings disagree:"],
       ],
       reasons: f.readings.map((r) => stated(r)),
     };
@@ -373,12 +362,12 @@ export function sayFinding(f: PrivacyFinding, all: readonly PrivacyFinding[] = [
   if (f.kind === "coinjoin") {
     const [first] = f.groups;
     const equal = f.groups.reduce((n, g) => n + g.outputs.length, 0);
-    const senders = `the inputs that fund it come from ${groupDigits(f.senders)} different addresses`;
+    const senders = `its inputs spend from ${groupDigits(f.senders)} different addresses`;
     const shape: Sentence =
       f.groups.length === 1 && first
         ? says(
             capS(listedRefs("output", first.outputs)),
-            ` each pay exactly ${btc(first.value)}, each to a different address, and ${senders}.`,
+            ` each pay exactly ${btc(first.value)} to a different address, and ${senders}.`,
           )
         : [
             `${groupDigits(equal)} outputs fall into ${groupDigits(f.groups.length)} groups of equal amounts, the largest ${groupDigits(first?.outputs.length ?? 0)} of ${btc(first?.value ?? 0)}. Within each group every output pays a different address, and ${senders}.`,
@@ -390,7 +379,7 @@ export function sayFinding(f: PrivacyFinding, all: readonly PrivacyFinding[] = [
       body: [
         shape,
         [
-          "That is the shape of a CoinJoin, where several people pay into one transaction. Because the amounts are equal, they alone do not tell an observer which equal output is whose; other things still may. The shape alone does not prove it is one, and which output is change is not read here.",
+          "Their amounts alone do not tell an observer which is whose. It may be a CoinJoin; the shape alone does not prove it.",
         ],
       ],
       reasons: [],
@@ -404,7 +393,7 @@ export function sayFinding(f: PrivacyFinding, all: readonly PrivacyFinding[] = [
   const body: Sentence[] = [
     says(
       capS(listedRefs("input", f.inputs)),
-      ` are spent together${from}. An observer can read coins spent in one transaction as one owner's.`,
+      ` are spent together${from}: an observer may read them as one owner's.`,
     ),
   ];
   if (f.noChange) body.push(["Only one output is paid, so nothing in it reads as change."]);
@@ -540,21 +529,21 @@ export interface Check {
 /** "What this checks": each check in a sentence, then what it does not do. */
 export const CHECKS: readonly Check[] = [
   {
-    text: "Address reuse: an address that appears more than once among this transaction's inputs and outputs.",
+    text: "Address reuse: an address, so one locking script, that appears more than once among this transaction's inputs and outputs. An observer may read the coins at one address as one owner's.",
   },
   {
     text: "Which output is change, from four readings:",
     readings: [
-      "An output paying the same address an input spends from. This one decides.",
-      "One round amount beside one that is not.",
-      "The only one of two outputs checked of the inputs' script type.",
-      "The smaller of two outputs checked being less than the least spent from any one address, while the larger is not.",
+      "An output paying the same address an input spends from, which an observer may read as going back to the sender. This one decides.",
+      "One round amount beside one that is not: the round one suggests the payment.",
+      "The only one of two outputs checked of the inputs' script type: it suggests the change.",
+      "The smaller of two outputs checked being less than the least spent from any one address, while the larger is not: if the wallet would not add coins it did not need, the larger suggests the payment.",
     ],
     after:
       "Every output is checked but data outputs (OP_RETURN) and fee anchors. Readings that point at different outputs leave it unclear.",
   },
   {
-    text: "The shape of a CoinJoin: among other conditions, three or more outputs of one amount, each to a different address, with the inputs that fund it from at least as many different addresses.",
+    text: "The shape of a CoinJoin, where several people pay into one transaction: among other conditions, three or more outputs of one amount, each to a different address, with the inputs that fund it from at least as many different addresses. Equal amounts alone do not tell which output is whose, though other things still may; on that shape, which output is change is not read.",
   },
   {
     text: "Coins spent together, which suggest one owner; shown only before a transaction is sent, while that can still change.",
