@@ -24,6 +24,7 @@ import {
   type NodeCloses,
   peersInWords,
   peersShown,
+  percentOf,
   perClose,
   type RecordPeer,
   RECORD_WORDS,
@@ -494,7 +495,7 @@ function Weeks(props: { record: NodeCloses }) {
       );
     if (n.closed < props.record.minimum)
       return `${groupDigits(n.forced)} of ${groupDigits(n.closed)}`;
-    return shareText((n.forced * 100) / n.closed, n.forced);
+    return shareText(percentOf(n.forced, n.closed), n.forced);
   };
   /**
    * The week's every-channel figure as the row's second line, one sentence in sight and to a
@@ -510,7 +511,7 @@ function Weeks(props: { record: NodeCloses }) {
           <span class="num">{groupDigits(n.closed)}</span> force or penalty
         </>
       );
-    const text = shareText((n.forced * 100) / n.closed, n.forced);
+    const text = shareText(percentOf(n.forced, n.closed), n.forced);
     return (
       <>
         all {text.startsWith("under ") ? "under " : ""}
@@ -586,11 +587,7 @@ function Peers(props: { record: NodeCloses }) {
   const share = (p: RecordPeer) =>
     p.shares === null || p.closed === 0
       ? null
-      : shareText(
-          // Rounded to tenths of a percent as the server rounds the record's shares.
-          Math.round(((p.force + p.penalty) * 1_000) / p.closed) / 10,
-          p.force + p.penalty,
-        );
+      : shareText(percentOf(p.force + p.penalty, p.closed), p.force + p.penalty);
   const columns = (): Column<RecordPeer>[] => [
     {
       header: "Peer",

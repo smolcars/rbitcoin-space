@@ -1612,6 +1612,10 @@ export const RECORD_WORDS: Record<CloseKind, string> = {
   other: "Not a close by either protocol: most likely a splice that added funds",
 };
 
+/** `part` of `whole` in percent, rounded to tenths as the server rounds the record's shares. */
+export const percentOf = (part: number, whole: number): number =>
+  Math.round((part * 1_000) / whole) / 10;
+
 /** A share as the record writes it: whole percent, one decimal under 10, "under 0.1%" above none, "0%" for none. */
 export function shareText(percent: number, closes: number): string {
   if (closes === 0) return "0%";

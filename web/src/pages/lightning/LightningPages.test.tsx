@@ -1207,6 +1207,25 @@ describe("a node's close record", () => {
     expect(sectionText(el)).not.toContain("9.6%");
   });
 
+  it("rounds every channel's weekly share as the server rounds, from tenths of a percent", async () => {
+    replies[node] = json(closedCounts({ closed: 25, cooperative: 25 }));
+    replies[`${node}/channels?status=closed`] = closedList(25);
+    // 199 of 2 000 is 9.95%: the server's 10%, not the 9.9% a float's toFixed gives.
+    const week = { cooperative: 1_801, force: 199, penalty: 0, other: 0 };
+    replies[record] = json(
+      closeRecord(
+        tally({ cooperative: 25, force: 0, penalty: 0, other: 0 }),
+        [],
+        tally(week, [week]),
+      ),
+    );
+    const el = open(`/lightning/node/${ACINQ}?view=closed`);
+    await shows(el, "Week by week");
+    const weeks = text(section(el)?.querySelector(".ln-record__weeks") ?? el);
+    expect(weeks).toContain("10%");
+    expect(weeks).not.toContain("9.9%");
+  });
+
   it("rounds a peer's share as the server rounds the record's, from tenths of a percent", async () => {
     replies[node] = json(closedCounts({ closed: 2_000, cooperative: 1_977, force: 23 }));
     replies[`${node}/channels?status=closed`] = closedList(2_000);
