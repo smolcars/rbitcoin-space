@@ -170,14 +170,11 @@ function ClosedView(props: { node: NodeDetail; network: Network; now: number }) 
   const request = askRecord(props.network, () => props.node.id);
   const record = () => request[0].latest;
   const listed = () => props.node.channels.closed > 0 || (record()?.node.closed ?? 0) > 0;
-  // The record's counts where it holds every close; the node's where they are at least the
-  // record's (a capped record is a lower bound); a record with more than the node's answer shows
-  // that answer is older, so the record's, as the lower bound they are.
+  // The record's counts once it has a close: whole where it holds every close; where capped, a
+  // lower bound that establishes no count as the whole, so the list's total waits for the list.
   const of = (): ClosedOf => {
     const r = record();
-    if (r === undefined || r.node.closed === 0) return props.node;
-    if (!r.capped) return closedOf(r);
-    return props.node.channels.closed >= r.node.closed ? props.node : closedOf(r);
+    return r === undefined || r.node.closed === 0 ? props.node : closedOf(r);
   };
   return (
     <div class="ln-node-closed">

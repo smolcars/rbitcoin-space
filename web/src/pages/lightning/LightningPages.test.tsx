@@ -1140,6 +1140,41 @@ describe("a node's close record", () => {
     expect(t).toContain("all 5 closes");
   });
 
+  it("never takes the graph's count as the whole beside a capped record", async () => {
+    // The graph's answer says 10 000; the store has one more; the record holds its newest 10 000.
+    replies[node] = json(closedCounts({ closed: 10_000, cooperative: 10_000 }));
+    const r = closeRecord(tally({ cooperative: 10_000, force: 0, penalty: 0, other: 0 }));
+    replies[record] = json({ ...r, capped: true });
+    replies[`${node}/channels?status=closed&kind=cooperative`] = closedList(10_001);
+    const el = open(`/lightning/node/${ACINQ}?view=closed&kind=cooperative`);
+    await shows(el, "10 001 closes match");
+    const list = el.querySelector<HTMLElement>("[aria-labelledby=ln-node-closed-title]");
+    expect(text(list ?? el)).not.toContain("10 000");
+  });
+
+  it("says no total while the whole list is on its way after a filter is cleared", async () => {
+    replies[node] = json({ error: "node not found" }, 404);
+    const r = closeRecord(tally({ cooperative: 10_000, force: 0, penalty: 0, other: 0 }));
+    replies[record] = json({ ...r, capped: true });
+    replies[`${node}/channels?status=closed&kind=cooperative`] = closedList(3_200);
+    // The whole list's answer is held until the test lets it go.
+    let release = () => {};
+    replies[`${node}/channels?status=closed`] = () =>
+      new Promise<Response>((resolve) => {
+        release = () => resolve(closedList(12_000)());
+      }) as unknown as Response;
+    const el = open(`/lightning/node/${ACINQ}?view=closed&kind=cooperative`);
+    await shows(el, "3 200 closes match");
+    const list = () => el.querySelector<HTMLElement>("[aria-labelledby=ln-node-closed-title]");
+    const all = [...(list()?.querySelectorAll<HTMLAnchorElement>(".ln-node-chip") ?? [])][0];
+    all?.click();
+    await vi.waitFor(() => expect(requests).toContain(`${node}/channels?status=closed`));
+    // Pending: the filtered count is not the whole list's.
+    expect(text(list() ?? el)).not.toContain("3 200 closes");
+    release();
+    await shows(el, "12 000 closes");
+  });
+
   it("works a peer's share out from its counts, not by adding two rounded shares", async () => {
     replies[node] = json(closedCounts({ closed: 21, cooperative: 19, force: 1, penalty: 1 }));
     replies[`${node}/channels?status=closed`] = closedList(21);
@@ -1158,6 +1193,24 @@ describe("a node's close record", () => {
     await shows(el, "With whom");
     expect(sectionText(el)).toContain("9.5% force or penalty");
     expect(sectionText(el)).not.toContain("9.6%");
+  });
+
+  it("rounds a peer's share as the server rounds the record's, from tenths of a percent", async () => {
+    replies[node] = json(closedCounts({ closed: 2_000, cooperative: 1_977, force: 23 }));
+    replies[`${node}/channels?status=closed`] = closedList(2_000);
+    // 23 of 2 000 is 1.15%: the server's 1.2%, not the 1.1% a float's toFixed gives.
+    const peer = recordPeer(1, {
+      cooperative: 1_977,
+      force: 23,
+      closed: 2_000,
+      shares: { cooperative: 98.9, force: 1.2, penalty: 0, other: 0 },
+    });
+    replies[record] = json(
+      closeRecord(tally({ cooperative: 1_977, force: 23, penalty: 0, other: 0 }), [peer]),
+    );
+    const el = open(`/lightning/node/${ACINQ}?view=closed`);
+    await shows(el, "With whom");
+    expect(sectionText(el)).toContain("1.2% force or penalty");
   });
 
   it("gives counts and no share below the minimum, and names a penalty without saying by whom", async () => {

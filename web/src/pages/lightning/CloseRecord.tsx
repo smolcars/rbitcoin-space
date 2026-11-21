@@ -586,7 +586,11 @@ function Peers(props: { record: NodeCloses }) {
   const share = (p: RecordPeer) =>
     p.shares === null || p.closed === 0
       ? null
-      : shareText(((p.force + p.penalty) * 100) / p.closed, p.force + p.penalty);
+      : shareText(
+          // Rounded to tenths of a percent as the server rounds the record's shares.
+          Math.round(((p.force + p.penalty) * 1_000) / p.closed) / 10,
+          p.force + p.penalty,
+        );
   const columns = (): Column<RecordPeer>[] => [
     {
       header: "Peer",

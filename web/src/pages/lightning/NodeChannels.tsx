@@ -988,7 +988,12 @@ export function ClosedList(props: { node: ClosedOf; network: Network; now: numbe
         <p class="ln-node-total" aria-live="polite" ref={l.mark}>
           <Show when={page()}>
             {(p) => (
-              <Show when={filtered()} fallback={<>{count(total() ?? p().total, "close")}</>}>
+              <Show
+                when={filtered()}
+                // Unfiltered, the count is the whole list's once known; until then (its answer on
+                // its way, after a filter is cleared) the held page's count is not it.
+                fallback={<Show when={total()}>{(n) => count(n(), "close")}</Show>}
+              >
                 <Show
                   when={total()}
                   fallback={
