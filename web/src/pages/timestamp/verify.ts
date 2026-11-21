@@ -77,12 +77,13 @@ export type Verdict =
 
 /**
  * What a node checks of a block's header time, as the page says it: later than the median of the
- * blocks before it, up to eleven (none for the genesis block), and at most two hours ahead of the
- * node's clock when it checks.
+ * blocks before it, up to eleven, and at most two hours ahead of the node's clock when it checks.
+ * The genesis block is the exception: its header is fixed by the network's rules and its time is
+ * checked against nothing.
  */
 export function headerTimeRule(height: number): string {
   return height === 0
-    ? "A node accepts a block only if its time is no more than two hours ahead of the node's own clock when it checks."
+    ? "The genesis block's header is fixed by the network's rules, so no node checks its time against a clock or against earlier blocks."
     : "A node accepts a block only if its time is later than the median of the blocks before it, up to eleven, and no more than two hours ahead of the node's own clock when it checks.";
 }
 
