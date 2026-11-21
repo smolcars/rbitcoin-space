@@ -22,7 +22,7 @@ async function watchArrival(page: Page) {
     const w = window as unknown as { arrival?: boolean };
     const seen = new MutationObserver(() => {
       if (!document.querySelector(".tx-flow__item:not(.tx-flow__item--ghost)")) return;
-      w.arrival = document.querySelector(".pv-under") !== null;
+      w.arrival = document.querySelector("#pv-list") !== null;
       seen.disconnect();
     });
     seen.observe(document, { childList: true, subtree: true });
@@ -77,6 +77,26 @@ test("a transaction with findings: marks on its cards and what an observer can r
   // It came with the first card: it never appears later.
   expect(await arrival(page)).toBe(true);
 
+  // Wide, it is a panel of its own under "Details", and the summary carries no line to it.
+  await expect(page.locator(".tx-rail > #pv-list")).toBeVisible();
+  await expect(page.locator(".tx-answer__privacy")).toHaveCount(0);
+
+  // Every card carries its number, as the sentences name it.
+  await expect(inputs.locator(".tx-flow__index")).toHaveText(["#0", "#1"]);
+  await expect(outputs.locator(".tx-flow__index")).toHaveText(["#0", "#1"]);
+
+  // A number in a finding leads to its card, which takes the focus; a mark leads to its finding.
+  await section.getByRole("link", { name: "Show output 1" }).first().click();
+  await expect(page.getByRole("button", { name: "Details of output 1" })).toBeFocused();
+  await outputs.getByRole("link", { name: "Reads as change" }).click();
+  await expect(page.locator("#pv-change")).toBeFocused();
+  // With an input's details open in the panel, a mark closes them to show its finding.
+  await page.getByRole("button", { name: "Details of input 0" }).click();
+  await expect(page.locator("#tx-inspector")).toBeVisible();
+  await inputs.getByRole("link", { name: "Reused address" }).first().click();
+  await expect(page.locator("#tx-inspector")).toHaveCount(0);
+  await expect(page.locator("#pv-reuse")).toBeFocused();
+
   // What it checks, from the keyboard.
   const checks = section.getByText("What this checks");
   await checks.focus();
@@ -90,8 +110,15 @@ test("a transaction with findings: marks on its cards and what an observer can r
 
   await page.setViewportSize({ width: 360, height: 780 });
   await expect(section).toBeVisible();
+  // Narrow, it sits under the flow, and the summary says how much there is and leads to it.
+  await expect(page.locator(".tx-main__flow #pv-list")).toBeVisible();
+  const line = page.getByRole("link", { name: "2 things an observer can read" });
+  await expect(line).toBeVisible();
   expect(await sideways(page)).toBeLessThanOrEqual(0);
+  // Before the line is followed: scrolled, the sticky header would cover cards axe then checks.
   expect(await axe(page)).toStrictEqual([]);
+  await line.click();
+  await expect(page.locator("#pv-list")).toBeFocused();
 });
 
 /** Each output card's meta line now: its children's text and line top, to say what wrapped. */
@@ -159,10 +186,17 @@ test.describe("the spends arriving after the cards, in a wide prose font", () =>
         await expect(page.locator(".pv-under")).toBeVisible();
         const card = page.getByRole("list", { name: "Outputs" }).getByRole("listitem").nth(spent);
         if (variant === "no address, a mark") {
-          await expect(card.getByRole("link")).toHaveCount(0);
-          await expect(card.locator(".pv-tag")).toHaveText(["Reused address"]);
+          await expect(card.locator(".tx-flow__spent")).toHaveCount(0);
+          await expect(card.locator(".pv-tag")).toHaveAccessibleName("Reused address");
         } else {
-          await expect(card.locator(".pv-tag")).toHaveText(["Reused address", "Reads as change"]);
+          await expect(card.locator(".pv-tag").nth(0)).toHaveAccessibleName("Reused address");
+          await expect(card.locator(".pv-tag").nth(1)).toHaveAccessibleName("Reads as change");
+          // On a phone each mark is one word on one line, its full words its name.
+          await expect(card.locator(".pv-tag__short")).toHaveText(["Reused", "Change"]);
+          for (const box of await card.locator(".pv-tag").evaluateAll((ts) =>
+            ts.map((t) => t.getBoundingClientRect().height),
+          ))
+            expect(box).toBeLessThan(30);
         }
         await expect(page.locator(".tx-flow__spent")).toHaveCount(0);
         // The stand-in font loads on its own time: a swap between the two reads would look like a
@@ -197,7 +231,7 @@ test("a transaction whose input the node does not have is only partly checked", 
     r.fulfill({ json: real }),
   );
   await page.goto(`/regtest/tx/${chain.txs.payment}`);
-  const region = page.locator(".pv-under");
+  const region = page.locator("#pv-list");
   await expect(region.locator(".pv-partial p")).toHaveText([
     "Only part of this transaction could be checked.",
     "What input 0 spends is not known here, so these were not checked: the CoinJoin shape, outputs paying back to an input's address, script types and the least spent from one address.",
@@ -236,6 +270,9 @@ async function unsentFindings(page: Page) {
   const outputs = page.getByRole("list", { name: "Outputs" });
   await expect(outputs.getByRole("listitem").nth(1)).toContainText("Reads as change");
   await expect(outputs.getByRole("listitem").nth(0)).toContainText("Reads as payment");
+  // Its outputs exist nowhere yet: no card says whether one is spent, and none keeps room for it.
+  await expect(outputs).not.toContainText("Unspent");
+  await expect(outputs.locator(".tx-flow__status")).toHaveCount(0);
 }
 
 test.describe("before sending", () => {

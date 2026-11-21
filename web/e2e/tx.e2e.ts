@@ -20,7 +20,7 @@ test("a confirmed transaction names every output type and links where the money 
     await (wide ? expect(named).toBeVisible() : expect(named).toBeAttached());
   }
   await expect(outputs).toContainText(
-    "OP_RETURN0.00 000 000 BTCUnspendable“mempool.based regtest”",
+    "OP_RETURN0.00 000 000 BTC#6Unspendable“mempool.based regtest”",
   );
   // Amounts keep their unit for screen readers, though the cards show bare numbers.
   await expect(outputs.getByText("1.00 000 000 BTC", { exact: true }).first()).toBeAttached();

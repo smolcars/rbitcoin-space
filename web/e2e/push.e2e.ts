@@ -56,8 +56,9 @@ test("a pasted transaction is read before anything is sent, and one press sends 
   await box.fill(send.hex.replaceAll(/(.{64})/g, "$1\n"));
   await expect(page.getByText("2.00 sat/vB").first()).toBeVisible();
   await expect(page.getByText("Check before you send")).toHaveCount(0);
-  // Nothing can have spent what was never sent.
-  await expect(page.locator(".tx-flow").getByText("Unspent")).toHaveCount(2);
+  // What was never sent is neither spent nor unspent: no card says either.
+  await expect(page.locator(".tx-flow").getByText("Unspent")).toHaveCount(0);
+  await expect(page.locator(".tx-flow__status")).toHaveCount(0);
   await expect(button).toHaveText("Broadcast");
   // Before it is sent, what sending it would show (docs/FRONTEND.md "Privacy check").
   const notSent =
