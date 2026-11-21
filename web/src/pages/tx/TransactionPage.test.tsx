@@ -952,19 +952,23 @@ describe("TransactionPage", () => {
   it("a card's button pressed again closes its details and keeps the focus, never the page's", async () => {
     serve(payment(confirmed), [{ spent: false }, { spent: false }]);
     const el = page(`/tx/${TXID}`);
-    await settle();
-    const open = el.querySelectorAll<HTMLButtonElement>(".tx-flow__col--out .tx-flow__open")[1];
+    const buttons = () =>
+      el.querySelectorAll<HTMLButtonElement>(".tx-flow__col--out .tx-flow__open");
+    await vi.waitFor(() => expect(buttons()).toHaveLength(2));
+    const open = buttons()[1];
     if (!open) throw new Error("no details button for output 1");
     // Clicks that do not move the focus, as Safari's on a button do not.
     open.click();
-    await settle();
-    const heading = el.querySelector("#tx-inspector-title");
-    expect(heading?.textContent).toBe("Output 1");
-    await vi.waitFor(() => expect(document.activeElement).toBe(heading));
+    await vi.waitFor(() => {
+      const heading = el.querySelector("#tx-inspector-title");
+      expect(heading?.textContent).toBe("Output 1");
+      expect(document.activeElement).toBe(heading);
+    });
     open.click();
-    await settle();
-    expect(el.querySelector("#tx-inspector")).toBeNull();
-    await vi.waitFor(() => expect(document.activeElement).toBe(open));
+    await vi.waitFor(() => {
+      expect(el.querySelector("#tx-inspector")).toBeNull();
+      expect(document.activeElement).toBe(open);
+    });
   });
 
   it("compares a confirmed replacement opened fresh, however long ago it confirmed", async () => {

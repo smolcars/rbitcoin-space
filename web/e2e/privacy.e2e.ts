@@ -207,7 +207,7 @@ test("a number far down the flow opens that card's details, never every card bef
   // Covered by the details at 1280, so found by its target rather than its role, and marked.
   const numbers = page.locator('a.pv-ref[href="#flow-out-2999"]');
   await numbers.evaluateAll((as) => {
-    for (const a of as) a.setAttribute("data-before", "");
+    for (const a of as) a.dataset["before"] = "";
   });
   await page.setViewportSize({ width: 360, height: 780 });
   await expect(heading).toBeVisible();

@@ -785,8 +785,9 @@ function Body(props: {
     const cur = selected();
     if (cur && cur.side === s.side && cur.index === s.index) {
       // Its own button pressed again: closed like Close, the focus to that button (flash.ts).
+      // At once, not a frame later: the button is here now, and a later opener is never taken.
       setSelected(null);
-      requestAnimationFrame(() => returnFocus(s.side, s.index));
+      returnFocus(s.side, s.index);
       return;
     }
     setSelected(s);
