@@ -33,17 +33,24 @@ export function Eye(props: { tone: Tone }) {
   );
 }
 
-/** A card's marks, in its meta line: the eye and a few words each. */
+/**
+ * A card's marks, at the end of its meta line, on a line of their own: the spent status arrives
+ * after the card, and would otherwise push them to a second line and the flow down.
+ */
 export function CardMarks(props: { marks: readonly Mark[] | undefined }) {
   return (
-    <For each={props.marks ?? []}>
-      {(m) => (
-        <span class={`pv-tag pv-tag--${m.tone}`}>
-          <Eye tone={m.tone} />
-          {m.text}
-        </span>
-      )}
-    </For>
+    <Show when={(props.marks?.length ?? 0) > 0}>
+      <span class="pv-tags">
+        <For each={props.marks ?? []}>
+          {(m) => (
+            <span class={`pv-tag pv-tag--${m.tone}`}>
+              <Eye tone={m.tone} />
+              {m.text}
+            </span>
+          )}
+        </For>
+      </span>
+    </Show>
   );
 }
 
