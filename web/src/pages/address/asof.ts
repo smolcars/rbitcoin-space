@@ -69,3 +69,49 @@ export const pinnedPath = (path: string, hash: string): string => `${path}?asof=
 
 /** The address had no confirmed transaction by the pinned block. */
 export const unusedThen = (stats: AddressStats): boolean => stats.chain_stats.tx_count === 0;
+
+/** Rows in a page of `/txs/chain` and of `/txs/summary`: the node's fixed page size. */
+export const PAGE_ROWS = 25;
+
+/**
+ * Where a step from the page as of a block leads: the block of a change (the address after it),
+ * its first use, the block before its first transaction, or nowhere (nothing changed since).
+ */
+export type Step =
+  | { kind: "change"; height: number }
+  | { kind: "first"; height: number }
+  | { kind: "before-first"; height: number }
+  | { kind: "none" };
+
+/**
+ * "Previous change": the address as it stood before its latest change by the block. `heights` are
+ * the confirmed heights of the newest history page as of the block, newest first; a short page is
+ * the whole history by then. With no earlier change in it, the address's first transaction is in
+ * the page, and the step leads to the block before it. Undefined when the page cannot say.
+ */
+export function previousChange(heights: readonly number[]): Step | undefined {
+  const latest = heights[0];
+  if (latest === undefined) return undefined;
+  const earlier = heights.filter((h) => h < latest);
+  if (earlier.length > 0) return { kind: "change", height: Math.max(...earlier) };
+  if (heights.length < PAGE_ROWS) return { kind: "before-first", height: latest - 1 };
+  return undefined;
+}
+
+/**
+ * "Next change": the first block after `at` in which the address changed, from the newest history
+ * page now (`heights`, its confirmed rows' heights; `rows`, how many rows it held, unconfirmed ones
+ * too). Known only when the page reaches back to `at` or is the whole history. `used`: the address
+ * had confirmed history by `at`, so a change after none is its first use.
+ */
+export function nextChange(
+  heights: readonly number[],
+  rows: number,
+  at: number,
+  used: boolean,
+): Step | undefined {
+  const later = heights.filter((h) => h > at);
+  if (later.length === heights.length && rows >= PAGE_ROWS) return undefined;
+  if (later.length === 0) return { kind: "none" };
+  return { kind: used ? "change" : "first", height: Math.min(...later) };
+}

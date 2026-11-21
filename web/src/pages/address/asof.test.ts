@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { pinnedPath, readAt, readPinned, readTip, readTyped, unusedThen } from "./asof";
+import {
+  nextChange,
+  PAGE_ROWS,
+  pinnedPath,
+  previousChange,
+  readAt,
+  readPinned,
+  readTip,
+  readTyped,
+  unusedThen,
+} from "./asof";
 
 const HASH = "0".repeat(19) + "320283a032748cef8227873ff4872689bf23f1cda83a5".padStart(45, "0");
 const NOW = Date.UTC(2026, 10, 20) / 1000;
@@ -99,5 +109,56 @@ describe("the rest", () => {
     });
     expect(unusedThen(stats(0))).toBe(true);
     expect(unusedThen(stats(1))).toBe(false);
+  });
+});
+
+describe("previousChange", () => {
+  it("leads to the change before the latest one by the block", () => {
+    expect(previousChange([975_000, 975_000, 974_257, 974_100])).toStrictEqual({
+      kind: "change",
+      height: 974_257,
+    });
+  });
+
+  it("leads to the block before the first transaction when the page is the whole history", () => {
+    expect(previousChange([800_010, 800_010])).toStrictEqual({
+      kind: "before-first",
+      height: 800_009,
+    });
+  });
+
+  it("cannot say when a full page holds one block only, or nothing", () => {
+    expect(previousChange(Array.from({ length: PAGE_ROWS }, () => 900_000))).toBeUndefined();
+    expect(previousChange([])).toBeUndefined();
+  });
+});
+
+describe("nextChange", () => {
+  it("is the first block after the one shown, when the page reaches back to it", () => {
+    expect(nextChange([976_100, 975_400, 975_010, 975_000], 4, 975_000, true)).toStrictEqual({
+      kind: "change",
+      height: 975_010,
+    });
+    expect(nextChange([976_100, 975_400], 2, 975_000, true)).toStrictEqual({
+      kind: "change",
+      height: 975_400,
+    });
+  });
+
+  it("is the first use for an address with no history by then", () => {
+    expect(nextChange([976_100, 975_400], 3, 800_000, false)).toStrictEqual({
+      kind: "first",
+      height: 975_400,
+    });
+  });
+
+  it("says nothing changed since when no confirmed row is later", () => {
+    expect(nextChange([975_000, 974_000], 3, 975_000, true)).toStrictEqual({ kind: "none" });
+  });
+
+  it("cannot say when a full page is all later than the block", () => {
+    const page = Array.from({ length: PAGE_ROWS }, (_, i) => 976_000 - i);
+    expect(nextChange(page, PAGE_ROWS, 900_000, true)).toBeUndefined();
+    expect(nextChange([], PAGE_ROWS, 900_000, true)).toBeUndefined();
   });
 });
