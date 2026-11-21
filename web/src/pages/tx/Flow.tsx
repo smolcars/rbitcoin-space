@@ -12,6 +12,8 @@ import { paths } from "../../lib/network";
 import type { TagPart } from "../block/chain";
 import { type ChainText, coinbaseText, inputText, outputText } from "./chaintext";
 import { LookalikeTag } from "./Lookalike";
+import { CardMarks } from "./Privacy";
+import type { Mark } from "./privacytext";
 import { classify } from "./script";
 import {
   cssMs,
@@ -110,6 +112,8 @@ export function Flow(props: {
   onSelect: (s: Selection) => void;
   /** Lookalike addresses handed over from an address page, by address: marked on their cards. */
   lookalike?: ReadonlyMap<string, Lookalike> | undefined;
+  /** What the privacy check says of each card, keyed `in:N` and `out:N` (privacytext.ts). */
+  marks?: ReadonlyMap<string, readonly Mark[]> | undefined;
 }) {
   const [inPresses, setInPresses] = createSignal(0);
   const [outPresses, setOutPresses] = createSignal(0);
@@ -335,6 +339,7 @@ export function Flow(props: {
                   {input.prevout && payee(input.prevout)
                     ? classify(input.prevout.scriptpubkey).label
                     : ""}
+                  <CardMarks marks={props.marks?.get(`in:${i()}`)} />
                 </span>
                 <Memo t={inputText(input)} label />
                 {openButton("in", i())}
@@ -398,6 +403,7 @@ export function Flow(props: {
                   unspendable={whyUnspendable(props.tx, out) !== null}
                   spend={props.outspends()?.[i()]}
                 />
+                <CardMarks marks={props.marks?.get(`out:${i()}`)} />
               </span>
               <Memo t={outputText(out)?.parts ? outputText(out) : null} label={false} />
               {openButton("out", i())}

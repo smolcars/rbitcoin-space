@@ -1,5 +1,5 @@
 // A checked transaction as the broadcast page and the decoder show it (docs/FRONTEND.md "Broadcast").
-import { createEffect, createSignal, onCleanup, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { Amount, Sats } from "../../components/Amount";
 import { FeeRate } from "../../components/FeeRate";
@@ -14,6 +14,9 @@ import { useNetwork } from "../../lib/page";
 import { Flow, type Selection } from "../tx/Flow";
 import { Inspector } from "../tx/Inspector";
 import { isCoinbase, totalOut, vsize } from "../tx/tx";
+import { checkPrivacy } from "../../lib/privacy";
+import { UnsentPrivacy } from "../tx/Privacy";
+import { cardMarks, shownFindings } from "../tx/privacytext";
 import { broadcast, type Checked, needsSecondThought, rateOf, refusal, warnings } from "./push";
 import "../tx/TransactionPage.css";
 import "./Push.css";
@@ -32,6 +35,13 @@ export function CheckedTx(props: { c: Checked; hex: string; enabled: boolean }) 
     return typeof f === "number" && f > 0 ? f : undefined;
   };
   const warn = () => warnings(tx(), next());
+  // What sending it would show an observer: said while it can still change, so not for one the
+  // node already has, nor for a coinbase, which has no sender.
+  const privacy = createMemo(() => checkPrivacy(tx()));
+  const unsent = () => !props.c.known && !privacy().coinbase;
+  const privacyMarks = createMemo(() =>
+    unsent() ? cardMarks(shownFindings(privacy(), true)) : undefined,
+  );
   const rate = () => rateOf(tx());
   const v = () => vsize(tx());
   const [sending, setSending] = createSignal(false);
@@ -211,6 +221,10 @@ export function CheckedTx(props: { c: Checked; hex: string; enabled: boolean }) 
         </Notice>
       </Show>
 
+      <Show when={unsent()}>
+        <UnsentPrivacy report={privacy()} />
+      </Show>
+
       <Show when={props.enabled && !props.c.known}>
         <div class="push-send" aria-live="polite">
           <Show
@@ -255,7 +269,13 @@ export function CheckedTx(props: { c: Checked; hex: string; enabled: boolean }) 
             {groupDigits(tx().vout.length)} output{tx().vout.length === 1 ? "" : "s"}
           </span>
         </SectionHeader>
-        <Flow tx={tx()} outspends={outspends} selected={selected()} onSelect={select} />
+        <Flow
+          tx={tx()}
+          outspends={outspends}
+          selected={selected()}
+          onSelect={select}
+          marks={privacyMarks()}
+        />
         <Show when={selected()} keyed>
           {(s) => (
             <Inspector

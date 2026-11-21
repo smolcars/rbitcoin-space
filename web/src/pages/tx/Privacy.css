@@ -1,0 +1,129 @@
+/* The privacy check (Privacy.tsx, docs/DESIGN.md "Transaction"): one signifier, the eye; the
+   caution colour only where something is given away, always beside its words. */
+@layer pages {
+  .pv-eye {
+    flex: none;
+    width: 14px;
+    height: 14px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.4;
+  }
+  .pv-eye--caution {
+    color: var(--color-caution);
+  }
+  .pv-eye--caution circle {
+    fill: currentColor;
+  }
+  .pv-eye--neutral {
+    color: var(--color-text-muted);
+  }
+
+  /* On a card, in its meta line beside the script type: the eye and a few words. */
+  .pv-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-weight: var(--weight-medium);
+    overflow-wrap: anywhere;
+  }
+  .pv-tag .pv-eye {
+    width: 12px;
+    height: 12px;
+  }
+  .pv-tag--caution {
+    color: var(--color-caution);
+  }
+  .pv-tag--neutral {
+    color: var(--color-text);
+  }
+
+  .pv-title {
+    font-size: var(--text-md);
+    font-weight: var(--weight-bold);
+  }
+  .pv-list {
+    display: grid;
+    gap: var(--space-3);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .pv-item {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: var(--space-2);
+    align-items: start;
+  }
+  .pv-item > .pv-eye {
+    margin-top: 0.2em;
+  }
+  .pv-item__body {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+    max-width: 68ch;
+  }
+  .pv-item__title {
+    font-weight: var(--weight-bold);
+  }
+  .pv-reasons {
+    display: grid;
+    gap: 2px;
+    margin: var(--space-1) 0 0;
+    padding-left: 1.1em;
+    list-style: disc;
+  }
+  .pv-reasons li::marker {
+    color: var(--color-text-muted);
+  }
+  /* Nothing to show: one muted line. */
+  .pv-none {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    color: var(--color-text-muted);
+  }
+  .pv-partial,
+  .pv-closing {
+    display: grid;
+    gap: 2px;
+    max-width: 68ch;
+    color: var(--color-text-muted);
+  }
+  .pv-checks {
+    display: grid;
+    gap: var(--space-1);
+    margin: 0;
+    padding-left: 1.1em;
+    list-style: disc;
+  }
+
+  /* The transaction page: under the flow, in its panel, after a hairline. */
+  .pv-under {
+    display: grid;
+    gap: var(--space-3);
+    margin-top: var(--space-5);
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--color-line);
+    font-size: var(--text-sm);
+    min-width: 0;
+  }
+  .pv-under .more,
+  .pv-send .more {
+    margin-top: calc(var(--space-2) * -1);
+  }
+
+  /* Broadcast and the decoder: a neutral notice above the action. */
+  .pv-send {
+    display: grid;
+    gap: var(--space-3);
+    padding: var(--space-4);
+    border: 1px solid var(--color-line);
+    border-left: 3px solid var(--color-line-strong);
+    border-radius: var(--radius-m);
+    background: var(--color-surface);
+    font-size: var(--text-sm);
+    min-width: 0;
+  }
+}

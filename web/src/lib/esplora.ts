@@ -81,11 +81,14 @@ export interface Transaction {
   sigops?: number;
   /** sats */
   fee?: number;
-  /** Partial or absent on pruned transactions. */
+  /** Absent on some pruned transactions; when present, every input is listed. */
   vin?: Vin[];
   vout: Vout[];
   status: TxStatus;
-  /** True below rbitcoin's prune point: `vin` is partial or absent and `sigops` is missing. */
+  /**
+   * True below rbitcoin's prune point: the inputs' scripts, witnesses and sequences are gone,
+   * `vin` is whole or absent (never some of the inputs), and `sigops` is missing.
+   */
   pruned?: boolean;
 }
 

@@ -67,6 +67,9 @@ import {
   stripPlace,
 } from "./state";
 import { confirmations, features, isCoinbase, isTxid, lockTimeMeaning, vsize } from "./tx";
+import { checkPrivacy } from "../../lib/privacy";
+import { TxPrivacy } from "./Privacy";
+import { cardMarks, shownFindings } from "./privacytext";
 import { judgeFee, parentsOf, verdictDetail, verdictText, verdictTitle } from "./verdict";
 import "./TransactionPage.css";
 
@@ -760,6 +763,10 @@ function Body(props: {
   const genesis = () => coinbase() && status()?.block_height === 0;
   const [selected, setSelected] = createSignal<Selection | null>(null);
   let inspectorHeading: HTMLHeadingElement | undefined;
+  // What the transaction shows an observer, worked out with the page itself, so nothing moves in
+  // after it loads. A coinbase has no sender to give away and shows nothing.
+  const privacy = createMemo(() => checkPrivacy(props.tx));
+  const privacyMarks = createMemo(() => cardMarks(shownFindings(privacy(), false)));
 
   // Wide, the inspector opens in the side panel beside the flow, so nothing moves; narrower, the
   // panel is under the flow, and what opened is brought into view.
@@ -1291,9 +1298,12 @@ function Body(props: {
       <div class="tx-main">
         <section class="tx-main__flow" aria-labelledby="tx-flow-title">
           <SectionHeader title="Inputs and outputs" id="tx-flow-title" />
+          {/* The node lists a pruned transaction's inputs whole or not at all (rbitcoin v0.9.2). */}
           <Show when={props.tx.pruned}>
             <p class="tx-note">
-              This node has pruned the inputs of transactions this old, so some are missing.
+              {(props.tx.vin?.length ?? 0) === 0
+                ? "This node has pruned the inputs of transactions this old, so none are listed."
+                : "This node has pruned the scripts and signatures of transactions this old; the inputs still show what they spend."}
             </p>
           </Show>
           <Flow
@@ -1302,7 +1312,11 @@ function Body(props: {
             selected={selected()}
             onSelect={select}
             lookalike={marks()}
+            marks={privacyMarks()}
           />
+          <Show when={!privacy().coinbase}>
+            <TxPrivacy report={privacy()} />
+          </Show>
         </section>
 
         {/* The facts that are left; an input's or output's inspector takes their place. */}
