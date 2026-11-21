@@ -54,11 +54,13 @@ test.describe("in a wide prose font", () => {
       const scrolled = await page.evaluate(() => document.documentElement.scrollWidth);
       expect(scrolled, `page width at ${width} px`).toBeLessThanOrEqual(width);
       // Unknown's "98 empty" once kept its width and cut the name beside it to under a pixel.
-      const cut = await table
-        .locator(".mining-pool__name")
-        .evaluateAll((names) =>
-          names.filter((n) => n.scrollWidth > n.clientWidth).map((n) => n.textContent),
-        );
+      const names = table.locator(".mining-pool__name");
+      // With no name found the check below would pass having checked nothing.
+      await expect(names.first()).toBeVisible();
+      // One pixel of slack: the two widths are each rounded to a whole pixel.
+      const cut = await names.evaluateAll((all) =>
+        all.filter((n) => n.scrollWidth > n.clientWidth + 1).map((n) => n.textContent),
+      );
       expect(cut, `pool names cut at ${width} px`).toEqual([]);
     }
   });
