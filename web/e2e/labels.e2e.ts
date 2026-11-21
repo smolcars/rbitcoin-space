@@ -557,7 +557,8 @@ async function scheduleSocket(context: BrowserContext, seen: Seen): Promise<Gate
       for (const give of waiting.splice(0)) give();
     },
   };
-  await context.routeWebSocket(/\/app\/ws$/, (ws) => {
+  // Every socket the page opens, whatever its URL.
+  await context.routeWebSocket(/.*/, (ws) => {
     const server = ws.connectToServer();
     seen.sent.push(`open ${ws.url()}`);
     ws.onMessage((m) => {
@@ -665,14 +666,18 @@ async function manage(page: Page, file: string) {
 
 /**
  * The same walk through the site, with or without labels already kept, on one schedule:
- * - The transaction and block pages: the socket's greeting and everything after it are held until
- *   the page's first answers have come, so the page always has its answers before the socket's.
+ * - The transaction page: the socket's greeting and everything after it are held until the page's
+ *   first answers have come. The block page: held until the page shows what its first answers
+ *   hold (its miner, its first transactions, its map).
  * - The address page: its first status passes straight through, so the page asks once, on that
  *   status, never on its one-second fallback (checked below); and the address's totals are held
- *   1.2 s, so their own one-second timer always fires first and the ledger is always asked twice.
+ *   until the first ledger answer has come, so the ledger is always asked first on the totals'
+ *   own timer and again once they come, and the first is never cut short by the second.
  */
 async function walk(page: Page, seen: Seen, gate: Gate, block: string, paid: string, file: string) {
   gate.held = true;
+  let since = seen.received.length;
+  let sentSince = seen.sent.length;
   await arrive(page, seen, () => page.goto(`/regtest/tx/${TX}`), [
     new RegExp(`/api/tx/${TX}$`),
     new RegExp(`/api/tx/${TX}/outspends$`),
@@ -683,7 +688,9 @@ async function walk(page: Page, seen: Seen, gate: Gate, block: string, paid: str
   ]);
   gate.release();
   await expect
-    .poll(() => seen.received.some((m) => m.includes(`"topic":"tx:${TX}"`)), { timeout: 10_000 })
+    .poll(() => seen.received.slice(since).some((m) => m.includes(`"topic":"tx:${TX}"`)), {
+      timeout: 10_000,
+    })
     .toBe(true);
   await page.getByRole("button", { name: "Details of output 0" }).click();
   // A label typed and saved: added in one run, an edit in the other.
@@ -691,12 +698,17 @@ async function walk(page: Page, seen: Seen, gate: Gate, block: string, paid: str
   await page.getByRole("textbox", { name: "Your label for this transaction" }).fill("zebra-typed");
   await page.keyboard.press("Enter");
   await expect(page.locator(".tx-head .your-label__text")).toHaveText("zebra-typed");
+  // The totals are held until the first ledger answer has come: the ledger is then asked first
+  // when the totals' own one-second timer fires, and again once they come, never cut short.
+  const firstLedger = page.waitForResponse(
+    (r) => new URL(r.url()).pathname === `/regtest/app/address/${paid}/ledger`,
+    { timeout: 15_000 },
+  );
   await page.route(new RegExp(`/api/address/${paid}$`), async (route) => {
-    await new Promise((resolve) => {
-      setTimeout(resolve, 1200);
-    });
+    await firstLedger;
     await route.continue();
   });
+  const addressFrom = seen.events.length;
   await arrive(
     page,
     seen,
@@ -711,27 +723,33 @@ async function walk(page: Page, seen: Seen, gate: Gate, block: string, paid: str
     /"state":"watching"/,
   );
   // The schedule held: the page asked for the address's totals only after its first status.
-  const status = seen.events.findIndex((e) => e.startsWith("gave") && e.includes('"watching"'));
-  const totals = seen.events.indexOf(`asked /regtest/api/address/${paid}`);
+  const visit = seen.events.slice(addressFrom);
+  const status = visit.findIndex((e) => e.startsWith("gave") && e.includes('"watching"'));
+  const totals = visit.indexOf(`asked /regtest/api/address/${paid}`);
   expect(
     status !== -1 && status < totals,
     "the server answered the address's subscription before the page's one-second fallback",
   ).toBe(true);
   gate.held = true;
-  await arrive(page, seen, () => page.goto(`/regtest/block/${block}`), [
-    new RegExp(`/api/block/${block}$`),
-    new RegExp(`/api/block/${block}/status$`),
-    new RegExp(`/api/block/${block}/txs/0$`),
-    new RegExp(`/app/block/${block}/txs\\?v=2$`),
-    /\/app\/blocks\/summary\?/,
-  ]);
+  since = seen.received.length;
+  sentSince = seen.sent.length;
+  await page.goto(`/regtest/block/${block}`);
+  // Released once the page has applied its first answers, as it shows them: the block's summary
+  // (its miner), its first page of transactions, and its transactions for the map.
+  await expect(
+    page.locator(".block-fact").filter({ hasText: "Miner" }).getByRole("link"),
+  ).toBeVisible();
+  await expect(page.locator(`a[href$="/tx/${TX}"]`).first()).toBeVisible();
+  await expect(page.getByRole("img", { name: /Map of the block/ })).toBeVisible();
   gate.release();
   await expect
-    .poll(() => seen.received.some((m) => m.includes('"network":"regtest"')), { timeout: 10_000 })
+    .poll(() => seen.received.slice(since).some((m) => m.includes('"network":"regtest"')), {
+      timeout: 10_000,
+    })
     .toBe(true);
-  await expect
-    .poll(() => seen.sent.some((m) => m.includes('"blocks"')), { timeout: 10_000 })
-    .toBe(true);
+  // With its status in hand before the greeting (an older block, with a next one), the page never
+  // listens for new blocks: under this schedule it asks the socket for nothing.
+  expect(seen.sent.slice(sentSince).filter((m) => m.includes('"blocks"'))).toEqual([]);
   await manage(page, file);
 }
 
@@ -805,6 +823,8 @@ test("nothing about a label reaches the server: exactly the same requests with l
   };
   expect(counted(withLabels.requests)).toEqual(counted(without.requests));
   expect(opsByTopic(withLabels.sent)).toEqual(opsByTopic(without.sent));
+  // And every frame the page sent, whatever it holds (with topics or without), in order.
+  expect(withLabels.sent).toEqual(without.sent);
   test.info().annotations.push({
     type: "requests compared",
     description: `${withLabels.requests.length} requests and ${withLabels.sent.length} socket messages, all compared and searched`,
