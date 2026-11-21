@@ -381,7 +381,7 @@ function CostPanel(props: { views: LevelView[] }) {
     { header: "Level", cell: (v) => v.name },
     {
       header: "Recommended, median",
-      short: "Rate, median",
+      short: "Median rate",
       sub: "sat/vB",
       numeric: true,
       cell: (v) => (

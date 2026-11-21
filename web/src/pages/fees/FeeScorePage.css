@@ -110,14 +110,12 @@
     color: var(--color-text-muted);
     white-space: normal;
   }
-  /* A cost cell's words ("under 0.01", "none met") may wrap; a figure's digits never part. */
-  .fee-score__cost td.table__num {
+  /* Two figures in one cell may part at the dot on a phone; each stays whole. */
+  .fee-score__pair {
     white-space: normal;
   }
-  /* Two figures in one cell may part at the dot on a phone, and "under 0.01" at its space; a
-     figure's digit groups are joined by no-break spaces, so it never parts. */
-  .fee-score__cost td.table__num .num {
-    white-space: normal;
+  .fee-score__pair .num {
+    white-space: nowrap;
   }
   .fee-score__kinds {
     display: block;
@@ -325,6 +323,16 @@
     }
     /* The line and the interval's ends beside it, one line: under the band they would take a
        second on each row, and the four rows would not fit a phone's first screen. */
+    /* Four figure columns on a 320 px phone in any reader's font: a little less gutter. */
+    .fee-score__cost .table :is(th, td) {
+      padding-inline: 4px;
+    }
+    .fee-score__cost .table :is(th, td):first-child {
+      padding-left: 0;
+    }
+    .fee-score__cost .table :is(th, td):last-child {
+      padding-right: 0;
+    }
     .fee-score__scale {
       display: inline;
       margin-right: var(--space-1);
