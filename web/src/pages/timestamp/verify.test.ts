@@ -17,6 +17,7 @@ import {
   type Block,
   blockFetcher,
   type FetchBlock,
+  headerTimeRule,
   MAX_CHECKS,
   readHeader,
   steps,
@@ -362,5 +363,19 @@ describe("review round 2", () => {
     expect((await verify(p, root, { mainnet: true, fetchBlock: missing, signal })).kind).toBe(
       "incomplete",
     );
+  });
+});
+
+describe("the rule on a header's time (review round 3, T14)", () => {
+  it("has no median for the genesis block", () => {
+    expect(headerTimeRule(0)).toBe(
+      "A node accepts a block only if its time is no more than two hours ahead of the node's own clock when it checks.",
+    );
+  });
+  it("counts the blocks there are, up to eleven", () => {
+    const rule =
+      "A node accepts a block only if its time is later than the median of the blocks before it, up to eleven, and no more than two hours ahead of the node's own clock when it checks.";
+    expect(headerTimeRule(5)).toBe(rule);
+    expect(headerTimeRule(449_397)).toBe(rule);
   });
 });

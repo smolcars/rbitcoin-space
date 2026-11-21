@@ -75,6 +75,17 @@ export type Verdict =
   /** The server has no mainnet, so no block can be asked for. */
   | { kind: "no-mainnet"; heights: number[]; others: Leaf[] };
 
+/**
+ * What a node checks of a block's header time, as the page says it: later than the median of the
+ * blocks before it, up to eleven (none for the genesis block), and at most two hours ahead of the
+ * node's clock when it checks.
+ */
+export function headerTimeRule(height: number): string {
+  return height === 0
+    ? "A node accepts a block only if its time is no more than two hours ahead of the node's own clock when it checks."
+    : "A node accepts a block only if its time is later than the median of the blocks before it, up to eleven, and no more than two hours ahead of the node's own clock when it checks.";
+}
+
 /** At most this many distinct blocks are asked about; real proofs name one to four. */
 export const MAX_CHECKS = 8;
 

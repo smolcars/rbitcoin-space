@@ -163,3 +163,49 @@ describe("a replacement chosen while a verdict shows (review round 2, T12)", () 
     await vi.waitFor(() => expect(text(el)).toContain("This proof is not for this file"));
   });
 });
+
+describe("review round 3", () => {
+  it("says a proof or a file that cannot be read could not be read, not that it breaks the format (T17)", async () => {
+    const { el, proof, file } = open();
+    const broken = {
+      name: "gone.ots",
+      size: 10,
+      arrayBuffer: () => Promise.reject(new Error("NotReadableError")),
+    };
+    choose(proof, broken as unknown as File);
+    await vi.waitFor(() => expect(text(el)).toContain("The proof file could not be read"));
+    expect(text(el)).not.toContain("breaks the format");
+    choose(proof, fakeFile("p.ots", pendingProof));
+    const lost = {
+      name: "gone.txt",
+      size: 10,
+      slice: () => ({ arrayBuffer: () => Promise.reject(new Error("NotReadableError")) }),
+    };
+    choose(file, lost as unknown as File);
+    await vi.waitFor(() => expect(text(el)).toContain("Your file could not be read"));
+  });
+
+  it("hashes a file once when the proof is replaced by one wanting the same hash (T19)", async () => {
+    const { el, proof, file } = open();
+    let starts = 0;
+    const counted = fakeFile("the-file.txt", content);
+    const slice = counted.slice.bind(counted);
+    Object.assign(counted, {
+      slice: (a?: number, b?: number) => {
+        if (a === 0) starts++;
+        return slice(a, b);
+      },
+    });
+    choose(proof, fakeFile("a.ots", pendingProof));
+    await vi.waitFor(() => expect(text(el)).toContain("a.ots"));
+    choose(file, counted);
+    await vi.waitFor(() => expect(text(el)).toContain("Not verified yet"));
+    expect(starts).toBe(1);
+    const slow = deferred();
+    choose(proof, fakeFile("b.ots", pendingProof, slow.promise));
+    await settle();
+    slow.resolve();
+    await vi.waitFor(() => expect(text(el)).toContain("Not verified yet"));
+    expect(starts).toBe(1);
+  });
+});

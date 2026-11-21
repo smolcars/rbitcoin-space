@@ -3,7 +3,16 @@
 // are for the blocks its Bitcoin attestations name, to this server's mainnet: the hash at a height
 // and that block's header. Everything read from the proof is shown as text, a calendar's address
 // included, which is never a link.
-import { createEffect, createSignal, For, Match, onCleanup, Show, Switch } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  Match,
+  onCleanup,
+  Show,
+  Switch,
+} from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { Link } from "../../components/Link";
 import { More } from "../../components/More";
@@ -23,6 +32,7 @@ import {
   blockFetcher,
   type Check,
   MAX_CHECKS,
+  headerTimeRule,
   steps,
   type Verdict,
   verify,
@@ -33,7 +43,9 @@ type ProofInput =
   | { name: string; size: number; proof: Proof }
   | { name: string; size: number; error: ProofError }
   /** Chosen, its bytes still being read. */
-  | { name: string; size: number; reading: true };
+  | { name: string; size: number; reading: true }
+  /** The browser could not read its bytes: nothing was parsed. */
+  | { name: string; size: number; unreadable: true };
 
 type Hashing =
   | { kind: "running"; done: number; total: number }
@@ -68,7 +80,7 @@ async function readProofFile(file: File): Promise<ProofInput> {
     return { ...base, proof: parseProof(new Uint8Array(await file.arrayBuffer())) };
   } catch (e) {
     if (e instanceof ProofError) return { ...base, error: e };
-    return { ...base, error: new ProofError("malformed", "This file could not be read.") };
+    return { ...base, unreadable: true };
   }
 }
 
@@ -97,7 +109,12 @@ export default function TimestampPage() {
     const p = proofIn();
     return p !== undefined && "reading" in p;
   };
-  const algorithm = (): HashName => proof()?.fileHash ?? "sha256";
+  const unreadable = (): boolean => {
+    const p = proofIn();
+    return p !== undefined && "unreadable" in p;
+  };
+  // A memo, so a proof replaced by one that wants the same hash does not hash the file again.
+  const algorithm = createMemo((): HashName => proof()?.fileHash ?? "sha256");
   const running = () => {
     const h = hashing();
     return h?.kind === "running" ? h : undefined;
@@ -249,9 +266,6 @@ export default function TimestampPage() {
           <Show when={hashing()?.kind === "cancelled"}>
             <p class="ots-slot__note">Hashing stopped. Choose the file again to start over.</p>
           </Show>
-          <Show when={hashing()?.kind === "failed"}>
-            <p class="ots-slot__note ots-slot__note--bad">This file could not be read.</p>
-          </Show>
           <Show when={!file()}>
             <label class="ots-hex">
               <span class="ots-hex__label">Or its {HASH_NAMES[algorithm()]}, in hex</span>
@@ -278,6 +292,12 @@ export default function TimestampPage() {
       <section class="ots-result" aria-label="Result">
         <Switch>
           <Match when={proofError()}>{(e) => <NotAProof error={e()} />}</Match>
+          <Match when={unreadable()}>
+            <Unreadable what="proof" />
+          </Match>
+          <Match when={file() && hashing()?.kind === "failed"}>
+            <Unreadable what="file" />
+          </Match>
           <Match when={reading()}>
             <Loading label="Reading the proof" />
           </Match>
@@ -426,6 +446,24 @@ const MESSAGES: Record<ProofError["kind"], string> = {
   malformed: "This proof breaks the format",
 };
 
+/** A file the browser could not read: nothing in it reached the page. */
+function Unreadable(props: { what: "proof" | "file" }) {
+  return (
+    <Verdictbox
+      tone="negative"
+      status="Not read"
+      title={
+        props.what === "proof" ? "The proof file could not be read" : "Your file could not be read"
+      }
+    >
+      <p>
+        The browser could not read {props.what === "proof" ? "the proof file" : "your file"}, so
+        nothing in it was checked. Choose it again, or check that it is still there and readable.
+      </p>
+    </Verdictbox>
+  );
+}
+
 function NotAProof(props: { error: ProofError }) {
   return (
     <Verdictbox tone="negative" status="Not checked" title={MESSAGES[props.error.kind]}>
@@ -520,7 +558,7 @@ function Result(props: { v: Verdict; digest: Uint8Array; from: From; proof: Proo
               >
                 <p>
                   The proof starts from a {name()} that is not your file's. A single changed byte,
-                  another line ending or a re-saved copy gives a file another digest.
+                  another line ending or a re-saved copy can give a file another digest.
                 </p>
                 <dl class="ots-pair">
                   <dt>Your file's {name()}</dt>
@@ -546,8 +584,7 @@ function Result(props: { v: Verdict; digest: Uint8Array; from: From; proof: Proo
                   Following the proof's steps from {GIVEN[props.from]} ends in a value that is not
                   the merkle root of the block this server's node has at that height, and no other
                   Bitcoin attestation in the proof does better. Either the proof is damaged or made
-                  up, or it names a block that is no longer at that height in the chain this node
-                  follows.
+                  up, or it refers to a different block at that height than the one this node has.
                 </p>
                 <Show when={bad()}>
                   {(c) => (
@@ -645,8 +682,11 @@ function Result(props: { v: Verdict; digest: Uint8Array; from: From; proof: Proo
           {(v) => (
             <Verdictbox tone="caution" status="Pending" title="Not verified yet">
               <p>
-                This proof holds only calendars' promises to put the digest into a Bitcoin block. It
-                has no Bitcoin attestation, so there is nothing to check.
+                This proof has{" "}
+                {v().calendars.length === 1
+                  ? "a pending calendar attestation"
+                  : "pending calendar attestations"}{" "}
+                and no Bitcoin attestation, so there is no block to check.
               </p>
               <p>
                 Upgrade it with your OpenTimestamps client (<code class="mono">ots upgrade</code>{" "}
@@ -750,11 +790,7 @@ function Verified(props: {
         Block {groupDigits(c().height)}'s header time is <TimeUtc time={c().block.time} />,{" "}
         <TimeAgo time={c().block.time} />.
       </p>
-      <p>
-        That time is the miner's claim. A node accepts a block only if its time is later than the
-        median of the eleven blocks before it and no more than two hours ahead of the node's own
-        clock when it checks.
-      </p>
+      <p>That time is the miner's claim. {headerTimeRule(c().height)}</p>
       <Show when={props.proof?.fileHash === "sha1"}>
         <p class="ots-caveat">
           This proof names the file by its SHA-1, and two different files can be made to share a

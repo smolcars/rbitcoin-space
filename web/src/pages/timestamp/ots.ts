@@ -139,7 +139,7 @@ function reader(bytes: Uint8Array): Reader {
         return value;
       }
     }
-    throw new ProofError("too-large", "The proof holds a number too large to be real.");
+    throw new ProofError("too-large", "The proof holds a number larger than this page reads.");
   };
   return {
     done: () => at >= bytes.length,
