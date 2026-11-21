@@ -342,7 +342,8 @@ function Fees(props: { record: NodeCloses }) {
           <Kind kind={k} />
           {/* Where the last column has no room, its figure is this row's second line. */}
           <span class="ln-record__second ln-record__second--fit">
-            All channels: <span class="num">{all(k)}</span> sats a close
+            All channels: <span class="num">{all(k)}</span>
+            {all(k) === MISSING ? "" : " sats a close"}
           </span>
         </span>
       ),

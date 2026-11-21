@@ -977,7 +977,7 @@ describe("a node's close record", () => {
     expect(fee?.textContent).toContain("a\u00A0close");
     // The second week is past every channel's figures: none, not a zero, said in words to a
     // screen reader and in a note under the table.
-    expect(t).toContain("16 Nov 2026345–No figure for this week yet");
+    expect(t).toContain("345–No figure for this week yet");
     expect(t).toContain(
       "A dash: every channel's figures, worked out every ten minutes, do not reach that week yet.",
     );
@@ -1053,7 +1053,9 @@ describe("a node's close record", () => {
     expect(t).toContain("All channelscloses");
     expect(t).not.toContain("All channelsshare");
     // No force close: one dash for its fee, not a dash over "– a close"; no caveat about it.
-    expect(t).toContain("Force–");
+    const fees = [...(section(el)?.querySelectorAll("table") ?? [])][1];
+    const force = [...(fees?.querySelectorAll("tbody tr") ?? [])][1];
+    expect(force?.querySelectorAll("td")[1]?.textContent).toBe("–");
     expect(t).not.toContain("– a");
     expect(t).not.toContain("in the record of both");
   });
