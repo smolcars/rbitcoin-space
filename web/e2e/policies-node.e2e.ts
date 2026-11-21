@@ -374,6 +374,17 @@ test.describe("on a touch screen", () => {
   }
 });
 
+/** The recorded close record, as one close of each kind. */
+function everyKind(): Record<string, unknown> {
+  const r = recorded("node-acinq-closes") as Record<string, unknown> & {
+    node: Record<string, unknown>;
+  };
+  return {
+    ...r,
+    node: { ...r.node, closed: 4, cooperative: 1, force: 1, penalty: 1, other: 1, shares: null },
+  };
+}
+
 test("a node with one channel, one with no policy, and closes of every kind", async ({ page }) => {
   const n = node();
   const none = (r: Row): Row => ({ ...r, own_policy: null, peer_policy: null, fee_rate: null });
@@ -403,6 +414,9 @@ test("a node with one channel, one with no policy, and closes of every kind", as
       fees: { outgoing: [{ bucket: null, count: 1803, capacity: 1 }], incoming: [] },
       open_channels: { ...n.open_channels, channels: n.open_channels.channels.map(none) },
     },
+    // Its close record agrees with its answer, as the server's do: the list takes its counts by
+    // kind from the record where it holds every close.
+    [`nodes/${ACINQ}/closes`]: everyKind(),
     [`nodes/${ACINQ}/channels?status=closed`]: {
       ...closed(),
       total: 4,
