@@ -849,7 +849,13 @@ test("nothing about a label reaches the server: exactly the same requests with l
   baseURL,
   extraHTTPHeaders,
   page: helper,
+  browserName,
 }) => {
+  // Chromium only: its schedule turns the browser's cache off through Chromium's own protocol, and
+  // the one other way, routing every request through the test, slows the walk until its waits
+  // time out. Firefox and WebKit therefore do not check that labels change no request; the
+  // manager test below, which needs no cache control, still checks the manager asks for nothing.
+  test.skip(browserName !== "chromium", "the cache is turned off through Chromium's own protocol");
   test.setTimeout(90_000);
   const tx = await scriptTypes(helper);
   const paid = tx.vout[0]?.scriptpubkey_address ?? "";
@@ -1073,7 +1079,12 @@ test("in forced colours with large text the head and the chart stay put for a la
   browser,
   baseURL,
   extraHTTPHeaders,
+  browserName,
 }) => {
+  // Chromium only: the reader's text size is set through Chromium's own protocol, which Firefox
+  // and WebKit lack for one context. They therefore check the head's height at the default text
+  // size only (the test above), not in forced colours with large text.
+  test.skip(browserName !== "chromium", "the text size is set through Chromium's own protocol");
   test.setTimeout(120_000);
   const address = chain.addresses.p2tr;
   // A desktop with a fine pointer, forced colours (the tag gains a border) and a 22 px root.
