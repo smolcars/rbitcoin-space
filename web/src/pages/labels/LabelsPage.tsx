@@ -298,17 +298,60 @@ function Manager(props: {
   const haystack = createMemo(() =>
     props.all.map((r) => `${r.label ?? ""}\n${r.ref}`.toLowerCase()),
   );
+  // What the search finds, and the row being edited whether or not it matches: finding other
+  // labels never takes an open editor, and its draft, off the page.
   const found = createMemo(() => {
     const q = query().trim().toLowerCase();
-    if (q === "") return props.all;
+    if (q === "") return { rows: props.all, matched: props.all.length };
     const hay = haystack();
-    return props.all.filter((_, i) => hay[i]?.includes(q) === true);
+    const key = editing();
+    let matched = 0;
+    const rows = props.all.filter((r, i) => {
+      const hit = hay[i]?.includes(q) === true;
+      if (hit) matched++;
+      return hit || r.key === key;
+    });
+    return { rows, matched };
   });
-  const pageCount = () => Math.max(1, Math.ceil(found().length / PER_PAGE));
+  const pageCount = () => Math.max(1, Math.ceil(found().rows.length / PER_PAGE));
+  // While an editor is open, the page shown is the one that holds its row: another tab's
+  // deletions or imports move the row across pages, and following it keeps the editor mounted,
+  // with its draft and focus. Otherwise the page the reader chose.
+  const editedAt = createMemo(() => {
+    const key = editing();
+    return key === undefined ? -1 : found().rows.findIndex((r) => r.key === key);
+  });
+  const current = createMemo(() =>
+    editedAt() === -1 ? Math.min(page(), pageCount()) : Math.floor(editedAt() / PER_PAGE) + 1,
+  );
+  // Once the editor closes, the reader stays on the page it was on.
+  createEffect(current, (p) => {
+    if (p !== untrack(page)) setPage(p);
+  });
+  // A row that moves within the table is taken out of the document and put back, which drops
+  // focus: the editor's field, if it has focus, is noted as the rows are worked out (before the
+  // table changes) and given focus and its caret back once the table has changed.
+  let refocus: { field: HTMLInputElement; start: number | null; end: number | null } | undefined;
   const shown = createMemo(() => {
-    const p = Math.min(page(), pageCount());
-    return found().slice((p - 1) * PER_PAGE, p * PER_PAGE);
+    const at = document.activeElement;
+    refocus =
+      at instanceof HTMLInputElement && at.classList.contains("label-editor__field")
+        ? { field: at, start: at.selectionStart, end: at.selectionEnd }
+        : undefined;
+    return found().rows.slice((current() - 1) * PER_PAGE, current() * PER_PAGE);
   });
+  createEffect(shown, () => {
+    const r = refocus;
+    refocus = undefined;
+    if (!r || !r.field.isConnected || document.activeElement === r.field) return;
+    r.field.focus({ preventScroll: true });
+    r.field.setSelectionRange(r.start, r.end);
+  });
+  // Turning the page is leaving the editor: it closes, as opening another row's editor does.
+  const turn = (p: number) => {
+    if (editing() !== undefined) props.edit(undefined);
+    setPage(p);
+  };
 
   const fail = (e: unknown) => setProblem(failureWords(e, "That could not be done. Try again."));
 
@@ -405,6 +448,7 @@ function Manager(props: {
 
   const deleteAll = () => {
     const n = props.all.length;
+    if (editing() !== undefined) props.edit(undefined);
     removeAll()
       .then(() => {
         setConfirmAll(false);
@@ -451,6 +495,8 @@ function Manager(props: {
             class="btn"
             onClick={() => {
               setSaid("");
+              // Deleted here, by the reader: its editor closes now, not as if another tab had.
+              if (editing() === r.key) props.edit(undefined);
               remove([r.key])
                 .then(() => setSaid(`Deleted the label of ${describe(r)}.`))
                 .catch(fail);
@@ -566,7 +612,7 @@ function Manager(props: {
           />
           <Show when={query().trim() !== ""}>
             <span class="labels-page__count num" aria-live="polite">
-              {groupDigits(found().length)} found
+              {groupDigits(found().matched)} found
             </span>
           </Show>
         </div>
@@ -603,12 +649,7 @@ function Manager(props: {
         }}
       />
       <Show when={pageCount() > 1}>
-        <Pagination
-          page={Math.min(page(), pageCount())}
-          pageCount={pageCount()}
-          onPage={setPage}
-          label="Label pages"
-        />
+        <Pagination page={current()} pageCount={pageCount()} onPage={turn} label="Label pages" />
       </Show>
     </section>
   );

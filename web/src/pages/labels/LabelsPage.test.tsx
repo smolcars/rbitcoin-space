@@ -271,6 +271,118 @@ describe("the manager", () => {
     await expect(stored()).resolves.not.toContain(ref(10));
   });
 
+  describe("an open editor's row moving across pages", () => {
+    const ref = (i: number) => i.toString(16).padStart(2, "0").repeat(32);
+    /** 100 labels, L0 to L99: newest first, page 1 lists L99 to L50 and page 2 L49 to L0. */
+    const hundred = () =>
+      importLines(
+        Array.from({ length: 100 }, (_, i) => `{"type":"tx","ref":"${ref(i)}","label":"L${i}"}`),
+      );
+    const editOf = (el: HTMLElement, i: number) =>
+      [...el.querySelectorAll("button")].find((b) =>
+        (b.textContent ?? "").startsWith(`Edit the label of transaction ${ref(i).slice(0, 8)}`),
+      );
+    const pageShown = (el: HTMLElement) =>
+      el.querySelector(".pagination__status [aria-live]")?.textContent;
+    /** Opens the editor of L`i`, from page `at`, and types a draft in it. */
+    const open = async (el: HTMLElement, i: number, at: number) => {
+      await until(() => editOf(el, 99) !== undefined);
+      if (at === 2)
+        [...el.querySelectorAll("button")].find((b) => b.textContent === "Next")?.click();
+      await until(() => editOf(el, i) !== undefined);
+      expect(pageShown(el)).toBe(`Page ${at}`);
+      editOf(el, i)?.click();
+      await until(() => el.querySelector("input.label-editor__field") !== null);
+      const field = el.querySelector<HTMLInputElement>("input.label-editor__field");
+      if (!field) throw new TypeError("no field");
+      field.value = `L${i}, my draft`;
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+      field.focus();
+      return field;
+    };
+    /** The same field, its draft and focus kept, on the page that now holds its row. */
+    const kept = (el: HTMLElement, field: HTMLInputElement, i: number, at: number) => {
+      expect(pageShown(el)).toBe(`Page ${at}`);
+      expect(el.querySelector("input.label-editor__field")).toBe(field);
+      expect(field.value).toBe(`L${i}, my draft`);
+      expect(document.activeElement).toBe(field);
+    };
+
+    it("follows it to an earlier page when another tab deletes records before it", async () => {
+      await hundred();
+      const el = mount(() => <LabelsPage />, "/regtest/labels");
+      const field = await open(el, 49, 2);
+      await remove([recordKey("tx", ref(99), undefined), recordKey("tx", ref(70), undefined)]);
+      await until(() => pageShown(el) === "Page 1" || editOf(el, 99) !== undefined);
+      await until(() => el.querySelector(".labels-page__list .num")?.textContent === "98 labels");
+      expect(field.value).toBe("L49, my draft");
+      kept(el, field, 49, 1);
+      await agree(el, 98, 50);
+    });
+
+    it("follows it to a later page when another tab adds records before it", async () => {
+      await hundred();
+      const el = mount(() => <LabelsPage />, "/regtest/labels");
+      const field = await open(el, 50, 1);
+      // Another tab imports two new labels: newest, so listed first.
+      await importLines([
+        `{"type":"tx","ref":"${"e1".repeat(32)}","label":"new 1"}`,
+        `{"type":"tx","ref":"${"e2".repeat(32)}","label":"new 2"}`,
+      ]);
+      await until(() => el.querySelector(".labels-page__list .num")?.textContent === "102 labels");
+      expect(field.value).toBe("L50, my draft");
+      kept(el, field, 50, 2);
+      await agree(el, 102, 50);
+    });
+
+    it("keeps it listed while the reader finds other labels", async () => {
+      await hundred();
+      const el = mount(() => <LabelsPage />, "/regtest/labels");
+      const field = await open(el, 10, 2);
+      const find = el.querySelector<HTMLInputElement>("#labels-find");
+      if (!find) throw new TypeError("no find field");
+      find.value = "L9";
+      find.dispatchEvent(new Event("input", { bubbles: true }));
+      flush();
+      // L9 and L90 to L99 match; the row being edited stays, with its editor and draft.
+      expect(el.querySelector("input.label-editor__field")).toBe(field);
+      expect(field.value).toBe("L10, my draft");
+      expect(editOf(el, 95)).toBeDefined();
+      expect(editOf(el, 11)).toBeUndefined();
+    });
+
+    it("closes the editor when the reader turns the page themselves", async () => {
+      await hundred();
+      const el = mount(() => <LabelsPage />, "/regtest/labels");
+      await open(el, 60, 1);
+      [...el.querySelectorAll("button")].find((b) => b.textContent === "Next")?.click();
+      await until(() => pageShown(el) === "Page 2");
+      expect(pageShown(el)).toBe("Page 2");
+      expect(el.querySelector("input.label-editor__field")).toBeNull();
+      // And back on page 1 the row shows no editor: it was closed, not hidden.
+      [...el.querySelectorAll("button")].find((b) => b.textContent === "Previous")?.click();
+      await until(() => pageShown(el) === "Page 1");
+      expect(el.querySelector("input.label-editor__field")).toBeNull();
+      expect(editOf(el, 60)?.getAttribute("aria-expanded")).toBe("false");
+    });
+  });
+
+  it("deleting the row being edited, here, closes its editor without saying another tab did", async () => {
+    const A = "aa".repeat(32);
+    await importLines([`{"type":"tx","ref":"${A}","label":"A"}`]);
+    const el = mount(() => <LabelsPage />, "/regtest/labels");
+    const button = (start: string) =>
+      [...el.querySelectorAll("button")].find((b) => (b.textContent ?? "").startsWith(start));
+    await until(() => button("Edit the label of transaction aaaaaaaa") !== undefined);
+    button("Edit the label of transaction aaaaaaaa")?.click();
+    await until(() => el.querySelector("input.label-editor__field") !== null);
+    button("Delete the label of transaction aaaaaaaa")?.click();
+    await until(() => (el.querySelector(".labels-page__said")?.textContent ?? "") !== "");
+    expect(el.querySelector(".labels-page__said")?.textContent).toMatch(/^Deleted the label of/);
+    expect(el.querySelector(".labels-page__lost")).toBeNull();
+    expect(el.querySelector("input.label-editor__field")).toBeNull();
+  });
+
   it("refuses a save of a record that vanished, gives the draft back, and writes nothing", async () => {
     const plain = `{"type":"tx","ref":"${TXID}","label":"plain","note":"kept as it is"}`;
     const origin = "wpkh([aaaaaaaa/84'/0'/0'])";
