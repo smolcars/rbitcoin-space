@@ -19,6 +19,7 @@ import {
 import { Code } from "./Code";
 import { ChainWords, type Selection } from "./Flow";
 import { MarkedAddress } from "./Lookalike";
+import { returnFocus } from "./flash";
 import { classify, disassemble, isText, lastPush, opReturnData } from "./script";
 import {
   coinbaseHeight,
@@ -90,14 +91,12 @@ export function Inspector(props: {
 }) {
   const title = () =>
     `${props.selected.side === "in" ? "Input" : "Output"} ${props.selected.index}`;
-  // What opened these details, a card's button or a number in the privacy check: closing them
-  // gives it the focus back, so a keyboard reader carries on from where they were.
-  const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  // Closed, they give the focus back to what opened them (flash.ts `returnFocus`), so a keyboard
+  // reader carries on from where they were.
   const close = () => {
+    const { side, index } = props.selected;
     props.onClose();
-    requestAnimationFrame(() => {
-      if (opener?.isConnected === true) opener.focus();
-    });
+    requestAnimationFrame(() => returnFocus(side, index));
   };
   return (
     <section class="tx-inspector" id="tx-inspector" aria-labelledby="tx-inspector-title">

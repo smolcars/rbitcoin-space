@@ -12,7 +12,7 @@ import { paths } from "../../lib/network";
 import type { TagPart } from "../block/chain";
 import { type ChainText, coinbaseText, inputText, outputText } from "./chaintext";
 import { LookalikeTag } from "./Lookalike";
-import { bringIntoView, cardId, clearFlash, nextFrame, SHOW } from "./flash";
+import { bringIntoView, cardId, clearFlash, nextFrame, setOpener, SHOW } from "./flash";
 import { CardMarks } from "./Privacy";
 import type { Mark } from "./privacytext";
 import { classify } from "./script";
@@ -225,7 +225,7 @@ export function Flow(props: {
   // A link from the privacy check: open the card's group if it is hidden, then show the card.
   const onShow = (e: Event) => {
     if (!(e instanceof CustomEvent)) return;
-    const { side, index } = e.detail as Selection;
+    const { side, index, from } = e.detail as Selection & { from?: HTMLElement };
     const total = side === "in" ? vin().length : props.tx.vout.length;
     if (!Number.isInteger(index) || index < 0 || index >= total) return;
     const need = Math.max(0, Math.ceil((index + 1 - FIRST_SHOWN) / MORE_STEP));
@@ -234,6 +234,8 @@ export function Flow(props: {
     // thousands on a large payout. Its details open instead, as its own button opens them.
     if (need - presses > 1) {
       clearFlash();
+      // The number followed is what opened them, even when they were open already.
+      setOpener(from ?? null);
       // Already open (the list stays in view above them on a phone): bring them back and focus them.
       if (isSel(side, index)) {
         const heading = document.getElementById("tx-inspector-title");
@@ -289,7 +291,10 @@ export function Flow(props: {
       aria-expanded={isSel(side, index) ? "true" : "false"}
       aria-controls="tx-inspector"
       aria-label={`Details of ${side === "in" ? "input" : "output"} ${index}`}
-      onClick={() => props.onSelect({ side, index })}
+      onClick={(e) => {
+        setOpener(e.currentTarget);
+        props.onSelect({ side, index });
+      }}
     >
       <svg viewBox="0 0 16 16" aria-hidden="true">
         <path d="M6 4l4 4-4 4" />

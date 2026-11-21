@@ -175,6 +175,16 @@ describe("the notice before sending", () => {
   });
 });
 
+/** Presses the open details' Close button. */
+function closeDetails(el: HTMLElement) {
+  const close = [...el.querySelectorAll<HTMLButtonElement>("#tx-inspector button")].find(
+    (b) => b.textContent === "Close",
+  );
+  expect(close).toBeDefined();
+  close?.click();
+  flush();
+}
+
 describe("whether its outputs are spent", () => {
   const spendsAsked = () => asked.filter((u) => u.endsWith("/outspends"));
   /** Opens output `i`'s details and gives their text. */
@@ -254,6 +264,49 @@ describe("whether its outputs are spent", () => {
     close?.click();
     flush();
     await vi.waitFor(() => expect(document.activeElement).toBe(open));
+  });
+
+  it("closed, details give the focus to the button clicked, not to one focused before", async () => {
+    const c = checked();
+    const el = mount(() => <CheckedTx c={c} hex="00" enabled />, "/regtest/tx/push");
+    const before = el.querySelector<HTMLButtonElement>('button[aria-label="Details of input 0"]');
+    const open = el.querySelector<HTMLButtonElement>('button[aria-label="Details of output 0"]');
+    before?.focus();
+    // A pointer that does not move the focus, as Safari's click on a button does not.
+    open?.click();
+    flush();
+    expect(document.activeElement).not.toBe(open);
+    closeDetails(el);
+    await vi.waitFor(() => expect(document.activeElement).toBe(open));
+  });
+
+  it("closed after the number that opened them is gone, details give the focus to that side's Show more", async () => {
+    // 300 outputs, the last paying the inputs' address back: its number is far down the flow.
+    const c = checked();
+    const [, back] = c.tx.vout;
+    c.tx.vout = Array.from({ length: 300 }, (_, i) =>
+      i === 299 && back
+        ? { ...back, value: 500 }
+        : {
+            scriptpubkey: `0014${i.toString(16).padStart(40, "0")}`,
+            scriptpubkey_asm: "",
+            scriptpubkey_type: "v0_p2wpkh" as const,
+            scriptpubkey_address: `bcrt1qfar${i}`,
+            value: 500 + i,
+          },
+    );
+    const el = mount(() => <CheckedTx c={c} hex="00" enabled />, "/regtest/tx/push");
+    const chip = el.querySelector<HTMLAnchorElement>('a[aria-label="Show output 299"]');
+    expect(chip).not.toBeNull();
+    chip?.click();
+    flush();
+    expect(el.querySelector("#tx-inspector")?.textContent).toContain("Output 299");
+    // The layout changed under it: the number that opened the details is no longer on the page.
+    chip?.remove();
+    closeDetails(el);
+    const more = el.querySelector(".tx-flow__col--out .tx-flow__more");
+    expect(more).not.toBeNull();
+    await vi.waitFor(() => expect(document.activeElement).toBe(more));
   });
 
   it("a refusal, or a press with no answer, never makes it known", async () => {

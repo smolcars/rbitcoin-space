@@ -130,7 +130,7 @@ function Ref(props: { side: "in" | "out"; index: number }) {
       aria-label={`Show ${props.side === "in" ? "input" : "output"} ${props.index}`}
       onClick={(e) => {
         e.preventDefault();
-        showCard(props.side, props.index);
+        showCard(props.side, props.index, e.currentTarget);
       }}
     >
       {String(props.index)}

@@ -64,6 +64,33 @@ export const cardId = (side: "in" | "out", index: number) => `flow-${side}-${ind
  * first when the card is behind it, and outlines it for a moment; the focus goes to its details
  * button.
  */
-export function showCard(side: "in" | "out", index: number): void {
-  document.dispatchEvent(new CustomEvent(SHOW, { detail: { side, index } }));
+export function showCard(side: "in" | "out", index: number, from?: HTMLElement): void {
+  document.dispatchEvent(new CustomEvent(SHOW, { detail: { side, index, from } }));
+}
+
+/** The element whose activation opened the details now open: named by the handler that did. */
+let opener: HTMLElement | null = null;
+export function setOpener(el: HTMLElement | null): void {
+  opener = el;
+}
+
+const shownOnPage = (el: Element | null | undefined): el is HTMLElement =>
+  el instanceof HTMLElement &&
+  el.isConnected &&
+  (typeof el.checkVisibility !== "function" || el.checkVisibility({ visibilityProperty: true }));
+
+/**
+ * Where the focus goes when details close: what opened them if it is still on the page and
+ * visible; else that input's or output's details button, when its card is drawn; else that
+ * side's "Show N more" button, which is there whenever the card is not.
+ */
+export function returnFocus(side: "in" | "out", index: number): void {
+  const from = opener;
+  opener = null;
+  const target = [
+    from,
+    document.getElementById(cardId(side, index))?.querySelector(".tx-flow__open"),
+    document.querySelector(`.tx-flow__col--${side} .tx-flow__more`),
+  ].find((el) => shownOnPage(el));
+  if (target instanceof HTMLElement) target.focus();
 }
