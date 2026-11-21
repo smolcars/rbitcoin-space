@@ -83,8 +83,10 @@ function mutate(r: () => number, base: Uint8Array): Uint8Array {
 /** The app's types leave Node out; the long form is asked for through the environment. */
 declare const process: { env: Record<string, string | undefined> };
 /**
- * The suite plays a tenth of the inputs. The long form is a run of its own, since 50,000 inputs
- * take longer than a unit test may on a slow machine (docs/CI.md "Rules for tests"):
+ * The suite plays a tenth as many inputs (its own 5,000, not a part of the long form's), and holds
+ * only how each one ends. The long form plays 50,000 and holds their processor time too: it is a
+ * run of its own, since a time budget is a benchmark and 50,000 inputs take longer than a unit
+ * test may on a slow machine (docs/CI.md "Rules for tests"):
  * `FUZZ_LONG=1 bunx vitest run src/pages/timestamp/fuzz.test.ts`
  */
 const LONG = process.env["FUZZ_LONG"] === "1";
@@ -114,8 +116,8 @@ function fuzz(randomInputs: number, mutatedInputs: number) {
 }
 
 describe("fuzzing the proof reader", () => {
-  it("throws only its own errors on random bytes and mutated proofs, and is quick on each", () => {
-    const { counts, slowest } = fuzz(2_000, 3_000);
+  it("throws only its own errors on random bytes and mutated proofs", () => {
+    const { counts } = fuzz(2_000, 3_000);
     // The generator is seeded, so how the 5,000 inputs end is fixed: the record of this run.
     expect(counts).toStrictEqual({
       "not-proof": 1022,
@@ -126,15 +128,13 @@ describe("fuzzing the proof reader", () => {
       truncated: 605,
       version: 4,
     });
-    // Generous: under 2 ms of processor time each here.
-    expect(slowest).toBeLessThan(250);
     expect(counts["truncated"]).toBeGreaterThan(0);
     expect(counts["malformed"]).toBeGreaterThan(0);
     expect(counts["ok"]).toBeGreaterThan(0);
   });
 
   it.skipIf(!LONG)(
-    "the long form: the same over 50,000 inputs",
+    "the long form: 50,000 inputs, each quick",
     () => {
       const { counts, slowest, total } = fuzz(20_000, 30_000);
       expect(counts).toStrictEqual({
@@ -146,6 +146,7 @@ describe("fuzzing the proof reader", () => {
         truncated: 6589,
         version: 62,
       });
+      // Generous: under 2 ms of processor time each here, about 2 s in all.
       expect(slowest).toBeLessThan(250);
       expect(total).toBeLessThan(30_000);
     },
