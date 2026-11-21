@@ -217,7 +217,9 @@ describe("Scanner", () => {
         }),
     );
     const bitmap = { width: 4, height: 4, close() {} };
+    // The first picture is being opened when the second is chosen.
     choosePicture(el, null);
+    await vi.waitFor(() => expect(pending).toHaveLength(1));
     choosePicture(el, null);
     await vi.waitFor(() => expect(pending).toHaveLength(2));
     pending[1]?.(bitmap);
@@ -233,6 +235,22 @@ describe("Scanner", () => {
     expect(status()).toMatch(/No QR code found/);
     vi.unstubAllGlobals();
     dispose();
+  });
+
+  it("opens no picture once the scanner closed while its reader downloaded", async () => {
+    camera();
+    const { el, dispose } = open();
+    const opened = vi.fn<() => Promise<unknown>>(() =>
+      Promise.resolve({ width: 4, height: 4, close() {} }),
+    );
+    vi.stubGlobal("createImageBitmap", opened);
+    choosePicture(el, null);
+    dispose();
+    await new Promise((resolve) => {
+      setTimeout(resolve, 20);
+    });
+    expect(opened).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
   });
 
   it("reads a chosen picture, and hands on what its code holds", async () => {

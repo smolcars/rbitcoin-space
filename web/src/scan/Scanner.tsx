@@ -118,7 +118,7 @@ export default function Scanner(props: ScannerProps) {
         }
         if (ended || stream !== live) return;
         // A picture being read has the say: the reader chose it over what the camera sees.
-        if (text !== null && !pictureFirst) {
+        if (text !== null && !pickerOpen && !readingPicture) {
           finish(text);
           return;
         }
@@ -131,9 +131,11 @@ export default function Scanner(props: ScannerProps) {
   // Each camera request and each picture chosen is numbered: only the latest may act.
   let asked = 0;
   let chosen = 0;
-  // The picker is open or a picture is being read: what the camera finds waits (a variable, so the
-  // frame loop reads it the moment it changes).
-  let pictureFirst = false;
+  // While the picker is open, and while the latest picture is read, what the camera finds waits.
+  // Two flags, as a second picker can open while a picture is still read. Variables, so the frame
+  // loop reads them the moment they change.
+  let pickerOpen = false;
+  let readingPicture = false;
   // The stream whose frames are being read, if any.
   let framesFor: MediaStream | undefined;
 
@@ -176,7 +178,8 @@ export default function Scanner(props: ScannerProps) {
     // Only the latest picture speaks: one chosen after it replaces it.
     const current = () => !ended && mine === chosen;
     setPicture("reading");
-    pictureFirst = true;
+    pickerOpen = false;
+    readingPicture = true;
     try {
       // The reader first: one that loads now clears its failure and restarts the camera's frames.
       let reader: Decoder;
@@ -189,6 +192,8 @@ export default function Scanner(props: ScannerProps) {
         }
         return;
       }
+      // Closed, or replaced, while the reader downloaded: the picture is not opened at all.
+      if (!current()) return;
       setReaderFailed(false);
       if (stream !== undefined && framesFor !== stream) void readFrames(stream);
       let bitmap: ImageBitmap;
@@ -214,7 +219,7 @@ export default function Scanner(props: ScannerProps) {
       if (text === null) setPicture("nothing");
       else finish(text);
     } finally {
-      if (mine === chosen) pictureFirst = false;
+      if (mine === chosen) readingPicture = false;
     }
   };
 
@@ -332,7 +337,7 @@ export default function Scanner(props: ScannerProps) {
             onClick={() => {
               // From the moment the picker opens: a code the camera finds meanwhile must not take
               // the reader away from the picture being chosen.
-              pictureFirst = true;
+              pickerOpen = true;
               file?.click();
             }}
           >
@@ -354,7 +359,7 @@ export default function Scanner(props: ScannerProps) {
           hidden
           // Closed with nothing chosen: the camera has the say again.
           onCancel={() => {
-            pictureFirst = false;
+            pickerOpen = false;
           }}
           onChange={(e) => {
             const picked = e.currentTarget.files?.[0];

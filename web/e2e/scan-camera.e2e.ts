@@ -262,3 +262,81 @@ test.describe("when jsQR does not download at first", () => {
     await expect(page).toHaveURL(`/regtest/address/${chain.addresses.p2wpkh}`);
   });
 });
+
+test.describe("a second picker while a picture is read", () => {
+  // The camera's frames find one transaction once a picture is chosen; the picture's read is held
+  // until the test lets it go, and then finds `picture` (nothing when null).
+  async function standIn(page: Page, picture: string | null) {
+    await page.addInitScript(
+      ({ fromCamera, fromPicture }) => {
+        let release: (() => void) | undefined;
+        const held = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        const state = { picked: false, frames: 0, release: () => release?.() };
+        function BarcodeDetector() {
+          return {
+            detect: async (source: unknown) => {
+              if (source instanceof ImageBitmap) {
+                state.picked = true;
+                await held;
+                return fromPicture === null ? [] : [{ rawValue: fromPicture }];
+              }
+              if (state.picked) state.frames += 1;
+              return state.picked ? [{ rawValue: fromCamera }] : [];
+            },
+          };
+        }
+        BarcodeDetector.getSupportedFormats = () => Promise.resolve(["qr_code"]);
+        Object.assign(window, { BarcodeDetector, scanState: state });
+      },
+      { fromCamera: chain.txs.payment, fromPicture: picture },
+    );
+  }
+  const frames = async (page: Page) =>
+    page.evaluate(() => (window as unknown as { scanState: { frames: number } }).scanState.frames);
+  const release = async (page: Page) =>
+    page.evaluate(() => {
+      (window as unknown as { scanState: { release: () => void } }).scanState.release();
+    });
+  async function pickTwice(page: Page) {
+    await page.goto("/regtest/");
+    const dialog = await openScanner(page);
+    await expect(dialog.getByRole("status")).toHaveText("Hold the code inside the frame.");
+    let chooser = page.waitForEvent("filechooser");
+    await dialog.getByRole("button", { name: "Choose a picture" }).click();
+    await (
+      await chooser
+    ).setFiles({ name: "code.png", mimeType: "image/png", buffer: qrPng("any") });
+    await expect(dialog.getByRole("status")).toHaveText("Reading the picture…");
+    chooser = page.waitForEvent("filechooser");
+    await dialog.getByRole("button", { name: "Choose a picture" }).click();
+    await chooser;
+    return dialog;
+  }
+
+  test("the first finding nothing leaves the camera waiting on the open picker", async ({
+    page,
+  }) => {
+    await standIn(page, null);
+    const dialog = await pickTwice(page);
+    await release(page);
+    await expect(dialog.getByRole("status")).toHaveText(/No QR code found/);
+    const before = await frames(page);
+    await expect.poll(async () => frames(page)).toBeGreaterThan(before + 3);
+    await expect(page).toHaveURL("/regtest/");
+    await dialog.locator('input[type="file"]').dispatchEvent("cancel");
+    await expect(page).toHaveURL(`/regtest/tx/${chain.txs.payment}`);
+  });
+
+  test("cancelling the second leaves the camera waiting on the first", async ({ page }) => {
+    await standIn(page, chain.txs.consolidation);
+    const dialog = await pickTwice(page);
+    await dialog.locator('input[type="file"]').dispatchEvent("cancel");
+    const before = await frames(page);
+    await expect.poll(async () => frames(page)).toBeGreaterThan(before + 3);
+    await expect(page).toHaveURL("/regtest/");
+    await release(page);
+    await expect(page).toHaveURL(`/regtest/tx/${chain.txs.consolidation}`);
+  });
+});
