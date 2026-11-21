@@ -1111,8 +1111,26 @@ test("in forced colours with large text the head and the chart stay put for a la
       ] as const) {
         await p.goto(path);
         await expect(below).toBeVisible();
-        await expect(p.locator('.state--loading, [aria-busy="true"]')).toHaveCount(0);
+        // Measured once the page has its data, but for the balance chart, which loads only when it
+        // nears the view: at a 48 px text size it sits far below it, measured by its top alone.
+        await expect(
+          p.locator(
+            '.state--loading:not(.address-balance *), [aria-busy="true"]:not(.address-balance *)',
+          ),
+        ).toHaveCount(0, { timeout: 15_000 });
         await expect(p.locator(`${head} .your-label`)).toHaveCount(hasTag ? 1 : 0);
+        // The button and the tag lie inside the row, whose height alone the head counts.
+        const spill = await p.evaluate((h) => {
+          const row = document.querySelector(`${h} .label-control`)?.getBoundingClientRect();
+          if (!row) return ["no row"];
+          return [".label-control__open", ".your-label"].flatMap((part) => {
+            const box = document.querySelector(`${h} ${part}`)?.getBoundingClientRect();
+            return box && (box.top < row.top - 0.5 || box.bottom > row.bottom + 0.5)
+              ? [`${part}: ${box.top}–${box.bottom} outside ${row.top}–${row.bottom}`]
+              : [];
+          });
+        }, head);
+        expect(spill, `${path}, ${hasTag ? "a label" : "no label"}`).toEqual([]);
         if (open) {
           await p.locator(`${head} .label-control__open`).click();
           await expect(p.locator(".label-pop .label-editor__field")).toBeFocused();
@@ -1125,21 +1143,28 @@ test("in forced colours with large text the head and the chart stay put for a la
       }
       return out;
     };
-    const none = await measure(false, false);
-    const opened = await measure(true, false);
-    await seedLabels(p, [
-      { type: "addr", ref: address, label: "rent" },
-      { type: "tx", ref: TX, label: "rent" },
-    ]);
-    const short = await measure(false, true);
-    await seedLabels(p, [
-      { type: "addr", ref: address, label: "w".repeat(255) },
-      { type: "tx", ref: TX, label: "w".repeat(255) },
-    ]);
-    const long = await measure(false, true);
-    expect(opened, "editor open").toEqual(none);
-    expect(short, "short label").toEqual(none);
-    expect(long, "255-character label").toEqual(none);
+    // A large text size, and a very large one, where the button's own line could outgrow the row.
+    for (const root of [22, 48]) {
+      await cdp.send("Page.setFontSizes", {
+        fontSizes: { standard: root, fixed: Math.round((root * 13) / 16) },
+      });
+      await seedLabels(p, []);
+      const none = await measure(false, false);
+      const opened = await measure(true, false);
+      await seedLabels(p, [
+        { type: "addr", ref: address, label: "rent" },
+        { type: "tx", ref: TX, label: "rent" },
+      ]);
+      const short = await measure(false, true);
+      await seedLabels(p, [
+        { type: "addr", ref: address, label: "w".repeat(255) },
+        { type: "tx", ref: TX, label: "w".repeat(255) },
+      ]);
+      const long = await measure(false, true);
+      expect(opened, `editor open, ${root} px`).toEqual(none);
+      expect(short, `short label, ${root} px`).toEqual(none);
+      expect(long, `255-character label, ${root} px`).toEqual(none);
+    }
   } finally {
     await context.close();
   }

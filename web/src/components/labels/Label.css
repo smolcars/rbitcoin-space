@@ -63,6 +63,8 @@
   }
   /* Quiet: a line of muted text with the tag's outline, not a button's box. */
   .label-control__open {
+    /* The tag's line height, so the row's height (above) holds the button too at any text size. */
+    line-height: var(--leading-snug);
     flex: none;
     white-space: nowrap;
     display: inline-flex;
