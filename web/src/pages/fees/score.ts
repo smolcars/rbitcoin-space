@@ -65,6 +65,8 @@ export interface ScoreLevel {
   overpay: { mean: number | null; median: number | null } | null;
   /** sat/vB short of what sufficed, when missed; null when none missed. */
   shortfall: number | null;
+  /** The median rate the level recommended among the answers judged, sat/vB: overpay's base. */
+  recommended: number | null;
   leftOut: { outage: number; unfinished: number; noClearing: number };
 }
 
@@ -95,6 +97,8 @@ const nullable =
 function readLevel(v: unknown, blocks: number, name: LevelName): ScoreLevel | undefined {
   if (!isObject(v)) return undefined;
   const { scored, outcomes, enough, met, interval, overpay, shortfall } = v;
+  // A server older than the field leaves it out: read as unknown, the rest still stands.
+  const recommended = v["recommended"] ?? null;
   const left = v["left_out"];
   if (
     v["name"] !== name ||
@@ -104,6 +108,7 @@ function readLevel(v: unknown, blocks: number, name: LevelName): ScoreLevel | un
     typeof enough !== "boolean" ||
     !nullable(isShare)(met) ||
     !nullable(isRate)(shortfall) ||
+    !nullable(isRate)(recommended) ||
     !isObject(left) ||
     !isCount(left["outage"]) ||
     !isCount(left["unfinished"]) ||
@@ -141,6 +146,7 @@ function readLevel(v: unknown, blocks: number, name: LevelName): ScoreLevel | un
     interval: shown ? span : null,
     overpay: shown ? paid : null,
     shortfall: shown ? shortfall : null,
+    recommended: shown ? recommended : null,
     leftOut: {
       outage: left["outage"],
       unfinished: left["unfinished"],
@@ -215,8 +221,11 @@ export function rateDifference(rate: number): string {
   return rate > 0 && Number(printed) === 0 ? "under 0.01" : printed;
 }
 
-/** Where a level stands against its target. */
-export type Standing = "meets" | "below" | "too-few";
+/**
+ * Where a level stands against its target. `untested` is a share under it on a test network,
+ * where blocks have room and an answer at the minimum reads as a miss (`levelView`).
+ */
+export type Standing = "meets" | "below" | "untested" | "too-few";
 
 export interface LevelView {
   level: LevelName;
@@ -226,7 +235,7 @@ export interface LevelView {
   /** "the next block", "the next 6 blocks". */
   horizon: string;
   standing: Standing;
-  /** "Meets target", "Below target", "Too few blocks yet". */
+  /** "Meets target", "Below target", "Not a fair test here", "Too few blocks yet". */
   verdict: string;
   /** "88.5%"; undefined without enough evidence. */
   met: string | undefined;
@@ -236,8 +245,8 @@ export interface LevelView {
   marks: { met: number; lo: number; hi: number } | undefined;
   /** One sentence on how sure the verdict is, or what is missing. */
   detail: string;
-  /** "from 1 036 blocks", always with the count of answers. */
-  evidence: string;
+  /** The detail says something the drawing does not: the interval reaches across the target. */
+  unsure: boolean;
   source: ScoreLevel;
 }
 
@@ -248,11 +257,13 @@ const plural = (n: number, one: string, many: string) =>
 export const horizon = (blocks: number): string =>
   blocks === 1 ? "the next block" : `the next ${groupDigits(blocks)} blocks`;
 
-/** What the page says about one level. */
-export function levelView(l: ScoreLevel, minBlocks: number): LevelView {
+/**
+ * What the page says about one level. On a test network (`testNet`) a share under the target is
+ * not called a miss: its blocks have room, and an answer at the minimum counts as missing them.
+ */
+export function levelView(l: ScoreLevel, minBlocks: number, testNet = false): LevelView {
   const names = LEVELS.find((x) => x.level === l.name) ?? { name: l.name, when: "" };
   const target = TARGET_TEXT;
-  const evidence = `${plural(l.scored, "answer", "answers")} decided by ${plural(l.outcomes, "block", "blocks")}`;
   const base = { level: l.name, name: names.name, when: names.when, horizon: horizon(l.blocks) };
   if (!l.enough || l.met === null) {
     // All of the level's own samples: judged, and left out for each reason.
@@ -269,37 +280,41 @@ export function levelView(l: ScoreLevel, minBlocks: number): LevelView {
       interval: undefined,
       marks: undefined,
       detail: `A share is given from ${groupDigits(minBlocks)} blocks; ${plural(l.outcomes, "block has", "blocks have")} decided this level so far.${waiting}`,
-      evidence,
+      unsure: true,
       source: l,
     };
   }
   const meets = l.met >= TARGET;
   const [lo, hi] = l.interval ?? [l.met, l.met];
+  const unsure = meets ? lo < TARGET : hi >= TARGET;
   const detail = meets
-    ? lo >= TARGET
-      ? `At or above ${target} across its whole interval.`
-      : `Its interval reaches below ${target}, so more blocks are needed to be sure.`
-    : hi < TARGET
-      ? `Under ${target} across its whole interval.`
-      : `Its interval reaches ${target}, so more blocks are needed to be sure.`;
+    ? unsure
+      ? `Its interval reaches below ${target}, so more blocks are needed to be sure.`
+      : `At or above ${target} across its whole interval.`
+    : unsure
+      ? `Its interval reaches ${target}, so more blocks are needed to be sure.`
+      : `Under ${target} across its whole interval.`;
+  const standing: Standing = meets ? "meets" : testNet ? "untested" : "below";
   return {
     ...base,
-    standing: meets ? "meets" : "below",
-    verdict: meets ? "Meets target" : "Below target",
+    standing,
+    verdict: { meets: "Meets target", below: "Below target", untested: "Not a fair test here" }[
+      standing
+    ],
     met: percent(l.met),
     interval: l.interval ? percentRange(l.interval) : undefined,
     marks: { met: l.met * 100, lo: lo * 100, hi: hi * 100 },
     detail,
-    evidence,
+    unsure,
     source: l,
   };
 }
 
 /** The levels as the page lists them: the home page's order, slowest first. */
-export const levelViews = (s: Score): LevelView[] =>
+export const levelViews = (s: Score, testNet = false): LevelView[] =>
   LEVELS.flatMap((want) => {
-    const l = s.levels.find((x) => x.name === want.level);
-    return l ? [levelView(l, s.minBlocks)] : [];
+    const l = s.levels.find((x) => x.level === want.level);
+    return l ? [levelView(l, s.minBlocks, testNet)] : [];
   });
 
 /** Whether anything at all was recorded in the window. */
@@ -309,6 +324,7 @@ export const hasSamples = (s: Score): boolean =>
 /** What one level paid for its record, in words a reader can check against the table. */
 export interface CostView {
   name: string;
+  recommended: string | undefined;
   overpayMean: string | undefined;
   overpayMedian: string | undefined;
   shortfall: string | undefined;
@@ -320,6 +336,7 @@ export function costView(l: LevelView): CostView {
     v === null || v === undefined ? undefined : rateDifference(v);
   return {
     name: l.name,
+    recommended: s.recommended === null ? undefined : formatFeeRate(s.recommended),
     overpayMean: shown(s.overpay?.mean),
     overpayMedian: shown(s.overpay?.median),
     shortfall: shown(s.shortfall),
@@ -346,4 +363,23 @@ export function notOursSentence(s: Score): string | undefined {
     nothing > 0 ? `${times(nothing)} it had no answer to serve` : "",
   ].filter(Boolean);
   return `In ${plural(total, "sample", "samples")} from this period the server was not serving its own answer, so ${total === 1 ? "it is" : "they are"} not scored: ${parts.join(", and ")}. That happens while it warms up after a restart, and while its view of the mempool is out of date.`;
+}
+
+/**
+ * The answers a level left out, as one figure and the kinds behind it: the total, and every kind
+ * that is not zero, named, so no kind is ever dropped from sight. With one kind its word alone.
+ */
+export function leftOutView(l: ScoreLevel): { total: string; kinds: string | undefined } {
+  const { unfinished, outage, noClearing } = l.leftOut;
+  const kinds = (
+    [
+      [unfinished, "not finished"],
+      [outage, "outage"],
+      [noClearing, "no clearing rate"],
+    ] as const
+  ).filter(([n]) => n > 0);
+  const total = groupDigits(unfinished + outage + noClearing);
+  if (kinds.length === 0) return { total, kinds: undefined };
+  if (kinds.length === 1) return { total, kinds: kinds[0]?.[1] };
+  return { total, kinds: kinds.map(([n, word]) => `${groupDigits(n)} ${word}`).join(", ") };
 }
