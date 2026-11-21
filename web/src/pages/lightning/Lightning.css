@@ -2564,12 +2564,6 @@
     display: grid;
     gap: var(--space-5) var(--space-6);
   }
-  /* The weeks over with whom: beside the fees on a wide screen, so the record is two rows. */
-  .ln-record__side {
-    display: grid;
-    gap: var(--space-5);
-    min-width: 0;
-  }
   @media (min-width: 65em) {
     .ln-record__grid {
       grid-template-columns: 1fr 1fr;
@@ -2577,6 +2571,76 @@
     }
     .ln-record__part--wide {
       grid-column: 1 / -1;
+    }
+    /* The fees on the left beside the weeks over with whom, so the record is two rows. */
+    .ln-record__part--fees {
+      grid-column: 1;
+      grid-row: 2 / span 2;
+    }
+    .ln-record__weeks {
+      grid-column: 2;
+      grid-row: 2;
+    }
+    .ln-record__peers {
+      grid-column: 2;
+      grid-row: 3;
+    }
+    /* Every peer shown: with whom takes the panel's width under the fees and the weeks, which stay
+       where they were, and the peers are cards three across, each with its figures named. */
+    .ln-record__grid:has(.ln-record__peers--all) .ln-record__part--fees {
+      grid-row: 2;
+    }
+    .ln-record__grid:has(.ln-record__peers--all) .ln-record__peers {
+      grid-column: 1 / -1;
+      grid-row: 3;
+    }
+    .ln-record__peers--all .table thead {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+    }
+    .ln-record__peers--all .table {
+      display: block;
+    }
+    .ln-record__peers--all .table tbody {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
+      column-gap: var(--space-6);
+    }
+    .ln-record__peers--all .table tr {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: 0 var(--space-3);
+      padding: var(--space-2) 0;
+      border-top: 1px solid var(--color-line);
+    }
+    .ln-record__peers--all .table td {
+      padding: 0;
+      border: 0;
+      text-align: left;
+    }
+    .ln-record__peers--all .table td:first-child {
+      flex-basis: 100%;
+    }
+    .ln-record__peers--all .ln-node-row2 {
+      flex-direction: row;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: 0 var(--space-2);
+    }
+    .ln-record__peers--all .table td[data-label]:not(:first-child)::before {
+      content: attr(data-label) " ";
+      font-family: var(--font-sans);
+      font-size: var(--text-xs);
+      color: var(--color-text-muted);
+    }
+    .ln-record__peers--all .ln-record__fee {
+      display: inline-flex;
+      gap: var(--space-1);
+      align-items: baseline;
     }
     /* How it ended as wide as what it holds: each count beside its kind's words, no gap between. */
     .ln-record__part--ended .table {
@@ -2645,6 +2709,10 @@
   .ln-record__fold:not([open]) .ln-record__aside {
     display: none;
   }
+  /* Words a figure needs only where its heading is not over it: in the cards. */
+  .ln-record__card {
+    display: none;
+  }
   /* Tables with no link in a row keep the usual row height on a touch screen too. */
   .ln-record :is(.ln-record__part--ended, .ln-record__part--fees) .table td {
     padding-block: var(--space-2);
@@ -2652,9 +2720,6 @@
   @media (max-width: 40em) {
     .ln-record__grid {
       gap: var(--space-4);
-    }
-    .ln-record__side {
-      gap: var(--space-3);
     }
   }
   .ln-record__part {
@@ -2800,6 +2865,19 @@
     }
     .ln-record__part:not(.ln-record__part--ended) .ln-record__fee {
       justify-items: start;
+    }
+    /* The figure says what it is in full: "All channels: 546 sats a close". */
+    .ln-record__card {
+      display: inline;
+      font-family: var(--font-sans);
+      font-size: var(--text-sm);
+      color: var(--color-text-muted);
+    }
+    /* Its own words name it, so not the heading's label too (as specific as the label's rule). */
+    .ln-record__part.ln-record__part--fees:not(.ln-record__part--ended)
+      .table
+      td[data-label]:nth-child(3)::before {
+      content: none;
     }
     /* Each bar under its figure, across the line. */
     .ln-record__shares:not(.ln-record__shares--one) {

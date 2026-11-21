@@ -118,13 +118,11 @@ describe("a node's close record", () => {
     const words = (force: number, penalty: number, peers: ReturnType<typeof recordPeer>[]) =>
       peersInWords(closeRecord(tally({ cooperative: 5, force, penalty, other: 0 }), peers));
     expect(words(0, 0, [])).toBe("None of its channels ended in a force close or a penalty.");
-    expect(words(1, 0, [recordPeer(1)])).toBe(
-      "The 1 force close was on a channel with the peer below.",
-    );
+    expect(words(1, 0, [recordPeer(1)])).toBe("The 1 force close was on a channel with one peer.");
     // A close whose two ends are the node lists no peer: nothing is said of one.
     expect(words(1, 0, [])).toBe("The record holds 1 force close.");
     expect(words(0, 1, [recordPeer(1, { force: 0, penalty: 1 })])).toBe(
-      "The 1 penalty was on a channel with the peer below.",
+      "The 1 penalty was on a channel with one peer.",
     );
     // Ten with one flaky peer reads apart from one each with ten.
     expect(words(10, 0, [recordPeer(1, { force: 10, closed: 10 })])).toBe(

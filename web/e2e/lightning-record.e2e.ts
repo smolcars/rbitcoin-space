@@ -169,10 +169,31 @@ test("mainnet's record: shares beside every channel's, fees, weeks and peers, at
   );
   // Said once, under the first force figure.
   await expect(record.getByText("in both nodes' records")).toHaveCount(1);
+  // The count leads past the record to the list, and the keyboard carries on from its heading.
+  await record.getByRole("link", { name: "79 channels" }).click();
+  await expect(page.locator("#ln-node-closed-title")).toBeFocused();
   // Every peer has one force close: rows that each say 1 wait behind a press.
   await expect(record.locator(".ln-record__part").last().locator("tbody tr")).toHaveCount(0);
+  const top = (selector: string) =>
+    record.locator(selector).evaluate((e) => Math.round(e.getBoundingClientRect().top + scrollY));
+  const before = [await top(".ln-record__part--fees"), await top(".ln-record__weeks")];
   await record.getByRole("button", { name: "Show the 25 peers" }).click();
   await expect(record.locator(".ln-record__part").last().locator("tbody tr")).toHaveCount(25);
+  // Shown on a wide screen, the peers take the panel's width, three across, and nothing above
+  // them moves: no column of the record left blank beside a long list.
+  const panel = await record.boundingBox();
+  const peers = await record.locator(".ln-record__peers").boundingBox();
+  expect((peers?.width ?? 0) / (panel?.width ?? 1)).toBeGreaterThan(0.9);
+  const tops = await record
+    .locator(".ln-record__peers tbody tr")
+    .evaluateAll(
+      (rows) =>
+        new Set(rows.slice(0, 3).map((r) => Math.round(r.getBoundingClientRect().top))).size,
+    );
+  expect(tops).toBe(1);
+  expect([await top(".ln-record__part--fees"), await top(".ln-record__weeks")]).toStrictEqual(
+    before,
+  );
   // Folded back none would show, so the button says it hides them all.
   await expect(record.getByRole("button", { name: "Hide the 25 peers" })).toBeVisible();
   // No tone that reads as a verdict.
@@ -364,6 +385,22 @@ test("at 320 and 360 px with 16, 24 and 32 px text no record table scrolls and n
         return out;
       });
       faults.push(...found.map((f) => `${width} px, ${size} px text: ${f}`));
+      // Where the fees are cards, every channel's figure carries its unit and denominator in
+      // words that show only there: "All channels: 546 sats a close".
+      const unit = await page.locator(".ln-record__part--fees").evaluate((part) => {
+        const cards =
+          getComputedStyle(part.querySelector("thead") as Element).position === "absolute";
+        const words = [...part.querySelectorAll(".ln-record__card")];
+        // Said once: not the heading's label before the words that already name it.
+        const label = [...part.querySelectorAll("tbody td:nth-child(3)")].some(
+          (td) => getComputedStyle(td, "::before").content !== "none",
+        );
+        return (
+          !cards ||
+          (!label && words.length > 0 && words.every((w) => getComputedStyle(w).display !== "none"))
+        );
+      });
+      if (!unit) faults.push(`${width} px, ${size} px text: a fee card without its unit`);
     }
   }
   expect(faults).toStrictEqual([]);

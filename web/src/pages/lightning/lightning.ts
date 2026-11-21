@@ -1700,7 +1700,8 @@ export function peersInWords(r: NodeCloses): string {
   const most = top === undefined ? 0 : top.force + top.penalty;
   // A close whose two ends are the node itself lists no peer: then nothing is said of peers.
   if (r.peers.list.length === 0) return `The record holds ${what}.`;
-  if (forced === 1) return `The ${what} was on a channel with the peer below.`;
+  // True folded or open: the peer is in the list under the sentence, which may be folded away.
+  if (forced === 1) return `The ${what} was on a channel with one peer.`;
   if (peers === 1) return `The ${what} were all on channels with one peer.`;
   return `The ${what} were on channels with ${groupDigits(peers)} different peers, at most ${groupDigits(most)} with any one.`;
 }

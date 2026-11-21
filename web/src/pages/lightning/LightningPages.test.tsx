@@ -949,6 +949,10 @@ describe("a node's close record", () => {
     expect(t).toContain("Since 12 Nov 2026; all channels as of 20 Nov 2026, 22:33 UTC");
     expect(t).not.toContain("same span");
     expect(t).toContain("79 channels closed in the 8 days this server has watched");
+    // The count is the way past the record to the list it sums up.
+    expect(section(el)?.querySelector(".ln-record__lead a")?.getAttribute("href")).toBe(
+      "#ln-node-closed-title",
+    );
     // The record is asked for once: a request made inside a JSX prop was made on every read of
     // it, without end, and took a browser past 20 GB.
     await new Promise<void>((resolve) => {
@@ -1031,6 +1035,8 @@ describe("a node's close record", () => {
     const el = open(`/lightning/node/${ACINQ}?view=closed`);
     await shows(el, "None of its channels closed in the 8 days this server has watched.");
     expect(section(el)?.querySelector("table")).toBeNull();
+    // No list, so no link to one.
+    expect(section(el)?.querySelector(".ln-record__lead a")).toBeNull();
     // Said once: no empty closed list under the record saying it again.
     expect(text(el)).not.toContain("Closed channels");
   });

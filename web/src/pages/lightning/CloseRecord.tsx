@@ -140,6 +140,19 @@ function Span(props: { record: NodeCloses }) {
 
 const sats = (n: number | null) => (n === null ? MISSING : groupDigits(n));
 
+/**
+ * To the closed list under the record: its heading takes the focus, so the keyboard carries on
+ * from there. The heading is the shared section header's, so it is made focusable here.
+ */
+function toList(e: MouseEvent) {
+  const heading = document.getElementById("ln-node-closed-title");
+  if (heading === null) return;
+  e.preventDefault();
+  heading.setAttribute("tabindex", "-1");
+  heading.focus();
+  heading.scrollIntoView({ block: "start" });
+}
+
 /** Said once, where a reader meets the first force figure. */
 const BOTH_ENDS =
   "A force close is in both nodes' records; the chain does not say which end broadcast it.";
@@ -164,7 +177,11 @@ function Body(props: { record: NodeCloses }) {
             when={r().node.closed > 0}
             fallback={<>None of its channels closed in the {span()} this server has watched.</>}
           >
-            <strong class="num">{count(r().node.closed, "channel")}</strong> closed{" "}
+            {/* The way past the record to the list it sums up, from its first screen. */}
+            <a class="ln-record__to-list" href="#ln-node-closed-title" onClick={toList}>
+              <strong class="num">{count(r().node.closed, "channel")}</strong>
+            </a>{" "}
+            closed{" "}
             {r().capped
               ? `in the ${span() ?? ""} up to now: its newest closes, the most this record reads. It has older ones too.`
               : `in the ${span() ?? ""} this server has watched.`}
@@ -261,10 +278,8 @@ function Breakdown(props: { record: NodeCloses }) {
     <div class="ln-record__grid">
       <Ended record={props.record} />
       <Fees record={props.record} />
-      <div class="ln-record__side">
-        <Weeks record={props.record} />
-        <Peers record={props.record} />
-      </div>
+      <Weeks record={props.record} />
+      <Peers record={props.record} />
     </div>
   );
 }
@@ -425,7 +440,16 @@ function Fees(props: { record: NodeCloses }) {
       numeric: true,
       // Kept on a phone, where it fits at the usual text size; dropped only where it does not.
       drop: 1,
-      cell: all,
+      cell: (k) => (
+        <>
+          {/* Where the table is cards, the heading's unit is not over the figure: said in full. */}
+          <span class="ln-record__card">All channels: </span>
+          {all(k)}
+          <Show when={all(k) !== MISSING}>
+            <span class="ln-record__card"> sats a close</span>
+          </Show>
+        </>
+      ),
     },
   ];
   const unknown = () => kinds().reduce((a, k) => a + r().node[k] - r().node.fees[k].known, 0);
@@ -510,7 +534,7 @@ function Weeks(props: { record: NodeCloses }) {
       title="Week by week"
       line={weeksInWords(props.record.node.weeks)}
       aside="Each from Monday, 00:00 UTC"
-      class={dropped() > 0 ? "ln-record__part--dropped" : undefined}
+      class={`ln-record__weeks${dropped() > 0 ? " ln-record__part--dropped" : ""}`}
     >
       <DataTable
         caption="Its closes each week, newest first, beside every channel's"
@@ -602,7 +626,8 @@ function Peers(props: { record: NodeCloses }) {
           ? " These count the closes in this record, its newest; a peer may have older ones with it too."
           : ""
       }`}
-      class={dropped() > 0 ? "ln-record__part--dropped" : undefined}
+      // All shown on a wide screen, the peers take the panel's width as cards (CSS, :has).
+      class={`ln-record__peers${all() && shown().button !== null ? " ln-record__peers--all" : ""}${dropped() > 0 ? " ln-record__part--dropped" : ""}`}
     >
       <Show when={shown().rows.length > 0}>
         <DataTable
