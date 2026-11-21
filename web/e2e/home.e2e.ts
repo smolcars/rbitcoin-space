@@ -109,17 +109,21 @@ test("a mouse drags the strip into the past, it glides on, and a drag opens no b
   await expect(page).toHaveURL(/\/regtest\/$/);
 
   // A flick: it glides on past where the hand stopped, into blocks loaded from the past.
-  const flicked = await left();
+  let letGo = 0;
   const flick = async () => {
     await page.mouse.move(x, y);
+    // The press stops what is left of an earlier flick's glide: the hand starts from here.
     await page.mouse.down();
+    letGo = (await left()) + 200;
     await page.mouse.move(x - 200, y, { steps: 4 });
     await page.mouse.up();
     // A loaded machine can stall a flick into a stop, which does not glide: flick again.
     await expect(scroller).toHaveAttribute("data-dragging", "", { timeout: 100 });
   };
   await expect(flick).toPass();
-  await expect.poll(left).toBeGreaterThan(flicked + 400);
+  // Any glide from these 50 px steps starts at 50 px per 80 ms or more, which carries it about
+  // 190 px; how fast the machine sends the steps only adds to that.
+  await expect.poll(left).toBeGreaterThan(letGo + 100);
   await expect(page).toHaveURL(/\/regtest\/$/);
   await expect(page.getByRole("button", { name: "Back to now" })).toBeVisible();
   // Below the live list's ten, so loaded from the past as the strip went.
