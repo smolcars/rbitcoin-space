@@ -61,7 +61,13 @@ export type ChangeReason =
    * not. That suggests which is the payment only if the wallet would not have added a coin it did
    * not need; it does not prove the other output needed every coin.
    */
-  | { kind: "unneeded"; inputs: number[]; value: number };
+  | {
+      kind: "unneeded";
+      inputs: number[];
+      value: number;
+      /** Every script the funding inputs spend from has an address, so "address" is the word. */
+      allAddresses: boolean;
+    };
 
 /** One reading: which output it points at as change, and why. */
 export interface ChangeReading {
@@ -74,6 +80,8 @@ export interface EqualOutputs {
   value: number;
   /** Outputs paying exactly `value`, each to a different address none of the inputs spends from. */
   outputs: number[];
+  /** Every one of those outputs pays a script with an address. */
+  toAddresses: boolean;
 }
 
 export type PrivacyFinding =
@@ -99,15 +107,19 @@ export type PrivacyFinding =
       kind: "coinjoin";
       /** Groups of equal outputs, the largest first; the first decided the finding. */
       groups: EqualOutputs[];
-      /** Distinct addresses the inputs spend from. */
+      /** Distinct addresses (scripts) the funding inputs spend from. */
       senders: number;
+      /** Every one of those scripts has an address. */
+      sendersAreAddresses: boolean;
     }
   | {
       /** Several inputs spent in one transaction suggest one owner. Said only before it is sent. */
       kind: "spent-together";
       inputs: number[];
-      /** Distinct addresses among the inputs whose previous output is known. */
+      /** Distinct addresses (scripts) among the funding inputs. */
       addresses: number;
+      /** Every one of those scripts has an address. */
+      allAddresses: boolean;
       /** One output and no change: all of the inputs went to one place. */
       noChange: boolean;
     };
@@ -174,6 +186,11 @@ const pays = (o: Vout) => o.scriptpubkey_type !== "op_return" && !isAnchor(o);
 /** One address is one script; hex is compared in lower case. */
 const key = (o: Vout) => o.scriptpubkey.toLowerCase();
 const named = (o: Vout) => o.scriptpubkey_address ?? o.scriptpubkey.toLowerCase();
+/** Whether every one of these scripts has an address, for the words that name them. */
+const allNamed = (os: Iterable<Item>) => {
+  for (const { o } of os) if (o.scriptpubkey_address === undefined) return false;
+  return true;
+};
 
 function push<K, V>(m: Map<K, V[]>, k: K, v: V) {
   const xs = m.get(k);
@@ -240,8 +257,13 @@ function coinjoin(s: Shape): PrivacyFinding | null {
     byValue.set(o.value, to);
   }
   const groups: EqualOutputs[] = [];
+  const byIndex = new Map(s.outs.map((x) => [x.i, x]));
   for (const [value, to] of byValue)
-    if (to.size >= JOIN_COUNT) groups.push({ value, outputs: [...to.values()] });
+    if (to.size >= JOIN_COUNT) {
+      const outputs = [...to.values()];
+      const items = outputs.flatMap((i) => byIndex.get(i) ?? []);
+      groups.push({ value, outputs, toAddresses: allNamed(items) });
+    }
   groups.sort((a, b) => b.outputs.length - a.outputs.length || b.value - a.value);
   const first = groups[0];
   const senders = s.inputsBy.size;
@@ -251,7 +273,7 @@ function coinjoin(s: Shape): PrivacyFinding | null {
   // with few outputs from many inputs or many outputs beside a few equal ones, is neither.
   const equal = groups.reduce((n, g) => n + g.outputs.length, 0);
   if (s.outs.length - equal > equal || s.outs.length < s.funding.length) return null;
-  return { kind: "coinjoin", groups, senders };
+  return { kind: "coinjoin", groups, senders, sendersAreAddresses: allNamed(s.funding) };
 }
 
 /** The one output paying back to an input's address, when other outputs are paid. */
@@ -308,7 +330,10 @@ function unneeded(s: Shape, a: Item, b: Item): ChangeReading | null {
   const [lo, hi] = a.o.value <= b.o.value ? [a, b] : [b, a];
   if (!least || !(lo.o.value < least[1] && least[1] <= hi.o.value)) return null;
   const inputs = s.inputsBy.get(least[0]) ?? [];
-  return { change: lo.i, reason: { kind: "unneeded", inputs, value: least[1] } };
+  return {
+    change: lo.i,
+    reason: { kind: "unneeded", inputs, value: least[1], allAddresses: allNamed(s.funding) },
+  };
 }
 
 /**
@@ -408,6 +433,7 @@ export function checkPrivacy(tx: Transaction): PrivacyReport {
       kind: "spent-together",
       inputs: funding.map(({ i }) => i),
       addresses: inputsBy.size,
+      allAddresses: allNamed(funding),
       noChange: outs.length === 1,
     });
   else if (!join && unknown > 0 && funding.length + unknown > 1) notRun.push("spent-together");

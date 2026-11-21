@@ -215,6 +215,7 @@
     padding-left: calc(14px + var(--space-2));
     list-style: disc;
   }
+  .pv-terms,
   .pv-checks ~ p {
     padding-left: calc(14px + var(--space-2));
   }

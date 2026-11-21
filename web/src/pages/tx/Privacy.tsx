@@ -12,6 +12,7 @@ import {
   LIMITS,
   LIST_TITLE,
   type Mark,
+  type Piece,
   type Said,
   type Sentence,
   sayFinding,
@@ -19,6 +20,7 @@ import {
   sayPartial,
   shownAddress,
   shownFindings,
+  TERMS,
   type Tone,
   UNSENT_CLOSING,
   UNSENT_TITLE,
@@ -93,7 +95,14 @@ const TAIL = /^[,.;:)!?]+/;
 
 /** A sentence's runs: each number or address takes the punctuation right after it, so the two
  * never part. */
-export function runs(s: Sentence): Run[] {
+export function runs(sentence: Sentence): Run[] {
+  // Neighbouring text as one piece, so the punctuation after a number is always found.
+  const s: Piece[] = [];
+  for (const p of sentence) {
+    const last = s.at(-1);
+    if (typeof p === "string" && typeof last === "string") s[s.length - 1] = last + p;
+    else s.push(p);
+  }
   const out: Run[] = [];
   let carry = "";
   s.forEach((piece, k) => {
@@ -206,6 +215,7 @@ function Finding(props: { said: Said }) {
 function WhatThisChecks() {
   return (
     <More label="What this checks">
+      <p class="pv-terms">{TERMS}</p>
       <ul class="pv-checks">
         <For each={CHECKS}>
           {(c) => (

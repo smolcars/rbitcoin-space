@@ -57,8 +57,20 @@ export type Sentence = readonly Piece[];
 
 const ref = (side: "in" | "out", index: number): Ref => ({ ref: side, index });
 /** A sentence from its parts, runs of pieces flattened. */
-const says = (...parts: (Piece | Sentence)[]): Piece[] =>
-  parts.flatMap((p) => (Array.isArray(p) ? (p as Piece[]) : [p as Piece]));
+const says = (...parts: (Piece | Sentence)[]): Piece[] => {
+  const out: Piece[] = [];
+  for (const p of parts.flatMap((x) => (Array.isArray(x) ? (x as Piece[]) : [x as Piece]))) {
+    // Neighbouring text is one piece, so a number's punctuation is always the start of the next.
+    const last = out.at(-1);
+    if (typeof p === "string" && typeof last === "string") out[out.length - 1] = last + p;
+    else if (p !== "") out.push(p);
+  }
+  return out;
+};
+
+/** What the rules counted, named: an address, or a locking script when not every one has one. */
+const scriptWord = (allAddresses: boolean, many: boolean) =>
+  allAddresses ? (many ? "addresses" : "address") : many ? "locking scripts" : "locking script";
 
 export type Tone = "caution" | "neutral";
 
@@ -196,7 +208,7 @@ function agreeing(r: ChangeReading): Sentence {
   // unneeded
   return says(
     "It is less than ",
-    least(why.inputs, why.value),
+    least(why.inputs, why.value, why.allAddresses),
     ", and the other output checked is not.",
   );
 }
@@ -238,7 +250,7 @@ function stated(r: ChangeReading): Sentence {
     "Change: output ",
     change,
     " is less than ",
-    least(why.inputs, why.value),
+    least(why.inputs, why.value, why.allAddresses),
     ", and the other output checked is not.",
   );
 }
@@ -248,9 +260,9 @@ function stated(r: ChangeReading): Sentence {
  * and the input or inputs it is. Never "the smallest coin": a smaller single input may come from
  * an address that spends more in all.
  */
-function least(inputs: readonly number[], value: number): Piece[] {
+function least(inputs: readonly number[], value: number, allAddresses: boolean): Piece[] {
   return says(
-    `${btc(value)}, the least spent from any one address (`,
+    `${btc(value)}, the least spent from any one funding ${scriptWord(allAddresses, false)} (`,
     listedRefs("input", inputs),
     ")",
   );
@@ -300,12 +312,10 @@ function paidBack(f: PrivacyFinding, all: readonly PrivacyFinding[]): ReusedAddr
   const reuse = all.find((g) => g.kind === "reuse");
   if (reuse?.kind !== "reuse" || reuse.addresses.length !== 1) return undefined;
   const [a] = reuse.addresses;
-  return a &&
-    a.isAddress === why.isAddress &&
-    a.outputs.includes(f.change) &&
-    why.inputs.every((i) => a.inputs.includes(i))
-    ? a
-    : undefined;
+  if (!a || a.isAddress !== why.isAddress || !a.outputs.includes(f.change)) return undefined;
+  // One set, not a scan per input: a consolidation may spend tens of thousands from one script.
+  const spent = new Set(a.inputs);
+  return why.inputs.every((i) => spent.has(i)) ? a : undefined;
 }
 
 /** What a finding says; `all` is the list it is shown in, so it need not repeat another. */
@@ -365,15 +375,19 @@ export function sayFinding(f: PrivacyFinding, all: readonly PrivacyFinding[] = [
   if (f.kind === "coinjoin") {
     const [first] = f.groups;
     const equal = f.groups.reduce((n, g) => n + g.outputs.length, 0);
-    const senders = `its inputs spend from ${groupDigits(f.senders)} different addresses`;
+    const senders = `the inputs that fund it spend from ${groupDigits(f.senders)} different ${scriptWord(f.sendersAreAddresses, true)}`;
+    const to = scriptWord(
+      f.groups.every((g) => g.toAddresses),
+      false,
+    );
     const shape: Sentence =
       f.groups.length === 1 && first
         ? says(
             capS(listedRefs("output", first.outputs)),
-            ` each pay exactly ${btc(first.value)} to a different address, and ${senders}.`,
+            ` each pay exactly ${btc(first.value)} to a different ${to}, and ${senders}.`,
           )
         : [
-            `${groupDigits(equal)} outputs fall into ${groupDigits(f.groups.length)} groups of equal amounts, the largest ${groupDigits(first?.outputs.length ?? 0)} of ${btc(first?.value ?? 0)}. Within each group every output pays a different address, and ${senders}.`,
+            `${groupDigits(equal)} outputs fall into ${groupDigits(f.groups.length)} groups of equal amounts, the largest ${groupDigits(first?.outputs.length ?? 0)} of ${btc(first?.value ?? 0)}. Within each group every output pays a different ${to}, and ${senders}.`,
           ];
     return {
       kind: f.kind,
@@ -391,15 +405,18 @@ export function sayFinding(f: PrivacyFinding, all: readonly PrivacyFinding[] = [
   // spent-together
   const from =
     f.addresses === 1
-      ? ", all from one address"
-      : `, from ${groupDigits(f.addresses)} different addresses`;
+      ? `, all from one ${scriptWord(f.allAddresses, false)}`
+      : `, from ${groupDigits(f.addresses)} different ${scriptWord(f.allAddresses, true)}`;
   const body: Sentence[] = [
     says(
       capS(listedRefs("input", f.inputs)),
       ` are spent together${from}: an observer may read them as one owner's.`,
     ),
   ];
-  if (f.noChange) body.push(["Only one output is paid, so nothing in it reads as change."]);
+  if (f.noChange)
+    body.push([
+      "Only one output is paid, other than data or a fee anchor, so nothing in it reads as change.",
+    ]);
   return {
     kind: f.kind,
     tone: "caution",
@@ -532,7 +549,7 @@ export interface Check {
 /** "What this checks": each check in a sentence, then what it does not do. */
 export const CHECKS: readonly Check[] = [
   {
-    text: "Address reuse: an address, so one locking script, that appears more than once among this transaction's inputs and outputs. An observer may read the coins at one address as one owner's.",
+    text: "Address reuse: an address that appears more than once among the inputs that fund this transaction and the outputs it pays. An observer may read the coins at one address as one owner's.",
   },
   {
     text: "Which output is change, from four readings:",
@@ -540,7 +557,7 @@ export const CHECKS: readonly Check[] = [
       "An output paying the same address an input spends from, which an observer may read as going back to the sender. This one decides.",
       "One round amount beside one that is not: the round one suggests the payment.",
       "The only one of two outputs checked of the inputs' script type: it suggests the change.",
-      "The smaller of two outputs checked being less than the least spent from any one address, while the larger is not: if the wallet would not add coins it did not need, the larger suggests the payment.",
+      "The smaller of two outputs checked being less than the least spent from any one funding address, while the larger is not: if the wallet would not add coins it did not need, the larger suggests the payment.",
     ],
     after:
       "Every output is checked but data outputs (OP_RETURN) and fee anchors. Readings that point at different outputs leave it unclear.",
@@ -552,6 +569,9 @@ export const CHECKS: readonly Check[] = [
     text: "Coins spent together, which suggest one owner; shown only before a transaction is sent, while that can still change.",
   },
 ];
+/** What the checks' words mean, said once before them. */
+export const TERMS =
+  "The inputs that fund it are all its inputs but any that spend a fee anchor (pay to anchor), and a funding address is one they spend from. The outputs it pays are all but data (OP_RETURN) and fee anchors. An address is one locking script; a locking script with no address is counted the same way and called a locking script.";
 export const LIMITS: readonly string[] = [
   "It does not look at earlier transactions, so an address used before this one is not noticed.",
   "It knows amounts round in bitcoin only, not a payment round in another currency.",

@@ -414,6 +414,7 @@ describe("change: unnecessary input", () => {
       kind: "unneeded",
       inputs: [1],
       value: 11_748_854,
+      allAddresses: true,
     });
     expect(reasons(r)).toStrictEqual(["unneeded>0"]);
   });
@@ -456,6 +457,7 @@ describe("change: unnecessary input", () => {
       kind: "unneeded",
       inputs: [2],
       value: 400_003,
+      allAddresses: true,
     });
   });
   it("does not fire on one input", () => {
@@ -636,6 +638,7 @@ describe("spent together (unsent only)", () => {
       kind: "spent-together",
       inputs: [0, 1, 2, 3],
       addresses: 1,
+      allAddresses: true,
       noChange: true,
     });
   });
@@ -1019,6 +1022,7 @@ describe("unnecessary input states an inequality, not a proof (R5)", () => {
       kind: "unneeded",
       inputs: [0],
       value: 103_000,
+      allAddresses: true,
     });
   });
 });

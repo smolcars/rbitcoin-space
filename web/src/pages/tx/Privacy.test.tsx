@@ -153,7 +153,8 @@ describe("a number in a sentence", () => {
       { text: " spend from " },
       { address: "a", tail: "." },
     ]);
-    expect(runs(["(input ", n(11), "), and the other"])).toStrictEqual([
+    // Split as `says` once built it: ")" and ", and" as two pieces are still one tail.
+    expect(runs(["(input ", n(11), ")", ", and the other"])).toStrictEqual([
       { text: "(input " },
       { ref: "in", index: 11, tail: ")," },
       { text: " and the other" },
