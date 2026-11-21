@@ -173,10 +173,10 @@ describe("fee track record page", () => {
       Level: "High",
       "Answers judged": "19\u202F521",
       "Blocks that decided them": "1\u202F035",
-      "Left out": "3834 not finished, 4 no clearing rate",
+      "Left out": "38 34 not finished, 4 no clearing rate",
     });
     // One kind is named by its word; none, by the total alone.
-    expect(tableRow(evidence, "No rush")["Left out"]).toBe("2\u202F769not finished");
+    expect(tableRow(evidence, "No rush")["Left out"]).toBe("2\u202F769 not finished");
   });
 
   it("refuses an answer for another window than the one asked", async () => {

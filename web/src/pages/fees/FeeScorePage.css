@@ -116,7 +116,6 @@
     color: var(--color-text-muted);
     white-space: normal;
   }
-  /* Two figures in one cell may part at the dot on a phone; each stays whole. */
   /* Two figures in one cell, mean then median: on one line on a wide screen, and on a phone one
      above the other in every row, so the medians are always the second line. */
   .fee-score__pair .num {
@@ -404,8 +403,6 @@
     .fee-level {
       padding-block: var(--space-2);
     }
-    /* The line and the interval's ends beside it, one line: under the band they would take a
-       second on each row, and the four rows would not fit a phone's first screen. */
     /* Four figure columns on a 320 px phone in any reader's font: a little less gutter. */
     .fee-score__cost .table :is(th, td) {
       padding-inline: 4px;
@@ -419,6 +416,8 @@
     .fee-score__scale {
       display: inline;
     }
+    /* The line and the interval's ends beside it, one line: under the band they would take a
+       second on each row, and the four rows would not fit a phone's first screen. */
     /* One width for the interval's ends in every row, the widest they can be ("99.8–99.9%"), so
        every line starts and ends at the same x and the target is one line down the panel. */
     .fee-meter {

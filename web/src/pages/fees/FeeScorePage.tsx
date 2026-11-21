@@ -474,7 +474,13 @@ function EvidencePanel(props: { views: LevelView[]; score: Score }) {
           <>
             <span class="num">{left.total}</span>
             <Show when={left.kinds}>
-              {(kinds) => <span class="fee-score__kinds">{kinds()}</span>}
+              {/* A space, so the words read "38 34 not finished", not "3834 not finished". */}
+              {(kinds) => (
+                <>
+                  {" "}
+                  <span class="fee-score__kinds">{kinds()}</span>
+                </>
+              )}
             </Show>
           </>
         );

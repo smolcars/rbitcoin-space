@@ -205,6 +205,7 @@ export function nothingRecorded(window: string): unknown {
       interval: null,
       overpay: null,
       shortfall: null,
+      recommended: null,
     });
   return v;
 }
