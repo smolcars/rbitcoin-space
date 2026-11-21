@@ -39,7 +39,9 @@ export const askRecord = (network: Network, id: () => string): ApiRequest<NodeCl
 
 /** The record of a node the graph holds, from its own request. */
 export function CloseRecord(props: { network: Network; id: string }) {
-  return <RecordSection request={askRecord(props.network, () => props.id)} gone={false} />;
+  // Made once, here: a JSX prop is a getter, so a request made inside it is made on every read.
+  const request = askRecord(props.network, () => props.id);
+  return <RecordSection request={request} gone={false} />;
 }
 
 /**

@@ -1727,7 +1727,9 @@ export function peersShown(
       ? `Show the ${count(peers.length, "peer")}`
       : repeat.length > top.length
         ? `Show the other ${count(hidden, "peer")}`
-        : `Show the ${count(hidden, "peer")} with one each`;
+        : hidden === 1
+          ? "Show the peer with one"
+          : `Show the ${count(hidden, "peer")} with one each`;
   return { rows: top, button };
 }
 
