@@ -68,8 +68,9 @@ import {
 } from "./state";
 import { confirmations, features, isCoinbase, isTxid, lockTimeMeaning, vsize } from "./tx";
 import { checkPrivacy } from "../../lib/privacy";
-import { TxPrivacy } from "./Privacy";
-import { cardMarks, shownFindings } from "./privacytext";
+import { Eye, LIST_ID, TxPrivacy } from "./Privacy";
+import { cardMarks, sayCount, shownFindings } from "./privacytext";
+import { bringIntoView } from "./flash";
 import { judgeFee, parentsOf, verdictDetail, verdictText, verdictTitle } from "./verdict";
 import "./TransactionPage.css";
 
@@ -767,6 +768,13 @@ function Body(props: {
   // after it loads. A coinbase has no sender to give away and shows nothing.
   const privacy = createMemo(() => checkPrivacy(props.tx));
   const privacyMarks = createMemo(() => cardMarks(shownFindings(privacy(), false)));
+  // Wide, the list is a panel of its own under "Details"; narrower, it sits under the flow and the
+  // summary carries a line that leads to it (docs/DESIGN.md "Transaction").
+  const stackedQuery = matchMedia(`(max-width: ${STACKED})`);
+  const [stacked, setStacked] = createSignal(stackedQuery.matches);
+  const onStacked = (e: MediaQueryListEvent) => setStacked(e.matches);
+  stackedQuery.addEventListener("change", onStacked);
+  onCleanup(() => stackedQuery.removeEventListener("change", onStacked));
 
   // Wide, the inspector opens in the side panel beside the flow, so nothing moves; narrower, the
   // panel is under the flow, and what opened is brought into view.
@@ -777,10 +785,10 @@ function Body(props: {
       return;
     }
     setSelected(s);
-    const stacked = matchMedia(`(max-width: ${STACKED})`).matches;
+    const under = stacked();
     const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
     requestAnimationFrame(() => {
-      if (stacked) {
+      if (under) {
         inspectorHeading?.scrollIntoView({
           block: "nearest",
           behavior: reduce ? "auto" : "smooth",
@@ -1170,6 +1178,22 @@ function Body(props: {
             <span class="tx-answer__sub num">
               {plural(ins(), "input")} to {plural(outs(), "output")}
             </span>
+            <Show when={stacked() && !privacy().coinbase && sayCount(privacy())}>
+              {(line) => (
+                <a
+                  class="tx-answer__sub tx-answer__privacy"
+                  href={`#${LIST_ID}`}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    const el = document.getElementById(LIST_ID);
+                    if (el) bringIntoView(el, el, "start");
+                  }}
+                >
+                  <Eye tone={shownFindings(privacy(), false).length > 0 ? "caution" : "neutral"} />
+                  {line()}
+                </a>
+              )}
+            </Show>
           </dd>
         </div>
         <div class="tx-answer__cell">
@@ -1313,9 +1337,10 @@ function Body(props: {
             onSelect={select}
             lookalike={marks()}
             marks={privacyMarks()}
+            onMark={() => setSelected(null)}
           />
-          <Show when={!privacy().coinbase}>
-            <TxPrivacy report={privacy()} />
+          <Show when={stacked() && !privacy().coinbase}>
+            <TxPrivacy report={privacy()} place="under" />
           </Show>
         </section>
 
@@ -1405,6 +1430,9 @@ function Body(props: {
               {(r) => <Group relatives={r()} txid={props.tx.txid} rate={rate() ?? null} />}
             </Show>
           </section>
+          <Show when={!stacked() && !privacy().coinbase}>
+            <TxPrivacy report={privacy()} place="rail" />
+          </Show>
           {/* Keyed: each selection mounts fresh, so no "Show all" carries over to another item. */}
           <Show when={selected()} keyed>
             {(s) => (

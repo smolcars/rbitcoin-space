@@ -26,23 +26,71 @@
     flex-wrap: wrap;
     gap: 0 var(--space-2);
   }
-  /* On a card, in its meta line beside the script type: the eye and a few words. */
+  /* On a card, in its meta line beside the script type: the eye and a few words, a link to its
+     finding with a 24 px target (WCAG 2.2). */
   .pv-tag {
     display: inline-flex;
     align-items: center;
     gap: 3px;
+    min-height: 24px;
     font-weight: var(--weight-medium);
-    overflow-wrap: anywhere;
+    white-space: nowrap;
+    text-decoration: none;
+  }
+  @media (hover: hover) {
+    .pv-tag:hover {
+      text-decoration: underline;
+    }
+  }
+  /* On a phone a card is 120 to 130 px wide: one word that never wraps, the full words its name
+     and in the list. */
+  .pv-tag__short {
+    display: none;
+  }
+  @media (max-width: 40em) {
+    .pv-tag__long {
+      display: none;
+    }
+    .pv-tag__short {
+      display: inline;
+    }
   }
   .pv-tag .pv-eye {
     width: 12px;
     height: 12px;
   }
-  .pv-tag--caution {
+  .pv-tag--caution,
+  .pv-tag--caution:hover {
     color: var(--color-caution);
   }
-  .pv-tag--neutral {
+  .pv-tag--neutral,
+  .pv-tag--neutral:hover {
     color: var(--color-text);
+  }
+
+  /* An input's or output's number in a sentence: a link to its card. */
+  .pv-ref {
+    font-weight: var(--weight-medium);
+  }
+
+  /* Where a link inside the page landed (flash.ts): outlined, fading. */
+  .is-flashed {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+    animation: pv-flash 1.6s var(--ease-out) forwards;
+  }
+  @keyframes pv-flash {
+    60% {
+      outline-color: var(--color-focus);
+    }
+    to {
+      outline-color: transparent;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .is-flashed {
+      animation: none;
+    }
   }
 
   .pv-title {
@@ -57,6 +105,8 @@
     list-style: none;
   }
   .pv-item {
+    scroll-margin: calc(var(--header-h, 0px) + var(--space-4)) 0 var(--space-4);
+    border-radius: var(--radius-s);
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
     gap: var(--space-2);
@@ -73,6 +123,11 @@
   }
   .pv-item__title {
     font-weight: var(--weight-bold);
+  }
+  .pv-item__note {
+    margin-left: var(--space-2);
+    color: var(--color-text-muted);
+    font-weight: var(--weight-regular);
   }
   .pv-reasons {
     display: grid;
@@ -98,12 +153,24 @@
     max-width: 68ch;
     color: var(--color-text-muted);
   }
+  /* "What this checks", opened: its text starts where a finding's text does, the markers in the
+     eyes' gutter. */
   .pv-checks {
     display: grid;
-    gap: var(--space-1);
+    gap: var(--space-2);
     margin: 0;
-    padding-left: 1.1em;
+    padding-left: calc(14px + var(--space-2));
     list-style: disc;
+  }
+  .pv-checks ~ p {
+    padding-left: calc(14px + var(--space-2));
+  }
+  .pv-checks__readings {
+    display: grid;
+    gap: 2px;
+    margin: var(--space-1) 0;
+    padding-left: 1.4em;
+    list-style: decimal;
   }
 
   /* The transaction page: under the flow, in its panel, after a hairline. */
@@ -116,9 +183,25 @@
     font-size: var(--text-sm);
     min-width: 0;
   }
+  .pv-under,
+  .pv-rail {
+    scroll-margin-top: calc(var(--header-h, 0px) + var(--space-4));
+  }
   .pv-under .more,
-  .pv-send .more {
+  .pv-send .more,
+  .pv-rail .more {
     margin-top: calc(var(--space-2) * -1);
+  }
+
+  /* The transaction page, wide: a panel of its own under "Details", as narrow as the column. */
+  .pv-rail {
+    display: grid;
+    align-content: start;
+    gap: var(--space-3);
+    font-size: var(--text-sm);
+  }
+  .pv-rail .section__head {
+    margin-bottom: 0;
   }
 
   /* Broadcast and the decoder: a neutral notice above the action. */
@@ -132,5 +215,13 @@
     background: var(--color-surface);
     font-size: var(--text-sm);
     min-width: 0;
+  }
+  /* Wide, two findings across, each at a reading measure. */
+  @media (min-width: 65em) {
+    .pv-send .pv-list--many {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      column-gap: var(--space-6);
+      row-gap: var(--space-4);
+    }
   }
 }

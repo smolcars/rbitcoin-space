@@ -80,7 +80,7 @@ function press(el: HTMLElement) {
 }
 /** The findings' titles: "What this checks" also names coins spent together, as a check. */
 const titles = (el: HTMLElement) =>
-  [...el.querySelectorAll(".pv-item__title")].map((t) => t.textContent);
+  [...el.querySelectorAll(".pv-item__title > span:first-child")].map((t) => t.textContent);
 
 /** Before any press: the notice for an unsent transaction, coins spent together included. */
 function unsent(el: HTMLElement) {

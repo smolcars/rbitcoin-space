@@ -66,7 +66,7 @@ export function CheckedTx(props: {
     props.c.known ? `/tx/${tx().txid}/outspends` : false,
   );
   const outspends = (): Outspend[] | null | undefined => {
-    if (!props.c.known) return tx().vout.map(() => ({ spent: false }));
+    if (!props.c.known) return undefined;
     return spends.state === "errored" ? null : spends.latest;
   };
   /** Why the last press did not send it. */
@@ -295,6 +295,7 @@ export function CheckedTx(props: {
           selected={selected()}
           onSelect={select}
           marks={privacyMarks()}
+          known={props.c.known !== null}
         />
         <Show when={selected()} keyed>
           {(s) => (
@@ -302,6 +303,7 @@ export function CheckedTx(props: {
               tx={tx()}
               selected={s}
               outspends={outspends}
+              known={props.c.known !== null}
               onClose={() => setSelected(null)}
               ref={(el) => {
                 inspectorHeading = el;

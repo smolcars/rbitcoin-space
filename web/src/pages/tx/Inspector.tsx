@@ -85,6 +85,8 @@ export function Inspector(props: {
   ref: (el: HTMLHeadingElement) => void;
   /** Lookalike addresses handed over from an address page, by address. */
   lookalike?: ReadonlyMap<string, Lookalike> | undefined;
+  /** False for a transaction the node does not have: no output says whether it is spent. */
+  known?: boolean | undefined;
 }) {
   const title = () =>
     `${props.selected.side === "in" ? "Input" : "Output"} ${props.selected.index}`;
@@ -110,6 +112,7 @@ export function Inspector(props: {
               failed={props.outspends() === null}
               unspendable={whyUnspendable(props.tx, vout())}
               lookalike={props.lookalike}
+              known={props.known !== false}
             />
           )}
         </Match>
@@ -297,6 +300,7 @@ function OutputDetails(props: {
   failed: boolean;
   unspendable: string | null;
   lookalike: ReadonlyMap<string, Lookalike> | undefined;
+  known: boolean;
 }) {
   const kind = () => classify(props.vout.scriptpubkey);
   const data = createMemo(() =>
@@ -314,28 +318,31 @@ function OutputDetails(props: {
           </Show>
         </Fact>
         <Fact label="Script type">{kind().label}</Fact>
-        <Fact label="Spent">
-          <Switch fallback="Checking…">
-            <Match when={props.unspendable}>{(why) => <>{`Unspendable: ${why()}`}</>}</Match>
-            <Match when={props.failed}>
-              Could not check right now. Reload the page to try again.
-            </Match>
-            <Match when={props.spend?.spent === false}>No</Match>
-            <Match when={props.spend?.spent && props.spend.txid}>
-              {(by) => (
-                <span class="tx-outpoint">
-                  <Show when={props.spend?.status?.confirmed === false}>
-                    Being spent, unconfirmed, by{" "}
-                  </Show>
-                  <Hash value={by()} href={paths.tx(by())} copyLabel="Copy transaction ID" />
-                  <Show when={props.spend?.vin !== undefined}>
-                    <span class="num">, input {props.spend?.vin}</span>
-                  </Show>
-                </span>
-              )}
-            </Match>
-          </Switch>
-        </Fact>
+        {/* An output of a transaction nobody has yet is neither spent nor unspent. */}
+        <Show when={props.known || props.unspendable}>
+          <Fact label="Spent">
+            <Switch fallback="Checking…">
+              <Match when={props.unspendable}>{(why) => <>{`Unspendable: ${why()}`}</>}</Match>
+              <Match when={props.failed}>
+                Could not check right now. Reload the page to try again.
+              </Match>
+              <Match when={props.spend?.spent === false}>No</Match>
+              <Match when={props.spend?.spent && props.spend.txid}>
+                {(by) => (
+                  <span class="tx-outpoint">
+                    <Show when={props.spend?.status?.confirmed === false}>
+                      Being spent, unconfirmed, by{" "}
+                    </Show>
+                    <Hash value={by()} href={paths.tx(by())} copyLabel="Copy transaction ID" />
+                    <Show when={props.spend?.vin !== undefined}>
+                      <span class="num">, input {props.spend?.vin}</span>
+                    </Show>
+                  </span>
+                )}
+              </Match>
+            </Switch>
+          </Fact>
+        </Show>
       </dl>
       <div class="tx-codes">
         <Show when={data()}>

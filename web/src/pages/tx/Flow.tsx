@@ -12,11 +12,13 @@ import { paths } from "../../lib/network";
 import type { TagPart } from "../block/chain";
 import { type ChainText, coinbaseText, inputText, outputText } from "./chaintext";
 import { LookalikeTag } from "./Lookalike";
+import { bringIntoView, cardId, SHOW } from "./flash";
 import { CardMarks } from "./Privacy";
 import type { Mark } from "./privacytext";
 import { classify } from "./script";
 import {
   cssMs,
+  FIRST_SHOWN,
   isCoinbase,
   MORE_STEP,
   shownCount,
@@ -114,6 +116,11 @@ export function Flow(props: {
   lookalike?: ReadonlyMap<string, Lookalike> | undefined;
   /** What the privacy check says of each card, keyed `in:N` and `out:N` (privacytext.ts). */
   marks?: ReadonlyMap<string, readonly Mark[]> | undefined;
+  /** Before a mark's link is followed: the page makes room for what it leads to. */
+  onMark?: (() => void) | undefined;
+  /** False for a transaction the node does not have: its outputs exist nowhere yet, so no card
+   * says whether one is spent. */
+  known?: boolean | undefined;
 }) {
   const [inPresses, setInPresses] = createSignal(0);
   const [outPresses, setOutPresses] = createSignal(0);
@@ -215,6 +222,21 @@ export function Flow(props: {
     });
   };
 
+  // A link from the privacy check: open the card's group if it is hidden, then show the card.
+  const onShow = (e: Event) => {
+    if (!(e instanceof CustomEvent)) return;
+    const { side, index } = e.detail as Selection;
+    const total = side === "in" ? vin().length : props.tx.vout.length;
+    if (!Number.isInteger(index) || index < 0 || index >= total) return;
+    const need = Math.max(0, Math.ceil((index + 1 - FIRST_SHOWN) / MORE_STEP));
+    (side === "in" ? setInPresses : setOutPresses)((n) => Math.max(n, need));
+    requestAnimationFrame(() => {
+      const card = flowEl?.querySelector<HTMLElement>(`#${cardId(side, index)}`);
+      if (!card) return;
+      bringIntoView(card, card.querySelector<HTMLElement>(".tx-flow__open") ?? card);
+    });
+  };
+
   onSettled(() => {
     const ro = new ResizeObserver(() => draw());
     if (flowEl) ro.observe(flowEl);
@@ -222,7 +244,11 @@ export function Flow(props: {
       draw();
       requestAnimationFrame(animate);
     });
-    return () => ro.disconnect();
+    document.addEventListener(SHOW, onShow);
+    return () => {
+      ro.disconnect();
+      document.removeEventListener(SHOW, onShow);
+    };
   });
   // Cards added or relabelled: redraw after they are laid out.
   createEffect(
@@ -323,6 +349,7 @@ export function Flow(props: {
                     "tx-flow__item--lookalike": marked(input.prevout),
                   },
                 ]}
+                id={cardId("in", i())}
                 data-value={input.prevout?.value ?? 0}
                 data-key={i()}
               >
@@ -333,13 +360,14 @@ export function Flow(props: {
                   </Show>
                 </span>
                 <span class="tx-flow__meta">
+                  <Index n={i()} />
                   <Show when={marked(input.prevout)}>
                     <LookalikeTag />
                   </Show>
                   {input.prevout && payee(input.prevout)
                     ? classify(input.prevout.scriptpubkey).label
                     : ""}
-                  <CardMarks marks={props.marks?.get(`in:${i()}`)} />
+                  <CardMarks marks={props.marks?.get(`in:${i()}`)} onFollow={props.onMark} />
                 </span>
                 <Memo t={inputText(input)} label />
                 {openButton("in", i())}
@@ -385,6 +413,7 @@ export function Flow(props: {
                 "tx-flow__item",
                 { "is-selected": isSel("out", i()), "tx-flow__item--lookalike": marked(out) },
               ]}
+              id={cardId("out", i())}
               data-value={out.value}
               data-key={i()}
             >
@@ -393,6 +422,7 @@ export function Flow(props: {
                 <Amount sats={out.value} unit={false} wrap />
               </span>
               <span class="tx-flow__meta">
+                <Index n={i()} />
                 <Show when={marked(out)}>
                   <LookalikeTag />
                 </Show>
@@ -401,9 +431,10 @@ export function Flow(props: {
                 </Show>
                 <Spent
                   unspendable={whyUnspendable(props.tx, out) !== null}
+                  known={props.known !== false}
                   spend={props.outspends()?.[i()]}
                 />
-                <CardMarks marks={props.marks?.get(`out:${i()}`)} />
+                <CardMarks marks={props.marks?.get(`out:${i()}`)} onFollow={props.onMark} />
               </span>
               <Memo t={outputText(out)?.parts ? outputText(out) : null} label={false} />
               {openButton("out", i())}
@@ -437,29 +468,40 @@ export function Flow(props: {
   );
 }
 
-/** Whether an output has been spent, and by which transaction. Nothing until the answer arrives. */
-function Spent(props: { unspendable: boolean; spend: Outspend | undefined }) {
+/** A card's index, as the privacy check's sentences and its details button name it. */
+function Index(props: { n: number }) {
+  return <span class="tx-flow__index num">#{props.n}</span>;
+}
+
+/**
+ * Whether an output has been spent, and by which transaction. Nothing until the answer arrives;
+ * nothing at all, and no room kept, for a transaction the node does not have.
+ */
+function Spent(props: { unspendable: boolean; known: boolean; spend: Outspend | undefined }) {
   return (
     <Show when={!props.unspendable} fallback={<span>Unspendable</span>}>
-      {/* The status's place from the start, as wide as its widest words, so the line wraps the
+      {/* An output of a transaction nobody has yet is neither spent nor unspent. */}
+      <Show when={props.known}>
+        {/* The status's place from the start, as wide as its widest words, so the line wraps the
           same before the spends arrive and after, in any font. */}
-      <span class="tx-flow__status">
-        <span class="tx-flow__status-room" aria-hidden="true">
-          Being spent
+        <span class="tx-flow__status">
+          <span class="tx-flow__status-room" aria-hidden="true">
+            Being spent
+          </span>
+          <Show when={props.spend}>
+            {(s) => (
+              <Show when={s().spent && s().txid} fallback={<span>Unspent</span>}>
+                {(by) => (
+                  <Link href={paths.tx(by())} class="tx-flow__spent">
+                    {s().status?.confirmed === false ? "Being spent" : "Spent"}
+                    <span class="visually-hidden"> in transaction {by()}</span>
+                  </Link>
+                )}
+              </Show>
+            )}
+          </Show>
         </span>
-        <Show when={props.spend}>
-          {(s) => (
-            <Show when={s().spent && s().txid} fallback={<span>Unspent</span>}>
-              {(by) => (
-                <Link href={paths.tx(by())} class="tx-flow__spent">
-                  {s().status?.confirmed === false ? "Being spent" : "Spent"}
-                  <span class="visually-hidden"> in transaction {by()}</span>
-                </Link>
-              )}
-            </Show>
-          )}
-        </Show>
-      </span>
+      </Show>
     </Show>
   );
 }

@@ -33,7 +33,7 @@ function payback(address: string): Transaction {
 
 describe("the list under the flow", () => {
   it("sets a hostile address as text, shortened, whole in its title", () => {
-    const el = mount(() => <TxPrivacy report={checkPrivacy(payback(HOSTILE))} />);
+    const el = mount(() => <TxPrivacy place="under" report={checkPrivacy(payback(HOSTILE))} />);
     expect(el.querySelector("img")).toBeNull();
     expect(el.querySelector("[onerror]")).toBeNull();
     const shown = el.querySelector(".pv-item .hash__text");
@@ -46,7 +46,7 @@ describe("the list under the flow", () => {
   it("is one muted line for a clean transaction, with what it checks", () => {
     const t = payback("bcrt1qme");
     const clean: Transaction = { ...t, vout: [out("bcrt1qyou", 90_000, `0014${"22".repeat(20)}`)] };
-    const el = mount(() => <TxPrivacy report={checkPrivacy(clean)} />);
+    const el = mount(() => <TxPrivacy place="under" report={checkPrivacy(clean)} />);
     expect(el.querySelector(".pv-none")?.textContent).toBe(
       "Nothing in this transaction's shape stands out.",
     );
@@ -61,7 +61,7 @@ describe("the list under the flow", () => {
       vin: [{ txid: "a".repeat(64), vout: 0, is_coinbase: false, prevout: null }],
       vout: [out("bcrt1qyou", 90_000, `0014${"22".repeat(20)}`)],
     };
-    const el = mount(() => <TxPrivacy report={checkPrivacy(part)} />);
+    const el = mount(() => <TxPrivacy place="under" report={checkPrivacy(part)} />);
     expect(el.textContent).not.toContain("stands out");
     expect(el.querySelector(".pv-none")?.textContent).toBe(
       "Nothing was found in the part that could be checked.",
@@ -116,15 +116,23 @@ describe("marks on a card", () => {
       <span>
         <CardMarks
           marks={[
-            { text: "Reused address", tone: "caution" },
-            { text: "Equal amount", tone: "neutral" },
+            { text: "Reused address", short: "Reused", tone: "caution", kind: "reuse" },
+            { text: "Equal amount", short: "Equal", tone: "neutral", kind: "coinjoin" },
           ]}
         />
       </span>
     ));
-    expect([...el.querySelectorAll(".pv-tag")].map((t) => t.textContent)).toStrictEqual([
-      "Reused address",
-      "Equal amount",
+    expect(
+      [...el.querySelectorAll(".pv-tag")].map((t) => t.getAttribute("aria-label")),
+    ).toStrictEqual(["Reused address", "Equal amount"]);
+    expect([...el.querySelectorAll(".pv-tag__short")].map((t) => t.textContent)).toStrictEqual([
+      "Reused",
+      "Equal",
+    ]);
+    // Each a link to its finding in the list.
+    expect([...el.querySelectorAll("a.pv-tag")].map((t) => t.getAttribute("href"))).toStrictEqual([
+      "#pv-reuse",
+      "#pv-coinjoin",
     ]);
     expect(el.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
   });

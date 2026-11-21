@@ -813,6 +813,7 @@
     position: relative;
     display: grid;
     align-content: start;
+    gap: var(--space-5);
     min-width: 0;
   }
   /* Beside the flow it stays in view; an inspector covers it in the same room, so opening one
@@ -825,8 +826,16 @@
     overflow: auto;
     overscroll-behavior: contain;
   }
-  .tx-rail--open .tx-rail__details {
+  .tx-rail--open .tx-rail__details,
+  .tx-rail--open .pv-rail {
     visibility: hidden;
+  }
+  /* With what an observer can read under it, the details scroll with the page: held in view, they
+     would slide over the panel below them. */
+  .tx-rail:has(> .pv-rail) .tx-rail__details {
+    position: static;
+    max-height: none;
+    overflow: visible;
   }
   .tx-rail__over {
     position: absolute;
@@ -955,6 +964,20 @@
     justify-self: end;
     font-weight: var(--weight-bold);
     white-space: nowrap;
+  }
+  /* A card's number, as the privacy check's sentences name it: the quietest thing on the card. */
+  .tx-flow__index {
+    color: var(--color-text-muted);
+  }
+  .tx-flow__item {
+    scroll-margin: calc(var(--header-h, 0px) + var(--space-4)) 0 var(--space-4);
+  }
+  /* The summary's line to what an observer can read, on a narrow screen. */
+  .tx-answer__privacy {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    min-height: 24px;
   }
   .tx-flow__meta {
     grid-area: meta;

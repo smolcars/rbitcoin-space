@@ -10,8 +10,10 @@ import {
   isPartial,
   LIMITS,
   listed,
+  listedRefs,
   plain,
   type Said,
+  sayCount,
   sayFinding,
   sayNothing,
   sayPartial,
@@ -89,12 +91,12 @@ function anchored(t: Transaction, side: "in" | "out"): Transaction {
 function said(t: Transaction, kind: PrivacyFinding["kind"]): Said {
   const f = checkPrivacy(t).findings.find((x) => x.kind === kind);
   if (!f) throw new Error(`no ${kind} finding`);
-  return sayFinding(f);
+  return sayFinding(f, checkPrivacy(t).findings);
 }
 
 /** A said finding as plain lines: title, body, then each reason after "• ". */
 const lines = (s: Said) => [
-  s.title,
+  plain(s.title),
   ...s.body.map((b) => plain(b)),
   ...s.reasons.map((r) => `• ${plain(r)}`),
 ];
@@ -191,7 +193,7 @@ describe("address reuse", () => {
       `Outputs 0 and 1 both pay the locking script ${script.slice(0, 8)}…${script.slice(-8)}. An observer may read one locking script as one owner, which ties those outputs together.`,
     ]);
     expect(cardMarks(checkPrivacy(noAddress).findings).get("out:0")).toStrictEqual([
-      { text: "Reused script", tone: "caution" },
+      { text: "Reused script", short: "Reused", tone: "caution", kind: "reuse" },
     ]);
   });
   it("an address all in lower-case hex is still an address, as the rules say (U18)", () => {
@@ -204,10 +206,10 @@ describe("address reuse", () => {
       ],
     );
     const s = said(t, "reuse");
-    expect(s.title).toBe("Address reused");
+    expect(plain(s.title)).toBe("Address reused");
     expect(plain(s.body[0] ?? [])).toMatch(/pays the same address, so the same locking script/);
-    expect(plain(said(t, "change").reasons[0] ?? [])).toBe(
-      "It pays the same address input 0 spends from, which an observer may read as going back to the sender.",
+    expect(plain(said(t, "change").body[0] ?? [])).toBe(
+      "Suggested by one reading, which is not proof: it pays the reused address, which an observer may read as going back to the sender.",
     );
   });
   it("two empty locking scripts are a locking script, not an address (U18)", () => {
@@ -223,7 +225,7 @@ describe("address reuse", () => {
       const { scriptpubkey_address: _, ...rest } = o;
       empty.vout.push({ ...rest, scriptpubkey: "", scriptpubkey_type: "unknown" });
     }
-    expect(said(empty, "reuse").title).toBe("Locking script reused");
+    expect(plain(said(empty, "reuse").title)).toBe("Locking script reused");
   });
   it("a pay-back to a P2PK output says the same locking script (U18)", () => {
     const key = `21${"02".repeat(33)}ac`;
@@ -252,7 +254,7 @@ describe("address reuse", () => {
       { value: 10_002, to },
     ]);
     const s = said(tx([{ value: 1_000_000, to: "me" }], outs), "reuse");
-    expect(s.title).toBe("5 addresses reused");
+    expect(plain(s.title)).toBe("5 addresses reused");
     expect(s.body).toHaveLength(4);
     expect(plain(s.body[3] ?? [])).toBe("2 more addresses appear more than once.");
   });
@@ -273,11 +275,35 @@ describe("which output is change", () => {
         { value: 60_001, to: "me" },
       ],
     );
+    // The reuse finding beside it already names the address: the change finding points at it.
     expect(lines(said(t, "change"))).toStrictEqual([
+      "Output 1 reads as change, output 0 as the payment",
+      "Suggested by one reading, which is not proof: it pays the reused address, which an observer may read as going back to the sender.",
+    ]);
+    // Said alone, it says the whole reading.
+    const f = checkPrivacy(t).findings.find((x) => x.kind === "change");
+    expect(f && lines(sayFinding(f))).toStrictEqual([
       "Output 1 reads as change, output 0 as the payment",
       "Suggested by one reading, which is not proof:",
       "• It pays the same address input 0 spends from, which an observer may read as going back to the sender.",
     ]);
+  });
+  it("pay-back beside a second reused address: the reading is said whole", () => {
+    const t = tx(
+      [
+        { value: 100_000, to: "me" },
+        { value: 100_000, to: "them" },
+      ],
+      [
+        { value: 30_001, to: "you" },
+        { value: 40_001, to: "you" },
+        { value: 60_001, to: "me" },
+      ],
+    );
+    expect(said(t, "reuse").body).toHaveLength(2);
+    expect(lines(said(t, "change")).slice(1)).not.toContain(
+      "Suggested by one reading, which is not proof: it pays the reused address, which an observer may read as going back to the sender.",
+    );
   });
   it("pay-back from several inputs, beside more than one other output: no payment named", () => {
     const t = tx(
@@ -293,8 +319,7 @@ describe("which output is change", () => {
     );
     expect(lines(said(t, "change"))).toStrictEqual([
       "Output 2 reads as change",
-      "Suggested by one reading, which is not proof:",
-      "• It pays the same address inputs 0 and 1 spend from, which an observer may read as going back to the sender.",
+      "Suggested by one reading, which is not proof: it pays the reused address, which an observer may read as going back to the sender.",
     ]);
   });
   it("round amount", () => {
@@ -792,7 +817,11 @@ describe("hostile addresses", () => {
       ],
     );
     const sentence = said(t, "reuse").body[0] ?? [];
-    expect(sentence.filter((p) => typeof p !== "string")).toStrictEqual([{ address: HOSTILE }]);
+    expect(sentence.filter((p) => typeof p !== "string")).toStrictEqual([
+      { ref: "in", index: 0 },
+      { address: HOSTILE },
+      { ref: "out", index: 1 },
+    ]);
     // The text around it is ours alone.
     expect(sentence.filter((p) => typeof p === "string").join("")).not.toMatch(/[<>]/);
     // Shown with its bidi override made visible, cut to eight and eight.
@@ -839,12 +868,12 @@ describe("marks on the cards", () => {
       ),
     );
     expect(Object.fromEntries(cardMarks(r.findings))).toStrictEqual({
-      "in:0": [{ text: "Reused address", tone: "caution" }],
+      "in:0": [{ text: "Reused address", short: "Reused", tone: "caution", kind: "reuse" }],
       "out:1": [
-        { text: "Reused address", tone: "caution" },
-        { text: "Reads as change", tone: "caution" },
+        { text: "Reused address", short: "Reused", tone: "caution", kind: "reuse" },
+        { text: "Reads as change", short: "Change", tone: "caution", kind: "change" },
       ],
-      "out:0": [{ text: "Reads as payment", tone: "caution" }],
+      "out:0": [{ text: "Reads as payment", short: "Payment", tone: "caution", kind: "change" }],
     });
   });
   it("no payment mark when more than two outputs are paid", () => {
@@ -890,9 +919,9 @@ describe("marks on the cards", () => {
       ]),
     );
     expect(Object.fromEntries(cardMarks(r.findings))).toStrictEqual({
-      "out:0": [{ text: "Equal amount", tone: "neutral" }],
-      "out:1": [{ text: "Equal amount", tone: "neutral" }],
-      "out:2": [{ text: "Equal amount", tone: "neutral" }],
+      "out:0": [{ text: "Equal amount", short: "Equal", tone: "neutral", kind: "coinjoin" }],
+      "out:1": [{ text: "Equal amount", short: "Equal", tone: "neutral", kind: "coinjoin" }],
+      "out:2": [{ text: "Equal amount", short: "Equal", tone: "neutral", kind: "coinjoin" }],
     });
   });
   it("coins spent together mark no card", () => {
@@ -909,13 +938,116 @@ describe("marks on the cards", () => {
   });
 });
 
+describe("the summary's line on a narrow screen", () => {
+  const payback = tx(
+    [{ value: 100_000, to: "me" }],
+    [
+      { value: 30_001, to: "you" },
+      { value: 60_001, to: "me" },
+    ],
+  );
+  it("counts the findings the page shows", () => {
+    expect(sayCount(checkPrivacy(payback))).toBe("2 things an observer can read");
+  });
+  it("says nothing for nothing to report, and says a partial check either way", () => {
+    const clean = tx([{ value: 100_000, to: "me" }], [{ value: 90_000, to: "you" }]);
+    expect(sayCount(checkPrivacy(clean))).toBeNull();
+    const part = (t: Transaction): Transaction => ({
+      ...t,
+      vin: (t.vin ?? []).map((i) => ({ ...i, prevout: null })),
+    });
+    expect(sayCount(checkPrivacy(part(clean)))).toBe(
+      "What an observer can read: only partly checked",
+    );
+    const twice = tx(
+      [{ value: 100_000, to: "me" }],
+      [
+        { value: 30_001, to: "you" },
+        { value: 60_001, to: "you" },
+      ],
+    );
+    expect(sayCount(checkPrivacy(part(twice)))).toBe(
+      "1 thing an observer can read, only partly checked",
+    );
+  });
+  it("never counts what is shown only before sending", () => {
+    const together = tx(
+      [
+        { value: 100_000, to: "a" },
+        { value: 100_000, to: "b" },
+      ],
+      [{ value: 190_000, to: "x" }],
+    );
+    expect(checkPrivacy(together).findings.map((f) => f.kind)).toStrictEqual(["spent-together"]);
+    expect(sayCount(checkPrivacy(together))).toBeNull();
+  });
+});
+
+describe("numbers in a sentence", () => {
+  it("are each a link to its card, and a count links nothing", () => {
+    expect(listedRefs("input", [4, 0, 3])).toStrictEqual([
+      "inputs ",
+      { ref: "in", index: 0 },
+      ", ",
+      { ref: "in", index: 3 },
+      " and ",
+      { ref: "in", index: 4 },
+    ]);
+    expect(listedRefs("output", [2])).toStrictEqual(["output ", { ref: "out", index: 2 }]);
+    expect(listedRefs("input", [0, 1, 2, 3, 4, 5])).toStrictEqual(["6 inputs"]);
+  });
+  it("a change finding's title links its outputs", () => {
+    const t = tx(
+      [{ value: 100_000, to: "me" }],
+      [
+        { value: 30_001, to: "you" },
+        { value: 60_001, to: "me" },
+      ],
+    );
+    expect(said(t, "change").title).toStrictEqual([
+      "Output ",
+      { ref: "out", index: 1 },
+      " reads as change",
+      ", output ",
+      { ref: "out", index: 0 },
+      " as the payment",
+    ]);
+  });
+  it("coins spent together say they are shown only before sending", () => {
+    const together = tx(
+      [
+        { value: 100_000, to: "a" },
+        { value: 100_000, to: "b" },
+      ],
+      [{ value: 190_000, to: "x" }],
+    );
+    expect(said(together, "spent-together").note).toBe("Shown only before sending");
+  });
+});
+
 describe("what this checks", () => {
   it("names every check in a sentence, and what it does not do", () => {
     expect(CHECKS).toStrictEqual([
-      "Address reuse: an address that appears more than once among this transaction's inputs and outputs.",
-      "Which output is change, from four readings: one output paying the same address an input spends from; one round amount beside one that is not; the only one of two outputs checked of the inputs' script type; and the smaller of two outputs checked being less than the least spent from any one address while the larger is not. Every output is checked but data outputs (OP_RETURN) and fee anchors. A pay-back decides; readings that point at different outputs leave it unclear.",
-      "The shape of a CoinJoin: among other conditions, three or more outputs of one amount, each to a different address, with the inputs that fund it from at least as many different addresses.",
-      "Coins spent together, which suggest one owner; shown only before a transaction is sent, while that can still change.",
+      {
+        text: "Address reuse: an address that appears more than once among this transaction's inputs and outputs.",
+      },
+      {
+        text: "Which output is change, from four readings:",
+        readings: [
+          "An output paying the same address an input spends from. This one decides.",
+          "One round amount beside one that is not.",
+          "The only one of two outputs checked of the inputs' script type.",
+          "The smaller of two outputs checked being less than the least spent from any one address, while the larger is not.",
+        ],
+        after:
+          "Every output is checked but data outputs (OP_RETURN) and fee anchors. Readings that point at different outputs leave it unclear.",
+      },
+      {
+        text: "The shape of a CoinJoin: among other conditions, three or more outputs of one amount, each to a different address, with the inputs that fund it from at least as many different addresses.",
+      },
+      {
+        text: "Coins spent together, which suggest one owner; shown only before a transaction is sent, while that can still change.",
+      },
     ]);
     expect(LIMITS).toStrictEqual([
       "It does not look at earlier transactions, so an address used before this one is not noticed.",
