@@ -356,7 +356,7 @@ test("a file the page hashed is said to have existed; the block's time is its he
   await expect(
     verdict.getByRole("heading", { name: "This file existed before block 100" }),
   ).toBeVisible();
-  // The block and its header time as two figures under the headline.
+  // The block's header time as the one figure under the headline.
   const time = verdict.getByRole("definition").filter({ hasText: "14 Nov 2023" });
   await expect(time).toContainText("14 Nov 2023, 22:13:20 UTC");
   // The two checks a node makes of a header's time, and nothing said about when it was mined.

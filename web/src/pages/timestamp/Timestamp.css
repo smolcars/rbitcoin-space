@@ -96,7 +96,7 @@
       display: none;
     }
   }
-  /* A slot a digest stands in for takes no file by dropping either. */
+  /* A slot a digest stands in for does not offer a drop (it still takes one). */
   .ots-slot--full .ots-slot__drop {
     display: none;
   }
@@ -345,7 +345,7 @@
   .ots-verdict__title:focus {
     outline: none;
   }
-  /* The block and its time in the summary style: a label, a value, one muted line. */
+  /* The block's header time in the summary style: a label, a value, one muted line. */
   .ots-figures {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), max-content));

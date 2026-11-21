@@ -463,15 +463,14 @@ function Slot(props: {
           </button>
         </Show>
       </div>
-      <Show when={props.chosen}>
-        {(name) => (
-          <p class="ots-slot__chosen">
-            <bdi class="ots-slot__name" title={name()}>
-              {name()}
-            </bdi>
-            <span class="muted num">{props.detail}</span>
-          </p>
-        )}
+      {/* The same test as the controls': a file whose name is empty still shows its size. */}
+      <Show when={props.chosen !== undefined}>
+        <p class="ots-slot__chosen">
+          <bdi class="ots-slot__name" title={props.chosen}>
+            {props.chosen}
+          </bdi>
+          <span class="muted num">{props.detail}</span>
+        </p>
       </Show>
       {props.children}
     </div>
@@ -1077,8 +1076,9 @@ function Work(props: {
     >
       <p>
         A proof is a short chain of steps from the file to a value written into a block, and this
-        page follows it to the block on this server's own node, asking it only for that block. Each
-        step works on the value before it: a hash, or bytes added before or after it.
+        page follows it to the block on this server's own node, asking it only for the blocks the
+        proof names. Each step works on the value before it: a hash, or bytes added before or after
+        it.
       </p>
       <button
         class="btn ots-steps__full"

@@ -204,7 +204,7 @@ describe("a replacement chosen while a verdict shows (review round 2, T12)", () 
     await vi.waitFor(() => expect(first()).not.toBe(digest));
   });
 
-  it("puts the block and its header time in two figures under the headline (council F-D2)", async () => {
+  it("puts the block's header time as the one figure under the headline (council F-D2, A-D1)", async () => {
     const { el, proof, file } = open();
     choose(proof, fakeFile("a.ots", verifiedProof));
     choose(file, fakeFile("the-file.txt", content));
@@ -271,6 +271,16 @@ describe("review round 3", () => {
 // S-1, S-2, G-2): it takes focus where the reader's own action left it (the control that caused
 // it, or nowhere), or where the reader asked with Enter in the digest field; anywhere else it is
 // announced and nothing moves. The block's answer is held, so each verdict comes late.
+describe("a file with no name (code review G-5)", () => {
+  it("still shows its size beside its controls", async () => {
+    const { el, file } = open();
+    choose(file, fakeFile("", content));
+    await vi.waitFor(() => expect(el.querySelectorAll(".ots-slot--chosen")).toHaveLength(1));
+    const slot = el.querySelector(".ots-slot--chosen");
+    expect(slot?.querySelector(".ots-slot__chosen")?.textContent).toContain("9 B");
+  });
+});
+
 describe("when a verdict takes the reader's focus", () => {
   let gate = deferred();
   beforeEach(() => {
