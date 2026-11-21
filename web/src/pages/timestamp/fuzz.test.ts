@@ -80,49 +80,77 @@ function mutate(r: () => number, base: Uint8Array): Uint8Array {
   }
 }
 
+/** The app's types leave Node out; the long form is asked for through the environment. */
+declare const process: { env: Record<string, string | undefined> };
+/**
+ * The suite plays a tenth of the inputs. The long form is a run of its own, since 50,000 inputs
+ * take longer than a unit test may on a slow machine (docs/CI.md "Rules for tests"):
+ * `FUZZ_LONG=1 bunx vitest run src/pages/timestamp/fuzz.test.ts`
+ */
+const LONG = process.env["FUZZ_LONG"] === "1";
+
+/** Plays random bytes and mutated proofs from one seed: how each input ended, and what it cost. */
+function fuzz(randomInputs: number, mutatedInputs: number) {
+  const r = random(20_261_120);
+  const counts: Record<string, number> = {};
+  let slowest = 0;
+  let total = 0;
+  for (let i = 0; i < randomInputs + mutatedInputs; i++) {
+    let bytes: Uint8Array;
+    if (i < randomInputs) {
+      // Random bytes, half of them behind a real header so the reader gets past the magic.
+      const body = Uint8Array.from({ length: Math.floor(r() * 400) }, () => Math.floor(r() * 256));
+      bytes = r() < 0.5 ? body : new Uint8Array([...MAGIC, 1, 0x08, ...body]);
+    } else {
+      bytes = mutate(r, SEEDS[i % SEEDS.length] ?? new Uint8Array());
+    }
+    // Processor time, not time passed: a busy machine pauses a run without the code working.
+    const { value: outcome, ms } = cost(() => attempt(bytes));
+    slowest = Math.max(slowest, ms);
+    total += ms;
+    counts[outcome] = (counts[outcome] ?? 0) + 1;
+  }
+  return { counts, slowest, total };
+}
+
 describe("fuzzing the proof reader", () => {
   it("throws only its own errors on random bytes and mutated proofs, and is quick on each", () => {
-    const r = random(20_261_120);
-    const counts: Record<string, number> = {};
-    let slowest = 0;
-    const RANDOM = 20_000;
-    const MUTATED = 30_000;
-    let total = 0;
-    for (let i = 0; i < RANDOM + MUTATED; i++) {
-      let bytes: Uint8Array;
-      if (i < RANDOM) {
-        // Random bytes, half of them behind a real header so the reader gets past the magic.
-        const body = Uint8Array.from({ length: Math.floor(r() * 400) }, () =>
-          Math.floor(r() * 256),
-        );
-        bytes = r() < 0.5 ? body : new Uint8Array([...MAGIC, 1, 0x08, ...body]);
-      } else {
-        bytes = mutate(r, SEEDS[i % SEEDS.length] ?? new Uint8Array());
-      }
-      // Processor time, not time passed: a busy machine pauses a run without the code working.
-      const { value: outcome, ms } = cost(() => attempt(bytes));
-      slowest = Math.max(slowest, ms);
-      total += ms;
-      counts[outcome] = (counts[outcome] ?? 0) + 1;
-    }
-    // The generator is seeded, so how the 50,000 inputs end is fixed: the record of this run.
+    const { counts, slowest } = fuzz(2_000, 3_000);
+    // The generator is seeded, so how the 5,000 inputs end is fixed: the record of this run.
     expect(counts).toStrictEqual({
-      "not-proof": 10_105,
-      "unknown-op": 22_425,
-      malformed: 5461,
-      ok: 4701,
-      "too-large": 657,
-      truncated: 6589,
-      version: 62,
+      "not-proof": 1022,
+      "unknown-op": 2298,
+      malformed: 559,
+      ok: 472,
+      "too-large": 40,
+      truncated: 605,
+      version: 4,
     });
-    // Generous: under 2 ms of processor time each here, about 2 s in all.
+    // Generous: under 2 ms of processor time each here.
     expect(slowest).toBeLessThan(250);
-    expect(Object.values(counts).reduce((a, b) => a + b, 0)).toBe(RANDOM + MUTATED);
     expect(counts["truncated"]).toBeGreaterThan(0);
     expect(counts["malformed"]).toBeGreaterThan(0);
     expect(counts["ok"]).toBeGreaterThan(0);
-    expect(total).toBeLessThan(30_000);
   });
+
+  it.skipIf(!LONG)(
+    "the long form: the same over 50,000 inputs",
+    () => {
+      const { counts, slowest, total } = fuzz(20_000, 30_000);
+      expect(counts).toStrictEqual({
+        "not-proof": 10_105,
+        "unknown-op": 22_425,
+        malformed: 5461,
+        ok: 4701,
+        "too-large": 657,
+        truncated: 6589,
+        version: 62,
+      });
+      expect(slowest).toBeLessThan(250);
+      expect(total).toBeLessThan(30_000);
+    },
+    120_000,
+  );
 
   it("bounds the worst work a proof can ask for", () => {
     // The most hashing per byte of proof: seven hex steps grow 32 bytes to 4,096, then SHA-256
