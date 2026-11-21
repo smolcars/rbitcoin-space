@@ -74,12 +74,13 @@ test("a transaction shaped like a CoinJoin is a neutral finding, with no change 
     spans.map((t) => {
       const chip = t.querySelector(".pv-ref")?.getBoundingClientRect();
       const r = document.createRange();
-      if (t.lastChild) r.selectNodeContents(t.lastChild);
-      const mark = r.getBoundingClientRect();
+      const mark = [...t.childNodes].find((n) => n instanceof Text && n.data.trim() !== "");
+      if (mark) r.selectNodeContents(mark);
+      const box = r.getBoundingClientRect();
       return {
         text: t.textContent,
         lines: new Set([...t.getClientRects()].map((x) => Math.round(x.top))).size,
-        gap: Math.round(mark.left - (chip?.right ?? 0)),
+        gap: Math.round(box.left - (chip?.right ?? 0)),
       };
     }),
   );
