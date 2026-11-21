@@ -35,11 +35,53 @@ async function importFile(page: Page, text: string, name = "labels.jsonl") {
     .setInputFiles({ name, mimeType: "application/jsonl", buffer: Buffer.from(text) });
 }
 
+// The two imports' frame gaps are a time budget, so a benchmark (docs/CI.md "Rules for tests"):
+// measured and held only with `E2E_BENCH=1 bun run e2e labels.e2e.ts -g "never holds the page|a few
+// at a time"`. Without it the same imports run and their answers are checked, in every engine.
+const BENCH = process.env["E2E_BENCH"] === "1";
+
+/** Every line of the manager's export, parsed, in the file's order. */
+async function exported(page: Page): Promise<Line[]> {
+  const [file] = await Promise.all([
+    page.waitForEvent("download"),
+    page.getByRole("button", { name: "Export a file" }).click(),
+  ]);
+  const text = await readFile(await file.path(), "utf8");
+  return text
+    .split("\n")
+    .filter((l) => l !== "")
+    .map((l) => JSON.parse(l) as Line);
+}
+
+/**
+ * Watches the page's frames from now until asked, and answers the longest gap between two; with
+ * no benchmark asked for, it watches nothing and answers 0.
+ */
+async function watchGaps(page: Page): Promise<() => Promise<number>> {
+  if (!BENCH) return () => Promise.resolve(0);
+  await page.evaluate(() => {
+    const w = window as unknown as { longest: number; watching: number };
+    w.longest = 0;
+    w.watching = (w.watching ?? 0) + 1;
+    const run = w.watching;
+    let last = performance.now();
+    const tick = (t: number) => {
+      if (w.watching !== run) return;
+      w.longest = Math.max(w.longest, t - last);
+      last = t;
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+  return () => page.evaluate(() => Math.round((window as unknown as { longest: number }).longest));
+}
+
 /**
  * The longest the page goes between two frames while idle for a second: on a busy machine every
  * frame stretches, labels or none, so an import is held to what it adds to this.
  */
 async function idleGap(page: Page): Promise<number> {
+  if (!BENCH) return 0;
   return page.evaluate(
     () =>
       new Promise<number>((resolve) => {
@@ -272,24 +314,6 @@ test.describe("the manager", () => {
     page,
   }) => {
     test.setTimeout(120_000);
-    /** The longest the page goes without drawing a frame, from now until asked. */
-    const startWatch = () =>
-      page.evaluate(() => {
-        const w = window as unknown as { longest: number; watching: number };
-        w.longest = 0;
-        w.watching = (w.watching ?? 0) + 1;
-        const run = w.watching;
-        let last = performance.now();
-        const tick = (t: number) => {
-          if (w.watching !== run) return;
-          w.longest = Math.max(w.longest, t - last);
-          last = t;
-          requestAnimationFrame(tick);
-        };
-        requestAnimationFrame(tick);
-      });
-    const longest = () =>
-      page.evaluate(() => Math.round((window as unknown as { longest: number }).longest));
     const file = (name: string, lines: string[]) => ({
       name,
       mimeType: "application/jsonl",
@@ -322,23 +346,42 @@ test.describe("the manager", () => {
     // it; what is measured starts after, while the page reads, previews, and then saves.
     const idle = await idleGap(page);
     await page.locator('input[type="file"]').setInputFiles(big);
-    await startWatch();
+    let longest = await watchGaps(page);
     const confirm = page.getByRole("button", { name: "Import 50 000 labels" });
     await expect(confirm).toBeVisible({ timeout: 60_000 });
-    await expect(page.getByText(/50\s000 replace labels you have/)).toBeVisible();
+    const plan = page.getByRole("status").filter({ hasText: "replacing.jsonl" });
+    await expect(plan).toContainText(/50\s000 lines read/);
+    await expect(plan).toContainText(/50\s000 replace labels you have/);
     const preview = await longest();
-    await startWatch();
+    longest = await watchGaps(page);
     await confirm.click();
     await expect(page.getByText(/^Imported 50\s000 labels\./)).toBeVisible({ timeout: 60_000 });
     const saving = await longest();
-    test.info().annotations.push({
-      type: "worst import at the limits",
-      description: `longest gap between frames: ${preview} ms reading and previewing, ${saving} ms confirming; ${idle} ms idle`,
-    });
-    // What confirming adds to the page's own longest gap stays under 100 ms. Reading includes the
-    // browser turning the 8 MiB file into text, one task no page code can cut, so it has more room.
-    expect(saving).toBeLessThan(idle + 100);
-    expect(preview).toBeLessThan(idle + 250);
+    if (BENCH) {
+      test.info().annotations.push({
+        type: "worst import at the limits",
+        description: `longest gap between frames: ${preview} ms reading and previewing, ${saving} ms confirming; ${idle} ms idle`,
+      });
+      // What confirming adds to the page's own longest gap stays under 100 ms. Reading includes
+      // the browser turning the 8 MiB file into text, one task no page code can cut, so it has
+      // more room.
+      expect(saving).toBeLessThan(idle + 100);
+      expect(preview).toBeLessThan(idle + 250);
+    }
+    // Every record merged, none half applied: the file's line, carrying the kept label.
+    await expect(page.getByText(/^50\s000 labels$/)).toBeVisible();
+    const out = await exported(page);
+    expect(out).toHaveLength(N);
+    const byRef = new Map(out.map((l) => [l.ref, l]));
+    for (let i = 0; i < N; i++) {
+      expect(byRef.get(`${TX}:${i}`)).toStrictEqual({
+        type: "output",
+        ref: `${TX}:${i}`,
+        spendable: true,
+        note: filler,
+        label: `coin ${i}`,
+      });
+    }
     await page.goto(`/regtest/tx/${TX}`);
     const cards = page.getByRole("list", { name: "Outputs" }).getByRole("listitem");
     await expect(tagIn(cards.first())).toHaveText("coin 0");
@@ -370,44 +413,46 @@ test("an import over long kept records works a few at a time, never holding the 
   );
   const buffer = Buffer.from(`${lines.join("\n")}\n`);
   expect(buffer.length).toBeLessThan(30 * 1024);
-  const watchGaps = () =>
-    page.evaluate(() => {
-      const w = window as unknown as { longest: number; watching: number };
-      w.longest = 0;
-      w.watching = (w.watching ?? 0) + 1;
-      const run = w.watching;
-      let last = performance.now();
-      const tick = (t: number) => {
-        if (w.watching !== run) return;
-        w.longest = Math.max(w.longest, t - last);
-        last = t;
-        requestAnimationFrame(tick);
-      };
-      requestAnimationFrame(tick);
-    });
-  const longest = () =>
-    page.evaluate(() => Math.round((window as unknown as { longest: number }).longest));
   const idle = await idleGap(page);
-  await watchGaps();
+  let longest = await watchGaps(page);
   await page
     .locator('input[type="file"]')
     .setInputFiles({ name: "values.jsonl", mimeType: "application/jsonl", buffer });
   const confirm = page.getByRole("button", { name: `Import ${N} labels` });
   await expect(confirm).toBeVisible({ timeout: 60_000 });
+  const plan = page.getByRole("status").filter({ hasText: "values.jsonl" });
+  await expect(plan).toContainText(`${N} lines read`);
+  await expect(plan).toContainText(`${N} replace labels you have`);
   const preview = await longest();
-  await watchGaps();
+  longest = await watchGaps(page);
   await confirm.click();
   await expect(page.getByText(new RegExp(`^Imported ${N} labels\\.`))).toBeVisible({
     timeout: 60_000,
   });
   const saving = await longest();
-  test.info().annotations.push({
-    type: "long kept records",
-    description: `longest gap between frames: ${preview} ms previewing, ${saving} ms confirming; ${idle} ms idle`,
-  });
-  // What the import adds to the page's own longest gap stays under 100 ms.
-  expect(preview).toBeLessThan(idle + 100);
-  expect(saving).toBeLessThan(idle + 100);
+  if (BENCH) {
+    test.info().annotations.push({
+      type: "long kept records",
+      description: `longest gap between frames: ${preview} ms previewing, ${saving} ms confirming; ${idle} ms idle`,
+    });
+    // What the import adds to the page's own longest gap stays under 100 ms.
+    expect(preview).toBeLessThan(idle + 100);
+    expect(saving).toBeLessThan(idle + 100);
+  }
+  // Every record merged, none half applied: the file's value, with the kept label and spendable.
+  await expect(page.getByText(new RegExp(`^${N} labels$`))).toBeVisible();
+  const out = await exported(page);
+  expect(out).toHaveLength(N);
+  const byRef = new Map(out.map((l) => [l.ref, l]));
+  for (let i = 0; i < N; i++) {
+    expect(byRef.get(`${TX}:${i}`)).toStrictEqual({
+      type: "output",
+      ref: `${TX}:${i}`,
+      value: 1000 + i,
+      label: `coin ${i}`,
+      spendable: true,
+    });
+  }
 });
 
 test("an untouched Save keeps a label with line breaks as it is: nothing is written", async ({
