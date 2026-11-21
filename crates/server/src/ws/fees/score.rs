@@ -301,6 +301,31 @@ fn num(x: f64, places: i32) -> Value {
     }
 }
 
+/// Rounded down (`up` false) or up to `places` decimals, or `null`: an interval's ends written
+/// outward, so neither moves inside the true one across a threshold.
+fn num_toward(x: f64, places: i32, up: bool) -> Value {
+    let f = 10f64.powi(places);
+    if !x.is_finite() {
+        return Value::Null;
+    }
+    let scaled = if up { (x * f).ceil() } else { (x * f).floor() };
+    json!(scaled / f)
+}
+
+/// The share met to four decimals, rounded down from the counts themselves: a share under a
+/// threshold such as the 85% target is never written as it (33 999 of 40 000 is 0.8499, not
+/// 0.85), and one at it is written exactly.
+fn share_down(t: &Tally) -> Value {
+    match t
+        .met
+        .checked_mul(10_000)
+        .and_then(|m| m.checked_div(t.total))
+    {
+        Some(parts) => json!(parts as f64 / 10_000.0),
+        None => num_toward(t.share(), 4, false),
+    }
+}
+
 fn level_json(name: &str, blocks: u32, t: &Tally) -> Value {
     let enough = t.blocks() >= MIN_BLOCKS;
     let (lo, hi) = t.interval();
@@ -311,8 +336,8 @@ fn level_json(name: &str, blocks: u32, t: &Tally) -> Value {
         "scored": t.total,
         "outcomes": t.blocks(),
         "enough": enough,
-        "met": shown(num(t.share(), 4)),
-        "interval": shown(json!([num(lo, 4), num(hi, 4)])),
+        "met": shown(share_down(t)),
+        "interval": shown(json!([num_toward(lo, 4, false), num_toward(hi, 4, true)])),
         "overpay": shown(json!({ "mean": num(t.mean_over(), 3), "median": num(t.median_over(), 3) })),
         "shortfall": shown(num(t.mean_short(), 3)),
         "recommended": shown(num(t.median_given(), 3)),
@@ -453,10 +478,64 @@ mod tests {
 
     #[test]
     fn a_level_says_the_median_rate_it_recommended_only_with_enough_blocks() {
-        let enough = level_json("high", 1, &tally(MIN_BLOCKS, 2_345, 1_000));
-        assert_eq!(enough["recommended"], json!(2.345));
-        assert_eq!(enough["overpay"]["median"], json!(1.345));
+        // Rates that differ, so the convention shows: 1, 2, 3 and 4 sat/vB give the upper middle,
+        // 3, not 2.5, the mean of the two middle ones.
+        let mut t = Tally::default();
+        for (waited_for, rate) in
+            (0..MIN_BLOCKS + 2).zip([1_000u64, 2_000, 3_000, 4_000].iter().cycle())
+        {
+            t.count(Outcome::Scored {
+                met: true,
+                rate: *rate,
+                need: 500,
+                waited_for,
+                faster: true,
+            });
+        }
+        let enough = level_json("high", 1, &t);
+        assert_eq!(enough["recommended"], json!(3.0));
+        let same = level_json("high", 1, &tally(MIN_BLOCKS, 2_345, 1_000));
+        assert_eq!(same["recommended"], json!(2.345));
+        assert_eq!(same["overpay"]["median"], json!(1.345));
         let few = level_json("high", 1, &tally(MIN_BLOCKS - 1, 2_345, 1_000));
         assert_eq!(few["recommended"], Value::Null);
+    }
+
+    /// `met` of `total` answers met, spread over 40 blocks.
+    fn split(met: usize, total: usize) -> Tally {
+        let mut t = Tally::default();
+        for i in 0..total {
+            t.count(Outcome::Scored {
+                met: i < met,
+                rate: 2_000,
+                need: if i < met { 1_000 } else { 3_000 },
+                waited_for: i % 40,
+                faster: true,
+            });
+        }
+        t
+    }
+
+    /// The level as the route sends it: written to text and read back.
+    fn served(t: &Tally) -> Value {
+        serde_json::from_str(&level_json("high", 1, t).to_string()).unwrap_or(Value::Null)
+    }
+
+    #[test]
+    fn a_share_under_the_target_is_never_written_as_the_target() {
+        // 33 999 of 40 000 is 0.849975: written 0.8499, under the 85% target, as it is.
+        let t = split(33_999, 40_000);
+        let under = served(&t);
+        assert_eq!(under["met"], json!(0.8499));
+        assert_eq!(served(&split(34_000, 40_000))["met"], json!(0.85));
+        // The interval is written outward: neither end moves inside the true one.
+        let (lo, hi) = t.interval();
+        let written = &under["interval"];
+        let (wlo, whi) = (
+            written[0].as_f64().unwrap_or(2.0),
+            written[1].as_f64().unwrap_or(-1.0),
+        );
+        assert!(wlo <= lo && lo - wlo < 1e-4, "{wlo} for {lo}");
+        assert!(whi >= hi && whi - hi < 1e-4, "{whi} for {hi}");
     }
 }

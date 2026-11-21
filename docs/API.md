@@ -403,7 +403,7 @@ When neither is available (the node's estimates are older than 90 s or never cam
 | `scored` | Samples whose horizon finished and was judged |
 | `outcomes` | Distinct blocks that decided them. Samples waiting for one block share its fate, so this, not `scored`, is how much evidence there is |
 | `enough` | `outcomes` is at least `min_blocks` (30). When it is not, `met`, `interval`, `overpay`, `shortfall` and `recommended` are `null`: no percentage from a handful of blocks |
-| `met`, `interval` | The share met, and its 95% interval, as fractions |
+| `met`, `interval` | The share met, and its 95% interval, as fractions to four decimals. `met` is rounded down from the counts and the interval outward, so neither crosses a threshold the true figure is on the other side of: 33,999 of 40,000 is `0.8499`, under 85%, never `0.85` |
 | `overpay`, `shortfall` | sat/vB: the mean and median paid above what sufficed when met, the mean short of it when missed |
 | `recommended` | sat/vB: the median rate the level recommended among the samples judged (the upper middle), the base `overpay` and `shortfall` are read against |
 | `left_out` | Samples not judged: the horizon reached into an `outage`, is `unfinished`, or had `no_clearing` rate |

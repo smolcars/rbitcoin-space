@@ -283,4 +283,13 @@ fn the_rate_given_is_kept_for_every_sample_scored_and_only_those() {
     t.count(Outcome::Unscored);
     assert_eq!(t.given, [1.0, 3.0, 2.0]);
     assert_eq!(t.median_given(), 2.0);
+    // The upper middle, never the mean of the two middle values: [1, 3] gives 3, not 2.
+    let mut two = Tally::default();
+    two.count(scored(1_000, 500, true));
+    two.count(scored(3_000, 500, true));
+    assert_eq!(two.median_given(), 3.0);
+    // One sample is its own median.
+    let mut one = Tally::default();
+    one.count(scored(1_500, 500, true));
+    assert_eq!(one.median_given(), 1.5);
 }
