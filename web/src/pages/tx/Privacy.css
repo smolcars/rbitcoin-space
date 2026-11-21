@@ -22,7 +22,6 @@
   /* On a card, after its meta line's type and spent status, on a line of their own. */
   .pv-tags {
     display: flex;
-    line-height: var(--leading-snug);
     flex-basis: 100%;
     flex-wrap: wrap;
     gap: 0 var(--space-2);
