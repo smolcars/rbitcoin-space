@@ -977,7 +977,7 @@
     display: inline-flex;
     align-items: center;
     gap: var(--space-1);
-    min-height: 24px;
+    min-height: var(--touch);
   }
   .tx-flow__meta {
     grid-area: meta;
