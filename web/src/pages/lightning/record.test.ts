@@ -8,6 +8,7 @@ import {
   peersInWords,
   peersShown,
   perClose,
+  recordInWords,
   RECORD_WORDS,
   shareText,
   weekRows,
@@ -140,6 +141,14 @@ describe("a node's close record", () => {
     ).toBe(
       "The 3 force closes and 2 penalties were on channels with 2 different peers, at most 4 with any one.",
     );
+    // A close on a channel whose two ends are the node counts in its figures and lists no peer:
+    // the sentence says of the peers only theirs, and of the rest apart.
+    expect(words(2, 0, [recordPeer(1)])).toBe(
+      "The 1 force close was on a channel with one peer. 1 more was on a channel whose two ends are this node.",
+    );
+    expect(words(3, 0, [recordPeer(1), recordPeer(2)])).toBe(
+      "The 2 force closes were on channels with 2 different peers, at most 1 with any one. 1 more was on a channel whose two ends are this node.",
+    );
     for (const w of [
       ...Object.values(RECORD_WORDS),
       ...Object.values(CLOSE_WORDS).map((c) => c.why),
@@ -172,5 +181,20 @@ describe("a node's close record", () => {
     const some = [recordPeer(1, { force: 2 }), recordPeer(2), recordPeer(3)];
     expect(peersShown(some, false).button).toBe("Show the 2 peers with one each");
     expect(peersShown(some, true).button).toBe("Show fewer peers");
+  });
+
+  it("writes a small record in a line: fees not known said so, and no network figure said so", () => {
+    const r = closeRecord(tally({ cooperative: 2, force: 1, penalty: 0, other: 0 }), [], null);
+    const fees = {
+      ...r.node.fees,
+      cooperative: { sum: 300, known: 1 },
+      force: { sum: 0, known: 0 },
+    };
+    const w = recordInWords({ ...r, node: { ...r.node, fees } });
+    expect(w.node).toStrictEqual([
+      { kind: "cooperative", count: 2, fees: "300 sats in fees, 1 not known" },
+      { kind: "force", count: 1, fees: "fee not known" },
+    ]);
+    expect(w.network).toBe("No figure for all channels yet.");
   });
 });

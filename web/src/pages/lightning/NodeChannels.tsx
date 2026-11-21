@@ -803,6 +803,8 @@ const lived = (c: ClosedChannel) =>
  */
 export interface ClosedOf {
   id: string;
+  /** False where the counts are a lower bound (a record of the newest closes only). */
+  exact?: boolean;
   channels: Pick<NodeDetail["channels"], "closed" | "cooperative" | "force" | "penalty" | "other">;
 }
 
@@ -897,7 +899,18 @@ export function ClosedList(props: { node: ClosedOf; network: Network; now: numbe
     const v = l.view();
     return v.q !== "" || v.peer !== null || v.kind !== null;
   };
-  const total = () => props.node.channels.closed;
+  // The whole list's count from its own unfiltered answer once it has one: the node's figure can
+  // be older than the list, or a lower bound.
+  const [whole, setWhole] = createSignal<number | undefined>(undefined);
+  createEffect(
+    () => (l.busy() || filtered() ? undefined : page()?.total),
+    (n) => {
+      if (n !== undefined) setWhole(n);
+    },
+  );
+  const total = () => whole() ?? props.node.channels.closed;
+  // Counts that are a lower bound name every kind, with no count: a kind may be among the rest.
+  const exact = () => props.node.exact !== false;
   return (
     <section aria-labelledby="ln-node-closed-title" class="ln-node-list">
       <SectionHeader title="Closed channels" id="ln-node-closed-title">
@@ -932,7 +945,7 @@ export function ClosedList(props: { node: ClosedOf; network: Network; now: numbe
             </Link>
             <For each={CLOSE_KINDS}>
               {(k) => (
-                <Show when={props.node.channels[k] > 0}>
+                <Show when={!exact() || props.node.channels[k] > 0}>
                   <Link
                     class="btn ln-node-chip"
                     href={l.href({ kind: l.view().kind === k ? undefined : k })}
@@ -942,7 +955,9 @@ export function ClosedList(props: { node: ClosedOf; network: Network; now: numbe
                     <Tag icon={KIND_TAG[k].icon} tone={KIND_TAG[k].tone}>
                       {KIND_SHORT[k]}
                     </Tag>
-                    <span class="num muted">{groupDigits(props.node.channels[k])}</span>
+                    <Show when={exact()}>
+                      <span class="num muted">{groupDigits(props.node.channels[k])}</span>
+                    </Show>
                   </Link>
                 </Show>
               )}

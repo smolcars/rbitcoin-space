@@ -38,7 +38,7 @@ import {
   readView,
   weekAgo,
 } from "./lightning";
-import { askRecord, CloseRecord, RecordSection } from "./CloseRecord";
+import { askRecord, RecordSection } from "./CloseRecord";
 import { type ClosedOf, ClosedList, OpenList } from "./NodeChannels";
 import { FeeFigures, NodeFees, NodeHistory, RecentChanges } from "./NodeCharts";
 import { ask, Gate, LightningNav, rememberList, SatsFig, Stat, Tag } from "./parts";
@@ -123,6 +123,14 @@ function Gone(props: { network: Network; id: string }) {
           </>
         )}
       </Match>
+      {/* Only a refusal says there is no such node: any other failure may pass, so it says so. */}
+      <Match when={answer().state === "errored" && !isNotFound(answer().error)}>
+        <ErrorState
+          title="Could not load this node"
+          error={answer().error}
+          retry={() => request[1].refetch()}
+        />
+      </Match>
       <Match when={answer().state === "ready" || answer().state === "errored"}>
         <NotFound
           title="This server knows no such node"
@@ -136,9 +144,13 @@ function Gone(props: { network: Network; id: string }) {
   );
 }
 
-/** The closed list's node, from the record: a node the graph no longer holds has no other. */
+/**
+ * The closed list's node from the record: the record reads the store the list reads, at the
+ * request, so its counts are the list's own; one capped at the newest closes is not the whole.
+ */
 const closedOf = (r: NodeCloses): ClosedOf => ({
   id: r.id,
+  exact: !r.capped,
   channels: {
     closed: r.node.closed,
     cooperative: r.node.cooperative,
@@ -147,6 +159,31 @@ const closedOf = (r: NodeCloses): ClosedOf => ({
     other: r.node.other,
   },
 });
+
+/**
+ * The Closed view of a node the graph holds: its record, and its list wherever either the node's
+ * answer (the index, up to 30 s old) or the record (the store, now) has a close, with the
+ * record's counts where it holds them all, so a close recorded since the node's answer is listed.
+ */
+function ClosedView(props: { node: NodeDetail; network: Network; now: number }) {
+  // Made once, here: a JSX prop is a getter, so a request made inside it is made on every read.
+  const request = askRecord(props.network, () => props.node.id);
+  const record = () => request[0].latest;
+  const listed = () => props.node.channels.closed > 0 || (record()?.node.closed ?? 0) > 0;
+  const of = (): ClosedOf => {
+    const r = record();
+    return r !== undefined && !r.capped && r.node.closed > 0 ? closedOf(r) : props.node;
+  };
+  return (
+    <div class="ln-node-closed">
+      <RecordSection request={request} />
+      {/* With no close the record says so, once: an empty list under it would say it again. */}
+      <Show when={listed()}>
+        <ClosedList node={of()} network={props.network} now={props.now} />
+      </Show>
+    </div>
+  );
+}
 
 function GoneHeader(props: { id: string }) {
   usePageTitle(() => `Lightning node ${props.id.slice(0, 20)}`);
@@ -227,13 +264,7 @@ function Body(props: { node: NodeDetail; network: Network }) {
             <OpenList node={props.node} network={props.network} now={now} />
           </Match>
           <Match when={view() === "closed"}>
-            <div class="ln-node-closed">
-              <CloseRecord network={props.network} id={props.node.id} />
-              {/* With no close the record says so, once: an empty list under it would say it again. */}
-              <Show when={props.node.channels.closed > 0}>
-                <ClosedList node={props.node} network={props.network} now={now} />
-              </Show>
-            </div>
+            <ClosedView node={props.node} network={props.network} now={now} />
           </Match>
           <Match when={view() === "fees"}>
             <div class="ln-node-fees">

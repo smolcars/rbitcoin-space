@@ -1,7 +1,7 @@
 // A node's close record (docs/FRONTEND.md "Lightning pages"): how its channels this server watched
 // ended, beside every channel's as last worked out, by week, and with whom. A record, not a
 // verdict: kinds keep their icon and word in the muted tone, and a force close is never the node's.
-import { createSignal, For, Show, untrack } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { formatDay, formatMoment } from "../../components/chart/scale";
 import { type Column, DataTable } from "../../components/DataTable";
@@ -33,18 +33,11 @@ import {
   weekRows,
   weeksInWords,
 } from "./lightning";
-import { Alias, ask, Tag, usePhone } from "./parts";
+import { Alias, ask, Tag } from "./parts";
 
 /** Asks for a node's record: its own request, so a page that needs the answer first can hold it. */
 export const askRecord = (network: Network, id: () => string): ApiRequest<NodeCloses> =>
   createRequest(id, (key, signal) => ask(network, `/nodes/${key}/closes`, isNodeCloses, signal));
-
-/** The record of a node the graph holds, from its own request. */
-export function CloseRecord(props: { network: Network; id: string }) {
-  // Made once, here: a JSX prop is a getter, so a request made inside it is made on every read.
-  const request = askRecord(props.network, () => props.id);
-  return <RecordSection request={request} />;
-}
 
 /** The record's section, from a request made once by the page that shows it. */
 export function RecordSection(props: { request: ApiRequest<NodeCloses> }) {
@@ -178,7 +171,13 @@ function Body(props: { record: NodeCloses }) {
             fallback={<>None of its channels closed in the {span()} this server has watched.</>}
           >
             {/* The way past the record to the list it sums up, from its first screen. */}
-            <a class="ln-record__to-list" href="#ln-node-closed-title" onClick={toList}>
+            {/* rel="external" keeps the router out: it would mark this in-page link as the current page. */}
+            <a
+              class="ln-record__to-list"
+              href="#ln-node-closed-title"
+              rel="external"
+              onClick={toList}
+            >
               <strong class="num">{count(r().node.closed, "channel")}</strong>
             </a>{" "}
             closed{" "}
@@ -297,14 +296,13 @@ function Fold(props: {
   class?: string | undefined;
   children: JSX.Element;
 }) {
-  const phone = usePhone();
   return (
     <details
       class={props.class === undefined ? "ln-record__fold" : `ln-record__fold ${props.class}`}
       // Set once, as the page opens: an attribute here would be set again with the class (when a
       // column drops), folding the part under the reader on a phone.
       ref={(el) => {
-        el.open = !untrack(phone);
+        el.open = !window.matchMedia("(max-width: 40em)").matches;
       }}
     >
       <summary class="ln-record__summary">
@@ -363,7 +361,10 @@ function Ended(props: { record: NodeCloses }) {
             {n === null ? (
               <span class="ln-record__all">{MISSING}</span>
             ) : n.shares === null ? (
-              <span class="ln-record__all">{groupDigits(n[k])}</span>
+              // Too few for a share too: a count, said as one beside this node's shares.
+              <span class="ln-record__all">
+                {sh === null ? groupDigits(n[k]) : `all ${count(n[k], "close")}`}
+              </span>
             ) : (
               // Beside a node's counts the network's bar would read as the node's: words only.
               <Share share={n.shares[k]} count={n[k]} whose="all" bar={own} />
@@ -495,6 +496,28 @@ function Weeks(props: { record: NodeCloses }) {
       return `${groupDigits(n.forced)} of ${groupDigits(n.closed)}`;
     return shareText((n.forced * 100) / n.closed, n.forced);
   };
+  /**
+   * The week's every-channel figure as the row's second line, one sentence in sight and to a
+   * screen reader alike; "under" is a word outside the figure, as in the shares.
+   */
+  const weekLine = (w: WeekRow) => {
+    const n = w.network;
+    if (n === null) return "No figure for all channels yet";
+    if (n.closed < props.record.minimum)
+      return (
+        <>
+          all <span class="num">{groupDigits(n.forced)}</span> of{" "}
+          <span class="num">{groupDigits(n.closed)}</span> force or penalty
+        </>
+      );
+    const text = shareText((n.forced * 100) / n.closed, n.forced);
+    return (
+      <>
+        all {text.startsWith("under ") ? "under " : ""}
+        <span class="num">{text.replace(/^under /, "")}</span> force or penalty
+      </>
+    );
+  };
   const columns = (): Column<WeekRow>[] => [
     {
       header: "Week of",
@@ -504,9 +527,7 @@ function Weeks(props: { record: NodeCloses }) {
         <span class="ln-record__cell">
           <span>{w.time === null ? "Earlier" : formatDay(w.time)}</span>
           {/* Where the last column has no room, its figure is this row's second line. */}
-          <span class="ln-record__second">
-            all <span class="num">{all(w)}</span> force or penalty
-          </span>
+          <span class="ln-record__second">{weekLine(w)}</span>
         </span>
       ),
     },
@@ -559,7 +580,9 @@ function Peers(props: { record: NodeCloses }) {
   const [all, setAll] = createSignal(false);
   const shown = () => peersShown(props.record.peers.list, all());
   const anyPenalty = () => props.record.peers.list.some((p) => p.penalty > 0);
-  const share = (p: RecordPeer) => (p.shares === null ? null : shareText(p.shares.force, p.force));
+  // A breach moves a close from force to penalty: the two together are the closes not mutual.
+  const share = (p: RecordPeer) =>
+    p.shares === null ? null : shareText(p.shares.force + p.shares.penalty, p.force + p.penalty);
   const columns = (): Column<RecordPeer>[] => [
     {
       header: "Peer",
@@ -568,7 +591,7 @@ function Peers(props: { record: NodeCloses }) {
           {/* To the closed list below, filtered to this peer: a node that left the graph has one too. */}
           <Link
             class="ln-node-peer"
-            href={`${base()}?view=closed&peer=${p.id}`}
+            href={`${base()}?${new URLSearchParams({ view: "closed", peer: p.id }).toString()}`}
             noscroll
             title="Show only closes with this peer"
           >
@@ -604,7 +627,9 @@ function Peers(props: { record: NodeCloses }) {
       cell: (p) => (
         <span class="ln-record__fee">
           <span>{groupDigits(p.closed)}</span>
-          <Show when={share(p)}>{(s) => <span class="ln-record__all">{s()} force</span>}</Show>
+          <Show when={share(p)}>
+            {(s) => <span class="ln-record__all">{s()} force or penalty</span>}
+          </Show>
         </span>
       ),
     },

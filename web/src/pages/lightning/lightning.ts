@@ -1687,23 +1687,38 @@ export function weekRows(
  * many peers, and the most with any one. Never who closed: the chain does not say.
  */
 export function peersInWords(r: NodeCloses): string {
+  const words = (force: number, penalty: number) =>
+    penalty === 0
+      ? count(force, "force close")
+      : force === 0
+        ? count(penalty, "penalty", "penalties")
+        : `${count(force, "force close")} and ${count(penalty, "penalty", "penalties")}`;
   const forced = r.node.force + r.node.penalty;
   if (forced === 0) return "None of its channels ended in a force close or a penalty.";
-  const what =
-    r.node.penalty === 0
-      ? count(r.node.force, "force close")
-      : r.node.force === 0
-        ? count(r.node.penalty, "penalty", "penalties")
-        : `${count(r.node.force, "force close")} and ${count(r.node.penalty, "penalty", "penalties")}`;
-  const peers = r.peers.forced;
-  const top = r.peers.list[0];
-  const most = top === undefined ? 0 : top.force + top.penalty;
+  const listed = r.peers.list;
   // A close whose two ends are the node itself lists no peer: then nothing is said of peers.
-  if (r.peers.list.length === 0) return `The record holds ${what}.`;
+  if (listed.length === 0) return `The record holds ${words(r.node.force, r.node.penalty)}.`;
+  // With every peer listed, the peers' own counts say how many were with a peer, and the rest
+  // were on a channel whose two ends are this node; with some left out, the node's counts stand.
+  const all = r.peers.more === 0;
+  const force = all ? listed.reduce((a, p) => a + p.force, 0) : r.node.force;
+  const penalty = all ? listed.reduce((a, p) => a + p.penalty, 0) : r.node.penalty;
+  const withPeers = force + penalty;
+  const self = Math.max(0, forced - withPeers);
+  const what = words(force, penalty);
+  const peers = r.peers.forced;
+  const top = listed[0];
+  const most = top === undefined ? 0 : top.force + top.penalty;
   // True folded or open: the peer is in the list under the sentence, which may be folded away.
-  if (forced === 1) return `The ${what} was on a channel with one peer.`;
-  if (peers === 1) return `The ${what} were all on channels with one peer.`;
-  return `The ${what} were on channels with ${groupDigits(peers)} different peers, at most ${groupDigits(most)} with any one.`;
+  const sentence =
+    withPeers === 1
+      ? `The ${what} was on a channel with one peer.`
+      : peers === 1
+        ? `The ${what} were all on channels with one peer.`
+        : `The ${what} were on channels with ${groupDigits(peers)} different peers, at most ${groupDigits(most)} with any one.`;
+  return self === 0
+    ? sentence
+    : `${sentence} ${groupDigits(self)} more ${self === 1 ? "was" : "were"} on a channel whose two ends are this node.`;
 }
 
 /** Peers listed before the reader asks for the rest. */
