@@ -187,7 +187,7 @@ class FakeTransaction extends EventTarget {
   private readonly pending: [FakeRequest, () => unknown][] = [];
   private readonly copies = new Map<string, Map<Key, unknown>>();
   private done = false;
-  private release: () => void = () => undefined;
+  private release: (() => void) | undefined;
   constructor(db: FakeDatabase) {
     super();
     this.db = db;
@@ -229,7 +229,7 @@ class FakeTransaction extends EventTarget {
   private finish(error: DOMException | null): void {
     if (this.done) return;
     this.done = true;
-    this.release();
+    this.release?.();
     const room = this.db.options.room;
     const rows = this.copies.get("records")?.size ?? 0;
     const full =
