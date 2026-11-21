@@ -97,8 +97,9 @@
      keeps its words (palette.e2e.ts measures it with every section on), and "Go to" takes its
      place: shown while the search, or "Go to" itself, has focus, so Tab reaches it next and
      Shift+Tab goes back to the search. The header's sections stay where they are. While the
-     search's own list or answer is open, that is what hangs there. */
-  @media (max-width: 44em), (min-width: 65.0625em) and (max-width: 78em) {
+     search's own list or answer is open, that is what hangs there. Up to 46em, not 44: the search's
+     scan button takes its end, and in DejaVu Sans (Linux) the placeholder lost 11 px at 710 px. */
+  @media (max-width: 46em), (min-width: 65.0625em) and (max-width: 78em) {
     .palette-hint {
       display: none;
     }
@@ -108,7 +109,7 @@
   }
   /* Nor while the network menu is open beside a focused search ("/" leaves it open): it hangs below
      the header too. A phone's search hides the network switch, menu and all, while it has focus. */
-  @media (min-width: 40.0625em) and (max-width: 44em),
+  @media (min-width: 40.0625em) and (max-width: 46em),
     (min-width: 65.0625em) and (max-width: 78em) {
     .site-header__inner:has(#network-menu:not([hidden])) .site-header__search .palette-go {
       display: none;
