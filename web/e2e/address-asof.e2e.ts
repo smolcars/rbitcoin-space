@@ -374,6 +374,19 @@ test.describe("in the wide stand-in font", () => {
     // The controls beside the heading, at the band's right.
     expect(Math.abs(last.y + last.height / 2 - (box.y + box.height / 2))).toBeLessThan(12);
     expect(box.x + box.width - (last.x + last.width)).toBeLessThan(40);
+    // "Next change" with one word space: the word a phone hides sits right after "Next", which
+    // the button's flex gap must not push apart.
+    const gap = await band(page)
+      .locator(".address-asof__long")
+      .first()
+      .evaluate((long) => {
+        const word = long.previousSibling;
+        if (word === null) return Number.NaN;
+        const range = document.createRange();
+        range.selectNodeContents(word);
+        return long.getBoundingClientRect().left - range.getBoundingClientRect().right;
+      });
+    expect(Math.abs(gap)).toBeLessThan(1);
   });
 });
 

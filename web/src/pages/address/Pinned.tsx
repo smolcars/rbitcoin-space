@@ -423,9 +423,10 @@ function Actions(props: {
           {props.previous?.kind === "before-first" ? (
             "Before first use"
           ) : (
-            <>
+            // One flex item, so the button's gap does not fall between the words.
+            <span>
               Previous<span class="address-asof__long"> change</span>
-            </>
+            </span>
           )}
         </button>
       </Show>
@@ -452,9 +453,10 @@ function Actions(props: {
           {props.next?.kind === "first" ? (
             `First used at block ${groupDigits(props.next.height)}`
           ) : (
-            <>
+            // One flex item, so the button's gap does not fall between the words.
+            <span>
               Next<span class="address-asof__long"> change</span>
-            </>
+            </span>
           )}{" "}
           <span aria-hidden="true">›</span>
         </button>
