@@ -34,7 +34,7 @@ test("the home page's fee panel links to the track record, which keeps its windo
   );
 });
 
-test("a level under its target says so plainly, beside those that meet theirs", async ({
+test("on a test network a level under its target is no fair test, beside those that meet theirs", async ({
   page,
 }) => {
   await serveScore(page, MAINNET_1W);
@@ -43,15 +43,55 @@ test("a level under its target says so plainly, beside those that meet theirs", 
   const noRush = page
     .getByRole("listitem")
     .filter({ has: page.getByRole("heading", { name: "No rush" }) });
-  await expect(noRush.getByText("Below target")).toBeVisible();
+  // Regtest is a test network: the share and its interval stay, the verdict is not a failure.
+  await expect(noRush.getByText("Not a fair test here")).toBeVisible();
   await expect(noRush.getByText("67.4%")).toBeVisible();
+  await expect(noRush.locator(".fee-meter__range")).toHaveText("63.3–71.4%");
+  await expect(
+    page.getByRole("region", { name: "Mined in time" }).getByText(/On a test network/),
+  ).toBeVisible();
   const high = page
     .getByRole("listitem")
     .filter({ has: page.getByRole("heading", { name: "High" }) });
   await expect(high.getByText("Meets target")).toBeVisible();
-  await expect(page.getByRole("table", { name: /What each level paid/ })).toBeVisible();
+  await expect(page.getByRole("table", { name: /What each level recommended/ })).toBeVisible();
   await expect(page.getByRole("table", { name: /The answers and blocks behind/ })).toBeVisible();
   await expect(page.getByText(/^In 539 samples from this period/)).toBeVisible();
+});
+
+// CI's prose font is wider than this machine's (docs/FRONTEND.md "Other systems' fonts").
+test.describe("on a phone, in a wide prose font", () => {
+  test.use({ prose: "wide" });
+  for (const width of [320, 360]) {
+    test(`at ${width} px every figure is in sight and every table fits its panel`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 780 });
+      await serveScore(page, MAINNET_1W);
+      await page.goto("/regtest/fees/score");
+      await expect(levels(page)).toHaveCount(4);
+      await page.evaluate(() => document.fonts.ready);
+      const fit = await page.evaluate(() => ({
+        page: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        tables: [...document.querySelectorAll(".fee-score .table-scroll")].map(
+          (t) => t.scrollWidth - t.clientWidth,
+        ),
+      }));
+      expect(fit).toStrictEqual({ page: 0, tables: [0, 0] });
+      // Each kind left out is named in its cell: none is dropped with a column.
+      const evidence = page.getByRole("table", { name: /The answers and blocks behind/ });
+      await expect(evidence.getByRole("row", { name: /^High/ })).toContainText(
+        "34 not finished, 4 no clearing rate",
+      );
+      // The period switch, wrapped under the title, starts at its left edge.
+      const [title, periods] = await Promise.all([
+        page.getByRole("heading", { level: 1 }).boundingBox(),
+        page.getByRole("navigation", { name: "Period" }).boundingBox(),
+      ]);
+      expect(periods?.y).toBeGreaterThan((title?.y ?? 0) + (title?.height ?? 0) - 1);
+      expect(Math.round(periods?.x ?? -1)).toBe(Math.round(title?.x ?? 0));
+    });
+  }
 });
 
 test("switching the window replaces every figure with that window's", async ({ page }) => {

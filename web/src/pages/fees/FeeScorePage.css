@@ -43,7 +43,7 @@
     display: inline-flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: var(--space-1) var(--space-2);
+    gap: var(--space-1);
   }
   /* Said once on a phone, where the lines drop their 0% and 100% for room. */
   .fee-score__scale {
@@ -64,7 +64,7 @@
     border-left: 1px dashed var(--color-text);
   }
   .fee-key--band {
-    width: 18px;
+    width: 16px;
     height: 10px;
     margin-left: var(--space-2);
     border-radius: var(--radius-s);
@@ -114,12 +114,10 @@
   .fee-score__cost td.table__num {
     white-space: normal;
   }
-  /* Two figures in one cell: they may part at the dot on a phone, never inside a figure. */
-  .fee-score__pair {
+  /* Two figures in one cell may part at the dot on a phone, and "under 0.01" at its space; a
+     figure's digit groups are joined by no-break spaces, so it never parts. */
+  .fee-score__cost td.table__num .num {
     white-space: normal;
-  }
-  .fee-score__pair .num {
-    white-space: nowrap;
   }
   .fee-score__kinds {
     display: block;
@@ -329,6 +327,7 @@
        second on each row, and the four rows would not fit a phone's first screen. */
     .fee-score__scale {
       display: inline;
+      margin-right: var(--space-1);
     }
     .fee-meter {
       grid-template-columns: 1fr auto;

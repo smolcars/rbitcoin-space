@@ -87,8 +87,8 @@ function FeeScore(props: { network: Network }) {
       </header>
       <p class="fee-score__intro">
         How often this server's recommended fees, behind the home page's{" "}
-        <Link href={paths.home()}>Fee to pay now</Link>, were mined in time, against a target of{" "}
-        {TARGET_TEXT} for each level.
+        <Link href={paths.home()}>Fee to pay now</Link>, were mined in time, against an{" "}
+        {TARGET_TEXT} target.
       </p>
       <Show
         when={request.state !== "errored"}
@@ -185,7 +185,7 @@ function Board(props: { score: Score; testNet: boolean }) {
       <section class="fee-score__levels" aria-labelledby="fee-score-met">
         <SectionHeader title="Mined in time" id="fee-score-met">
           <span class="fee-score__key" aria-hidden="true">
-            <span class="fee-score__scale">Each line 0–100%:</span>
+            <span class="fee-score__scale">Lines 0–100%</span>
             <span class="fee-key fee-key--target" />
             {TARGET_TEXT} target
             <span class="fee-key fee-key--band" />
