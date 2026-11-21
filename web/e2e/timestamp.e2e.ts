@@ -350,11 +350,13 @@ test("a file the page hashed is said to have existed; the block's time is its he
   await expect(
     verdict.getByRole("heading", { name: "This file existed before block 100" }),
   ).toBeVisible();
-  await expect(verdict.getByText(/header time is 14 Nov 2023, 22:13:20 UTC/)).toBeVisible();
+  // The block and its header time as two figures under the headline.
+  const time = verdict.getByRole("definition").filter({ hasText: "14 Nov 2023" });
+  await expect(time).toContainText("14 Nov 2023, 22:13:20 UTC");
   // The two checks a node makes of a header's time, and nothing said about when it was mined.
   await expect(
     verdict.getByText(
-      /later than the median of the blocks before it, up to eleven, and no more than two hours ahead of the node's own clock when it checks\./,
+      /later than the median of the blocks before, up to eleven, and at most two hours ahead of its own clock\./,
     ),
   ).toBeVisible();
   await expect(verdict.getByText(/ahead of when the block was mined/)).toHaveCount(0);
@@ -400,4 +402,71 @@ test("a pasted digest that is not the proof's is said to differ as a digest, not
   expect(await axe(page), "axe-core, a different digest").toStrictEqual([]);
   expect(w.api().filter((p) => p.includes("/api/"))).toStrictEqual([]);
   w.clean([other]);
+});
+
+// A phone, in CI's wider prose font: the verdict is brought to the reader when it comes, the filled
+// slots are one row each, and a touch screen is not offered a drop (council F-D1).
+test.describe("on a phone", () => {
+  test.use({
+    prose: "wide",
+    hasTouch: true,
+    isMobile: true,
+    viewport: { width: 360, height: 780 },
+  });
+  test("the verdict comes into view with focus on its heading, and the digest field shows all of it", async ({
+    page,
+  }) => {
+    await withMainnet(page);
+    const w = watch(page);
+    await page.goto("/regtest/timestamp");
+    await expect(page.getByText("or drop it here").first()).toBeHidden();
+    await proofInput(page).setInputFiles(fileURLToPath(fixture("two-blocks.ots")));
+    // Every character of a digest in sight at once, wrapping, before and while it is typed.
+    await digestBox(page).fill(TWO_BLOCKS);
+    const fits = await digestBox(page).evaluate(
+      (t) => t.scrollWidth <= t.clientWidth && t.scrollHeight <= t.clientHeight + 1,
+    );
+    expect(fits).toBe(true);
+    const heading = page.getByRole("heading", {
+      name: "This digest is committed to by block 449 397",
+    });
+    await expect(heading).toBeAttached();
+    // Typing: the field keeps focus. Enter is done: the verdict is brought into view.
+    await expect(digestBox(page)).toBeFocused();
+    await digestBox(page).press("Enter");
+    await expect(heading).toBeFocused();
+    await expect(heading).toBeInViewport();
+    // A slot holding a file is one row: its name, Change and remove on one line.
+    const slot = page.locator(".ots-slot--chosen");
+    const [title, change] = await Promise.all([
+      slot.getByRole("heading", { name: "Proof" }).boundingBox(),
+      slot.getByText("Change").boundingBox(),
+    ]);
+    expect(
+      Math.abs(
+        (title?.y ?? 0) + (title?.height ?? 0) / 2 - ((change?.y ?? 0) + (change?.height ?? 0) / 2),
+      ),
+    ).toBeLessThan(4);
+    w.clean([TWO_BLOCKS]);
+  });
+
+  test("a verdict below the screen is scrolled to when it comes", async ({ page }) => {
+    const file = Buffer.from("A file this test wrote and timestamped against a made-up block.\n");
+    const digest = sha256(file);
+    const reached = sha256(Buffer.concat([digest, Buffer.from([1, 2, 3, 4])]));
+    await withMainnet(page, { "100": madeBlock(reached, 1_700_000_000) });
+    // A short screen, so the verdict starts below it.
+    await page.setViewportSize({ width: 360, height: 560 });
+    await page.goto("/regtest/timestamp");
+    await proofInput(page).setInputFiles({
+      name: "made.ots",
+      mimeType: "application/octet-stream",
+      buffer: proof(digest, bitcoin(100)),
+    });
+    await fileInput(page).setInputFiles({ name: "made.txt", mimeType: "text/plain", buffer: file });
+    const heading = page.getByRole("heading", { name: "This file existed before block 100" });
+    await expect(heading).toBeFocused();
+    await expect(heading).toBeInViewport();
+    expect(await page.evaluate(() => scrollY)).toBeGreaterThan(0);
+  });
 });

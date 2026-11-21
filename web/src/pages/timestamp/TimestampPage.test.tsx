@@ -162,6 +162,84 @@ describe("a replacement chosen while a verdict shows (review round 2, T12)", () 
     slow.resolve();
     await vi.waitFor(() => expect(text(el)).toContain("This proof is not for this file"));
   });
+  it("brings a verdict to the reader: its heading takes focus, but never from a digest being typed (council F-D1)", async () => {
+    const { el, proof, file } = open();
+    choose(proof, fakeFile("a.ots", verifiedProof));
+    choose(file, fakeFile("the-file.txt", content));
+    await vi.waitFor(() => expect(text(el)).toContain("This file existed before block 100"));
+    const heading = () => el.querySelector(".ots-verdict__title");
+    await vi.waitFor(() => expect(document.activeElement).toBe(heading()));
+    // Typing a digest: the field keeps focus while the verdict comes.
+    el.querySelector<HTMLButtonElement>('button[aria-label="Remove the file"]')?.click();
+    await vi.waitFor(() => expect(el.querySelector("textarea")).not.toBeNull());
+    const field = el.querySelector("textarea");
+    if (!(field instanceof HTMLTextAreaElement)) throw new TypeError("no digest field");
+    field.focus();
+    field.value = toHex(hash("sha256", content));
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+    await vi.waitFor(() => expect(text(el)).toContain("This digest is committed to by block 100"));
+    await settle();
+    expect(document.activeElement).toBe(field);
+    // Enter is done typing: then the verdict is brought to the reader.
+    field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    expect(document.activeElement).toBe(heading());
+    expect(field.value).toHaveLength(64);
+  });
+
+  it("draws a filled slot as one row, names what Change changes, and clears a digest (council F-D1, N-D2)", async () => {
+    const { el, proof } = open();
+    choose(proof, fakeFile("a.ots", verifiedProof));
+    await vi.waitFor(() => expect(text(el)).toContain("a.ots"));
+    const [proofSlot, fileSlot] = [...el.querySelectorAll(".ots-slot")];
+    expect(proofSlot?.classList.contains("ots-slot--chosen")).toBe(true);
+    expect(fileSlot?.classList.contains("ots-slot--chosen")).toBe(false);
+    expect(text(proofSlot?.querySelector(".ots-slot__choose") ?? el)).toBe("Change the proof");
+    // The digest field: what it takes, said, and a control that empties it.
+    expect(text(el.querySelector("#ots-hex-hint") ?? el)).toBe("64 characters, 0 to 9 and a to f");
+    const field = el.querySelector("textarea");
+    if (!(field instanceof HTMLTextAreaElement)) throw new TypeError("no digest field");
+    expect(el.querySelector('button[aria-label="Clear the digest"]')).toBeNull();
+    field.value = "abc";
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+    await vi.waitFor(() =>
+      expect(el.querySelector('button[aria-label="Clear the digest"]')).not.toBeNull(),
+    );
+    el.querySelector<HTMLButtonElement>('button[aria-label="Clear the digest"]')?.click();
+    await vi.waitFor(() => expect(field.value).toBe(""));
+    expect(document.activeElement).toBe(field);
+  });
+
+  it("shows every value in the steps whole at a press, with no hover needed (council N-D3)", async () => {
+    const { el, proof, file } = open();
+    choose(proof, fakeFile("a.ots", verifiedProof));
+    choose(file, fakeFile("the-file.txt", content));
+    await vi.waitFor(() => expect(text(el)).toContain("This file existed before block 100"));
+    const digest = toHex(hash("sha256", content));
+    const first = () => text(el.querySelector(".ots-step__value") ?? el);
+    expect(first()).not.toBe(digest);
+    expect(text(el)).not.toContain("hover");
+    const full = [...el.querySelectorAll("button")].find(
+      (b) => text(b) === "Show the values in full",
+    );
+    full?.click();
+    await vi.waitFor(() => expect(full?.getAttribute("aria-pressed")).toBe("true"));
+    expect(first()).toBe(digest);
+    full?.click();
+    await vi.waitFor(() => expect(first()).not.toBe(digest));
+  });
+
+  it("puts the block and its header time in two figures under the headline (council F-D2)", async () => {
+    const { el, proof, file } = open();
+    choose(proof, fakeFile("a.ots", verifiedProof));
+    choose(file, fakeFile("the-file.txt", content));
+    await vi.waitFor(() => expect(text(el)).toContain("This file existed before block 100"));
+    const figures = [...el.querySelectorAll(".ots-figures dt")].map((dt) => text(dt));
+    expect(figures).toStrictEqual(["Block", "Its header time"]);
+    expect(el.querySelector(".ots-figures a")?.getAttribute("href")).toMatch(/^\/block\//);
+    expect(text(el.querySelector(".ots-figures__caveat") ?? el)).toMatch(
+      /^The header time is the miner's claim/,
+    );
+  });
 });
 
 describe("review round 3", () => {
