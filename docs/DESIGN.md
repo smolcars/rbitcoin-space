@@ -450,14 +450,18 @@ Transaction  (◌ Unconfirmed)  • Live
 [notice: replaced, dropped, back in the mempool]   (only then, with the full timeline)
 ┌ Inputs and outputs ─────────────────────────┐ ┌ Details (sticky) ──┐
 │ [addr…  0.031 ›] ═╗          ╔═ [addr… 0.03 ›]│ │ Size, weight,      │
-│                   ╠══┃trunk┃═╣  [addr… 0.00 ›]│ │ replaceable,       │
+│ ◉ Reused address ╠┃trunk┃╣ ◉ Reads as change  │ │ replaceable,       │
 │                   ╚══════════╚~ [Fee   0.00  ]│ │ version, witness,  │
-└─────────────────────────────────────────────┘ │ lock time, raw hex,│
-                                                │ mined with         │
-                                                └────────────────────┘
+│ ───────────────────────────────────────────── │ │ lock time, raw hex,│
+│ What an observer can read                     │ │ mined with         │
+│ ◉ Address reused: one sentence a finding      │ └────────────────────┘
+│ › What this checks                            │
+└───────────────────────────────────────────────┘
 ```
 
 Once mined, the first figure is "Block 976 283" over the strip with the square past the "now" line in a solid block ("3 of 6 confirmations"), and the last is "Mined". The flow sits beside a sticky side panel holding the facts the summary does not: size, weight, replaceable, what it replaced, version, witness, lock time and the raw hex ("Show" opens it in place), then who it is mined with. Opening a card's details shows its inspector in that panel, over the details, in the room they held, so nothing on the page moves on a wide screen; "Close" brings the details back. Text on the chain reads whole in the inspector, in a sunken well in the reading font ("Coinbase text", "OP_RETURN text", "Inscription text"); an inscription adds an "Inscription" fact, its content type and size, with "not shown" when it is not text. "Block height in script" shows only when the script carries the block's own height. Under 65em the panel moves under the flow and the inspector opens above the details, in the page's flow. Long input or output lists collapse after ten; each "Show more" adds a hundred, and the hidden rest travels as one ribbon, so a transaction with thousands of outputs never renders them all at once. Each fact is said once: the fee in sats and the virtual size under the fee rate, the fee in BTC on the flow's fee card, the counts of inputs and outputs under the amount. The Lightning note, for a transaction that opened or closed a channel, follows the flow and the panel.
+
+**The privacy check** sits under the flow, in its panel, after a hairline: what an observer can read from the transaction's shape ([`FRONTEND.md`](FRONTEND.md#privacy-check) has the rules and every sentence). Reuse or change fires on about half of mainnet's transactions, so it stays quiet: one signifier, an eye, beside every mark and finding; small marks at the end of a card's meta line ("Reused address", "Reads as change", "Reads as payment", "Equal amount"); a short list, a finding's title in bold and its sentences under it, reasons as bullets; no banner and no box. The caution colour, with the filled eye, only where something is given away; a CoinJoin's shape in the text's colour with the open eye, neither warning nor praise. A transaction with nothing to report gets one muted line and the "What this checks" disclosure. Only part checked, muted lines after the findings say what could not be checked and what that may leave incomplete. It is worked out with the page, so it arrives with the cards and moves nothing.
 
 ### Address (not in the prototype)
 
@@ -659,12 +663,14 @@ Broadcast a transaction
 ┌ summary: Fee · Amount · Size ────────────────────────────────────┐
 └──────────────────────────────────────────────────────────────────┘
 [notice, caution: Check before you send — what is wrong, one line each]
+[notice, neutral: Once it is sent, anyone can read this from it — findings, then
+ "It is not sent yet: a wallet can still change which coins it spends and where the change goes."]
 [Broadcast]  or  [Broadcast anyway]  or  ✓ Sent: follow it on its page
 ┌ Inputs and outputs (the transaction page's flow) ────────────────┐
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-It is read as soon as it is pasted, so the answer comes before the button: what it pays and where its coins go. The button is the accent only when nothing needs a second thought; with a warning it is outlined and reads "Broadcast anyway". A transaction the node already has gets a positive notice and a link instead of a button. On a phone the fee and the size share a row and the amount has its own, as on the transaction page.
+It is read as soon as it is pasted, so the answer comes before the button: what it pays and where its coins go. The button is the accent only when nothing needs a second thought; with a warning it is outlined and reads "Broadcast anyway". A transaction the node already has gets a positive notice and a link instead of a button. Before the button, a neutral notice (the strong line colour on its left edge, never the caution's) says what an observer could read once it is sent: the transaction page's findings, coins spent together too, the same marks on the cards, and the closing line that a wallet can still change which coins it spends and where the change goes. They are readings, not faults, so the button stays as it is. The decoder shows the same for pasted hex. On a phone the fee and the size share a row and the amount has its own, as on the transaction page.
 
 ### Timestamp proofs (not in the prototype)
 

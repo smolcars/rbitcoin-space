@@ -1,6 +1,7 @@
-// The privacy check (docs/FRONTEND.md "Privacy check") on the scenario's chain: findings, a clean
-// transaction and a partly checked one on the transaction page, and on Broadcast and the decoder
-// a transaction built here and never sent. A CoinJoin and real partial data from the check route's
+// The privacy check (docs/FRONTEND.md "Privacy check") on the scenario's chain: findings and a
+// partly checked transaction on the transaction page, and on Broadcast and the decoder a
+// transaction built here and never sent. A clean transaction (every scenario transaction pays its
+// change back to the miner's address), a CoinJoin and real partial data from the check route's
 // lookup limit need the chain changed: privacy.mine.e2e.ts.
 import type { Page, Request } from "@playwright/test";
 import { axe } from "./axe";
@@ -20,13 +21,15 @@ async function watchArrival(page: Page) {
   await page.addInitScript(() => {
     const w = window as unknown as { arrival?: unknown };
     const seen = new MutationObserver(() => {
-      if (w.arrival !== undefined || !document.querySelector(".tx-flow__item:not(.tx-flow__item--ghost)")) return;
+      if (
+        w.arrival !== undefined ||
+        !document.querySelector(".tx-flow__item:not(.tx-flow__item--ghost)")
+      )
+        return;
       const top = (sel: string) => document.querySelector(sel)?.getBoundingClientRect().top ?? null;
-      w.arrival = {
-        privacy: document.querySelector(".pv-under") !== null,
-        flow: top(".tx-main__flow"),
-        details: top(".tx-rail__details"),
-      };
+      const flow = top(".tx-main__flow");
+      const pv = top(".pv-under");
+      w.arrival = { privacy: pv !== null, within: pv === null || flow === null ? null : pv - flow };
       seen.disconnect();
     });
     seen.observe(document, { childList: true, subtree: true });
@@ -35,11 +38,12 @@ async function watchArrival(page: Page) {
 
 const arrival = (page: Page) =>
   page.evaluate(() => (window as unknown as { arrival?: unknown }).arrival);
-const tops = (page: Page) =>
-  page.evaluate(() => ({
-    flow: document.querySelector(".tx-main__flow")?.getBoundingClientRect().top ?? null,
-    details: document.querySelector(".tx-rail__details")?.getBoundingClientRect().top ?? null,
-  }));
+/** Where the privacy section sits within the flow's panel now. */
+const within = (page: Page) =>
+  page.evaluate(() => {
+    const top = (sel: string) => document.querySelector(sel)?.getBoundingClientRect().top ?? 0;
+    return top(".pv-under") - top(".tx-main__flow");
+  });
 
 test("a transaction with findings: marks on its cards and what an observer can read", async ({
   page,
@@ -74,11 +78,11 @@ test("a transaction with findings: marks on its cards and what an observer can r
   await expect(outputs.getByRole("listitem").nth(1)).toContainText("Reused address");
   await expect(outputs.getByRole("listitem").nth(1)).toContainText("Reads as change");
 
-  // It came with the flow: nothing moved when it appeared.
-  expect(await arrival(page)).toMatchObject({ privacy: true });
-  const first = (await arrival(page)) as { flow: number; details: number };
+  // It came with the first card, in the place it keeps: it never appears later to move anything.
+  const first = (await arrival(page)) as { privacy: boolean; within: number };
+  expect(first.privacy).toBe(true);
   await page.waitForTimeout(500);
-  expect(await tops(page)).toStrictEqual({ flow: first.flow, details: first.details });
+  expect(await within(page)).toBe(first.within);
 
   // What it checks, from the keyboard.
   const checks = section.getByText("What this checks");
@@ -94,16 +98,6 @@ test("a transaction with findings: marks on its cards and what an observer can r
   await page.setViewportSize({ width: 360, height: 780 });
   await expect(section).toBeVisible();
   expect(await sideways(page)).toBeLessThanOrEqual(0);
-  expect(await axe(page)).toStrictEqual([]);
-});
-
-test("a clean transaction is one muted line", async ({ page }) => {
-  // The P2SH and pay-to-anchor outputs of `script_types` to one P2TR output: nothing to read.
-  await page.goto(`/regtest/tx/${chain.txs.spend_p2sh_p2a}`);
-  await expect(page.getByText("Nothing in this transaction's shape stands out.")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "What an observer can read" })).toHaveCount(0);
-  await expect(page.locator(".tx-flow .pv-tag")).toHaveCount(0);
-  await expect(page.getByText("What this checks")).toBeVisible();
   expect(await axe(page)).toStrictEqual([]);
 });
 

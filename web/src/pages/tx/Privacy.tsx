@@ -102,6 +102,8 @@ function Findings(props: {
   report: PrivacyReport;
   unsent: boolean;
   titleId: string;
+  /** Under the flow's own heading on the transaction page; beside it, as a section, elsewhere. */
+  level: 2 | 3;
   title: string;
 }) {
   const said = () => shownFindings(props.report, props.unsent).map((f) => sayFinding(f));
@@ -117,9 +119,18 @@ function Findings(props: {
           </p>
         }
       >
-        <h3 class="pv-title" id={props.titleId}>
-          {props.title}
-        </h3>
+        <Show
+          when={props.level === 2}
+          fallback={
+            <h3 class="pv-title" id={props.titleId}>
+              {props.title}
+            </h3>
+          }
+        >
+          <h2 class="pv-title" id={props.titleId}>
+            {props.title}
+          </h2>
+        </Show>
         <ul class="pv-list">
           <For each={said()}>{(s) => <Finding said={s} />}</For>
         </ul>
@@ -143,7 +154,13 @@ function Findings(props: {
 export function TxPrivacy(props: { report: PrivacyReport }) {
   return (
     <section class="pv-under" aria-labelledby="pv-under-title">
-      <Findings report={props.report} unsent={false} titleId="pv-under-title" title={LIST_TITLE} />
+      <Findings
+        report={props.report}
+        unsent={false}
+        titleId="pv-under-title"
+        title={LIST_TITLE}
+        level={3}
+      />
       <WhatThisChecks />
     </section>
   );
@@ -154,7 +171,13 @@ export function UnsentPrivacy(props: { report: PrivacyReport }) {
   const said = () => shownFindings(props.report, true);
   return (
     <section class="pv-send" aria-labelledby="pv-send-title">
-      <Findings report={props.report} unsent titleId="pv-send-title" title={UNSENT_TITLE} />
+      <Findings
+        report={props.report}
+        unsent
+        titleId="pv-send-title"
+        title={UNSENT_TITLE}
+        level={2}
+      />
       <Show when={said().length > 0}>
         <p class="pv-closing">{UNSENT_CLOSING}</p>
       </Show>

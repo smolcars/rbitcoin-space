@@ -1,5 +1,5 @@
 // The privacy check on shapes the scenario lacks (docs/FRONTEND.md "Privacy check"): a CoinJoin's
-// on the transaction page, and on the decoder and Broadcast a spend of 101 coins, past the check
+// and a clean one on the transaction page, and on the decoder and Broadcast a spend of 101 coins, past the check
 // route's 100 lookups, so its answer itself leaves one input unknown. Nothing here is sent but the
 // coins the test makes on regtest.
 import { createHash, randomBytes } from "node:crypto";
@@ -73,6 +73,30 @@ test("a transaction shaped like a CoinJoin is a neutral finding, with no change 
   // Neutral: the open eye, in the text's colour, never the caution's.
   await expect(page.locator(".pv-item--neutral")).toHaveCount(1);
   await expect(page.locator(".pv-item--caution, .pv-tag--caution")).toHaveCount(0);
+  expect(await axe(page)).toStrictEqual([]);
+});
+
+test("a clean transaction is one muted line", async ({ page, rpc, mine }) => {
+  // A coin at an address of its own, spent whole to one fresh address: nothing to read.
+  const coin = await coinbase(rpc);
+  const split = await send(
+    rpc,
+    spending(coin.txid, [
+      [anyone("55"), 100_000_000n],
+      [MINER_SCRIPT, coin.sats - 100_000_000n - 20_000n],
+    ]),
+  );
+  const clean = await send(
+    rpc,
+    build([{ txid: split, vout: 0, script: "55" }], [[fresh(), 99_990_000n]]),
+  );
+  await mine(1);
+
+  await page.goto(`/regtest/tx/${clean}`);
+  await expect(page.getByText("Nothing in this transaction's shape stands out.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "What an observer can read" })).toHaveCount(0);
+  await expect(page.locator(".tx-flow .pv-tag")).toHaveCount(0);
+  await expect(page.getByText("What this checks")).toBeVisible();
   expect(await axe(page)).toStrictEqual([]);
 });
 

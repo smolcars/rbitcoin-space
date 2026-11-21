@@ -75,7 +75,7 @@ describe("the list under the flow", () => {
 describe("the notice before sending", () => {
   it("says what sending would show, and that the wallet can still change it", () => {
     const el = mount(() => <UnsentPrivacy report={checkPrivacy(payback("bcrt1qme"))} />);
-    expect(el.querySelector("h3")?.textContent).toBe(
+    expect(el.querySelector("h2")?.textContent).toBe(
       "Once it is sent, anyone can read this from it",
     );
     expect(el.querySelector(".pv-closing")?.textContent).toBe(
