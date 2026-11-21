@@ -6,7 +6,7 @@ import { createEffect, createMemo, createSignal, Show, untrack } from "solid-js"
 import type { JSX } from "@solidjs/web";
 import { type Column, DataTable } from "../../components/DataTable";
 import { Hash } from "../../components/Hash";
-import { YourLabel } from "../../components/labels/Label";
+import { type Elsewhere, YourLabel } from "../../components/labels/Label";
 import { LabelEditor } from "../../components/labels/LabelEditor";
 import { Pagination } from "../../components/Pagination";
 import { SectionHeader } from "../../components/SectionHeader";
@@ -110,7 +110,7 @@ export default function LabelsPage() {
   const [list, setList] = createSignal<Stored[]>([]);
   // The record whose editor is open, and what another tab changed it to meanwhile, if it did.
   const [editing, setEditing] = createSignal<string | undefined>();
-  const [elsewhere, setElsewhere] = createSignal<{ label: string | undefined } | undefined>();
+  const [elsewhere, setElsewhere] = createSignal<Elsewhere | undefined>();
   // The list as last shown, by key: a record read again unchanged keeps its object, so its row
   // (and an editor open in it, with what the reader is typing) is kept, and only changed rows are
   // drawn again.
@@ -132,10 +132,21 @@ export default function LabelsPage() {
           // The row being edited keeps its object, and with it the editor and its draft, even when
           // another tab changed it: the editor says so, and shows what it was changed to.
           const edited = old !== undefined && fresh.key === untrack(editing);
-          if (edited && !same) setElsewhere({ label: fresh.label });
+          if (edited && !same)
+            setElsewhere(fresh.label === undefined ? { removed: true } : { changed: fresh.label });
           const r = old !== undefined && (same || edited) ? old : fresh;
           next.set(r.key, r);
           out.push(r);
+        }
+        // The row being edited, deleted by another tab: kept, with its editor and draft, in its
+        // place, and the editor says so. Saving makes it again; Cancel lets it go.
+        const held = untrack(editing);
+        const gone = held === undefined || next.has(held) ? undefined : shownByKey.get(held);
+        if (gone) {
+          const at = out.findIndex((r) => r.seq < gone.seq);
+          out.splice(at === -1 ? out.length : at, 0, gone);
+          next.set(gone.key, gone);
+          setElsewhere({ deleted: true });
         }
         shownByKey = next;
         setList(out);
@@ -225,7 +236,7 @@ function Manager(props: {
   all: Stored[];
   network: Network;
   editing: string | undefined;
-  elsewhere: { label: string | undefined } | undefined;
+  elsewhere: Elsewhere | undefined;
   edit: (key: string | undefined) => void;
 }) {
   const [query, setQuery] = createSignal("");
@@ -514,7 +525,7 @@ function Manager(props: {
               record={r.key}
               what={describe(r)}
               current={r.label}
-              {...(props.elsewhere ? { elsewhere: props.elsewhere.label ?? null } : {})}
+              {...(props.elsewhere ? { elsewhere: props.elsewhere } : {})}
               done={(words) => {
                 props.edit(undefined);
                 if (words !== undefined) setSaid(words);

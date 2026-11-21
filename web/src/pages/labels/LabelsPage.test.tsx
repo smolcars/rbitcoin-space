@@ -1,8 +1,15 @@
 import { flush } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mount } from "../../components/test-utils";
-import { readFile } from "../../lib/labels/bip329";
-import { previewImport, resetStore, runImport, setLabel } from "../../lib/labels/db";
+import { readFile, recordKey } from "../../lib/labels/bip329";
+import {
+  previewImport,
+  readAll,
+  remove,
+  resetStore,
+  runImport,
+  setLabel,
+} from "../../lib/labels/db";
 import { fakeIndexedDB, KeyRange } from "../../lib/labels/fake-idb";
 import LabelsPage, { pageOf, typeName } from "./LabelsPage";
 
@@ -144,5 +151,63 @@ describe("the manager", () => {
     expect(el.querySelector<HTMLInputElement>("input.label-editor__field")).toBe(field);
     expect(field.value).toBe("A, my draft");
     expect(document.activeElement).toBe(field);
+  });
+
+  it("keeps the row, the editor and its draft when another tab deletes that label, and says so", async () => {
+    const A = "aa".repeat(32);
+    const B = "bb".repeat(32);
+    const text = [
+      `{"type":"tx","ref":"${A}","label":"A"}`,
+      `{"type":"tx","ref":"${B}","label":"B"}`,
+    ];
+    const both = (await readFile(text.join("\n"))).records;
+    await runImport(both, await previewImport(both));
+    const el = mount(() => <LabelsPage />, "/regtest/labels");
+    const button = (start: string) =>
+      [...el.querySelectorAll("button")].find((b) => (b.textContent ?? "").startsWith(start));
+    await until(() => button("Edit the label of transaction aaaaaaaa") !== undefined);
+    button("Edit the label of transaction aaaaaaaa")?.click();
+    await until(() => el.querySelector<HTMLInputElement>("input.label-editor__field") !== null);
+    const field = el.querySelector<HTMLInputElement>("input.label-editor__field");
+    if (!field) throw new TypeError("no field");
+    field.value = "A, my draft";
+    field.focus();
+    // Another tab deletes A.
+    await remove([recordKey("tx", A, undefined)]);
+    await until(() => (el.querySelector(".label-editor__elsewhere")?.textContent ?? "") !== "");
+    expect(el.querySelector(".label-editor__elsewhere")?.textContent).toContain(
+      "deleted elsewhere",
+    );
+    expect(el.querySelector<HTMLInputElement>("input.label-editor__field")).toBe(field);
+    expect(field.value).toBe("A, my draft");
+    expect(document.activeElement).toBe(field);
+    // Cancel lets it go: the row leaves the list.
+    button("Cancel")?.click();
+    await until(() => button("Edit the label of transaction aaaaaaaa") === undefined);
+    expect(button("Edit the label of transaction aaaaaaaa")).toBeUndefined();
+    expect(button("Edit the label of transaction bbbbbbbb")).toBeDefined();
+  });
+
+  it("makes a label deleted elsewhere again when its draft is saved", async () => {
+    const A = "aa".repeat(32);
+    const one = (await readFile(`{"type":"tx","ref":"${A}","label":"A"}`)).records;
+    await runImport(one, await previewImport(one));
+    const el = mount(() => <LabelsPage />, "/regtest/labels");
+    const edit = () =>
+      [...el.querySelectorAll("button")].find((b) =>
+        (b.textContent ?? "").startsWith("Edit the label of transaction aaaaaaaa"),
+      );
+    await until(() => edit() !== undefined);
+    edit()?.click();
+    await until(() => el.querySelector<HTMLInputElement>("input.label-editor__field") !== null);
+    const field = el.querySelector<HTMLInputElement>("input.label-editor__field");
+    if (!field) throw new TypeError("no field");
+    field.value = "A, again";
+    await remove([recordKey("tx", A, undefined)]);
+    await until(() => (el.querySelector(".label-editor__elsewhere")?.textContent ?? "") !== "");
+    el.querySelector("form")?.dispatchEvent(new Event("submit", { cancelable: true }));
+    await until(() => el.querySelector("input.label-editor__field") === null);
+    const { records } = await readAll();
+    expect(records.map((r) => r.label)).toStrictEqual(["A, again"]);
   });
 });

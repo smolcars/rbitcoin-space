@@ -112,9 +112,13 @@ export function LabelEditor(props: EditorProps) {
       </p>
       <Show when={props.elsewhere !== undefined}>
         <p class="label-editor__elsewhere" role="status">
-          {props.elsewhere === null || props.elsewhere === undefined
-            ? "This label was removed elsewhere since you opened it. Saving puts back what you type."
-            : `This label was changed elsewhere since you opened it, to “${shownLabel(props.elsewhere, 80)}”. Saving replaces it with what you type.`}
+          {props.elsewhere === undefined
+            ? ""
+            : "changed" in props.elsewhere
+              ? `This label was changed elsewhere since you opened it, to “${shownLabel(props.elsewhere.changed, 80)}”. Saving replaces it with what you type.`
+              : "deleted" in props.elsewhere
+                ? "This label was deleted elsewhere since you opened it. Saving creates it again with what you type; Cancel lets it go."
+                : "This label was removed elsewhere since you opened it. Saving puts back what you type."}
         </p>
       </Show>
       <Show when={error()}>

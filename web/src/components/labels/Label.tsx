@@ -56,6 +56,9 @@ export function LabelOf(props: {
   );
 }
 
+/** What another tab did to a label while it was being edited: changed it, took its label off, or deleted its record. */
+export type Elsewhere = { changed: string } | { removed: true } | { deleted: true };
+
 export interface EditorProps {
   type: string;
   reference: string;
@@ -63,8 +66,8 @@ export interface EditorProps {
   record?: string;
   what: string;
   current: string | undefined;
-  /** What another tab changed this label to while it was being edited (null: removed). */
-  elsewhere?: string | null;
+  /** What another tab did to this label while it was being edited. */
+  elsewhere?: Elsewhere;
   /** Closes the editor; `said` is announced, such as "Label saved". */
   done: (said?: string) => void;
 }
