@@ -776,7 +776,14 @@ async function visitor(browser: Browser, baseURL: string, headers: Record<string
     extraHTTPHeaders: headers,
     acceptDownloads: true,
   });
+
   const page = await context.newPage();
+  // The browser's cache off: whether a file asked for before comes from the cache or the server is
+  // the cache's timing, not the page's; here every file is asked of the server each time, in both
+  // runs alike.
+  const cdp = await context.newCDPSession(page);
+  await cdp.send("Network.enable");
+  await cdp.send("Network.setCacheDisabled", { cacheDisabled: true });
   return { context, page };
 }
 
