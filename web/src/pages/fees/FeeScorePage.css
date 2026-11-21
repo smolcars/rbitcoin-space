@@ -117,11 +117,18 @@
     white-space: normal;
   }
   /* Two figures in one cell may part at the dot on a phone; each stays whole. */
-  .fee-score__pair {
-    white-space: normal;
-  }
+  /* Two figures in one cell, mean then median: on one line on a wide screen, and on a phone one
+     above the other in every row, so the medians are always the second line. */
   .fee-score__pair .num {
     white-space: nowrap;
+  }
+  @media (max-width: 40em) {
+    .fee-score__pair .num {
+      display: block;
+    }
+    .fee-score__sep {
+      display: none;
+    }
   }
   .fee-score__kinds {
     display: block;
@@ -290,8 +297,9 @@
 
   /* Narrower: the name and the verdict on one line, the share beside its line. */
   @media (max-width: 65em) {
+    /* A fixed first column: every row's meter starts at the same x, whatever its share says. */
     .fee-level {
-      grid-template-columns: minmax(7rem, auto) 1fr;
+      grid-template-columns: 9rem minmax(0, 1fr);
       grid-template-areas:
         "name verdict"
         "figure meter"
@@ -345,8 +353,10 @@
     .fee-score__scale {
       display: inline;
     }
+    /* One width for the interval's ends in every row, the widest they can be ("99.8–99.9%"), so
+       every line starts and ends at the same x and the target is one line down the panel. */
     .fee-meter {
-      grid-template-columns: 1fr auto;
+      grid-template-columns: minmax(0, 1fr) 12ch;
       margin-top: var(--space-1);
     }
     .fee-meter__end {
@@ -355,7 +365,8 @@
     .fee-meter__range {
       grid-column: 2;
       grid-row: 1;
-      margin-left: var(--space-1);
+      justify-self: end;
+      margin-left: 0;
       transform: none;
     }
     .fee-level__detail {

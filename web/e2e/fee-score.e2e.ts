@@ -83,6 +83,27 @@ test.describe("on a phone, in a wide prose font", () => {
       await expect(evidence.getByRole("row", { name: /^High/ })).toContainText(
         "34 not finished, 4 no clearing rate",
       );
+      // The overpaid pair is mean over median in every row, each whole on its line, "under 0.01"
+      // included (council A-C2).
+      const pairs = await page.locator(".fee-score__pair").evaluateAll((els) =>
+        els.map((e) => {
+          const [mean, median] = [...e.querySelectorAll(".num")].map((n) =>
+            n.getBoundingClientRect(),
+          );
+          const lh = Number.parseFloat(getComputedStyle(e).lineHeight);
+          return {
+            text: e.textContent ?? "",
+            below: Math.round((median?.top ?? 0) - (mean?.top ?? 0)),
+            whole: (mean?.height ?? 99) < lh * 1.5 && (median?.height ?? 99) < lh * 1.5,
+          };
+        }),
+      );
+      expect(pairs.some((p) => p.text.includes("under 0.01"))).toBe(true);
+      for (const p of pairs) {
+        expect(p.whole, p.text).toBe(true);
+        expect(p.below, p.text).toBeGreaterThan(0);
+        expect(p.below, p.text).toBe(pairs[0]?.below);
+      }
       // Each legend item's swatch is on the line of its words (council N-C5).
       const apart = await page.evaluate(() => {
         const key = document.querySelector(".fee-score__key");
@@ -154,6 +175,52 @@ test.describe("the meters' labels, in a wide prose font", () => {
         expect(touching).toStrictEqual([]);
       });
     }
+  }
+});
+
+// One coordinate system down the panel: every level's line starts and ends at the same x, and its
+// target tick is one vertical line, whatever each row holds (a share or none, a short or a wide
+// interval), on every period and at every width (council A-C1). Each period is served a different
+// answer: too few blocks, mainnet's week, signet's all-zero week, and the widest labels there are.
+test.describe("the meters share one line, in a wide prose font", () => {
+  test.use({ prose: "wide" });
+  const wide = structuredClone(MAINNET_1W) as { levels: Record<string, unknown>[] };
+  for (const l of wide.levels) Object.assign(l, { met: 0.9985, interval: [0.9975, 0.9992] });
+  const answers: Record<string, unknown> = {
+    "24h": MAINNET_24H,
+    "1w": MAINNET_1W,
+    "1m": SIGNET_1W,
+    all: wide,
+  };
+  for (const width of [1280, 360, 320]) {
+    test(`at ${width} px on every period`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.route(/\/regtest\/app\/fees\/score\?window=(\w+)$/, (r) => {
+        const w = new URL(r.request().url()).searchParams.get("window") ?? "";
+        return r.fulfill({ json: { ...(answers[w] as object), window: w } });
+      });
+      const faults: string[] = [];
+      for (const w of Object.keys(answers)) {
+        await page.goto(`/regtest/fees/score?window=${w}`);
+        await expect(levels(page)).toHaveCount(4);
+        await page.evaluate(() => document.fonts.ready);
+        const edges = await page.evaluate(() =>
+          [...document.querySelectorAll(".fee-meter")].map((m) => {
+            const t = m.querySelector(".fee-meter__track")?.getBoundingClientRect();
+            const tick = m.querySelector(".fee-meter__target")?.getBoundingClientRect();
+            return [t?.left ?? -1, t?.right ?? -1, tick?.left ?? -1];
+          }),
+        );
+        for (const i of [0, 1, 2]) {
+          const xs = edges.map((e) => e[i] ?? -1);
+          if (Math.max(...xs) - Math.min(...xs) > 1)
+            faults.push(
+              `${w}: ${["left", "right", "tick"][i]} ${xs.map((x) => Math.round(x)).join(", ")}`,
+            );
+        }
+      }
+      expect(faults).toStrictEqual([]);
+    });
   }
 });
 

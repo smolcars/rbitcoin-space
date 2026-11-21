@@ -401,7 +401,7 @@ function CostPanel(props: { views: LevelView[] }) {
     },
     {
       header: "Overpaid when met, mean · median",
-      short: "Over, mean · median",
+      short: "Overpaid, mean over median",
       sub: "sat/vB",
       numeric: true,
       cell: (v) => {
@@ -412,7 +412,9 @@ function CostPanel(props: { views: LevelView[] }) {
             fallback={<span class="fee-score__gap">{costGap(v, "met")}</span>}
           >
             <span class="fee-score__pair">
-              <span class="num">{c.overpayMean}</span> · <span class="num">{c.overpayMedian}</span>
+              <span class="num">{c.overpayMean}</span>
+              <span class="fee-score__sep"> · </span>
+              <span class="num">{c.overpayMedian}</span>
             </span>
           </Show>
         );
