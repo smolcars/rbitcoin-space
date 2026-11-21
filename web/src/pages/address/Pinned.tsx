@@ -68,11 +68,17 @@ let arriving: { page: string; at: string | undefined } | undefined;
 function arrive(page: string, at: string | undefined): void {
   arriving = { page, at };
 }
-/** Takes focus, a frame later, when this is the page the last navigation from here was to. */
-function takeFocus(el: HTMLElement, page: string, at: string | undefined): void {
-  const was = arriving;
-  arriving = undefined;
-  if (was?.page === page && was.at === at) requestAnimationFrame(() => el.focus());
+/**
+ * Takes focus when this is the page the last navigation from here was to. A frame later, page key
+ * and all: read in a `ref`, while the router's move is still under way, the network it names is
+ * not settled, and reading it there would hold the move up for good.
+ */
+function takeFocus(el: HTMLElement, page: () => string, at: string | undefined): void {
+  requestAnimationFrame(() => {
+    const was = arriving;
+    arriving = undefined;
+    if (was?.page === page() && was.at === at) el.focus();
+  });
 }
 
 /**
@@ -377,7 +383,7 @@ export function AsOfPicker(props: {
       <button
         ref={(el) => {
           button = el;
-          if (props.arrival === true) takeFocus(el, props.page, undefined);
+          if (props.arrival === true) takeFocus(el, () => props.page, undefined);
         }}
         class={`btn address-asof-picker ${props.class ?? ""}`}
         type="button"
@@ -660,7 +666,7 @@ function NotAHeight(props: { text: string; page: string }) {
             class="address-asof__title"
             id="address-asof-title"
             tabindex="-1"
-            ref={(el) => takeFocus(el, props.page, props.text)}
+            ref={(el) => takeFocus(el, () => props.page, props.text)}
           >
             {`“${props.text}” is not a block height`}
           </h2>
@@ -681,8 +687,9 @@ function PinnedAt(props: { address: string; isKey: boolean; height: number; agai
   const height = untrack(() => props.height);
   const noun = untrack(() => (props.isKey ? "key" : "address"));
   const path = `/address/${encodeURIComponent(address)}`;
-  /** This page, as `AddressPage` keys it: what a focus request on arrival is scoped to. */
-  const page = `${untrack(network)} ${address}`;
+  /** This page, as `AddressPage` keys it: what a focus request on arrival is scoped to. Read only
+   * in handlers and after the page arrives, never during the router's move here. */
+  const page = () => `${network()} ${address}`;
   const [resolved, { refetch: retryResolve }] = createRequest(
     () => network(),
     (net, signal) => resolve(net, height, signal),
@@ -1030,7 +1037,7 @@ function PinnedAt(props: { address: string; isKey: boolean; height: number; agai
                       class="btn"
                       type="button"
                       onClick={() => {
-                        arrive(page, String(h().height));
+                        arrive(page(), String(h().height));
                         setSearch({ at: String(h().height) }, { scroll: false });
                       }}
                     >
@@ -1046,7 +1053,7 @@ function PinnedAt(props: { address: string; isKey: boolean; height: number; agai
                     class="btn"
                     type="button"
                     onClick={() => {
-                      arrive(page, undefined);
+                      arrive(page(), undefined);
                       setSearch({ at: undefined });
                     }}
                   >

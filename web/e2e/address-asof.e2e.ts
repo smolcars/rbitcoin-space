@@ -814,6 +814,10 @@ test("a date's lookup still running when the reader follows a link writes nothin
   await page.waitForTimeout(300);
   chunk.open();
   await expect(page).toHaveURL(/\/regtest\/block\/[0-9a-f]{64}$/);
+  // And back, within the app, to the address as of the block: the move there completes.
+  await page.goBack();
+  await expect(page).toHaveURL(`/regtest/address/${address}?at=107`);
+  await expect(band(page).getByRole("heading")).toHaveText("As of block 107");
 });
 
 test("a present that cannot be compared, or a lookup that fails partway, never states a false fact", async ({
