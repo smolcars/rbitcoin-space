@@ -83,8 +83,8 @@ export type Verdict =
  */
 export function headerTimeRule(height: number): string {
   return height === 0
-    ? "The genesis block's header is fixed by the network's rules, so no node checks its time against a clock or against earlier blocks."
-    : "A node accepts a block only if its time is later than the median of the blocks before it, up to eleven, and no more than two hours ahead of the node's own clock when it checks.";
+    ? "The genesis block's header time is fixed by the network's rules: no node checks it against a clock or earlier blocks."
+    : "The header time is the miner's claim: a node accepts it only if it is later than the median of the blocks before, up to eleven, and at most two hours ahead of its own clock.";
 }
 
 /** At most this many distinct blocks are asked about; real proofs name one to four. */

@@ -369,12 +369,12 @@ describe("review round 2", () => {
 describe("the rule on a header's time (review round 3, T14)", () => {
   it("says the genesis block's time is checked against nothing (review round 4, T21)", () => {
     expect(headerTimeRule(0)).toBe(
-      "The genesis block's header is fixed by the network's rules, so no node checks its time against a clock or against earlier blocks.",
+      "The genesis block's header time is fixed by the network's rules: no node checks it against a clock or earlier blocks.",
     );
   });
   it("counts the blocks there are, up to eleven", () => {
     const rule =
-      "A node accepts a block only if its time is later than the median of the blocks before it, up to eleven, and no more than two hours ahead of the node's own clock when it checks.";
+      "The header time is the miner's claim: a node accepts it only if it is later than the median of the blocks before, up to eleven, and at most two hours ahead of its own clock.";
     expect(headerTimeRule(5)).toBe(rule);
     expect(headerTimeRule(449_397)).toBe(rule);
   });

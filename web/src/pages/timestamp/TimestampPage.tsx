@@ -10,6 +10,7 @@ import {
   For,
   Match,
   onCleanup,
+  onSettled,
   Show,
   Switch,
 } from "solid-js";
@@ -219,13 +220,8 @@ export default function TimestampPage() {
     <div class="wrap ots">
       <h1>Check a timestamp</h1>
       <p class="ots__lede">
-        An OpenTimestamps proof shows that a file existed before a certain Bitcoin block: it is a
-        short chain of hashes from the file to a value written into that block. Give this page the
-        proof and the file, and it follows the chain to the block on this server's own node.
-      </p>
-      <p class="ots__lede ots__lede--quiet">
-        Your file is read in your browser and never sent anywhere. The page asks this server only
-        for the block the proof names.
+        An OpenTimestamps proof shows that a file existed before a certain Bitcoin block. Your file
+        is read in your browser and never sent anywhere.
         <Show when={network() !== "mainnet"}>
           {" "}
           Bitcoin timestamps live on mainnet, so the block is looked up there, not on{" "}
@@ -266,28 +262,17 @@ export default function TimestampPage() {
           <Show when={hashing()?.kind === "cancelled"}>
             <p class="ots-slot__note">Hashing stopped. Choose the file again to start over.</p>
           </Show>
-          <Show when={!file()}>
-            <label class="ots-hex">
-              <span class="ots-hex__label">Or its {HASH_NAMES[algorithm()]}, in hex</span>
-              <input
-                class="ots-hex__input mono"
-                type="text"
-                name="digest"
-                autocomplete="off"
-                spellcheck={false}
-                autocapitalize="off"
-                aria-invalid={hexProblem() ? "true" : "false"}
-                aria-describedby="ots-hex-problem"
-                value={hex()}
-                onInput={(e) => setHex(e.currentTarget.value)}
-              />
-              <span id="ots-hex-problem" class="ots-slot__note ots-slot__note--bad">
-                {hexProblem() ?? ""}
-              </span>
-            </label>
-          </Show>
         </Slot>
       </div>
+      <Show when={!file()}>
+        <DigestField
+          name={HASH_NAMES[algorithm()]}
+          digits={DIGEST_LENGTH[algorithm()] * 2}
+          value={hex()}
+          problem={hexProblem()}
+          onInput={setHex}
+        />
+      </Show>
 
       <section class="ots-result" aria-label="Result">
         <Switch>
@@ -345,6 +330,7 @@ function Slot(props: {
         {
           "ots-slot--over": over(),
           "ots-slot--full": props.chosen !== undefined || props.filled === true,
+          "ots-slot--chosen": props.chosen !== undefined,
         },
       ]}
       onDragOver={(e) => {
@@ -362,7 +348,7 @@ function Slot(props: {
       <p class="ots-slot__hint">{props.hint}</p>
       <div class="ots-slot__pick">
         <label class="btn ots-slot__choose">
-          {props.chosen === undefined ? "Choose a file" : "Choose another"}
+          {props.chosen === undefined ? "Choose a file" : "Change"}
           <input
             ref={input}
             class="visually-hidden"
@@ -399,6 +385,64 @@ function Slot(props: {
         )}
       </Show>
       {props.children}
+    </div>
+  );
+}
+
+/**
+ * The digest instead of the file, under both slots: a field that shows all of it at once, wrapping
+ * on a phone, with what it takes said beside it and a control that clears it.
+ */
+function DigestField(props: {
+  name: string;
+  digits: number;
+  value: string;
+  problem: string | undefined;
+  onInput: (v: string) => void;
+}) {
+  let field: HTMLTextAreaElement | undefined;
+  return (
+    <div class="ots-hex">
+      <label class="ots-hex__label" for="ots-hex">
+        Or its {props.name}, in hex, instead of the file
+      </label>
+      <span id="ots-hex-hint" class="ots-hex__hint">
+        {props.digits} characters, 0 to 9 and a to f
+      </span>
+      <div class="ots-hex__field">
+        <textarea
+          ref={field}
+          id="ots-hex"
+          class="ots-hex__input mono"
+          name="digest"
+          rows={2}
+          autocomplete="off"
+          spellcheck={false}
+          autocapitalize="off"
+          aria-invalid={props.problem ? "true" : "false"}
+          aria-describedby="ots-hex-hint ots-hex-problem"
+          value={props.value}
+          onInput={(e) => props.onInput(e.currentTarget.value)}
+        />
+        <Show when={props.value !== ""}>
+          <button
+            class="ots-slot__clear tap"
+            type="button"
+            aria-label="Clear the digest"
+            onClick={() => {
+              props.onInput("");
+              field?.focus();
+            }}
+          >
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M4 4l8 8M12 4l-8 8" />
+            </svg>
+          </button>
+        </Show>
+      </div>
+      <span id="ots-hex-problem" class="ots-slot__note ots-slot__note--bad">
+        {props.problem ?? ""}
+      </span>
     </div>
   );
 }
@@ -479,6 +523,22 @@ function NotAProof(props: { error: ProofError }) {
   );
 }
 
+/**
+ * A verdict that has just arrived: its heading takes focus, so a screen reader reads it, and it is
+ * brought into view where it is not (a phone, under the two slots), at once under reduced motion.
+ * Never while the reader is typing a digest: the field keeps focus and the page stays put.
+ */
+export function reveal(article: HTMLElement, heading: HTMLElement): void {
+  const active = document.activeElement;
+  if (active instanceof HTMLTextAreaElement) return;
+  if (active instanceof HTMLInputElement && active.type !== "file") return;
+  heading.focus({ preventScroll: true });
+  const r = heading.getBoundingClientRect();
+  if (r.top >= 0 && r.bottom <= window.innerHeight) return;
+  const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? true;
+  article.scrollIntoView?.({ block: "start", behavior: still ? "instant" : "smooth" });
+}
+
 const ICONS = {
   positive: "M3.5 8.5l3 3 6-7",
   negative: "M4.5 4.5l7 7M11.5 4.5l-7 7",
@@ -492,8 +552,17 @@ function Verdictbox(props: {
   title: JSX.Element;
   children?: JSX.Element;
 }) {
+  let article: HTMLElement | undefined;
+  let heading: HTMLHeadingElement | undefined;
+  onSettled(() => {
+    if (article && heading) reveal(article, heading);
+  });
   return (
-    <article class={`ots-verdict ots-verdict--${props.tone}`} aria-labelledby="ots-verdict-title">
+    <article
+      ref={article}
+      class={`ots-verdict ots-verdict--${props.tone}`}
+      aria-labelledby="ots-verdict-title"
+    >
       <p class="ots-verdict__status" role="status">
         <svg class="ots-verdict__icon" viewBox="0 0 16 16" aria-hidden="true">
           <Show when={props.tone === "caution"} fallback={<circle cx="8" cy="8" r="6.5" />}>
@@ -503,7 +572,7 @@ function Verdictbox(props: {
         </svg>
         {props.status}
       </p>
-      <h2 id="ots-verdict-title" class="ots-verdict__title">
+      <h2 ref={heading} id="ots-verdict-title" class="ots-verdict__title" tabindex="-1">
         {props.title}
       </h2>
       <div class="ots-verdict__body">{props.children}</div>
@@ -771,6 +840,29 @@ function Verified(props: {
         )
       }
     >
+      <dl class="ots-figures">
+        <div class="ots-figures__item">
+          <dt>Block</dt>
+          <dd>
+            <Link class="ots-figures__value num" href={paths.block(c().block.hash)}>
+              {groupDigits(c().height)}
+            </Link>
+            <span class="ots-figures__sub">proven by the proof's steps</span>
+          </dd>
+        </div>
+        <div class="ots-figures__item">
+          <dt>Its header time</dt>
+          <dd>
+            <span class="ots-figures__value">
+              <TimeUtc time={c().block.time} />
+            </span>
+            <span class="ots-figures__sub">
+              <TimeAgo time={c().block.time} />
+            </span>
+          </dd>
+        </div>
+      </dl>
+      <p class="ots-figures__caveat">{headerTimeRule(c().height)}</p>
       <Show
         when={props.from === "file"}
         fallback={
@@ -786,11 +878,6 @@ function Verified(props: {
           it may be older.
         </p>
       </Show>
-      <p class="ots-when">
-        Block {groupDigits(c().height)}'s header time is <TimeUtc time={c().block.time} />,{" "}
-        <TimeAgo time={c().block.time} />.
-      </p>
-      <p>That time is the miner's claim. {headerTimeRule(c().height)}</p>
       <Show when={props.proof?.fileHash === "sha1"}>
         <p class="ots-caveat">
           This proof names the file by its SHA-1, and two different files can be made to share a
@@ -828,7 +915,11 @@ function Also(props: { checks: Check[]; others: Leaf[]; except?: Check | undefin
         <For each={rest()}>
           {(c) => (
             <li>
-              Bitcoin block {groupDigits(c.height)}:{" "}
+              Bitcoin{" "}
+              <Show when={"block" in c && c.block} fallback={<>block {groupDigits(c.height)}</>}>
+                {(b) => <Link href={paths.block(b().hash)}>block {groupDigits(c.height)}</Link>}
+              </Show>
+              :{" "}
               {c.kind === "verified" ? (
                 <span class="ots-good">also verified</span>
               ) : c.kind === "mismatch" ? (
@@ -900,21 +991,33 @@ function Work(props: {
   const reaches = () => toHex(props.leaf.message) === toHex(props.block.merkleRoot);
   const list = () => steps(props.digest, props.leaf, props.verified);
   const display = () => toHex(reversed(props.block.merkleRoot));
+  const [full, setFull] = createSignal(false);
+  /** A value as the steps show it: shortened, or whole when the reader asks. */
+  const shown = (hex: string) => (full() ? hex : truncateMiddle(hex));
   return (
     <More
       label={`Show the ${list().length} steps from ${props.from === "file" ? "your file" : "the digest"} to the block`}
     >
       <p>
-        Each step works on the value before it: a hash, or bytes added before or after it. The
-        values are shortened; hover or long-press one for all of it.
+        A proof is a short chain of steps from the file to a value written into a block, and this
+        page follows it to the block on this server's own node, asking it only for that block. Each
+        step works on the value before it: a hash, or bytes added before or after it.
       </p>
-      <ol class="ots-steps">
+      <button
+        class="btn ots-steps__full"
+        type="button"
+        aria-pressed={full() ? "true" : "false"}
+        onClick={() => setFull(!full())}
+      >
+        Show the values in full
+      </button>
+      <ol class={["ots-steps", { "ots-steps--full": full() }]}>
         <li class="ots-step ots-step--end">
           <span class="ots-step__op">
             {props.from === "file" ? "Your file's digest" : "The digest you gave"}
           </span>
           <span class="ots-step__value mono" title={toHex(props.digest)}>
-            {truncateMiddle(toHex(props.digest))}
+            {shown(toHex(props.digest))}
           </span>
         </li>
         <For each={list()}>
@@ -942,21 +1045,21 @@ function Work(props: {
                       <>
                         {" "}
                         <span class="ots-step__arg mono" title={toHex(arg())}>
-                          {truncateMiddle(toHex(arg()))}
+                          {shown(toHex(arg()))}
                         </span>
                       </>
                     )}
                   </Show>
                 </span>
                 <span class="ots-step__value mono" title={toHex(s.result)}>
-                  {truncateMiddle(toHex(s.result))}
+                  {shown(toHex(s.result))}
                 </span>
                 <Show when={s.txid}>
                   {(txid) => (
                     <span class="ots-step__note">
                       This value has the form of a transaction id:{" "}
                       <Link class="mono" href={paths.tx(txid())}>
-                        {truncateMiddle(txid())}
+                        {shown(txid())}
                       </Link>
                     </span>
                   )}
@@ -972,12 +1075,12 @@ function Work(props: {
               : `Block ${groupDigits(props.block.height)}'s merkle root, as its header stores it: not the last value`}
           </span>
           <span class="ots-step__value mono" title={toHex(props.block.merkleRoot)}>
-            {truncateMiddle(toHex(props.block.merkleRoot))}
+            {shown(toHex(props.block.merkleRoot))}
           </span>
           <span class="ots-step__note">
             Explorers print it the other way round:{" "}
             <span class="mono" title={display()}>
-              {truncateMiddle(display())}
+              {shown(display())}
             </span>
           </span>
         </li>
