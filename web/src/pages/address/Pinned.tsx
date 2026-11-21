@@ -1,7 +1,7 @@
 // The address page as of a past block (`?at=<height>`): the block field that picks one, the band
 // that says which block the page shows, and the page itself, every read pinned to that block's
 // hash. Nothing live: no topic, no ledger, no refresh. docs/FRONTEND.md "An address as of a block".
-import { useBeforeLeave, useLocation, useNavigate } from "@solidjs/router";
+import { useLocation, useNavigate } from "@solidjs/router";
 import {
   createEffect,
   createMemo,
@@ -33,7 +33,6 @@ import { groupDigits } from "../../lib/format";
 import { NETWORK_NAMES, type Network, paths } from "../../lib/network";
 import { useNetwork } from "../../lib/page";
 import { blockAt } from "../../palette/block-at";
-import { recognise } from "../../lib/address";
 import { refusal } from "./address";
 import {
   type At,
@@ -127,22 +126,7 @@ export function AsOfForm(props: {
   const [asking, setAsking] = createSignal(false);
   let ask: AbortController | undefined;
   onCleanup(() => ask?.abort());
-  // Once a move starts for anywhere but this page (a link, a step, Back), the form is done: it
-  // cannot submit and nothing it began can commit. A plain flag and the element's own `inert`,
-  // not signals: a signal written as a move starts belongs to that move, and neither the screen
-  // nor a handler would see it until the move had finished. Another spelling of the same address
-  // at the same block is the same page.
-  let left = false;
-  let form: HTMLFormElement | undefined;
-  const location = useLocation();
-  useBeforeLeave((e) => {
-    if (typeof e.to === "string" && samePage(e.to, location.pathname, location.search)) return;
-    left = true;
-    if (form) form.inert = true;
-    ask?.abort();
-  });
   const show = (height: number) => {
-    if (left) return;
     if (height === props.current) {
       props.onSame?.();
       return;
@@ -164,7 +148,6 @@ export function AsOfForm(props: {
   const noteId = `${props.id}-note`;
   const submit = async (e: SubmitEvent) => {
     e.preventDefault();
-    if (left) return;
     const target = e.currentTarget;
     if (!(target instanceof HTMLFormElement)) return;
     const value = new FormData(target).get("at");
@@ -220,7 +203,7 @@ export function AsOfForm(props: {
     }
   };
   return (
-    <form ref={form} class="address-asof-form" onSubmit={(e) => void submit(e)} novalidate>
+    <form class="address-asof-form" onSubmit={(e) => void submit(e)} novalidate>
       <label class="address-asof-form__label" for={props.id}>
         Block height or date
       </label>
@@ -297,35 +280,6 @@ function DepthMark() {
       <rect x="4" y="15" width="16" height="6" rx="1" />
       <path class="address-asof__cut" d="M1 13.9h22" />
     </svg>
-  );
-}
-
-/** The address a path names, as `AddressPage` keys it, and what precedes it (the network). */
-function addressOf(path: string): { before: string; address: string } | undefined {
-  const at = path.indexOf("/address/");
-  if (at === -1) return undefined;
-  const raw = path.slice(at + "/address/".length).split("/")[0] ?? "";
-  let text = raw;
-  try {
-    text = decodeURIComponent(raw);
-  } catch {
-    // Kept as it came.
-  }
-  const found = recognise(text);
-  return found === null ? undefined : { before: path.slice(0, at), address: found.address };
-}
-
-/** `to` is the page at `path` and `search` still: the same address, network and block. */
-function samePage(to: string, path: string, search: string): boolean {
-  const url = new URL(to, "http://page.invalid");
-  const there = addressOf(url.pathname);
-  const here = addressOf(path);
-  return (
-    there !== undefined &&
-    here !== undefined &&
-    there.before === here.before &&
-    there.address === here.address &&
-    url.searchParams.get("at") === new URLSearchParams(search).get("at")
   );
 }
 
@@ -762,9 +716,10 @@ function PinnedAt(props: {
     () => settled(stats) !== undefined && path,
     { stamped: true, fresh: true },
   );
-  /** The present beside the block, through the gate; undefined until both totals are in. */
+  /** The present beside the block, through the gate; undefined until both totals are in, and
+   * while the current ones are being read again, so nothing is shown from the totals replaced. */
   const present = createMemo((): Since | undefined => {
-    const n = settled(now);
+    const n = now.state === "ready" ? now.latest : undefined;
     const t = settled(stats);
     const b = block();
     if (n === undefined || t === undefined || b === undefined) return undefined;
@@ -780,7 +735,9 @@ function PinnedAt(props: {
   // instead: it draws no chart, list or coins. Asked only of a present proved later than the block.
   const [recent, { refetch: refetchRecent }] = createRequest(
     () => {
-      const tipHash = settled(now)?.tip?.hash;
+      // False while the totals are read again, so a new answer, even for the same tip, asks the
+      // history afresh, after it and for its tip only.
+      const tipHash = now.state === "ready" ? now.latest?.tip?.hash : undefined;
       if (present()?.kind !== "later" || tipHash === undefined || beyondReach()) return false;
       return `${network()} ${unused() ? "whole" : "page"} ${tipHash}`;
     },
@@ -820,22 +777,23 @@ function PinnedAt(props: {
     const kind = refusal(error);
     return kind === "too-large" || kind === "not-kept";
   };
-  /** The look at the present failed (busy past its retries, or the node failing): worth a retry. */
+  /** The look at the present failed (busy past its retries, or the node failing): worth a retry.
+   * Nothing while the totals are being read again: the page shows its pending step instead. */
   const nowFailed = () => {
+    if (now.state === "pending" || now.state === "refreshing") return undefined;
     for (const r of [now, recent]) {
       if (r.state === "errored" && !lasting(r.error)) return r.error;
     }
     return undefined;
   };
   /**
-   * Try again runs each failed request again, whatever its inputs. A history read as of a tip
-   * that has since left the chain (404) belonged to a snapshot that is gone, so the totals are
-   * read again too, and the history follows them.
+   * Try again runs the failed request again, whatever its inputs. A history read as of a tip
+   * that has since left the chain (404) belonged to totals that are gone: those are read again,
+   * and the history follows them, once, for the tip they give.
    */
   const retryNow = () => {
-    const stale = recent.state === "errored" && isNotFound(recent.error);
-    if (now.state === "errored" || stale) refetchNow();
-    if (recent.state === "errored") refetchRecent();
+    if (recent.state === "errored" && !isNotFound(recent.error)) refetchRecent();
+    else refetchNow();
   };
   const next = createMemo((): Step | Pending | undefined => {
     const p = present();
@@ -846,7 +804,8 @@ function PinnedAt(props: {
     if (p.kind === "same") return { kind: "none" };
     // Not comparable, beyond what is read, or its history failed: no step.
     if (p.kind === "unknown" || beyondReach() || recent.state === "errored") return undefined;
-    const r = settled(recent);
+    // Only an answer for the tip accepted now: never one kept while the next is asked.
+    const r = recent.state === "ready" ? recent.latest : undefined;
     if (r === undefined) return { kind: "pending" };
     return nextChange(r.heights, r.complete, height, !unused(), p.transactions);
   });

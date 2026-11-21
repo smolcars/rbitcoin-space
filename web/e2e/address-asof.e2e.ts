@@ -741,16 +741,34 @@ test("a step the server refuses to work out says so, and comes once it answers",
   await band(page).getByRole("button", { name: "Try again" }).click();
   await expect(band(page).getByRole("button", { name: "Next change: block 107" })).toBeEnabled();
 
-  // Answered 404 once, the tip unchanged: Try again asks the history again all the same.
+  // Answered 404 once, the tip unchanged: Try again reads the totals again first, with nothing to
+  // retry and no step meanwhile, then the history once, for the tip they give, though unchanged.
   let lookups = 0;
   await page.route(summary, (route) =>
     ++lookups === 1
       ? route.fulfill({ status: 404, json: { error: "not found" } })
       : route.continue(),
   );
+  const totals = gate();
+  let totalsAsked = 0;
+  await page.route(
+    (url) => url.pathname === `/regtest/api/address/${address}` && !url.searchParams.has("asof"),
+    async (route) => {
+      if (++totalsAsked > 1) await totals.shut;
+      await route.continue().catch(() => undefined);
+    },
+  );
   await page.goto(`/regtest/address/${address}?at=106`);
   await expect(band(page)).toContainText("The next change could not be looked up");
   await band(page).getByRole("button", { name: "Try again" }).click();
+  await expect.poll(() => totalsAsked).toBe(2);
+  await expect(band(page).getByRole("button", { name: "Try again" })).toHaveCount(0);
+  await expect(band(page).getByRole("button", { name: /^Next change/ })).toHaveAttribute(
+    "aria-disabled",
+    "true",
+  );
+  expect(lookups).toBe(1);
+  totals.open();
   await expect(band(page).getByRole("button", { name: "Next change: block 107" })).toBeEnabled();
   expect(lookups).toBe(2);
 });
@@ -800,19 +818,21 @@ test("asking for the block already shown closes the field and leaves no focus re
   await expect(band(page).getByRole("heading")).not.toBeFocused();
 });
 
-test("once the reader follows a link, the block field can commit nothing onto the next page", async ({
+test("a block chosen while a move elsewhere is under way lands on this address, never on that page", async ({
   page,
 }) => {
   const address = chain.addresses.p2tr;
-  const date = gate();
   const chunk = gate();
-  await page.route(
-    (url) => url.pathname.startsWith("/regtest/api/v1/mining/blocks/timestamp/"),
-    async (route) => {
-      await date.shut;
-      await route.continue().catch(() => undefined);
-    },
-  );
+  const lookups: string[] = [];
+  page.on("request", (r) => {
+    if (new URL(r.url()).pathname.startsWith("/regtest/api/v1/mining/blocks/timestamp/")) {
+      lookups.push(r.url());
+    }
+  });
+  const visited: string[] = [];
+  page.on("framenavigated", (f) => {
+    if (f === page.mainFrame()) visited.push(f.url());
+  });
   await page.goto(`/regtest/address/${address}?at=107`);
   await expect(stat(page, "Balance")).toHaveText("1.49 000 000 BTC");
   // The block page's code is held, so the move there stays under way.
@@ -823,26 +843,36 @@ test("once the reader follows a link, the block field can commit nothing onto th
   await band(page).getByRole("button", { name: "Another block" }).click();
   const field = page.getByLabel("Block height or date");
   await expect(field).toBeFocused();
-  await field.fill("2026-01-01 17:35");
-  await field.press("Enter");
-  await expect(page.getByRole("button", { name: "Looking up…" })).toBeVisible();
   const held = page.waitForRequest(/\/assets\/BlockPage-[\w-]+\.js$/);
   await band(page).getByRole("link", { name: "107" }).press("Enter");
   await held;
-  // The move is under way: the form is inert, and a date submitted from it anyway commits nothing.
-  expect(await field.evaluate((el) => el.closest("form")?.inert)).toBe(true);
-  await field.evaluate((el) => {
-    if (!(el instanceof HTMLInputElement) || el.form === null) return;
-    el.value = "2026-01-01 17:25";
-    el.form.requestSubmit();
-  });
-  date.open();
+  // A later choice, made while that move waits: this address at the block the date names.
+  await field.fill("2026-01-01 17:35");
+  await field.press("Enter");
+  await expect(page).toHaveURL(`/regtest/address/${address}?at=105`);
+  await expect(band(page).getByRole("heading")).toHaveText("As of block 105");
   chunk.open();
-  await expect(page).toHaveURL(/\/regtest\/block\/[0-9a-f]{64}$/);
-  // And back, within the app, to the address as of the block: the move there completes.
+  await expect(page).toHaveURL(`/regtest/address/${address}?at=105`);
+  expect(lookups).toHaveLength(1);
+  // Built from this address's own path: no page of another kind ever carried `at`.
+  expect(visited.filter((u) => u.includes("/block/") && u.includes("at="))).toStrictEqual([]);
+});
+
+test("after Back within the same address, the open field still submits", async ({ page }) => {
+  const address = chain.addresses.p2tr;
+  await page.goto(`/regtest/address/${address.toUpperCase()}`);
+  const search = page.getByRole("search").getByRole("combobox", { name: "Search" });
+  await search.fill(address);
+  await search.press("Enter");
+  await expect(page).toHaveURL(`/regtest/address/${address}`);
+  await page.getByRole("button", { name: "As of a block" }).click();
   await page.goBack();
-  await expect(page).toHaveURL(`/regtest/address/${address}?at=107`);
-  await expect(band(page).getByRole("heading")).toHaveText("As of block 107");
+  await expect(page).toHaveURL(`/regtest/address/${address.toUpperCase()}`);
+  const field = page.getByLabel("Block height or date");
+  await field.fill("106");
+  await field.press("Enter");
+  await expect(page).toHaveURL(`/regtest/address/${address.toUpperCase()}?at=106`);
+  await expect(band(page).getByRole("heading")).toHaveText("As of block 106");
 });
 
 test("a present that cannot be compared, or a lookup that fails partway, never states a false fact", async ({
@@ -878,6 +908,8 @@ test("a present that cannot be compared, or a lookup that fails partway, never s
   );
   await page.goto(`/regtest/address/${p2sh}?at=107`);
   await expect(stat(page, "Transactions")).toHaveText("2");
+  // The pending step goes once the totals now are in and the gate has ruled on them.
+  await expect(band(page).getByRole("button", { name: /^Next change/ })).toHaveCount(0);
   await expect(band(page).getByRole("button", { name: /^Previous change/ })).toBeEnabled();
   await expect(page.locator(".address-stat__more")).toHaveCount(0);
   await expect(page.getByText(/later|The same now/)).toHaveCount(0);
@@ -898,6 +930,10 @@ test("a present that cannot be compared, or a lookup that fails partway, never s
     );
     await page.goto(`/regtest/address/${p2tr}?at=105`);
     await expect(page.getByText("Not used yet at block 105")).toBeVisible();
+    // Ruled on once the step waiting for the totals now is gone.
+    await expect(band(page).getByRole("button", { name: /^Next change|First used/ })).toHaveCount(
+      0,
+    );
     await expect(page.getByText(/confirmed transactions? now|None has since/)).toHaveCount(0);
     await expect(page.getByRole("button", { name: /First used/ })).toHaveCount(0);
     await page.unrouteAll();
