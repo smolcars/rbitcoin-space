@@ -11,7 +11,7 @@ A PR that adds a slower step must make room for it or move it out of the PR path
 | Job | Limit | Warm, 2026-11-13 |
 |---|---|---|
 | `rust` | 170 s | 92 to 121 s |
-| `e2e`, each of its five shards | 180 s | 62 to 93 s with three; 68 to 106 s with four, on 2026-11-14 ([below](#browser-test-shards)) |
+| `e2e`, each of its five shards | 180 s | 62 to 93 s with three; 68 to 106 s with four, on 2026-11-14; 102 to 142 s with five, on 2026-11-21 ([below](#browser-test-shards)) |
 | `web` | 75 s | 30 to 39 s |
 
 The owner raised the budget from 3 to 4 minutes on 2026-11-15, and each limit by about a quarter (from 135, 145 and 60 s), as the project grew: a `rust` job 2 s over its limit had failed a pull request that added one small test. The whole run is `changes`, the slowest job and `ci-ok`, so the 180 s shard limit leaves about a minute of the four.
@@ -170,5 +170,14 @@ Two shards would leave too little room. Their slowest was 97 s, and a limit with
 | Whole run, from its creation | 136, 137 and 137 s | 125, 130 and 128 s |
 
 The cut by count was not what made the first shard heavy: its slow file was. With four, the first shard's tests took 132 to 151 s of summed time and the others' 92 to 181 s, which shard is heaviest changing from run to run. The tests that mine run one at a time after the rest, so the shard holding `live.mine.e2e.ts` adds 20 to 25 s.
+
+**A fifth shard, measured 2026-11-21**, 559 browser tests, warm. In the week since the fourth the tests had nearly doubled, and the four shards no longer fitted their limit on a slow runner: two pull requests failed with every test passing, on a shard that took 186 and 183 s of its 180 (#266 and #269), and neither had made that shard slow. Three runs of each, a shard's time as the limit counts it:
+
+| | Four shards (`master`, its last three pushes) | Five shards (three runs of [#270](https://github.com/smolcars/rbitcoin-space/pull/270)) |
+|---|---|---|
+| `e2e`, each shard | 127, 153, 126 and 118 s; 110, 142, 191 and 127 s; 128, 145, 121 and 144 s | 102, 102, 140, 114 and 116 s; 133, 124, 142, 119 and 133 s; 120, 125, 139, 108 and 103 s |
+| Whole run, from its creation | not comparable: a push to `master` waits for the run before it | 172, 175 and 163 s |
+
+With five, a shard runs 105 or 106 of the tests that share the node, in 40 to 66 s, and 2 to 10 of those that mine, in 4 to 21 s. The third shard was the slowest each time, at 139 to 142 s: it has the most tests that mine. That leaves the slowest shard 38 s under its limit. What another shard cannot shorten is the time before the first test, the setup and the wait for the build, which varied more from runner to runner than the tests did: the 191 s shard above spent 174 s in `e2e.sh`, and the same shard took 106 and 108 s there on the pushes before and after it. So a shard can still run long on a slow runner; a fifth makes room for it.
 
 **Cold** (no cache: a new lockfile, toolchain or `rust-cache` key), `rust` took 165 s and `e2e` 107 to 150 s, so a run that rebuilds its dependencies can pass three minutes. The limits are not enforced on it; the next `master` push saves the cache.
