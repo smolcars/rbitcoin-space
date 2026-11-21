@@ -267,10 +267,6 @@ describe("review round 3", () => {
   });
 });
 
-// When a verdict may move the reader's focus (docs/FRONTEND.md "Timestamp proofs", code review
-// S-1, S-2, G-2): it takes focus where the reader's own action left it (the control that caused
-// it, or nowhere), or where the reader asked with Enter in the digest field; anywhere else it is
-// announced and nothing moves. The block's answer is held, so each verdict comes late.
 describe("a file with no name (code review G-5)", () => {
   it("still shows its size beside its controls", async () => {
     const { el, file } = open();
@@ -281,14 +277,22 @@ describe("a file with no name (code review G-5)", () => {
   });
 });
 
+// When a verdict may move the reader's focus (docs/FRONTEND.md "Timestamp proofs", code review
+// S-1, S-2, G-2, and round 2 S-7, S-8, G-6 to G-8): it takes focus where the reader's last action
+// left it (what had focus when they acted, or nowhere); anywhere else it is announced and nothing
+// moves. Every way an attempt ends forgets its action. The block's answer is held, so each
+// verdict comes late.
 describe("when a verdict takes the reader's focus", () => {
   let gate = deferred();
+  let fail = false;
   beforeEach(() => {
     const block = madeBlock();
     gate = deferred();
+    fail = false;
     vi.stubGlobal("fetch", async (url: string) => {
       if (url.endsWith("/api/block-height/100")) {
         await gate.promise;
+        if (fail) return Response.json({ error: "broken" }, { status: 500 });
         return new Response(block.hash);
       }
       if (url.endsWith(`/api/block/${block.hash}/header`)) return new Response(block.header);
@@ -371,5 +375,105 @@ describe("when a verdict takes the reader's focus", () => {
     gate.resolve();
     await vi.waitFor(() => expect(said(el)).toContain("This digest is committed to by block 100"));
     expect(document.activeElement).toBe(field);
+  });
+
+  const button = (el: HTMLElement, name: string) => {
+    const b = [...el.querySelectorAll("button")].find(
+      (x) => x.getAttribute("aria-label") === name || text(x) === name,
+    );
+    if (!(b instanceof HTMLButtonElement)) throw new TypeError(`no button ${name}`);
+    return b;
+  };
+  /** The first lookup fails and its error shows; the next one is held until `gate` opens again. */
+  const failOnce = async (el: HTMLElement) => {
+    fail = true;
+    gate.resolve();
+    await vi.waitFor(() => expect(text(el)).toContain("Could not check the block"));
+    fail = false;
+    gate = deferred();
+    button(el, "Try again").click();
+  };
+
+  it("forgets an Enter pressed before a check that failed (round 2 S-8, A1)", async () => {
+    const { el, proof } = open();
+    const field = await typed(el, proof);
+    enter(field);
+    await failOnce(el);
+    field.focus();
+    gate.resolve();
+    await vi.waitFor(() => expect(said(el)).toContain("This digest is committed to by block 100"));
+    expect(document.activeElement).toBe(field);
+  });
+
+  it("forgets the chooser of a check that failed (round 2 G-8, A2)", async () => {
+    const { el, proof, file } = open();
+    choose(proof, fakeFile("a.ots", verifiedProof));
+    if (file instanceof HTMLElement) file.focus();
+    choose(file, fakeFile("the-file.txt", content));
+    await failOnce(el);
+    // Back to the file's chooser while the retry is under way.
+    if (file instanceof HTMLElement) file.focus();
+    gate.resolve();
+    await vi.waitFor(() => expect(said(el)).toContain("This file existed before block 100"));
+    expect(document.activeElement).toBe(file);
+  });
+
+  it("forgets the chooser of a proof once it is removed (round 2 G-8, A3)", async () => {
+    const { el, proof, file } = open();
+    const lost = {
+      name: "gone.txt",
+      size: 10,
+      slice: () => ({ arrayBuffer: () => Promise.reject(new Error("NotReadableError")) }),
+    };
+    choose(file, lost as unknown as File);
+    await vi.waitFor(() => expect(text(el)).toContain("Your file could not be read"));
+    if (proof instanceof HTMLElement) proof.focus();
+    choose(proof, fakeFile("bad.ots", new TextEncoder().encode("not a proof")));
+    await vi.waitFor(() => expect(document.activeElement).toBe(heading(el)));
+    button(el, "Remove the proof").click();
+    await vi.waitFor(() => expect(said(el)).toContain("Your file could not be read"));
+    await settle();
+    expect(document.activeElement).toBe(proof);
+    expect(said(el)).toBe("Your file could not be read");
+  });
+
+  it("takes focus for a file dropped while another control has it (round 2 G-7, C)", async () => {
+    const { el, proof } = open();
+    if (proof instanceof HTMLElement) proof.focus();
+    choose(proof, fakeFile("a.ots", verifiedProof));
+    const drop = new Event("drop", { bubbles: true, cancelable: true });
+    Object.defineProperty(drop, "dataTransfer", {
+      value: { files: [fakeFile("the-file.txt", content)] },
+    });
+    el.querySelectorAll(".ots-slot")[1]?.dispatchEvent(drop);
+    gate.resolve();
+    await vi.waitFor(() => expect(document.activeElement).toBe(heading(el)));
+  });
+
+  it("says each verdict, one with the same heading too, and nothing once it is gone (round 2 S-7, G-6)", async () => {
+    const { el, proof } = open();
+    gate.resolve();
+    const region = el.querySelector("#ots-said");
+    if (!(region instanceof HTMLElement)) throw new TypeError("no live region");
+    const seen: string[] = [];
+    new MutationObserver(() => seen.push(region.textContent ?? "")).observe(region, {
+      childList: true,
+      characterData: true,
+      subtree: true,
+    });
+    const wrong = "The digest you gave is not the one this proof starts from";
+    const field = await typed(el, proof);
+    const type = (v: string) => {
+      field.value = v;
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+    type("a".repeat(64));
+    await vi.waitFor(() => expect(said(el)).toBe(wrong));
+    type("b".repeat(64));
+    await vi.waitFor(() => expect(seen.filter((t) => t === wrong)).toHaveLength(2));
+    expect(seen.slice(seen.indexOf(wrong))).toContain("");
+    type("");
+    await vi.waitFor(() => expect(said(el)).toBe(""));
+    expect(seen.join(" ")).not.toMatch(/aaaa|bbbb|a\.ots|the-file/);
   });
 });
