@@ -204,10 +204,14 @@ test("a number far down the flow opens that card's details, never every card bef
   const close = page.locator("#tx-inspector").getByRole("button", { name: "Close" });
   await far.click();
   await expect(heading).toBeFocused();
-  const first = await far.elementHandle();
+  // Covered by the details at 1280, so found by its target rather than its role, and marked.
+  const numbers = page.locator('a.pv-ref[href="#flow-out-2999"]');
+  await numbers.evaluateAll((as) => {
+    for (const a of as) a.setAttribute("data-before", "");
+  });
   await page.setViewportSize({ width: 360, height: 780 });
   await expect(heading).toBeVisible();
-  expect(await first?.evaluate((a) => a.isConnected)).toBe(false);
+  await expect(page.locator("[data-before]")).toHaveCount(0);
   await close.click();
   await expect(far).toBeFocused();
 
