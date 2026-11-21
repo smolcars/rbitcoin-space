@@ -362,6 +362,45 @@ describe("which output is change", () => {
     ]);
     expect(lines(s).join(" ")).not.toMatch(/reads as change,|is the payment|is change/);
   });
+  it("four readings agreeing", () => {
+    const t = tx(
+      [
+        { value: 150_003, to: "a" },
+        { value: 4_990_003, to: "b" },
+      ],
+      [
+        { value: 5_000_000, to: "x", type: "v1_p2tr" },
+        { value: 100_001, to: "a" },
+      ],
+    );
+    expect(lines(said(t, "change"))).toStrictEqual([
+      "Output 1 reads as change, output 0 as the payment",
+      "Suggested by four readings, none of them proof:",
+      "• It pays the same address input 0 spends from, which an observer will usually read as going back to the sender.",
+      "• Output 0 is a round 0.05 BTC and this one is not, which suggests output 0 is the payment.",
+      "• Every input that funds it is P2WPKH, and of the two outputs only this one is, which suggests it is the change.",
+      "• It is less than 0.00150003 BTC, the least spent from any one address (input 0), and the other output is not. If the wallet would not add coins it did not need, that suggests the other output is the payment.",
+    ]);
+  });
+  it("disputed by three readings: none of them is strong", () => {
+    const t = tx(
+      [
+        { value: 150_003, to: "a" },
+        { value: 4_990_003, to: "b" },
+      ],
+      [
+        { value: 5_000_000, to: "x" },
+        { value: 100_001, to: "y", type: "v1_p2tr" },
+      ],
+    );
+    expect(lines(said(t, "change-disputed"))).toStrictEqual([
+      "No output clearly reads as change",
+      "These readings point at different outputs, so none of them is strong:",
+      "• Output 0 is a round 0.05 BTC, and output 1 is not.",
+      "• Every input that funds it is P2WPKH, and of the two outputs only output 0 is.",
+      "• Output 1 is less than 0.00150003 BTC, the least spent from any one address (input 0), and the other output is not.",
+    ]);
+  });
   it("disputed with the smallest coin, as a fact", () => {
     const t = tx(
       [

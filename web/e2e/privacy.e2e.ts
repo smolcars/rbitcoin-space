@@ -15,21 +15,14 @@ const P2WPKH = "00147503ccb2c772094595aa0491a48c29de61c04e61";
 const sideways = (page: Page) =>
   page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
 
-/** Records, from before the page's own scripts run, where the flow and the details panel stood
- * when the first card appeared, and whether the privacy section was already there. */
+/** Records, from before the page's own scripts run, whether the privacy section was already there
+ * when the first card appeared. */
 async function watchArrival(page: Page) {
   await page.addInitScript(() => {
-    const w = window as unknown as { arrival?: unknown };
+    const w = window as unknown as { arrival?: boolean };
     const seen = new MutationObserver(() => {
-      if (
-        w.arrival !== undefined ||
-        !document.querySelector(".tx-flow__item:not(.tx-flow__item--ghost)")
-      )
-        return;
-      const top = (sel: string) => document.querySelector(sel)?.getBoundingClientRect().top ?? null;
-      const flow = top(".tx-main__flow");
-      const pv = top(".pv-under");
-      w.arrival = { privacy: pv !== null, within: pv === null || flow === null ? null : pv - flow };
+      if (!document.querySelector(".tx-flow__item:not(.tx-flow__item--ghost)")) return;
+      w.arrival = document.querySelector(".pv-under") !== null;
       seen.disconnect();
     });
     seen.observe(document, { childList: true, subtree: true });
@@ -37,13 +30,16 @@ async function watchArrival(page: Page) {
 }
 
 const arrival = (page: Page) =>
-  page.evaluate(() => (window as unknown as { arrival?: unknown }).arrival);
-/** Where the privacy section sits within the flow's panel now. */
-const within = (page: Page) =>
-  page.evaluate(() => {
-    const top = (sel: string) => document.querySelector(sel)?.getBoundingClientRect().top ?? 0;
-    return top(".pv-under") - top(".tx-main__flow");
-  });
+  page.evaluate(() => (window as unknown as { arrival?: boolean }).arrival);
+
+/** The flow's panel and each output card, measured now. */
+const heights = (page: Page) =>
+  page.evaluate(() => ({
+    flow: document.querySelector(".tx-main__flow")?.getBoundingClientRect().height ?? 0,
+    outputs: [...document.querySelectorAll('ul[aria-label="Outputs"] > li')].map(
+      (li) => li.getBoundingClientRect().height,
+    ),
+  }));
 
 test("a transaction with findings: marks on its cards and what an observer can read", async ({
   page,
@@ -57,7 +53,7 @@ test("a transaction with findings: marks on its cards and what an observer can r
   // The address shortened as the site shortens one: its first and last eight characters.
   const miner = `${chain.addresses.miner.slice(0, 8)}…${chain.addresses.miner.slice(-8)}`;
   await expect(section).toContainText(
-    `Inputs 0 and 1 spend from ${miner}, and output 1 pays the same address.`,
+    `Inputs 0 and 1 spend from ${miner}, and output 1 pays the same address, so the same locking script. An observer will usually read one address as one owner, which ties that output to those inputs.`,
   );
   await expect(
     section.getByText("Output 1 reads as change, output 0 as the payment", { exact: true }),
@@ -65,9 +61,9 @@ test("a transaction with findings: marks on its cards and what an observer can r
   await expect(section.getByRole("listitem")).toHaveText([
     /^Address reused/,
     /^Output 1 reads as change/,
-    "It pays back to the address inputs 0 and 1 spend from, so it goes to whoever controls those inputs.",
+    "It pays the same address inputs 0 and 1 spend from, which an observer will usually read as going back to the sender.",
     "Output 0 is a round 90 BTC and this one is not, which suggests output 0 is the payment.",
-    "It is the only output of the inputs' type, P2WSH, which suggests it goes back to the same wallet.",
+    "Every input that funds it is P2WSH, and of the two outputs only this one is, which suggests it is the change.",
   ]);
 
   // The cards say the same, in words.
@@ -78,11 +74,8 @@ test("a transaction with findings: marks on its cards and what an observer can r
   await expect(outputs.getByRole("listitem").nth(1)).toContainText("Reused address");
   await expect(outputs.getByRole("listitem").nth(1)).toContainText("Reads as change");
 
-  // It came with the first card, in the place it keeps: it never appears later to move anything.
-  const first = (await arrival(page)) as { privacy: boolean; within: number };
-  expect(first.privacy).toBe(true);
-  await page.waitForTimeout(500);
-  expect(await within(page)).toBe(first.within);
+  // It came with the first card: it never appears later.
+  expect(await arrival(page)).toBe(true);
 
   // What it checks, from the keyboard.
   const checks = section.getByText("What this checks");
@@ -101,6 +94,26 @@ test("a transaction with findings: marks on its cards and what an observer can r
   expect(await axe(page)).toStrictEqual([]);
 });
 
+test("at 360 px, the spends arriving after the cards move nothing", async ({ page }) => {
+  // `script_types`: two of its outputs are spent, so the spends bring two links.
+  let release: () => void = () => undefined;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route(new RegExp(`/regtest/api/tx/${chain.txs.script_types}/outspends`), async (r) => {
+    await held;
+    await r.continue();
+  });
+  await page.setViewportSize({ width: 360, height: 780 });
+  await page.goto(`/regtest/tx/${chain.txs.script_types}`);
+  await expect(page.locator(".pv-under")).toBeVisible();
+  await expect(page.locator(".tx-flow__spent")).toHaveCount(0);
+  const before = await heights(page);
+  release();
+  await expect(page.locator(".tx-flow__spent")).toHaveCount(2);
+  expect(await heights(page)).toStrictEqual(before);
+});
+
 test("a transaction whose input the node does not have is only partly checked", async ({
   page,
   request,
@@ -116,18 +129,12 @@ test("a transaction whose input the node does not have is only partly checked", 
   );
   await page.goto(`/regtest/tx/${chain.txs.payment}`);
   const region = page.locator(".pv-under");
-  await expect(
-    region.getByText(
-      "What input 0 spends is not known here, so only part of this transaction could be checked.",
-    ),
-  ).toBeVisible();
-  await expect(region).not.toContainText("stands out");
-  await expect(region).toContainText(
-    "Not checked: the CoinJoin shape, outputs paying back to an input's address, script types and the smallest coin spent.",
-  );
-  await expect(region).toContainText(
+  await expect(region.locator(".pv-partial p")).toHaveText([
+    "Only part of this transaction could be checked.",
+    "What input 0 spends is not known here, so these were not checked: the CoinJoin shape, outputs paying back to an input's address, script types and the least spent from one address.",
     "What it shows about address reuse and which output is change may be incomplete.",
-  );
+  ]);
+  await expect(region).not.toContainText("stands out");
   expect(await axe(page)).toStrictEqual([]);
 });
 

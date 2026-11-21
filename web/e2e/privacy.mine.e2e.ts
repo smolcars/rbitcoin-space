@@ -65,7 +65,7 @@ test("a transaction shaped like a CoinJoin is a neutral finding, with no change 
   const section = page.getByRole("region", { name: "What an observer can read" });
   await expect(section.getByText("Shaped like a CoinJoin", { exact: true })).toBeVisible();
   await expect(section).toContainText(
-    "Outputs 0, 1 and 2 each pay exactly 1.9999 BTC, to different addresses, and the inputs come from 3 different addresses.",
+    "Outputs 0, 1 and 2 each pay exactly 1.9999 BTC, each to a different address, and the inputs that fund it come from 3 different addresses.",
   );
   await expect(section).not.toContainText("reads as change");
   const outputs = page.getByRole("list", { name: "Outputs" });
@@ -132,30 +132,27 @@ test.describe("past the check route's 100 lookups", () => {
       const notice = page.getByRole("region", {
         name: "Once it is sent, anyone can read this from it",
       });
-      await expect(notice).toContainText(
-        "What input 100 spends is not known here, so only part of this transaction could be checked.",
-      );
-      await expect(notice).toContainText(
-        "Not checked: the CoinJoin shape, outputs paying back to an input's address, script types and the smallest coin spent.",
-      );
-      await expect(notice).toContainText(
+      await expect(notice.locator(".pv-partial p")).toHaveText([
+        "Only part of this transaction could be checked.",
+        "What input 100 spends is not known here, so these were not checked: the CoinJoin shape, outputs paying back to an input's address, script types and the least spent from one address.",
         // Two paying outputs can be no CoinJoin, so the unknown coin cannot undo "spent together".
         "What it shows about address reuse and which output is change may be incomplete.",
-      );
+      ]);
+      // The hundred coins the route looked up are still read as spent together.
+      await expect(notice.getByText("Coins spent together", { exact: true })).toBeVisible();
+      await expect(notice).toContainText("100 inputs are spent together, all from one address.");
       // What the route did look up still reads: the 100 coins share one address.
       await expect(notice).toContainText("100 inputs spend from");
       await expect(notice).not.toContainText("stands out");
       expect(await axe(page)).toStrictEqual([]);
     };
 
-    const answers: { vin: { prevout?: unknown }[] }[] = [];
-    page.on("response", async (r) => {
-      if (r.url().endsWith("/app/tx/check")) answers.push(((await r.json()) as { tx: never }).tx);
-    });
+    const answered = page.waitForResponse((r) => r.url().endsWith("/app/tx/check"));
     await page.goto(`/decode#${hex}`);
+    const answer = (await (await answered).json()) as { tx: { vin: { prevout?: unknown }[] } };
     await check();
     // The route's answer itself: 100 inputs looked up, the 101st not.
-    const vin = answers[0]?.vin ?? [];
+    const { vin } = answer.tx;
     expect(vin.filter((i) => i.prevout !== undefined)).toHaveLength(100);
     expect("prevout" in (vin[100] ?? {})).toBe(false);
 

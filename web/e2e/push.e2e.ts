@@ -59,8 +59,17 @@ test("a pasted transaction is read before anything is sent, and one press sends 
   // Nothing can have spent what was never sent.
   await expect(page.locator(".tx-flow").getByText("Unspent")).toHaveCount(2);
   await expect(button).toHaveText("Broadcast");
+  // Before it is sent, what sending it would show (docs/FRONTEND.md "Privacy check").
+  const notSent =
+    "It is not sent yet: a wallet can still change which coins it spends and where the change goes.";
+  await expect(
+    page.getByRole("region", { name: "Once it is sent, anyone can read this from it" }),
+  ).toContainText(notSent);
   await button.click();
   await expect(page.getByText("Sent", { exact: true })).toBeVisible();
+  // Once sent, what the transaction page says: no "not sent yet".
+  await expect(page.getByRole("region", { name: "What an observer can read" })).toBeVisible();
+  await expect(page.getByText(notSent)).toHaveCount(0);
   await expect(page.getByRole("link", { name: "Follow it on its page" })).toHaveAttribute(
     "href",
     `/regtest/tx/${send.txid}`,
