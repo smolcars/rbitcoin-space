@@ -4,7 +4,7 @@ import { createSignal, createUniqueId, onCleanup, onSettled, Show, untrack } fro
 import type { JSX } from "@solidjs/web";
 import { shownLabel } from "../../lib/labels";
 import { MAX_LABEL } from "../../lib/labels/bip329";
-import { failureWords, setLabel } from "../../lib/labels/db";
+import { failureWords, LabelStoreError, setLabel } from "../../lib/labels/db";
 import { paths } from "../../lib/network";
 import { Link } from "../Link";
 import { openPop } from "../pop";
@@ -23,6 +23,7 @@ export function LabelEditor(props: EditorProps) {
   let opened = initial;
   onSettled(() => {
     opened = field?.value ?? initial;
+    props.draft?.(opened);
     field?.focus();
     field?.select();
   });
@@ -42,7 +43,12 @@ export function LabelEditor(props: EditorProps) {
         props.done(shown ? said : `${said}. This page could not show it yet.`);
       })
       .catch((e: unknown) => {
-        if (alive) setError(failureWords(e, "The label could not be saved. Try again."));
+        if (!alive) return;
+        if (e instanceof LabelStoreError && e.kind === "gone" && props.gone) {
+          props.gone(field?.value ?? "");
+          return;
+        }
+        setError(failureWords(e, "The label could not be saved. Try again."));
       })
       .finally(() => {
         if (alive) setBusy(false);
@@ -81,6 +87,7 @@ export function LabelEditor(props: EditorProps) {
         spellcheck="false"
         aria-describedby={`${id}-note`}
         aria-invalid={error() === "" ? "false" : "true"}
+        onInput={(e) => props.draft?.(e.currentTarget.value)}
         onKeyDown={(e) => {
           if (e.key === "Escape") {
             e.preventDefault();
@@ -117,9 +124,7 @@ export function LabelEditor(props: EditorProps) {
           ? ""
           : "changed" in props.elsewhere
             ? `This label was changed elsewhere since you opened it, to “${shownLabel(props.elsewhere.changed, 80)}”. Saving replaces it with what you type.`
-            : "deleted" in props.elsewhere
-              ? "This label was deleted elsewhere since you opened it. Saving creates it again with what you type; Cancel lets it go."
-              : "This label was removed elsewhere since you opened it. Saving puts back what you type."}
+            : "This label was removed elsewhere since you opened it. Saving puts back what you type."}
       </p>
       <Show when={error()}>
         <p class="label-editor__error" role="alert">

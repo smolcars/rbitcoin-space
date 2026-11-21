@@ -2,9 +2,10 @@ import { flush } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mount } from "../../components/test-utils";
 import { readFile, recordKey } from "../../lib/labels/bip329";
+import { LabelEditor } from "../../components/labels/LabelEditor";
 import {
+  exportFile,
   previewImport,
-  readAll,
   remove,
   resetStore,
   runImport,
@@ -153,45 +154,158 @@ describe("the manager", () => {
     expect(document.activeElement).toBe(field);
   });
 
-  it("keeps the row, the editor and its draft when another tab deletes that label, and says so", async () => {
+  /** Imports `lines` as a file would be. */
+  const importLines = async (lines: string[]) => {
+    const got = (await readFile(lines.join("\n"))).records;
+    await runImport(got, await previewImport(got));
+  };
+  /** The store's file, as Export would write it. */
+  const stored = async () => (await exportFile()).text;
+  /** The count the manager shows, and the rows it lists on its page, agree with the export. */
+  const agree = async (el: HTMLElement, n: number, onPage = n) => {
+    const lines = (await stored()).split("\n").filter((l) => l !== "");
+    expect(lines).toHaveLength(n);
+    const count = () => el.querySelector(".labels-page__list .num")?.textContent;
+    await until(() => count() === `${n} ${n === 1 ? "label" : "labels"}`);
+    expect(count()).toBe(`${n} ${n === 1 ? "label" : "labels"}`);
+    expect(el.querySelectorAll("tbody tr:not(.table__note)")).toHaveLength(onPage);
+  };
+
+  it("closes the editor when another tab deletes the record being edited, gives the draft back, and writes nothing to a record beside it", async () => {
+    // Two records for one transaction: the reader's own, and a wallet's, with an origin.
+    const plain = `{"type":"tx","ref":"${TXID}","label":"plain","note":"kept as it is"}`;
+    const wallet = `{"type":"tx","ref":"${TXID}","label":"wallet","origin":"wpkh([aaaaaaaa/84'/0'/0'])"}`;
+    await importLines([plain, wallet]);
+    const el = mount(() => <LabelsPage />, "/regtest/labels");
+    const edits = () =>
+      [...el.querySelectorAll("button")].filter((b) =>
+        (b.textContent ?? "").startsWith("Edit the label of transaction f91d0a8a"),
+      );
+    await until(() => edits().length === 2);
+    // Newest first: the wallet's record is the first row.
+    expect(el.querySelector("tbody tr")?.textContent).toContain("wallet");
+    edits()[0]?.click();
+    await until(() => el.querySelector<HTMLInputElement>("input.label-editor__field") !== null);
+    const field = el.querySelector<HTMLInputElement>("input.label-editor__field");
+    if (!field) throw new TypeError("no field");
+    expect(field.value).toBe("wallet");
+    field.value = "wallet, my draft";
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+    field.focus();
+    // Another tab deletes the wallet's record.
+    await remove([recordKey("tx", TXID, "wpkh([aaaaaaaa/84'/0'/0'])")]);
+    await until(() => el.querySelector("input.label-editor__field") === null);
+    // The row went, like any deleted row; the editor closed; nothing was written.
+    expect(edits()).toHaveLength(1);
+    await expect(stored()).resolves.toBe(`${plain}\n`);
+    await agree(el, 1);
+    // The manager says so, with the draft, as text, and focus on its Dismiss.
+    const said = el.querySelector(".labels-page__said");
+    expect(said?.textContent).toContain("was deleted in another tab, so nothing was saved");
+    expect(el.querySelector(".labels-page__draft")?.textContent).toBe("wallet, my draft");
+    const dismiss = [...(said?.querySelectorAll("button") ?? [])].find(
+      (b) => b.textContent === "Dismiss",
+    );
+    expect(document.activeElement).toBe(dismiss);
+    // It stays until dismissed.
+    await setLabel("tx", "bb".repeat(32), "another");
+    await until(() => edits().length === 1 && (el.textContent ?? "").includes("another"));
+    expect(el.querySelector(".labels-page__draft")?.textContent).toBe("wallet, my draft");
+    dismiss?.click();
+    flush();
+    expect(el.querySelector(".labels-page__draft")).toBeNull();
+    await expect(stored()).resolves.toContain(plain);
+  });
+
+  it("clears the message about a deleted label when another edit starts", async () => {
     const A = "aa".repeat(32);
     const B = "bb".repeat(32);
-    const text = [
+    await importLines([
       `{"type":"tx","ref":"${A}","label":"A"}`,
       `{"type":"tx","ref":"${B}","label":"B"}`,
-    ];
-    const both = (await readFile(text.join("\n"))).records;
-    await runImport(both, await previewImport(both));
+    ]);
     const el = mount(() => <LabelsPage />, "/regtest/labels");
     const button = (start: string) =>
       [...el.querySelectorAll("button")].find((b) => (b.textContent ?? "").startsWith(start));
     await until(() => button("Edit the label of transaction aaaaaaaa") !== undefined);
     button("Edit the label of transaction aaaaaaaa")?.click();
+    await until(() => el.querySelector("input.label-editor__field") !== null);
+    await remove([recordKey("tx", A, undefined)]);
+    await until(() => el.querySelector(".labels-page__lost") !== null);
+    // Nothing typed: the field's words, as it opened, are given back.
+    expect(el.querySelector(".labels-page__draft")?.textContent).toBe("A");
+    button("Edit the label of transaction bbbbbbbb")?.click();
+    await until(() => el.querySelector("input.label-editor__field") !== null);
+    expect(el.querySelector(".labels-page__lost")).toBeNull();
+  });
+
+  it("on the second page of 100 labels, a deleted label's editor closes, its draft comes back, and nothing is made again", async () => {
+    const ref = (i: number) => i.toString(16).padStart(2, "0").repeat(32);
+    await importLines(
+      Array.from({ length: 100 }, (_, i) => `{"type":"tx","ref":"${ref(i)}","label":"L${i}"}`),
+    );
+    const el = mount(() => <LabelsPage />, "/regtest/labels");
+    await agree(el, 100, 50);
+    const next = () =>
+      [...el.querySelectorAll("button, a")].find((b) => /next/i.test(b.textContent ?? ""));
+    await until(() => next() !== undefined);
+    (next() as HTMLElement | undefined)?.click();
+    // Newest first: the second page lists L49 to L0.
+    const editOf = (i: number) =>
+      [...el.querySelectorAll("button")].find((b) =>
+        (b.textContent ?? "").startsWith(`Edit the label of transaction ${ref(i).slice(0, 8)}`),
+      );
+    await until(() => editOf(10) !== undefined);
+    editOf(10)?.click();
     await until(() => el.querySelector<HTMLInputElement>("input.label-editor__field") !== null);
     const field = el.querySelector<HTMLInputElement>("input.label-editor__field");
     if (!field) throw new TypeError("no field");
-    field.value = "A, my draft";
-    field.focus();
-    // Another tab deletes A.
-    await remove([recordKey("tx", A, undefined)]);
-    await until(() => (el.querySelector(".label-editor__elsewhere")?.textContent ?? "") !== "");
-    expect(el.querySelector(".label-editor__elsewhere")?.textContent).toContain(
-      "deleted elsewhere",
-    );
-    expect(el.querySelector<HTMLInputElement>("input.label-editor__field")).toBe(field);
-    expect(field.value).toBe("A, my draft");
-    expect(document.activeElement).toBe(field);
-    // Cancel lets it go: the row leaves the list.
-    button("Cancel")?.click();
-    await until(() => button("Edit the label of transaction aaaaaaaa") === undefined);
-    expect(button("Edit the label of transaction aaaaaaaa")).toBeUndefined();
-    expect(button("Edit the label of transaction bbbbbbbb")).toBeDefined();
+    field.value = "L10, my draft";
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+    // Another tab deletes it, and with it some records listed before it.
+    await remove([recordKey("tx", ref(10), undefined), recordKey("tx", ref(90), undefined)]);
+    await until(() => el.querySelector(".labels-page__draft") !== null);
+    expect(el.querySelector("input.label-editor__field")).toBeNull();
+    expect(el.querySelector(".labels-page__draft")?.textContent).toBe("L10, my draft");
+    await agree(el, 98, 48);
+    await expect(stored()).resolves.not.toContain(ref(10));
   });
 
-  it("makes a label deleted elsewhere again when its draft is saved", async () => {
+  it("refuses a save of a record that vanished, gives the draft back, and writes nothing", async () => {
+    const plain = `{"type":"tx","ref":"${TXID}","label":"plain","note":"kept as it is"}`;
+    const origin = "wpkh([aaaaaaaa/84'/0'/0'])";
+    await importLines([plain]);
+    let given: string | undefined;
+    const el = mount(
+      () => (
+        <LabelEditor
+          type="tx"
+          reference={TXID}
+          record={recordKey("tx", TXID, origin)}
+          what="transaction f91d0a8a"
+          current="wallet"
+          gone={(text) => {
+            given = text;
+          }}
+          done={() => {}}
+        />
+      ),
+      "/regtest/labels",
+    );
+    await until(() => el.querySelector("input") !== null);
+    const field = el.querySelector<HTMLInputElement>("input");
+    if (!field) throw new TypeError("no field");
+    field.value = "wallet, my draft";
+    el.querySelector("form")?.dispatchEvent(new Event("submit", { cancelable: true }));
+    await until(() => given !== undefined);
+    expect(given).toBe("wallet, my draft");
+    expect(el.querySelector("[role=alert]")).toBeNull();
+    await expect(stored()).resolves.toBe(`${plain}\n`);
+  });
+
+  it("says nothing changed elsewhere when the label's text comes back, whatever else changed", async () => {
     const A = "aa".repeat(32);
-    const one = (await readFile(`{"type":"tx","ref":"${A}","label":"A"}`)).records;
-    await runImport(one, await previewImport(one));
+    await importLines([`{"type":"tx","ref":"${A}","label":"A"}`]);
     const el = mount(() => <LabelsPage />, "/regtest/labels");
     const edit = () =>
       [...el.querySelectorAll("button")].find((b) =>
@@ -199,16 +313,14 @@ describe("the manager", () => {
       );
     await until(() => edit() !== undefined);
     edit()?.click();
-    await until(() => el.querySelector<HTMLInputElement>("input.label-editor__field") !== null);
-    const field = el.querySelector<HTMLInputElement>("input.label-editor__field");
-    if (!field) throw new TypeError("no field");
-    field.value = "A, again";
-    await remove([recordKey("tx", A, undefined)]);
-    await until(() => (el.querySelector(".label-editor__elsewhere")?.textContent ?? "") !== "");
-    el.querySelector("form")?.dispatchEvent(new Event("submit", { cancelable: true }));
-    await until(() => el.querySelector("input.label-editor__field") === null);
-    const { records } = await readAll();
-    expect(records.map((r) => r.label)).toStrictEqual(["A, again"]);
+    await until(() => el.querySelector(".label-editor__elsewhere") !== null);
+    const region = el.querySelector(".label-editor__elsewhere");
+    await setLabel("tx", A, "B");
+    await until(() => (region?.textContent ?? "") !== "");
+    // An import puts A back, with a note the record did not have.
+    await importLines([`{"type":"tx","ref":"${A}","label":"A","note":"new"}`]);
+    await until(() => (region?.textContent ?? "") === "");
+    expect(region?.textContent).toBe("");
   });
 
   it("says in one status region, there from the start, what changed elsewhere, and clears it once undone", async () => {

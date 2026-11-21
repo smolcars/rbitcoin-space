@@ -109,13 +109,36 @@ describe("the label store", () => {
       ].join("\n"),
     );
     expect(shown("tx", TXID)).toBe("wallet A");
-    // An edit from the page changes the record the page shows, and keeps its origin.
+    // In the order they were kept, which an edit does not change.
+    const keys = async () => (await readAll()).records.map((r) => r.key);
+    const before = await keys();
+    // An edit from the page changes the record the page shows, under its own key, origin
+    // included: no record without an origin is made beside it.
     await setLabel("tx", TXID, "wallet A, renamed");
+    await expect(keys()).resolves.toStrictEqual(before);
+    expect(before).toContain(recordKey("tx", TXID, "wpkh([aaaaaaaa/84'/0'/0'])"));
     expect((await exportFile()).text).toContain(`"label":"wallet A, renamed","origin"`);
     await setLabel("tx", TXID, null);
     expect(shown("tx", TXID)).toBe("wallet B");
     await importText(`{"type":"tx","ref":"${TXID}","label":"mine"}`);
     expect(shown("tx", TXID)).toBe("mine");
+  });
+
+  it("refuses an edit of a record that is gone, and writes nothing to the one beside it", async () => {
+    const plain = `{"type":"tx","ref":"${TXID}","label":"plain","note":"kept"}`;
+    await importText(plain);
+    const wallet = recordKey("tx", TXID, "wpkh([aaaaaaaa/84'/0'/0'])");
+    await expect(setLabel("tx", TXID, "mine", wallet)).rejects.toMatchObject({ kind: "gone" });
+    expect((await exportFile()).text).toBe(`${plain}\n`);
+    // Not even one without an origin, named by its key: the manager edits only what it opened.
+    await remove([recordKey("tx", TXID, undefined)]);
+    await expect(
+      setLabel("tx", TXID, "mine", recordKey("tx", TXID, undefined)),
+    ).rejects.toMatchObject({ kind: "gone" });
+    expect((await exportFile()).text).toBe("");
+    // A page's editor labels the thing in front of it: there a save makes the label again.
+    await setLabel("tx", TXID, "mine");
+    expect((await exportFile()).text).toBe(`{"type":"tx","ref":"${TXID}","label":"mine"}\n`);
   });
 
   it("imports by BIP329's rule: the file's label wins, an omitted one keeps the reader's", async () => {

@@ -54,7 +54,8 @@ export type Failure =
   | "too-many"
   | "too-big"
   | "stale"
-  | "long";
+  | "long"
+  | "gone";
 
 /** Why the store could not do what it was asked; db.ts has the words a reader is shown. */
 export class LabelStoreError extends Error {

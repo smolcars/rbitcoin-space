@@ -56,8 +56,8 @@ export function LabelOf(props: {
   );
 }
 
-/** What another tab did to a label while it was being edited: changed it, took its label off, or deleted its record. */
-export type Elsewhere = { changed: string } | { removed: true } | { deleted: true };
+/** What another tab did to a label while it was being edited: changed its text, or took it off. */
+export type Elsewhere = { changed: string } | { removed: true };
 
 export interface EditorProps {
   type: string;
@@ -68,6 +68,13 @@ export interface EditorProps {
   current: string | undefined;
   /** What another tab did to this label while it was being edited. */
   elsewhere?: Elsewhere;
+  /** Told what the field holds, as it opens and as it is typed in (the manager keeps the draft). */
+  draft?: (text: string) => void;
+  /**
+   * Called with the draft, instead of an error, when the save is refused because the record
+   * `record` names is gone: the manager closes the editor and gives the reader their words back.
+   */
+  gone?: (text: string) => void;
   /** Closes the editor; `said` is announced, such as "Label saved". */
   done: (said?: string) => void;
 }

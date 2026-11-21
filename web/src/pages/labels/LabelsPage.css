@@ -101,6 +101,21 @@
     font-size: var(--text-sm);
     overflow-wrap: anywhere;
   }
+  /* A label deleted in another tab while edited here: the reader's draft, to copy, and Dismiss. */
+  .labels-page__lost {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-3);
+  }
+  .labels-page__lost p {
+    flex: 1 1 20rem;
+    margin: 0;
+  }
+  .labels-page__draft {
+    font-weight: var(--weight-medium);
+    user-select: all;
+  }
 
   /* The field takes its own line under its name, as wide as a phone allows. */
   .labels-page__find {

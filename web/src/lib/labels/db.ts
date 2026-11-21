@@ -46,6 +46,7 @@ export const FAILURE_WORDS: Record<Failure, string> = {
   "too-big": "This browser keeps at most 16 000 000 characters of labels.",
   stale: "Your labels changed since this was read, in this tab or another. Look again.",
   long: "That would make the record longer than a label file's line may be.",
+  gone: "This label was deleted in another tab, so nothing was saved.",
 };
 
 /** An error in words a reader can act on: the store's own, or `fallback` for anything else. */
@@ -230,7 +231,8 @@ function putBoth(c: Ctx, r: Stored): IDBRequest {
 /**
  * Sets a label, or removes it for `null` or blank: the record a page shows for the reference, or
  * the record `key` names (the manager edits any). The record is found, read and written in one
- * transaction, so an edit never undoes another tab's. A record that holds more than its label (an
+ * transaction, so an edit never undoes another tab's. A record `key` names that is gone by then
+ * is never made again: the save is refused ("gone"), so it cannot land on another record. A record that holds more than its label (an
  * origin, `spendable`, a wallet's other fields) keeps the rest when its label is removed.
  */
 export async function setLabel(
@@ -247,7 +249,16 @@ export async function setLabel(
       const got = c.records.get(target);
       got.addEventListener("success", () => {
         const existing = got.result as Stored | undefined;
+        if (!existing && key !== undefined) {
+          c.fail(new LabelStoreError("gone"));
+          return;
+        }
         const next = withLabel(existing, type, ref, label);
+        // Only ever the record this edit was for: a new one is made only under the key looked up.
+        if (next !== null && next.key !== target) {
+          c.fail(new LabelStoreError("gone"));
+          return;
+        }
         if (next === null) {
           done({ seq: c.seq, bytes: c.bytes });
           return;

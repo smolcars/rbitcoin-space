@@ -6,14 +6,14 @@ import { createEffect, createMemo, createSignal, Show, untrack } from "solid-js"
 import type { JSX } from "@solidjs/web";
 import { type Column, DataTable } from "../../components/DataTable";
 import { Hash } from "../../components/Hash";
-import { type Elsewhere, YourLabel } from "../../components/labels/Label";
+import { type Elsewhere, LABEL_IN_TITLE, YourLabel } from "../../components/labels/Label";
 import { LabelEditor } from "../../components/labels/LabelEditor";
 import { Pagination } from "../../components/Pagination";
 import { SectionHeader } from "../../components/SectionHeader";
 import { Loading } from "../../components/States";
 import { recognise } from "../../lib/address";
 import { groupDigits } from "../../lib/format";
-import { labelsVersion } from "../../lib/labels";
+import { labelsVersion, shownLabel } from "../../lib/labels";
 import {
   fileName,
   MAX_FILE,
@@ -101,6 +101,12 @@ type Phase =
   | { kind: "saving"; done: number; total: number }
   | { kind: "refused"; words: string };
 
+/** A label deleted in another tab while it was being edited here: what it was of, and the draft. */
+interface Lost {
+  what: string;
+  draft: string;
+}
+
 export default function LabelsPage() {
   usePageTitle(() => "Your labels");
   const network = useNetwork();
@@ -111,6 +117,15 @@ export default function LabelsPage() {
   // The record whose editor is open, and what another tab changed it to meanwhile, if it did.
   const [editing, setEditing] = createSignal<string | undefined>();
   const [elsewhere, setElsewhere] = createSignal<Elsewhere | undefined>();
+  // The label being edited, deleted elsewhere: the editor is closed and its draft given back here.
+  const [lost, setLost] = createSignal<Lost | undefined>();
+  // What the open editor's field holds.
+  let draft = "";
+  const lose = (r: Stored | undefined, text: string) => {
+    setLost({ what: r === undefined ? "a record" : describe(r), draft: text });
+    setEditing(undefined);
+    setElsewhere(undefined);
+  };
   // The list as last shown, by key: a record read again unchanged keeps its object, so its row
   // (and an editor open in it, with what the reader is typing) is kept, and only changed rows are
   // drawn again.
@@ -132,10 +147,11 @@ export default function LabelsPage() {
           // The row being edited keeps its object, and with it the editor and its draft, even when
           // another tab changed it: the editor says so, and shows what it was changed to.
           const edited = old !== undefined && fresh.key === untrack(editing);
-          // Back to what the editor opened with: nothing to warn of any more.
+          // Only the label's text counts, against what the editor opened with: back to it,
+          // nothing to warn of any more, whatever else in the record changed.
           if (edited)
             setElsewhere(
-              same
+              fresh.label === old.label
                 ? undefined
                 : fresh.label === undefined
                   ? { removed: true }
@@ -145,16 +161,10 @@ export default function LabelsPage() {
           next.set(r.key, r);
           out.push(r);
         }
-        // The row being edited, deleted by another tab: kept, with its editor and draft, in its
-        // place, and the editor says so. Saving makes it again; Cancel lets it go.
+        // The record being edited, deleted by another tab: its row goes like any deleted row, the
+        // editor closes, and the manager gives the reader back what they had typed.
         const held = untrack(editing);
-        const gone = held === undefined || next.has(held) ? undefined : shownByKey.get(held);
-        if (gone) {
-          const at = out.findIndex((r) => r.seq < gone.seq);
-          out.splice(at === -1 ? out.length : at, 0, gone);
-          next.set(gone.key, gone);
-          setElsewhere({ deleted: true });
-        }
+        if (held !== undefined && !next.has(held)) lose(shownByKey.get(held), draft);
         shownByKey = next;
         setList(out);
         setState("ready");
@@ -168,6 +178,7 @@ export default function LabelsPage() {
   // Read whole on arrival and after every change, from this page, an editor or another tab.
   createEffect(labelsVersion, read);
   const edit = (key: string | undefined) => {
+    if (key !== undefined) setLost(undefined);
     setEditing(key);
     setElsewhere(undefined);
     // Closed: the row shows the record as it now is.
@@ -232,6 +243,19 @@ export default function LabelsPage() {
             editing={editing()}
             elsewhere={elsewhere()}
             edit={edit}
+            lost={lost()}
+            dismiss={() => setLost(undefined)}
+            draft={(text) => {
+              draft = text;
+            }}
+            gone={(text) => {
+              const held = untrack(editing);
+              lose(
+                held === undefined ? undefined : untrack(list).find((r) => r.key === held),
+                text,
+              );
+              read();
+            }}
           />
         </Show>
       </Show>
@@ -245,6 +269,10 @@ function Manager(props: {
   editing: string | undefined;
   elsewhere: Elsewhere | undefined;
   edit: (key: string | undefined) => void;
+  lost: Lost | undefined;
+  dismiss: () => void;
+  draft: (text: string) => void;
+  gone: (text: string) => void;
 }) {
   const [query, setQuery] = createSignal("");
   const [page, setPage] = createSignal(1);
@@ -254,7 +282,17 @@ function Manager(props: {
   const [phase, setPhase] = createSignal<Phase>({ kind: "idle" });
   const [problem, setProblem] = createSignal("");
   let fileInput: HTMLInputElement | undefined;
+  let dismissButton: HTMLButtonElement | undefined;
   let reading = 0;
+  // The editor that held focus closed under the reader: focus goes to the message that says why.
+  createEffect(
+    () => props.lost,
+    (l) => {
+      if (l === undefined) return;
+      const at = document.activeElement;
+      if (at === null || at === document.body || !at.isConnected) dismissButton?.focus();
+    },
+  );
 
   // Lower-cased once per change of the list, not once per keystroke.
   const haystack = createMemo(() =>
@@ -483,9 +521,30 @@ function Manager(props: {
         </Show>
       </div>
       <ImportState phase={phase()} onImport={commitImport} onCancel={cancelImport} />
-      <p class="labels-page__said" aria-live="polite">
-        {said()}
-      </p>
+      {/* The manager's status region: what was just done, or, until dismissed or another edit
+          starts, that the label being edited was deleted elsewhere, with the reader's draft. */}
+      <div class="labels-page__said" aria-live="polite">
+        <Show when={props.lost} fallback={said()}>
+          {(l) => (
+            <div class="labels-page__lost">
+              <p>
+                The label you were editing, of {l().what}, was deleted in another tab, so nothing
+                was saved.
+                <Show when={l().draft !== ""}>
+                  {" "}
+                  What you had typed:{" "}
+                  <span class="labels-page__draft" dir="auto">
+                    {shownLabel(l().draft, LABEL_IN_TITLE)}
+                  </span>
+                </Show>
+              </p>
+              <button ref={dismissButton} type="button" class="btn" onClick={() => props.dismiss()}>
+                Dismiss
+              </button>
+            </div>
+          )}
+        </Show>
+      </div>
       <Show when={problem()}>
         <p class="labels-page__problem" role="alert">
           {problem()}
@@ -533,6 +592,8 @@ function Manager(props: {
               what={describe(r)}
               current={r.label}
               {...(props.elsewhere ? { elsewhere: props.elsewhere } : {})}
+              draft={props.draft}
+              gone={props.gone}
               done={(words) => {
                 props.edit(undefined);
                 if (words !== undefined) setSaid(words);

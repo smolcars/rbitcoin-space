@@ -1,7 +1,8 @@
 import { flush } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { indexKey, showLabels } from "../../lib/labels";
-import { resetStore, setLabel } from "../../lib/labels/db";
+import { readFile, recordKey } from "../../lib/labels/bip329";
+import { previewImport, readAll, resetStore, runImport, setLabel } from "../../lib/labels/db";
 import { fakeIndexedDB, KeyRange } from "../../lib/labels/fake-idb";
 import { mount } from "../test-utils";
 import { LabelControl, LabelOf, YourLabel } from "./Label";
@@ -196,6 +197,27 @@ describe("LabelControl", () => {
     flush();
     expect(el.querySelector(".your-label__text")?.textContent).toBe("B");
     expect(el.querySelector("[role=status]")?.textContent).toBe("");
+  });
+
+  it("saves into the record it was opened for, a wallet's with its origin, and makes none beside it", async () => {
+    const origin = "wpkh([aaaaaaaa/84'/0'/0'])";
+    const got = (
+      await readFile(`{"type":"tx","ref":"${TXID}","label":"wallet","origin":"${origin}"}`)
+    ).records;
+    await runImport(got, await previewImport(got));
+    const el = mount(() => <LabelControl type="tx" reference={TXID} what="this transaction" />);
+    await until(() => el.querySelector(".your-label__text")?.textContent === "wallet");
+    el.querySelector<HTMLButtonElement>(".label-control__open")?.click();
+    await until(() => el.querySelector("input") !== null);
+    const field = el.querySelector<HTMLInputElement>("input");
+    if (!field) throw new TypeError("no field");
+    field.value = "wallet, renamed";
+    el.querySelector("form")?.dispatchEvent(new Event("submit", { cancelable: true }));
+    await until(() => el.querySelector("input") === null);
+    const { records } = await readAll();
+    expect(records.map((r) => [r.key, r.label])).toStrictEqual([
+      [recordKey("tx", TXID, origin), "wallet, renamed"],
+    ]);
   });
 
   it("opens its editor as a named dialog that leaves the page usable", async () => {
