@@ -202,7 +202,7 @@ test.describe("the meters share one line, in a wide prose font", () => {
       const faults: string[] = [];
       for (const w of Object.keys(answers)) {
         await page.goto(`/regtest/fees/score?window=${w}`);
-        await expect(levels(page)).toHaveCount(4);
+        await expect(page.locator(".fee-level")).toHaveCount(4);
         await page.evaluate(() => document.fonts.ready);
         const edges = await page.evaluate(() =>
           [...document.querySelectorAll(".fee-meter")].map((m) => {
@@ -218,6 +218,69 @@ test.describe("the meters share one line, in a wide prose font", () => {
               `${w}: ${["left", "right", "tick"][i]} ${xs.map((x) => Math.round(x)).join(", ")}`,
             );
         }
+      }
+      expect(faults).toStrictEqual([]);
+    });
+  }
+});
+
+// At a phone's width and any text size neither table scrolls sideways: where one does not fit
+// its panel each level is a labelled group, its figures under its name; where it fits, the compact
+// table stays (council A-C3).
+test.describe("the two tables at larger text, in a wide prose font", () => {
+  test.use({ prose: "wide" });
+  for (const width of [320, 360]) {
+    test(`at ${width} px, no figure is scrolled away from its level`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await serveScore(page, MAINNET_1W);
+      await page.goto("/regtest/fees/score");
+      await expect(levels(page)).toHaveCount(4);
+      const faults: string[] = [];
+      for (const px of [16, 24, 32]) {
+        await page.evaluate((f) => (document.documentElement.style.fontSize = `${f}px`), px);
+        await page.evaluate(() => document.fonts.ready);
+        // Two frames: the fit is measured in the next one.
+        await page.evaluate(
+          () =>
+            new Promise<void>((resolve) => {
+              requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+            }),
+        );
+        const state = await page.evaluate(() =>
+          [...document.querySelectorAll(".level-table")].map((box) => {
+            const scroller = box.querySelector<HTMLElement>(".table-scroll");
+            const grouped = box.classList.contains("level-table--grouped");
+            const groups = [...box.querySelectorAll(".level-group")].map((g) => ({
+              name: g.querySelector(".level-group__name")?.textContent ?? "",
+              figures: g.querySelectorAll("dd").length,
+            }));
+            const wide = (scroller?.scrollWidth ?? 0) > (scroller?.clientWidth ?? 0) + 1;
+            return { grouped, wide, groups };
+          }),
+        );
+        for (const [i, t] of state.entries()) {
+          const at = `${px} px text, table ${i + 1}`;
+          // Shown as a table only where it fits; grouped only where it does not.
+          if (t.wide !== t.grouped) faults.push(`${at}: wide ${t.wide}, grouped ${t.grouped}`);
+          if (t.grouped) {
+            expect(
+              t.groups.map((g) => g.name),
+              at,
+            ).toStrictEqual(["No rush", "Low", "Medium", "High"]);
+            for (const g of t.groups) expect(g.figures, at).toBe(3);
+          }
+        }
+        // At the default size both compact tables stay.
+        if (px === 16) for (const t of state) expect(t.grouped).toBe(false);
+        // Nothing of the page's own runs past the window (the site's header is not this page's;
+        // the periods and the measured table scroll or hide within their own boxes).
+        const past = await page.evaluate(() =>
+          [...document.querySelectorAll(".fee-score *")]
+            .filter((e) => !e.closest(".periods, .level-table__table, .visually-hidden"))
+            .filter((e) => e.getBoundingClientRect().right > window.innerWidth + 0.5)
+            .map((e) => `${e.tagName.toLowerCase()}.${e.className}`),
+        );
+        expect(past, `${px} px text`).toStrictEqual([]);
       }
       expect(faults).toStrictEqual([]);
     });

@@ -147,6 +147,68 @@
     vertical-align: bottom;
   }
 
+  /* The levels' panel measures itself in its own text: at the largest text on a phone (under
+     16em of it), each level's parts stack in one column instead of running past the panel. */
+  .fee-score__levels {
+    container-type: inline-size;
+  }
+  /* A table that does not fit its panel becomes one labelled group per level (LevelTable): the
+     table stays laid out, unseen, to say when it fits again. */
+  .level-table {
+    position: relative;
+    min-width: 0;
+  }
+  .level-table--grouped .level-table__table {
+    position: absolute;
+    inset-inline: 0;
+    top: 0;
+    visibility: hidden;
+    pointer-events: none;
+  }
+  .level-groups {
+    display: grid;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .level-group {
+    padding: var(--space-3) 0;
+    border-top: 1px solid var(--color-line);
+  }
+  .level-group:first-child {
+    border-top: 0;
+    padding-top: 0;
+  }
+  .level-group__name {
+    margin: 0 0 var(--space-1);
+    font-size: var(--text-md);
+    font-weight: var(--weight-medium);
+  }
+  .level-group__figures {
+    display: grid;
+    gap: var(--space-1);
+    margin: 0;
+  }
+  .level-group__figure {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 0 var(--space-3);
+  }
+  .level-group__figure dt {
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+  .level-group__figure dd {
+    margin: 0 0 0 auto;
+    text-align: end;
+  }
+  .level-group__figure dd .num {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+  }
+
   /* One row per level: its name, its share, the share on a line against the target, the verdict. */
   .fee-levels {
     display: grid;
@@ -377,4 +439,23 @@
       margin-top: var(--space-1);
     }
   }
+  /* Last, over the phone's layout above. */
+  @container (max-width: 16em) {
+    .fee-level {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas:
+        "name"
+        "figure"
+        "verdict"
+        "meter"
+        "detail";
+    }
+    .fee-level__figure {
+      justify-items: start;
+    }
+    .fee-level__verdict {
+      justify-self: start;
+    }
+  }
+
 }

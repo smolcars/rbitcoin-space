@@ -3,7 +3,7 @@
 // track record", docs/DESIGN.md "Fee track record").
 import { useSearchParams } from "@solidjs/router";
 import { For, Match, onSettled, Show, Switch, createMemo } from "solid-js";
-import { type Column, DataTable } from "../../components/DataTable";
+import type { Column } from "../../components/DataTable";
 import { Link } from "../../components/Link";
 import { More } from "../../components/More";
 import { Periods } from "../../components/Periods";
@@ -28,6 +28,7 @@ import {
   WINDOWS,
   readScore,
 } from "./score";
+import { LevelTable } from "./LevelTable";
 import "./FeeScorePage.css";
 
 /** The server rebuilds the score after every 30 s sample; a minute is fresh enough to read. */
@@ -431,10 +432,11 @@ function CostPanel(props: { views: LevelView[] }) {
   return (
     <section class="fee-score__cost" aria-labelledby="fee-score-cost">
       <SectionHeader title="What it cost" id="fee-score-cost" />
-      <DataTable
+      <LevelTable
         caption="What each level recommended, and paid above or fell short of the rate that sufficed"
         columns={columns}
         rows={props.views}
+        name={(v) => v.name}
       />
       <div class="fee-score__prose">
         <p>
@@ -482,10 +484,11 @@ function EvidencePanel(props: { views: LevelView[]; score: Score }) {
   return (
     <section class="fee-score__evidence" aria-labelledby="fee-score-evidence">
       <SectionHeader title="What the figures rest on" id="fee-score-evidence" />
-      <DataTable
+      <LevelTable
         caption="The answers and blocks behind each level's figure, and the answers left out"
         columns={columns}
         rows={props.views}
+        name={(v) => v.name}
       />
       <div class="fee-score__prose">
         <p>
