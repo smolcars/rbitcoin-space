@@ -165,6 +165,9 @@ test.describe("the spends arriving after the cards, in a wide prose font", () =>
           await expect(card.locator(".pv-tag")).toHaveText(["Reused address", "Reads as change"]);
         }
         await expect(page.locator(".tx-flow__spent")).toHaveCount(0);
+        // The stand-in font loads on its own time: a swap between the two reads would look like a
+        // wrap the spends caused.
+        await page.evaluate(() => document.fonts.ready);
         const before = await heights(page);
         const linesBefore = await metaLines(page);
         release();
