@@ -340,6 +340,7 @@ describe("time", () => {
     expect(formatRelative(t, t + 47 * 3600 + 54 * 60)).toBe("1 day 23 h ago");
     expect(formatRelative(t, t + 48 * 3600)).toBe("2 days ago");
     expect(formatRelative(t, t + 9 * 86_400 + 5 * 3600)).toBe("9 days ago");
+    expect(formatRelative(t, t + 1216 * 86_400)).toBe(`1${NNBSP}216 days ago`);
   });
 
   it("drops the suffix on request and never goes negative", () => {

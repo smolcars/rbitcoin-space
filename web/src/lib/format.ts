@@ -286,7 +286,8 @@ export function formatRelative(
   if (h < 24) return m % 60 === 0 ? `${h} h${ago}` : `${h} h ${m % 60} min${ago}`;
   // From a day on, days lead: "1 day 23 h", and from a week, days alone.
   const d = Math.floor(h / 24);
-  const days = `${d} ${d === 1 ? "day" : "days"}`;
+  // Grouped as every integer on the site is: an old block reads "1 216 days ago".
+  const days = `${groupDigits(d)} ${d === 1 ? "day" : "days"}`;
   if (d >= 7 || h % 24 === 0) return `${days}${ago}`;
   return `${days} ${h % 24} h${ago}`;
 }
