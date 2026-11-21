@@ -146,7 +146,9 @@ test.describe("past the check route's 100 lookups", () => {
       ]);
       // The hundred coins the route looked up are still read as spent together.
       await expect(notice.getByText("Coins spent together", { exact: true })).toBeVisible();
-      await expect(notice).toContainText("100 inputs are spent together, all from one address.");
+      await expect(notice).toContainText(
+        "100 inputs are spent together, all from one address: an observer may read them as one owner's.",
+      );
       // What the route did look up still reads: the 100 coins share one address.
       await expect(notice).toContainText("100 inputs spend from");
       await expect(notice).not.toContainText("stands out");
