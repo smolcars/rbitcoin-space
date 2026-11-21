@@ -387,9 +387,9 @@
   }
 
   /* The desktop's columns and gaps take 37.5em and the line's 0% and 100% about 4em, so its line
-     is a third of its row only from 62em of panel. Under that: the name and the verdict on one
-     line, then the share beside its line. */
-  @container (max-width: 62em) {
+     is a third of its row only past 63em of panel, in a wide font too. Up to that: the name and
+     the verdict on one line, then the share beside its line. */
+  @container (max-width: 63em) {
     /* A fixed first column: every row's meter starts at the same x, whatever its share says. */
     .fee-level {
       grid-template-columns: 9rem minmax(0, 1fr);
