@@ -304,7 +304,12 @@ function Weeks(props: { record: NodeCloses }) {
           return (
             <span>
               <span aria-hidden="true">{MISSING}</span>
-              <span class="visually-hidden">No figure for this week yet</span>
+              <span class="visually-hidden">
+                {/* The "Earlier" row sums several weeks: one of them missing withholds its figure. */}
+                {w.time === null
+                  ? "No figure for all of these weeks yet"
+                  : "No figure for this week yet"}
+              </span>
             </span>
           );
         if (n.closed < props.record.minimum)
