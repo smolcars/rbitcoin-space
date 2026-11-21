@@ -139,7 +139,8 @@ test.describe("past the check route's 100 lookups", () => {
         "Not checked: the CoinJoin shape, outputs paying back to an input's address, script types and the smallest coin spent.",
       );
       await expect(notice).toContainText(
-        "What it shows about address reuse, which output is change and coins spent together may be incomplete.",
+        // Two paying outputs can be no CoinJoin, so the unknown coin cannot undo "spent together".
+        "What it shows about address reuse and which output is change may be incomplete.",
       );
       // What the route did look up still reads: the 100 coins share one address.
       await expect(notice).toContainText("100 inputs spend from");
