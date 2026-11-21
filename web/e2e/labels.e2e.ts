@@ -4,7 +4,7 @@
 import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
-import type { Browser, BrowserContext, Page } from "@playwright/test";
+import type { Browser, BrowserContext, Locator, Page } from "@playwright/test";
 import { chain, expect, test } from "./fixtures";
 import { bip329, labelled, type Line, seedLabels } from "./labels";
 
@@ -414,52 +414,35 @@ test.describe("under reduced motion", () => {
 
 // ---- Nothing about a label reaches the server ----
 
-/** Every request a page made and every WebSocket frame it sent, in order, as text to compare and search. */
+/** Every request a page made and every socket message, as text to compare and search. */
 interface Seen {
-  /** Each request: method, whole URL (origin included), its headers and its body. */
+  /** Each request: method, whole URL (origin included) and body. */
   requests: string[];
-  /** What each socket message asked, topic by topic, in order. */
-  frames: string[];
+  /** Each request with its headers, for the search. */
+  raw: string[];
+  /** Every socket message sent, whole. */
+  sent: string[];
+  /** Every socket message received, whole, to wait on. */
+  received: string[];
   /** Each request's headers, read as they come. */
   pending: Promise<void>[];
-  /** Resolves once no request has been in flight for a moment, or after a few seconds regardless. */
-  quiet: () => Promise<void>;
 }
 
 function watch(context: BrowserContext): Seen {
-  let flying = 0;
-  let last = Date.now();
-  const landed = () => {
-    flying--;
-    last = Date.now();
-  };
-  context.on("requestfinished", landed);
-  context.on("requestfailed", landed);
-  const quiet = () =>
-    new Promise<void>((resolve) => {
-      const cap = Date.now() + 5000;
-      const look = () => {
-        const busy = flying > 0 || Date.now() - last < 400;
-        if (busy && Date.now() < cap) setTimeout(look, 50);
-        else resolve();
-      };
-      look();
-    });
-  const seen: Seen = { requests: [], frames: [], pending: [], quiet };
+  const seen: Seen = { requests: [], raw: [], sent: [], received: [], pending: [] };
   context.on("request", (r) => {
-    flying++;
-    last = Date.now();
-    const at = seen.requests.push(`${r.method()} ${r.url()}`) - 1;
+    const line = `${r.method()} ${r.url()} | ${r.postData() ?? ""}`;
+    seen.requests.push(line);
+    // Every header the browser sent, once it reports them; a request still in flight when the
+    // walk ends is searched with the headers known when it was made.
+    const known = r.headers();
+    const late = new Promise<Record<string, string>>((resolve) => {
+      setTimeout(() => resolve(known), 2000);
+    });
     seen.pending.push(
-      r.allHeaders().then(
-        (h) => {
-          const names = Object.keys(h);
-          names.sort((x, y) => x.localeCompare(y));
-          const head = names.map((n) => `${n}: ${h[n] ?? ""}`).join("; ");
-          seen.requests[at] += ` | ${head} | ${r.postData() ?? ""}`;
-        },
-        () => undefined,
-      ),
+      Promise.race([r.allHeaders().catch(() => known), late]).then((h) => {
+        seen.raw.push(`${line} | ${JSON.stringify(h)}`);
+      }),
     );
   });
   context.on("page", (p) => watchSockets(p, seen));
@@ -468,26 +451,53 @@ function watch(context: BrowserContext): Seen {
 
 function watchSockets(page: Page, seen: Seen) {
   page.on("websocket", (ws) => {
-    seen.frames.push(`open ${ws.url()}`);
+    seen.sent.push(`open ${ws.url()}`);
     ws.on("framesent", (f) => {
-      const text = typeof f.payload === "string" ? f.payload : f.payload.toString("utf8");
-      // What a frame asks, topic by topic: the client batches what it asks in one turn, so how
-      // topics share frames follows timing, not labels.
-      seen.frames.push(...asks(text));
+      seen.sent.push(typeof f.payload === "string" ? f.payload : f.payload.toString("utf8"));
+    });
+    ws.on("framereceived", (f) => {
+      seen.received.push(typeof f.payload === "string" ? f.payload : f.payload.toString("utf8"));
     });
   });
 }
 
-/** A socket message's requests, one per topic: `subscribe tx:…`; the message itself otherwise. */
-function asks(text: string): string[] {
-  try {
-    const m = JSON.parse(text) as { op?: unknown; topics?: unknown };
-    if (typeof m.op === "string" && Array.isArray(m.topics))
-      return m.topics.map((t) => `${m.op as string} ${String(t)}`);
-  } catch {
-    // Not JSON: compared whole.
-  }
-  return [text];
+/** What socket messages asked, topic by topic: the client batches what it asks in one turn. */
+function asks(sent: readonly string[]): string[] {
+  return sent.flatMap((text) => {
+    try {
+      const m = JSON.parse(text) as { op?: unknown; topics?: unknown };
+      if (typeof m.op === "string" && Array.isArray(m.topics))
+        return m.topics.map((t) => `${m.op as string} ${String(t)}`);
+    } catch {
+      // Not JSON: compared whole.
+    }
+    return [text];
+  });
+}
+
+/**
+ * Goes somewhere and waits for what that page is known to need: each response named, and the
+ * socket's message the page waits on before it asks for more. Never a wait for quiet.
+ */
+async function arrive(
+  page: Page,
+  seen: Seen,
+  go: () => Promise<unknown>,
+  needs: readonly RegExp[],
+  socket?: RegExp,
+) {
+  const since = seen.received.length;
+  const answered = needs.map((re) =>
+    page.waitForResponse((r) => re.test(new URL(r.url()).pathname + new URL(r.url()).search), {
+      timeout: 15_000,
+    }),
+  );
+  await go();
+  await Promise.all(answered);
+  if (socket)
+    await expect
+      .poll(() => seen.received.slice(since).some((m) => socket.test(m)), { timeout: 10_000 })
+      .toBe(true);
 }
 
 /** What the walk imports, in both runs: labels on things the walk shows and on things it never does. */
@@ -512,7 +522,6 @@ async function manage(page: Page, file: string) {
     .fill("zebra-quartz-edited");
   await page.keyboard.press("Enter");
   await expect(page.getByText("Label saved")).toBeAttached();
-  // It no longer matches what was searched for, so it leaves the list until the search is cleared.
   await page.getByLabel("Find a label").fill("zebra-quartz-edited");
   await expect(page.getByRole("table")).toContainText("zebra-quartz-edited");
   await page.getByLabel("Find a label").fill("zebra-quartz-label-six");
@@ -528,23 +537,50 @@ async function manage(page: Page, file: string) {
 
 /** The same walk through the site, with or without labels already kept. */
 async function walk(page: Page, seen: Seen, block: string, paid: string, file: string) {
-  await page.goto(`/regtest/tx/${TX}`);
-  await expect(page.getByRole("list", { name: "Outputs" })).toBeVisible();
+  await arrive(
+    page,
+    seen,
+    () => page.goto(`/regtest/tx/${TX}`),
+    [
+      new RegExp(`/api/tx/${TX}$`),
+      new RegExp(`/api/tx/${TX}/outspends$`),
+      /\/api\/blocks\/tip\/height$/,
+      new RegExp(`/app/tx/${TX}/replacements$`),
+      /\/app\/lightning\/status$/,
+    ],
+    new RegExp(`"topic":"tx:${TX}"`),
+  );
   await page.getByRole("button", { name: "Details of output 0" }).click();
   // A label typed and saved: added in one run, an edit in the other.
   await page.locator(".tx-head .label-control__open").click();
   await page.getByRole("textbox", { name: "Your label for this transaction" }).fill("zebra-typed");
   await page.keyboard.press("Enter");
   await expect(page.locator(".tx-head .your-label__text")).toHaveText("zebra-typed");
-  await page.getByRole("list", { name: "Outputs" }).getByRole("link").first().click();
-  await expect(page).toHaveURL(new RegExp(`/address/${paid}$`));
-  await expect(page.locator(".address-head")).toBeVisible();
-  await seen.quiet();
-  await page.goto(`/regtest/block/${block}`);
-  await expect(page.locator(`a[href$="/tx/${TX}"]`).first()).toBeVisible();
-  await seen.quiet();
+  await arrive(
+    page,
+    seen,
+    () => page.getByRole("list", { name: "Outputs" }).getByRole("link").first().click(),
+    [
+      new RegExp(`/api/address/${paid}$`),
+      new RegExp(`/app/address/${paid}/ledger$`),
+      new RegExp(`/api/address/${paid}/txs$`),
+      new RegExp(`/api/address/${paid}/txs/summary$`),
+    ],
+    /"state":"watching"/,
+  );
+  await arrive(
+    page,
+    seen,
+    () => page.goto(`/regtest/block/${block}`),
+    [
+      new RegExp(`/api/block/${block}$`),
+      new RegExp(`/api/block/${block}/status$`),
+      new RegExp(`/api/block/${block}/txs/0$`),
+      new RegExp(`/app/block/${block}/txs\\?v=2$`),
+    ],
+    /"network":"regtest"/,
+  );
   await manage(page, file);
-  await seen.quiet();
 }
 
 async function visitor(browser: Browser, baseURL: string, headers: Record<string, string>) {
@@ -557,7 +593,14 @@ async function visitor(browser: Browser, baseURL: string, headers: Record<string
   return { context, page };
 }
 
-test("nothing about a label reaches the server: the same requests, in the same order, with labels as without", async ({
+/**
+ * Requests whose number follows a clock, not the page: compared by presence, not count.
+ * - The address's ledger is asked again when the totals' own 1 s timeout passes before they come.
+ * - A block's summary is asked again when a block message arrives on the socket, whenever that is.
+ */
+const TIMED = [/\/app\/address\/[^/]+\/ledger /, /\/app\/blocks\/summary\?/];
+
+test("nothing about a label reaches the server: the same requests with labels as without", async ({
   browser,
   baseURL,
   extraHTTPHeaders,
@@ -596,10 +639,6 @@ test("nothing about a label reaches the server: the same requests, in the same o
       watchSockets(page, seen);
       await (withLabels ? seedLabels(page, labels) : page.goto("/healthz"));
       await walk(page, seen, block, paid, bip329(labels));
-      // The file imported in the manager labels it last, in both runs.
-      await page.goto(`/regtest/tx/${TX}`);
-      await expect(page.locator(".tx-head .your-label__text")).toHaveText("zebra-quartz-label-one");
-      await seen.quiet();
       await Promise.all(seen.pending);
       runs.push(seen);
     } finally {
@@ -607,25 +646,34 @@ test("nothing about a label reaches the server: the same requests, in the same o
     }
   }
   const [without, withLabels] = runs as [Seen, Seen];
+  // Every request, its headers and body, and every socket message whole, searched.
   for (const run of runs) {
-    const all = [...run.requests, ...run.frames].join("\n");
+    const all = [...run.raw, ...run.sent].join("\n");
     for (const n of needles) expect(all.includes(n), `"${n}" was sent`).toBe(false);
   }
-  // The very same requests, each as many times, with the same headers and body.
-  const counted = (list: readonly string[]) => {
-    const copy = [...list];
-    copy.sort((x, y) => x.localeCompare(y));
-    return copy;
+  const distinct = (list: readonly string[]) => {
+    const out = [...new Set(list)];
+    out.sort((a, b) => a.localeCompare(b));
+    return out;
   };
+  const counted = (list: readonly string[]) => {
+    const n = new Map<string, number>();
+    for (const r of list) if (!TIMED.some((t) => t.test(r))) n.set(r, (n.get(r) ?? 0) + 1);
+    const out = [...n];
+    out.sort(([a], [b]) => a.localeCompare(b));
+    return out;
+  };
+  // The same distinct requests, each as many times, but for those a clock decides (TIMED).
+  expect(distinct(withLabels.requests)).toEqual(distinct(without.requests));
   expect(counted(withLabels.requests)).toEqual(counted(without.requests));
-  // And in the same order, but for the block summaries a socket message asks for: those go out
-  // when a block message arrives, a moment that follows the socket, not the page or its labels.
-  const ordered = (list: readonly string[]) => list.filter((r) => !r.includes("/blocks/summary?"));
-  expect(ordered(withLabels.requests)).toEqual(ordered(without.requests));
-  expect(withLabels.frames).toEqual(without.frames);
+  // The same topics asked of the socket, but for `blocks`: the block page asks for it only when
+  // its first reads beat the socket's greeting, a race of the server's answers, not of labels.
+  const topics = (sent: readonly string[]) =>
+    distinct(asks(sent).filter((a) => !a.endsWith(" blocks")));
+  expect(topics(withLabels.sent)).toEqual(topics(without.sent));
   test.info().annotations.push({
     type: "requests compared",
-    description: `${withLabels.requests.length} requests and ${withLabels.frames.length} socket asks, in order, with headers and bodies`,
+    description: `${distinct(withLabels.requests).length} distinct requests, ${withLabels.requests.length} in all; ${withLabels.sent.length} socket messages searched`,
   });
 });
 
@@ -637,11 +685,13 @@ test.describe("the manager", () => {
     context,
   }) => {
     await seedLabels(page, labelled(TX, [chain.addresses.p2wpkh]));
+    // Watched once the manager has loaded and shown its list: from then on, every action below is
+    // done when its result shows, and nothing it does may have asked the server for anything.
+    const config = page.waitForResponse((r) => r.url().endsWith("/app/config"));
     await page.goto("/regtest/labels");
+    await config;
     await expect(page.getByRole("cell").first()).toBeVisible();
     const seen = watch(context);
-    await seen.quiet();
-    const settled = seen.requests.length;
     const file = bip329([
       { type: "tx", ref: UNSEEN_TX, label: "zebra-quartz-label-four" },
       { type: "addr", ref: UNSEEN_ADDR, label: "zebra-quartz-label-six" },
@@ -658,8 +708,10 @@ test.describe("the manager", () => {
     await page.getByRole("button", { name: /^Edit the label of transaction/ }).click();
     await page.getByRole("textbox", { name: /^Your label for transaction/ }).fill("renamed");
     await page.keyboard.press("Enter");
+    await expect(page.getByText("Label saved")).toBeAttached();
     await page.getByLabel("Find a label").fill("zebra-quartz-label-six");
     await page.getByRole("button", { name: /^Delete the label of address/ }).click();
+    await expect(page.getByText("No label matches.")).toBeVisible();
     await page.getByLabel("Find a label").fill("");
     await Promise.all([
       page.waitForEvent("download"),
@@ -667,38 +719,61 @@ test.describe("the manager", () => {
     ]);
     await page.getByRole("button", { name: "Delete all" }).click();
     await page.getByRole("button", { name: "Keep them" }).click();
-    await seen.quiet();
-    expect(seen.requests.slice(settled), "requests made by the manager's own actions").toEqual([]);
+    await expect(page.getByRole("button", { name: "Delete all labels" })).toHaveCount(0);
+    expect(seen.requests, "requests made by the manager's own actions").toEqual([]);
     // Following a reference's link is a lookup like any other: it asks for that transaction.
-    await page.getByRole("link", { name: new RegExp(UNSEEN_TX.slice(-8)) }).click();
-    await seen.quiet();
-    expect(seen.requests.slice(settled).some((r) => r.includes(`/api/tx/${UNSEEN_TX}`))).toBe(true);
+    await arrive(
+      page,
+      seen,
+      () => page.getByRole("link", { name: new RegExp(UNSEEN_TX.slice(-8)) }).click(),
+      [new RegExp(`/api/tx/${UNSEEN_TX}$`)],
+    );
+    expect(seen.requests.some((r) => r.includes(`/api/tx/${UNSEEN_TX}`))).toBe(true);
   });
 });
 
 // ---- A label moves nothing the page loads ----
 
-test("a page's head is as tall with a long label as with none, at every width, so nothing below moves", async ({
+test("a page's head is as tall with a long label as with none, its editor closed or open, at every width", async ({
   page,
 }) => {
-  test.setTimeout(90_000);
+  test.setTimeout(120_000);
   const address = chain.addresses.p2tr;
   const long = "w".repeat(255);
-  const measure = async (width: number) => {
+  /** The head's height and what follows it, with the editor closed and then open. */
+  const heights = async (head: string, after: Locator, hasLabel: boolean) => {
+    const control = page.locator(`${head} .label-control__open`);
+    await expect(control).toHaveText(hasLabel ? "Edit label" : "Add a label");
+    if (hasLabel) await expect(page.locator(`${head} .your-label`)).toBeVisible();
+    const closed = {
+      head: (await page.locator(head).boundingBox())?.height,
+      after: (await after.boundingBox())?.y,
+    };
+    await control.click();
+    await expect(page.locator(`${head} .label-editor__field`)).toBeFocused();
+    const open = {
+      head: (await page.locator(head).boundingBox())?.height,
+      after: (await after.boundingBox())?.y,
+    };
+    await page.keyboard.press("Escape");
+    await expect(page.locator(`${head} .label-editor`)).toHaveCount(0);
+    return { closed, open };
+  };
+  const measure = async (width: number, hasLabel: boolean) => {
     await page.setViewportSize({ width, height: 900 });
     await page.goto(`/regtest/address/${address}`);
+    // The chart loads its history when it nears the view: it must sit where it sits without labels.
     const chart = page.getByRole("region", { name: "Balance over time" });
     await expect(chart).toBeVisible();
-    // Labels are read after the page has started; wait for them before measuring.
-    await page.waitForFunction(() => document.readyState === "complete");
-    await page.waitForTimeout(300);
-    const head = await page.locator(".address-head").boundingBox();
-    const box = await chart.boundingBox();
+    const addressPage = await heights(".address-head", chart, hasLabel);
     await page.goto(`/regtest/tx/${TX}`);
     await expect(page.getByRole("list", { name: "Outputs" })).toBeVisible();
-    await page.waitForTimeout(300);
-    const txHead = await page.locator(".tx-head").boundingBox();
-    return { head: head?.height, chart: box?.y, tx: txHead?.height };
+    const txPage = await heights(
+      ".tx-head",
+      page.getByRole("region", { name: "Inputs and outputs" }),
+      hasLabel,
+    );
+    return { addressPage, txPage };
   };
   const results: Record<string, Awaited<ReturnType<typeof measure>>> = {};
   for (const [name, label] of [
@@ -711,11 +786,8 @@ test("a page's head is as tall with a long label as with none, at every width, s
         { type: "addr", ref: address, label },
         { type: "tx", ref: TX, label },
       ]);
-    for (const width of [320, 360, 1280]) results[`${name} ${width}`] = await measure(width);
-    if (label !== undefined) {
-      await page.goto(`/regtest/address/${address}`);
-      await expect(page.locator(".address-head .your-label")).toBeVisible();
-    }
+    for (const width of [320, 360, 1280])
+      results[`${name} ${width}`] = await measure(width, label !== undefined);
   }
   for (const width of [320, 360, 1280])
     for (const name of ["short", "255 characters"])

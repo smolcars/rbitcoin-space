@@ -1,5 +1,5 @@
 // The reader's labels for browser tests: written straight into the browser's own store, as the app
-// keeps them (src/lib/labels/store.ts, version 2), from a page that loads no app code, so a test
+// keeps them (src/lib/labels/store.ts, version 3), from a page that loads no app code, so a test
 // can start with labels without the manager's page in its requests.
 import type { Page } from "@playwright/test";
 
@@ -48,11 +48,11 @@ export async function seedLabels(page: Page, lines: readonly Line[]): Promise<vo
     ({ rows, show }) =>
       new Promise<void>((resolve, reject) => {
         indexedDB.deleteDatabase("rbitcoin-labels");
-        const req = indexedDB.open("rbitcoin-labels", 2);
+        const req = indexedDB.open("rbitcoin-labels", 3);
         req.addEventListener("upgradeneeded", () => {
           const db = req.result;
           db.createObjectStore("records", { keyPath: "key" }).createIndex("seq", "seq");
-          db.createObjectStore("shown", { keyPath: "key" });
+          db.createObjectStore("shown", { keyPath: "key" }).createIndex("at", "at");
           db.createObjectStore("meta");
         });
         req.addEventListener("error", () => reject(new Error("could not open")));
@@ -62,6 +62,10 @@ export async function seedLabels(page: Page, lines: readonly Line[]): Promise<vo
           for (const r of show) tx.objectStore("shown").put(r);
           tx.objectStore("meta").put(rows.length, "seq");
           tx.objectStore("meta").put(1, "rev");
+          tx.objectStore("meta").put(
+            rows.reduce((n, r) => n + r.line.length, 0),
+            "bytes",
+          );
           tx.addEventListener("complete", () => {
             req.result.close();
             localStorage.setItem("labels", "1");

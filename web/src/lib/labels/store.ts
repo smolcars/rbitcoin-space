@@ -98,12 +98,13 @@ let outdated = false;
 /** One attempt to open the store, at most OPEN_DEADLINE_MS. */
 function connect(): Promise<IDBDatabase> {
   return new Promise<IDBDatabase>((resolve, reject) => {
-    if (typeof indexedDB === "undefined" || indexedDB === null) {
-      reject(new LabelStoreError("unavailable"));
-      return;
-    }
     let req: IDBOpenDBRequest;
     try {
+      // Reading `indexedDB` itself throws where site data is blocked.
+      if (typeof indexedDB === "undefined" || indexedDB === null) {
+        reject(new LabelStoreError("unavailable"));
+        return;
+      }
       req = indexedDB.open(NAME, VERSION);
     } catch (e) {
       // Firefox's private windows once threw here; blocked site data throws a SecurityError.
