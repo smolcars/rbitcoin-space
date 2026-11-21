@@ -201,6 +201,16 @@ describe("nextChange", () => {
     expect(nextChange([975_000, 974_000], false, 975_000, true)).toStrictEqual({ kind: "none" });
   });
 
+  it("knows a full page holds every later transaction when it holds as many as came since", () => {
+    // One transaction by 900 000 and 25 after it: the page of 25 is all of them.
+    const page = Array.from({ length: PAGE_ROWS }, (_, i) => 976_000 - i);
+    expect(nextChange(page, false, 900_000, true, PAGE_ROWS)).toStrictEqual({
+      kind: "change",
+      height: 976_000 - (PAGE_ROWS - 1),
+    });
+    expect(nextChange(page, false, 900_000, true, PAGE_ROWS + 1)).toBeUndefined();
+  });
+
   it("cannot say when rows short of the whole history are all later than the block", () => {
     const page = Array.from({ length: PAGE_ROWS }, (_, i) => 976_000 - i);
     expect(nextChange(page, false, 900_000, true)).toBeUndefined();
@@ -217,31 +227,48 @@ describe("compareNow", () => {
     spent_txo_sum: spent,
   });
   const then = part(2, 50, 20, 2, 1);
+  const at = { height: 975, hash: "a".repeat(64) };
+  const above = { height: 980, hash: "b".repeat(64) };
 
-  it("counts the transactions since, and the balance now, from a later answer on the same chain", () => {
-    expect(compareNow(then, part(5, 90, 20, 4, 1), 980, 975)).toStrictEqual({
+  it("compares a present stamped above the block: counts the transactions since", () => {
+    expect(compareNow(then, part(5, 90, 20, 4, 1), above, at)).toStrictEqual({
       kind: "later",
       transactions: 3,
       balance: 70,
     });
-    expect(compareNow(then, part(2, 50, 20, 2, 1), 975, 975)).toStrictEqual({
+    expect(compareNow(then, part(2, 50, 20, 2, 1), above, at)).toStrictEqual({
       kind: "same",
       balance: 30,
     });
   });
 
-  it("will not compare an answer from before the block, kept a second, or from another chain", () => {
-    // Fewer transactions: an answer older than the block (a cached one), or a reorganization.
-    expect(compareNow(then, part(1, 50, 0, 1, 0), 980, 975)).toStrictEqual({ kind: "unknown" });
-    // As many, but other sums: a replacement block confirmed another payment.
-    expect(compareNow(then, part(2, 60, 20, 2, 1), 980, 975)).toStrictEqual({ kind: "unknown" });
-    // A total that shrank: no later state of this chain has less received.
-    expect(compareNow(then, part(4, 40, 20, 4, 1), 980, 975)).toStrictEqual({ kind: "unknown" });
-    // Stamped with a tip below the block.
-    expect(compareNow(then, part(5, 90, 20, 4, 1), 974, 975)).toStrictEqual({ kind: "unknown" });
+  it("compares a present stamped with the block itself only when every total is the same", () => {
+    expect(compareNow(then, part(2, 50, 20, 2, 1), at, at)).toStrictEqual({
+      kind: "same",
+      balance: 30,
+    });
+    // The same block cannot hold more than itself: a reply from elsewhere.
+    expect(compareNow(then, part(3, 60, 20, 3, 1), at, at)).toStrictEqual({ kind: "unknown" });
   });
 
-  it("compares without a stamp, on the totals alone", () => {
-    expect(compareNow(then, part(3, 60, 20, 3, 1), undefined, 975).kind).toBe("later");
+  it("will not compare without a stamp, or at the block's height under another hash", () => {
+    expect(compareNow(then, part(3, 60, 20, 3, 1), undefined, at)).toStrictEqual({
+      kind: "unknown",
+    });
+    const rival = { height: 975, hash: "c".repeat(64) };
+    expect(compareNow(then, part(2, 50, 20, 2, 1), rival, at)).toStrictEqual({ kind: "unknown" });
+    expect(compareNow(then, part(3, 60, 20, 3, 1), rival, at)).toStrictEqual({ kind: "unknown" });
+  });
+
+  it("will not compare a present stamped below the block", () => {
+    const below = { height: 974, hash: "d".repeat(64) };
+    expect(compareNow(then, part(5, 90, 20, 4, 1), below, at)).toStrictEqual({ kind: "unknown" });
+  });
+
+  it("will not compare, above the block, totals no later state of one chain could have", () => {
+    // Fewer transactions; as many with other sums; a total that shrank.
+    expect(compareNow(then, part(1, 50, 0, 1, 0), above, at)).toStrictEqual({ kind: "unknown" });
+    expect(compareNow(then, part(2, 60, 20, 2, 1), above, at)).toStrictEqual({ kind: "unknown" });
+    expect(compareNow(then, part(4, 40, 20, 4, 1), above, at)).toStrictEqual({ kind: "unknown" });
   });
 });

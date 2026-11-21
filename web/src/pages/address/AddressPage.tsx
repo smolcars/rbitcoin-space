@@ -132,18 +132,24 @@ export default function AddressPage() {
               address={k.split(" ")[1] ?? ""}
               isKey={found()?.type === "p2pk"}
               at={untrack(at)}
+              page={k.split(" ").slice(0, 2).join(" ")}
             />
           )}
         </Match>
         <Match when={key()} keyed>
-          {(k) => <AddressBody address={k.slice(k.indexOf(" ") + 1)} found={found()} />}
+          {(k) => <AddressBody address={k.slice(k.indexOf(" ") + 1)} found={found()} page={k} />}
         </Match>
       </Switch>
     </div>
   );
 }
 
-function AddressBody(props: { address: string; found: Recognised | null }) {
+function AddressBody(props: {
+  address: string;
+  found: Recognised | null;
+  /** This page's settled key (the keyed match's): network and normalised address. */
+  page: string;
+}) {
   const network = useNetwork();
   // The page is made afresh for each address (AddressPage keys it).
   const address = untrack(() => props.address);
@@ -316,13 +322,14 @@ function AddressBody(props: { address: string; found: Recognised | null }) {
     resync: () => undefined,
   });
 
-  // Whether the page is live, and the way to see it as of a past block, on one row.
+  // Whether the page is live, and the way to see it as of a past block, on one row: made once,
+  // above the switch, so a page that turns out kept does not make its button a second time.
   const status = () => (
     <div class="address-status">
       <LiveLine watch={watch()} socket={socket()} />
       <AsOfPicker
         id="address-asof-pick"
-        page={`${network()} ${address}`}
+        page={untrack(() => props.page)}
         title={`This ${props.found?.type === "p2pk" ? "key" : "address"} at a past block`}
         class="address-asof-open"
         arrival
@@ -342,6 +349,7 @@ function AddressBody(props: { address: string; found: Recognised | null }) {
       <p class="visually-hidden address-announce" aria-live="polite">
         {announced()}
       </p>
+      <Show when={pageRefusal() === undefined && !large()}>{status()}</Show>
       <Switch>
         <Match when={pageRefusal() === "no-index"}>
           <Notice title="This server does not index addresses" tone="caution">
@@ -365,7 +373,6 @@ function AddressBody(props: { address: string; found: Recognised | null }) {
         <Match when={kept()}>
           {(k) => (
             <>
-              {status()}
               {notice()}
               <KeptAddress
                 address={props.address}
@@ -403,7 +410,6 @@ function AddressBody(props: { address: string; found: Recognised | null }) {
           />
         </Match>
         <Match when={true}>
-          {status()}
           <Show when={busyRetrying()}>
             <p class="address-busy" role="status">
               The server is busy for a moment, so this page is waiting to ask again.

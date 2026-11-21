@@ -113,8 +113,9 @@ export function previousChange(heights: readonly number[], whole: boolean): Step
 
 /**
  * "Next change": the first block after `at` in which the address changed, from its newest history
- * now (`heights`, the confirmed rows' heights; `whole`, the rows reach its first transaction).
- * Known only when the rows reach back to `at` or are the whole history. `used`: the address had
+ * now (`heights`, the confirmed rows' heights; `whole`, the rows reach its first transaction;
+ * `since`, how many transactions came after `at`, when known). Known when the rows reach back to
+ * `at`, are the whole history, or hold as many later rows as came since. `used`: the address had
  * confirmed history by `at`, so a change after none is its first use.
  */
 export function nextChange(
@@ -122,9 +123,11 @@ export function nextChange(
   whole: boolean,
   at: number,
   used: boolean,
+  since?: number,
 ): Step | undefined {
   const later = heights.filter((h) => h > at);
-  if (later.length === heights.length && !whole) return undefined;
+  const all = whole || later.length === since;
+  if (later.length === heights.length && !all) return undefined;
   if (later.length === 0) return { kind: "none" };
   return { kind: used ? "change" : "first", height: Math.min(...later) };
 }
@@ -135,30 +138,44 @@ export type Since =
   | { kind: "same"; balance: number }
   | { kind: "unknown" };
 
+/** A block as a height and the hash at it. */
+export interface Stamp {
+  height: number;
+  hash: string;
+}
+
+const TOTALS = [
+  "tx_count",
+  "funded_txo_count",
+  "funded_txo_sum",
+  "spent_txo_count",
+  "spent_txo_sum",
+] as const;
+
 /**
- * The confirmed totals now (`now`, stamped with its tip's height when the reply said) beside those
- * at block `at` (`then`). Every total only grows along one chain, so an answer with any total
- * smaller, as many transactions but other sums, or a tip below the block, is from before the block
- * (a reply kept a second) or from another chain (a reorganization): not comparable, so the page
- * says nothing rather than a negative count or a false "the same".
+ * The one gate for comparing the present with block `at`: the confirmed totals now (`now`, with
+ * `stamp`, the tip the reply says it is as of) beside those at the block (`then`). Compared only
+ * when the stamp proves it can be: a tip above the block, where every total has only grown (each
+ * total only grows along one chain); or the block itself, by hash, with every total the same.
+ * Anything else (no stamp, a tip below the block, another block at its height, or totals no later
+ * state of one chain could have) is not comparable, and the page then shows and asks nothing.
  */
 export function compareNow(
   then: AddressStatsPart,
   now: AddressStatsPart,
-  nowHeight: number | undefined,
-  at: number,
+  stamp: Stamp | undefined,
+  at: Stamp,
 ): Since {
-  if (nowHeight !== undefined && nowHeight < at) return { kind: "unknown" };
-  const keys = [
-    "tx_count",
-    "funded_txo_count",
-    "funded_txo_sum",
-    "spent_txo_count",
-    "spent_txo_sum",
-  ] as const;
-  if (keys.some((k) => now[k] < then[k])) return { kind: "unknown" };
   const balance = now.funded_txo_sum - now.spent_txo_sum;
+  const same = TOTALS.every((k) => now[k] === then[k]);
+  if (stamp === undefined) return { kind: "unknown" };
+  if (stamp.height === at.height && stamp.hash === at.hash) {
+    return same ? { kind: "same", balance } : { kind: "unknown" };
+  }
+  if (stamp.height <= at.height || TOTALS.some((k) => now[k] < then[k])) {
+    return { kind: "unknown" };
+  }
   const transactions = now.tx_count - then.tx_count;
   if (transactions > 0) return { kind: "later", transactions, balance };
-  return keys.every((k) => now[k] === then[k]) ? { kind: "same", balance } : { kind: "unknown" };
+  return same ? { kind: "same", balance } : { kind: "unknown" };
 }

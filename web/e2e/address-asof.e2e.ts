@@ -709,8 +709,11 @@ test("a step the server refuses to work out says so, and comes once it answers",
   const summary = (url: URL) =>
     url.pathname === `/regtest/api/address/${address}/txs/summary` &&
     url.searchParams.get("asof") !== chain.blocks[106];
-  // The retry's back-off runs on a clock the test drives, not on real waiting.
-  await page.clock.install();
+  // The retry's back-off runs on a clock the test drives, stopped from the start: no retry can
+  // come before the test moves it on.
+  const start = Date.now();
+  await page.clock.install({ time: start });
+  await page.clock.pauseAt(start + 1000);
   // Busy (429): asked again as the server says, while the band says why the step waits.
   await page.route(summary, (route) =>
     route.fulfill({ status: 429, headers: { "retry-after": "1" }, json: { error: "slow down" } }),
@@ -737,6 +740,19 @@ test("a step the server refuses to work out says so, and comes once it answers",
   await page.unroute(summary);
   await band(page).getByRole("button", { name: "Try again" }).click();
   await expect(band(page).getByRole("button", { name: "Next change: block 107" })).toBeEnabled();
+
+  // Answered 404 once, the tip unchanged: Try again asks the history again all the same.
+  let lookups = 0;
+  await page.route(summary, (route) =>
+    ++lookups === 1
+      ? route.fulfill({ status: 404, json: { error: "not found" } })
+      : route.continue(),
+  );
+  await page.goto(`/regtest/address/${address}?at=106`);
+  await expect(band(page)).toContainText("The next change could not be looked up");
+  await band(page).getByRole("button", { name: "Try again" }).click();
+  await expect(band(page).getByRole("button", { name: "Next change: block 107" })).toBeEnabled();
+  expect(lookups).toBe(2);
 });
 
 test("before a long history's first transaction, its first use is found from the chart's pages", async ({
@@ -784,7 +800,7 @@ test("asking for the block already shown closes the field and leaves no focus re
   await expect(band(page).getByRole("heading")).not.toBeFocused();
 });
 
-test("a date's lookup still running when the reader follows a link writes nothing onto the next page", async ({
+test("once the reader follows a link, the block field can commit nothing onto the next page", async ({
   page,
 }) => {
   const address = chain.addresses.p2tr;
@@ -799,19 +815,28 @@ test("a date's lookup still running when the reader follows a link writes nothin
   );
   await page.goto(`/regtest/address/${address}?at=107`);
   await expect(stat(page, "Balance")).toHaveText("1.49 000 000 BTC");
-  // The block page's code is held, so the move there stays under way while the date answers.
+  // The block page's code is held, so the move there stays under way.
   await page.route(/\/assets\/BlockPage-[\w-]+\.js$/, async (route) => {
     await chunk.shut;
     await route.continue().catch(() => undefined);
   });
   await band(page).getByRole("button", { name: "Another block" }).click();
-  await page.getByLabel("Block height or date").fill("2026-01-01 17:35");
-  await page.getByLabel("Block height or date").press("Enter");
+  const field = page.getByLabel("Block height or date");
+  await expect(field).toBeFocused();
+  await field.fill("2026-01-01 17:35");
+  await field.press("Enter");
   await expect(page.getByRole("button", { name: "Looking up…" })).toBeVisible();
+  const held = page.waitForRequest(/\/assets\/BlockPage-[\w-]+\.js$/);
   await band(page).getByRole("link", { name: "107" }).press("Enter");
+  await held;
+  // The move is under way: the form is inert, and a date submitted from it anyway commits nothing.
+  expect(await field.evaluate((el) => el.closest("form")?.inert)).toBe(true);
+  await field.evaluate((el) => {
+    if (!(el instanceof HTMLInputElement) || el.form === null) return;
+    el.value = "2026-01-01 17:25";
+    el.form.requestSubmit();
+  });
   date.open();
-  // The answer has had its moment; then the block page's code arrives.
-  await page.waitForTimeout(300);
   chunk.open();
   await expect(page).toHaveURL(/\/regtest\/block\/[0-9a-f]{64}$/);
   // And back, within the app, to the address as of the block: the move there completes.
@@ -842,8 +867,15 @@ test("a present that cannot be compared, or a lookup that fails partway, never s
       spent_txo_sum: 0,
     },
   });
-  // A current answer older than block 107 (kept a second, or another chain): fewer transactions.
-  await page.route(totals(p2sh), (route) => route.fulfill({ json: stats(1, 50_000_000, 0) }));
+  /** A reply stamped as the server stamps one: the tip it is as of. */
+  const stamped = (tip: { hash: string; height: number }) => ({
+    "x-bitcoin-chain-tip": tip.hash,
+    "x-bitcoin-chain-tip-height": String(tip.height),
+  });
+  // A current answer stamped above block 107 with fewer transactions: from another chain.
+  await page.route(totals(p2sh), (route) =>
+    route.fulfill({ json: stats(1, 50_000_000, 0), headers: stamped(chain.tip) }),
+  );
   await page.goto(`/regtest/address/${p2sh}?at=107`);
   await expect(stat(page, "Transactions")).toHaveText("2");
   await expect(band(page).getByRole("button", { name: /^Previous change/ })).toBeEnabled();
@@ -851,6 +883,26 @@ test("a present that cannot be compared, or a lookup that fails partway, never s
   await expect(page.getByText(/later|The same now/)).toHaveCount(0);
   await expect(band(page).getByRole("button", { name: /^Next change/ })).toHaveCount(0);
   await page.unrouteAll();
+
+  // The gate's other refusals, on P2TR before its first use at block 106: a reply with no stamp,
+  // and one stamped with another block at the chosen height. Neither is counted, and neither has
+  // its history asked.
+  const p2tr = chain.addresses.p2tr;
+  const asked: string[] = [];
+  page.on("request", (r) => {
+    if (new URL(r.url()).pathname.includes(`/address/${p2tr}/txs/summary`)) asked.push(r.url());
+  });
+  for (const headers of [{}, stamped({ hash: "c".repeat(64), height: 105 })]) {
+    await page.route(totals(p2tr), (route) =>
+      route.fulfill({ json: stats(2, 149_000_000, 0), headers }),
+    );
+    await page.goto(`/regtest/address/${p2tr}?at=105`);
+    await expect(page.getByText("Not used yet at block 105")).toBeVisible();
+    await expect(page.getByText(/confirmed transactions? now|None has since/)).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /First used/ })).toHaveCount(0);
+    await page.unrouteAll();
+  }
+  expect(asked).toStrictEqual([]);
 
   // Before the miner's first transaction its history is read page by page; one that fails is a
   // failed lookup, offered again, never "further back than the newest 200".
@@ -871,9 +923,35 @@ test("a present that cannot be compared, or a lookup that fails partway, never s
   page.on("request", (r) => {
     if (new URL(r.url()).pathname.includes(`/address/${miner}/txs/summary`)) pages.push(r.url());
   });
-  await page.route(totals(miner), (route) => route.fulfill({ json: stats(250, 5_000_000_000, 0) }));
+  await page.route(totals(miner), (route) =>
+    route.fulfill({ json: stats(250, 5_000_000_000, 0), headers: stamped(chain.tip) }),
+  );
   await page.goto(`/regtest/address/${miner}?at=0`);
   await expect(page.getByText("It has 250 confirmed transactions now.")).toBeVisible();
   await expect(page.getByText(/further back than the newest 200/)).toBeVisible();
   expect(pages).toStrictEqual([]);
+});
+
+test("focus goes to the block arrived at last, whichever page settles first", async ({ page }) => {
+  const address = chain.addresses.p2tr;
+  await page.goto(`/regtest/address/${address}?at=107`);
+  await expect(stat(page, "Balance")).toHaveText("1.49 000 000 BTC");
+  // Frames are held, so anything that waits on one cannot run until both moves are made.
+  await page.evaluate(() => {
+    const held: FrameRequestCallback[] = [];
+    (window as unknown as { heldFrames: FrameRequestCallback[] }).heldFrames = held;
+    window.requestAnimationFrame = (frame) => held.push(frame);
+  });
+  for (const at of ["105", "106"]) {
+    await band(page).getByRole("button", { name: "Another block" }).click();
+    await page.getByLabel("Block height or date").fill(at);
+    await page.getByLabel("Block height or date").press("Enter");
+    await expect(band(page).getByRole("heading")).toHaveText(`As of block ${at}`);
+  }
+  await page.evaluate(() => {
+    for (const frame of (window as unknown as { heldFrames: FrameRequestCallback[] }).heldFrames) {
+      frame(performance.now());
+    }
+  });
+  await expect(band(page).getByRole("heading")).toBeFocused();
 });
