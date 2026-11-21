@@ -120,11 +120,15 @@
   /* Two figures in one cell, mean then median: on one line on a wide screen, and on a phone one
      above the other in every row, so the medians are always the second line. */
   .fee-score__pair .num {
+    display: inline-block;
+    /* The widest figure, "under 0.01": the means line up down the column as the medians do. */
+    min-width: 10ch;
     white-space: nowrap;
   }
   @media (max-width: 40em) {
     .fee-score__pair .num {
       display: block;
+      min-width: 0;
     }
     .fee-score__sep {
       display: none;
