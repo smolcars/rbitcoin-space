@@ -67,8 +67,8 @@
   .ots-slot__drop {
     font-size: var(--text-sm);
   }
-  /* Nothing to drop with on a touch screen. */
-  @media (pointer: coarse), (hover: none) {
+  /* Nothing to drop with on a touch screen, nor anything to drag onto a phone-width window. */
+  @media (pointer: coarse), (hover: none), (max-width: 40em) {
     .ots-slot__drop {
       display: none;
     }
