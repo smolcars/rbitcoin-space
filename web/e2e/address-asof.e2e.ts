@@ -891,17 +891,14 @@ test("a link followed while a date is looked up is where the reader lands, not t
   await field.fill("2026-01-01 17:35");
   await field.press("Enter");
   const request = await asked;
-  // The lookup ends one of two ways: dropped by the move below, or answered once let through.
-  const ended = Promise.race([
-    page.waitForEvent("requestfailed", (r) => r === request),
-    page.waitForEvent("requestfinished", (r) => r === request),
-  ]);
+  // The move below ends the lookup itself, while its answer is still held back.
+  const dropped = page.waitForEvent("requestfailed", (r) => r === request);
   // The later choice: the band's link to the block, followed while the date is still looked up.
   const held = page.waitForRequest(/\/assets\/BlockPage-[\w-]+\.js$/);
   await band(page).getByRole("link", { name: "107" }).press("Enter");
   await held;
+  await dropped;
   lookup.open();
-  await ended;
   chunk.open();
   await expect(page).toHaveURL(/\/regtest\/block\/[0-9a-f]{64}$/);
   expect(visited.filter((u) => u.includes("at=105"))).toStrictEqual([]);
