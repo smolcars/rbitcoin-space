@@ -85,13 +85,14 @@ export function CardMarks(props: {
 /** A run of a sentence as drawn: text, an address, or a number with the punctuation after it. */
 type Run =
   | { text: string }
-  | { address: string }
+  | { address: string; tail: string }
   | { ref: "in" | "out"; index: number; tail: string };
 
 /** Punctuation that belongs to the word before it: kept on the number's line, with no gap. */
 const TAIL = /^[,.;:)!?]+/;
 
-/** A sentence's runs: each number takes the punctuation right after it, so the two never part. */
+/** A sentence's runs: each number or address takes the punctuation right after it, so the two
+ * never part. */
 export function runs(s: Sentence): Run[] {
   const out: Run[] = [];
   let carry = "";
@@ -102,14 +103,11 @@ export function runs(s: Sentence): Run[] {
       if (text) out.push({ text });
       return;
     }
-    if ("ref" in piece) {
-      const next = s[k + 1];
-      const tail = typeof next === "string" ? (TAIL.exec(next)?.[0] ?? "") : "";
-      carry = tail;
-      out.push({ ref: piece.ref, index: piece.index, tail });
-      return;
-    }
-    out.push({ address: piece.address });
+    const next = s[k + 1];
+    const tail = typeof next === "string" ? (TAIL.exec(next)?.[0] ?? "") : "";
+    carry = tail;
+    if ("ref" in piece) out.push({ ref: piece.ref, index: piece.index, tail });
+    else out.push({ address: piece.address, tail });
   });
   return out;
 }
@@ -150,12 +148,20 @@ function Words(props: { s: Sentence }) {
             <Ref side={run.ref} index={run.index} />
           );
         const a = shownAddress(run.address);
-        return (
+        const shown = (
           <span class="hash">
             <span class="hash__text" title={a.title}>
               {a.short}
             </span>
           </span>
+        );
+        return run.tail ? (
+          <span class="pv-ref-tail">
+            {shown}
+            {run.tail}
+          </span>
+        ) : (
+          shown
         );
       }}
     </For>

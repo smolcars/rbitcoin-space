@@ -151,8 +151,7 @@ describe("a number in a sentence", () => {
       { text: " and " },
       { ref: "in", index: 4, tail: "" },
       { text: " spend from " },
-      { address: "a" },
-      { text: "." },
+      { address: "a", tail: "." },
     ]);
     expect(runs(["(input ", n(11), "), and the other"])).toStrictEqual([
       { text: "(input " },

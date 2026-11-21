@@ -128,7 +128,8 @@ test("a transaction with findings: marks on its cards and what an observer can r
   const line = page.getByRole("link", { name: "2 things an observer can read" });
   await expect(line).toBeVisible();
   expect(await sideways(page)).toBeLessThanOrEqual(0);
-  // Before the line is followed: scrolled, the sticky header would cover cards axe then checks.
+  // From the top: scrolled, the sticky header covers whatever is under it, and axe counts that.
+  await page.evaluate(() => window.scrollTo(0, 0));
   expect(await axe(page)).toStrictEqual([]);
   await line.click();
   await expect(page.locator("#pv-list")).toBeFocused();
@@ -437,6 +438,25 @@ test.describe("a broadcast that does not go through", () => {
     const together = page.getByText("Coins spent together", { exact: true });
     await expect(page.getByText(NOT_SENT)).toBeVisible();
     await expect(together).toBeVisible();
+
+    // At 320 px with 24 px text the note after its title wraps rather than widening the list:
+    // nothing in the notice reaches past its edge.
+    await page.setViewportSize({ width: 320, height: 780 });
+    await page.evaluate(() => {
+      document.documentElement.style.fontSize = "24px";
+    });
+    expect(
+      await page.locator(".pv-send").evaluate((notice) => {
+        const edge = notice.getBoundingClientRect().right;
+        return [...notice.querySelectorAll(".pv-list *")]
+          .filter((el) => el.getBoundingClientRect().right > edge + 0.5)
+          .map((el) => el.textContent?.slice(0, 30));
+      }),
+    ).toStrictEqual([]);
+    await page.evaluate(() => {
+      document.documentElement.style.fontSize = "";
+    });
+    await page.setViewportSize({ width: 1280, height: 720 });
 
     // From here on, the line must never be drawn again.
     await page.evaluate((text) => {

@@ -92,9 +92,17 @@
     height: 24px;
     transform: translate(-50%, -50%);
   }
-  /* A number and the punctuation after it never part across lines. */
+  /* A number or an address and the punctuation after it never part across lines. The mark sits
+     against the chip, and the room a chip's targets need is taken after the mark instead: in
+     "0, 1, 2" neighbours' targets stay 24 px apart. */
   .pv-ref-tail {
     white-space: nowrap;
+  }
+  .pv-ref-tail:has(> .pv-ref) {
+    margin-right: 3px;
+  }
+  .pv-ref-tail > .pv-ref {
+    padding-right: 2px;
   }
   @media (hover: hover) {
     .pv-ref:hover {
@@ -126,8 +134,10 @@
     font-size: var(--text-md);
     font-weight: var(--weight-bold);
   }
+  /* One column no wider than the panel, whatever a finding's longest word. */
   .pv-list {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: var(--space-3);
     margin: 0;
     padding: 0;
@@ -140,6 +150,9 @@
     grid-template-columns: auto minmax(0, 1fr);
     gap: var(--space-2);
     align-items: start;
+  }
+  .pv-none > .pv-eye {
+    margin-top: calc((1lh - 14px) / 2);
   }
   .pv-item > .pv-eye {
     margin-top: 0.2em;
@@ -163,9 +176,9 @@
     column-gap: var(--space-2);
     font-weight: var(--weight-bold);
   }
-  /* Moves to the next line whole rather than breaking. */
+  /* Moves to the next line whole rather than breaking, and wraps only when it is wider than the
+     line itself (large text on a phone). */
   .pv-item__note {
-    white-space: nowrap;
     color: var(--color-text-muted);
     font-weight: var(--weight-regular);
   }
@@ -179,10 +192,10 @@
   .pv-reasons li::marker {
     color: var(--color-text-muted);
   }
-  /* Nothing to show: one muted line. */
+  /* Nothing to show: one muted line, its eye on the first line when it wraps. */
   .pv-none {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: var(--space-2);
     color: var(--color-text-muted);
   }
