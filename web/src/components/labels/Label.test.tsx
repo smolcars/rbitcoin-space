@@ -1,7 +1,7 @@
 import { flush } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { indexKey, showLabels } from "../../lib/labels";
-import { resetStore } from "../../lib/labels/db";
+import { resetStore, setLabel } from "../../lib/labels/db";
 import { fakeIndexedDB, KeyRange } from "../../lib/labels/fake-idb";
 import { mount } from "../test-utils";
 import { LabelControl, LabelOf, YourLabel } from "./Label";
@@ -175,5 +175,26 @@ describe("LabelControl", () => {
     await until(() => el.querySelector(".your-label__text")?.textContent === "first");
     expect(el.querySelector("input")).toBe(second);
     expect(second.value).toBe("a draft");
+  });
+
+  it("an editor saved without a change writes nothing, so another tab's newer label stays", async () => {
+    await setLabel("tx", TXID, "A");
+    const el = mount(() => <LabelControl type="tx" reference={TXID} what="this transaction" />);
+    await until(() => el.querySelector(".your-label__text")?.textContent === "A");
+    el.querySelector<HTMLButtonElement>(".label-control__open")?.click();
+    await until(() => el.querySelector("input") !== null);
+    expect(el.querySelector<HTMLInputElement>("input")?.value).toBe("A");
+    // Another tab saves B meanwhile.
+    await setLabel("tx", TXID, "B");
+    await until(() => el.querySelector(".your-label__text")?.textContent === "B");
+    // Save, the field untouched: nothing is written, nothing announced as saved.
+    el.querySelector("form")?.dispatchEvent(new Event("submit", { cancelable: true }));
+    await until(() => el.querySelector("input") === null);
+    await new Promise((resolve) => {
+      setTimeout(resolve, 50);
+    });
+    flush();
+    expect(el.querySelector(".your-label__text")?.textContent).toBe("B");
+    expect(el.querySelector("[role=status]")?.textContent).toBe("");
   });
 });

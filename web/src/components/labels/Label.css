@@ -147,6 +147,10 @@
     flex-wrap: wrap;
     gap: var(--space-2);
   }
+  .label-editor__elsewhere {
+    font-size: var(--text-sm);
+    overflow-wrap: anywhere;
+  }
   .label-editor__note {
     color: var(--color-text-muted);
     font-size: var(--text-sm);

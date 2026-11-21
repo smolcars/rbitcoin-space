@@ -118,4 +118,31 @@ describe("the manager", () => {
     expect(field.value).toBe("A, half typed");
     expect(document.activeElement).toBe(field);
   });
+
+  it("keeps the draft when another tab changes the label being edited, and says so", async () => {
+    const A = "aa".repeat(32);
+    const one = (await readFile(`{"type":"tx","ref":"${A}","label":"A"}`)).records;
+    await runImport(one, await previewImport(one));
+    const el = mount(() => <LabelsPage />, "/regtest/labels");
+    const editA = () =>
+      [...el.querySelectorAll("button")].find((b) =>
+        (b.textContent ?? "").startsWith("Edit the label of transaction aaaaaaaa"),
+      );
+    await until(() => editA() !== undefined);
+    editA()?.click();
+    await until(() => el.querySelector<HTMLInputElement>("input.label-editor__field") !== null);
+    const field = el.querySelector<HTMLInputElement>("input.label-editor__field");
+    if (!field) throw new TypeError("no field");
+    field.value = "A, my draft";
+    field.focus();
+    // Another tab changes this very label.
+    await setLabel("tx", A, "A, from the other tab");
+    await until(() => el.querySelector(".label-editor__elsewhere") !== null);
+    expect(el.querySelector(".label-editor__elsewhere")?.textContent).toContain(
+      "“A, from the other tab”",
+    );
+    expect(el.querySelector<HTMLInputElement>("input.label-editor__field")).toBe(field);
+    expect(field.value).toBe("A, my draft");
+    expect(document.activeElement).toBe(field);
+  });
 });

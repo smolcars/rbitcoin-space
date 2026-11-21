@@ -2,6 +2,7 @@
 // browser's store only; the form has no action and nothing it holds goes into a URL.
 import { createSignal, createUniqueId, onCleanup, onSettled, Show, untrack } from "solid-js";
 import type { JSX } from "@solidjs/web";
+import { shownLabel } from "../../lib/labels";
 import { MAX_LABEL } from "../../lib/labels/bip329";
 import { failureWords, setLabel } from "../../lib/labels/db";
 import { paths } from "../../lib/network";
@@ -46,6 +47,12 @@ export function LabelEditor(props: EditorProps) {
   const save = (e: SubmitEvent) => {
     e.preventDefault();
     const text = field?.value ?? "";
+    // Unchanged from what the editor opened with: nothing to write, so nothing is written. A
+    // label another tab saved meanwhile stays; only a deliberate edit replaces it.
+    if (text === initial) {
+      props.done();
+      return;
+    }
     if (text.trim() === "") {
       if (props.current === undefined) props.done();
       else write(null, "Label removed");
@@ -98,6 +105,13 @@ export function LabelEditor(props: EditorProps) {
         Only this browser keeps it; it is never sent to the server.{" "}
         <Link href={paths.labels()}>All your labels</Link>
       </p>
+      <Show when={props.elsewhere !== undefined}>
+        <p class="label-editor__elsewhere" role="status">
+          {props.elsewhere === null || props.elsewhere === undefined
+            ? "This label was removed elsewhere since you opened it. Saving puts back what you type."
+            : `This label was changed elsewhere since you opened it, to “${shownLabel(props.elsewhere, 80)}”. Saving replaces it with what you type.`}
+        </p>
+      </Show>
       <Show when={error()}>
         <p class="label-editor__error" role="alert">
           {error()}

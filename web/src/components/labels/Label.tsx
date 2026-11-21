@@ -63,6 +63,8 @@ export interface EditorProps {
   record?: string;
   what: string;
   current: string | undefined;
+  /** What another tab changed this label to while it was being edited (null: removed). */
+  elsewhere?: string | null;
   /** Closes the editor; `said` is announced, such as "Label saved". */
   done: (said?: string) => void;
 }

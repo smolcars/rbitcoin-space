@@ -2,7 +2,7 @@
 // and out (docs/FRONTEND.md "Your labels"). Everything here happens in the browser: loading,
 // searching, editing, deleting, importing and exporting ask the server for nothing, and nothing
 // typed or read here goes into a URL. Only following a reference's link asks for its page.
-import { createEffect, createMemo, createSignal, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, Show, untrack } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { type Column, DataTable } from "../../components/DataTable";
 import { Hash } from "../../components/Hash";
@@ -108,6 +108,9 @@ export default function LabelsPage() {
   const [why, setWhy] = createSignal("");
   const [outdated, setOutdated] = createSignal(false);
   const [list, setList] = createSignal<Stored[]>([]);
+  // The record whose editor is open, and what another tab changed it to meanwhile, if it did.
+  const [editing, setEditing] = createSignal<string | undefined>();
+  const [elsewhere, setElsewhere] = createSignal<{ label: string | undefined } | undefined>();
   // The list as last shown, by key: a record read again unchanged keeps its object, so its row
   // (and an editor open in it, with what the reader is typing) is kept, and only changed rows are
   // drawn again.
@@ -125,7 +128,12 @@ export default function LabelsPage() {
         for (let i = kept.length - 1; i >= 0; i--) {
           const fresh = kept[i] as Stored;
           const old = shownByKey.get(fresh.key);
-          const r = old && old.line === fresh.line && old.seq === fresh.seq ? old : fresh;
+          const same = old !== undefined && old.line === fresh.line && old.seq === fresh.seq;
+          // The row being edited keeps its object, and with it the editor and its draft, even when
+          // another tab changed it: the editor says so, and shows what it was changed to.
+          const edited = old !== undefined && fresh.key === untrack(editing);
+          if (edited && !same) setElsewhere({ label: fresh.label });
+          const r = old !== undefined && (same || edited) ? old : fresh;
           next.set(r.key, r);
           out.push(r);
         }
@@ -141,6 +149,12 @@ export default function LabelsPage() {
   };
   // Read whole on arrival and after every change, from this page, an editor or another tab.
   createEffect(labelsVersion, read);
+  const edit = (key: string | undefined) => {
+    setEditing(key);
+    setElsewhere(undefined);
+    // Closed: the row shows the record as it now is.
+    if (key === undefined) read();
+  };
   const retry = () => {
     // Another tab updated the site: only a reload of this one can open its store again.
     if (outdated()) {
@@ -194,17 +208,29 @@ export default function LabelsPage() {
             </section>
           }
         >
-          <Manager all={all()} network={network()} />
+          <Manager
+            all={all()}
+            network={network()}
+            editing={editing()}
+            elsewhere={elsewhere()}
+            edit={edit}
+          />
         </Show>
       </Show>
     </div>
   );
 }
 
-function Manager(props: { all: Stored[]; network: Network }) {
+function Manager(props: {
+  all: Stored[];
+  network: Network;
+  editing: string | undefined;
+  elsewhere: { label: string | undefined } | undefined;
+  edit: (key: string | undefined) => void;
+}) {
   const [query, setQuery] = createSignal("");
   const [page, setPage] = createSignal(1);
-  const [editing, setEditing] = createSignal<string | undefined>();
+  const editing = () => props.editing;
   const [said, setSaid] = createSignal("");
   const [confirmAll, setConfirmAll] = createSignal(false);
   const [phase, setPhase] = createSignal<Phase>({ kind: "idle" });
@@ -360,7 +386,7 @@ function Manager(props: { all: Stored[]; network: Network }) {
             type="button"
             class="btn"
             aria-expanded={editing() === r.key ? "true" : "false"}
-            onClick={() => setEditing((k) => (k === r.key ? undefined : r.key))}
+            onClick={() => props.edit(editing() === r.key ? undefined : r.key)}
           >
             Edit<span class="visually-hidden"> the label of {describe(r)}</span>
           </button>
@@ -488,8 +514,9 @@ function Manager(props: { all: Stored[]; network: Network }) {
               record={r.key}
               what={describe(r)}
               current={r.label}
+              {...(props.elsewhere ? { elsewhere: props.elsewhere.label ?? null } : {})}
               done={(words) => {
-                setEditing(undefined);
+                props.edit(undefined);
                 if (words !== undefined) setSaid(words);
               }}
             />
