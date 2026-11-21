@@ -187,10 +187,17 @@ class FakeTransaction extends EventTarget {
   private readonly pending: [FakeRequest, () => unknown][] = [];
   private readonly copies = new Map<string, Map<Key, unknown>>();
   private done = false;
+  private release: () => void = () => undefined;
   constructor(db: FakeDatabase) {
     super();
     this.db = db;
-    setTimeout(() => this.step(), 0);
+    // One transaction at a time, in the order they were made, as overlapping read-write
+    // transactions are in a browser: each starts on what the one before it committed.
+    const before = db.turn;
+    db.turn = new Promise((resolve) => {
+      this.release = resolve;
+    });
+    void before.then(() => setTimeout(() => this.step(), 0));
   }
   /** The store's rows as this transaction sees them: a copy, kept only if it completes. */
   staged(name: string): Map<Key, unknown> {
@@ -222,6 +229,7 @@ class FakeTransaction extends EventTarget {
   private finish(error: DOMException | null): void {
     if (this.done) return;
     this.done = true;
+    this.release();
     const room = this.db.options.room;
     const rows = this.copies.get("records")?.size ?? 0;
     const full =
@@ -266,6 +274,8 @@ class FakeTransaction extends EventTarget {
 }
 
 class FakeDatabase extends EventTarget {
+  /** Settles when the last transaction made has finished. */
+  turn: Promise<void> = Promise.resolve();
   tables = new Map<string, Table>();
   version = 0;
   closed = false;

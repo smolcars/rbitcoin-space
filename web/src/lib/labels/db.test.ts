@@ -61,7 +61,7 @@ describe("the label store", () => {
     await setLabel("tx", TXID, null);
     expect(shown("tx", TXID)).toBeUndefined();
     expect((await exportFile()).count).toBe(0);
-    expect(localStorage.getItem(HINT)).toBeNull();
+    expect(localStorage.getItem(HINT)).not.toBeNull();
   });
 
   it("treats a blank label as removing it", async () => {
@@ -157,7 +157,7 @@ describe("the label store", () => {
     expect(shown("addr", ADDR)).toBe("b");
     await removeAll();
     expect(shown("addr", ADDR)).toBeUndefined();
-    expect(localStorage.getItem(HINT)).toBeNull();
+    expect(localStorage.getItem(HINT)).not.toBeNull();
     await reload();
     expect(shown("addr", ADDR)).toBeUndefined();
   });
@@ -415,5 +415,21 @@ describe("one truth: the database", () => {
   it("asks for a reload when the store is newer than this page", async () => {
     use({ versionError: true });
     await expect(setLabel("tx", TXID, "x")).rejects.toMatchObject({ kind: "outdated" });
+  });
+});
+
+describe("the hint", () => {
+  it("stays once set, so a delete-all finishing late never hides another tab's newer label", async () => {
+    await setLabel("tx", TXID, "a");
+    await removeAll();
+    // Nothing is left, and the hint stays: it is never taken away once set.
+    expect(localStorage.getItem(HINT)).not.toBeNull();
+    // One tab deletes everything while another adds a label: whichever finishes last, the hint stays.
+    await Promise.all([removeAll(), setLabel("addr", ADDR, "from tab B")]);
+    expect(localStorage.getItem(HINT)).not.toBeNull();
+    // A new page reads the store, finds the label, and shows it.
+    resetStore();
+    await refresh();
+    expect(shown("addr", ADDR)).toBe("from tab B");
   });
 });

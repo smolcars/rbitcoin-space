@@ -198,8 +198,10 @@ async function transact(run: (c: Ctx, done: (d: Done) => void) => void): Promise
   });
   try {
     // The revision, new on every write, so the reader's other tabs always hear a `storage` event.
-    if (out.count === 0) localStorage.removeItem(HINT);
-    else localStorage.setItem(HINT, String(out.rev));
+    // Never removed once set, even when nothing is left: a removal landing late (one tab's
+    // delete-all finishing after another tab's new label) would hide that label from new pages.
+    // An empty store just reads as empty.
+    localStorage.setItem(HINT, String(out.rev));
   } catch {
     // Storage blocked: every page opens the database instead.
   }
