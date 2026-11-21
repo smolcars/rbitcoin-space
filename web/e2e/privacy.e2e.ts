@@ -63,7 +63,7 @@ test("a transaction with findings: marks on its cards and what an observer can r
     /^Output 1 reads as change/,
     "It pays the same address inputs 0 and 1 spend from, which an observer may read as going back to the sender.",
     "Output 0 is a round 90 BTC and this one is not, which suggests output 0 is the payment.",
-    "Every input that funds it is P2WSH, and of the two outputs that are paid only this one is, which suggests it is the change.",
+    "Every input that funds it is P2WSH, and of the two outputs checked only this one is, which suggests it is the change.",
   ]);
 
   // The cards say the same, in words.
