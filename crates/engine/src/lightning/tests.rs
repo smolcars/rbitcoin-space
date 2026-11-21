@@ -1713,6 +1713,32 @@ mod close_record {
         assert_eq!(newest.iter().map(|r| r.peer).collect::<Vec<_>>(), [Y, Z, Y]);
     }
 
+    #[tokio::test]
+    async fn a_channel_whose_two_ends_are_the_node_is_listed_once() {
+        let t = temp();
+        let s = &t.store;
+        apply(
+            s,
+            vec![
+                Change::Closed(between(S1, X, X), at(MONDAY + 60, Kind::Force, Some(10), 1)),
+                Change::Closed(
+                    between(S2, X, Y),
+                    at(MONDAY + 120, Kind::Cooperative, Some(10), 2),
+                ),
+            ],
+        )
+        .await
+        .unwrap();
+        // The record reads it once; so does the node's closed list.
+        let (rows, _) = node_close_rows(s, X, record::MAX_CLOSES).await.unwrap();
+        assert_eq!(rows.len(), 2);
+        let listed = node_closes(s, X).await.unwrap();
+        assert_eq!(
+            listed.iter().map(|c| c.open.scid).collect::<Vec<_>>(),
+            [S2, S1]
+        );
+    }
+
     #[test]
     fn weeks_are_bounded_and_closes_outside_them_land_at_the_ends() {
         // Twenty years from a start to now: only the newest ten years of weeks are held, and a

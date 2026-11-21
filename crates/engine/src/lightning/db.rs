@@ -496,7 +496,8 @@ pub async fn continued(store: &Store, closed: Vec<Channel>) -> Result<Vec<Option
 }
 
 /// Every closed channel of a node, newest close first. Through the closed rows' node indexes
-/// (`0017`), one per end: a node's open rows are never read.
+/// (`0017`), one per end: a node's open rows are never read. A row whose two ends are the node is
+/// read once.
 pub async fn node_closes(store: &Store, node: [u8; 33]) -> Result<Vec<Channel>, Error> {
     store
         .read(Read::Lightning, move |sql| {
@@ -507,7 +508,9 @@ pub async fn node_closes(store: &Store, node: [u8; 33]) -> Result<Vec<Channel>, 
                     " FROM ln_channels WHERE node_one = ?1 AND close_height IS NOT NULL ",
                     "UNION ALL SELECT ",
                     channel_columns!(),
-                    " FROM ln_channels WHERE node_two = ?1 AND close_height IS NOT NULL ",
+                    // A row whose two ends are the node is the first half's already.
+                    " FROM ln_channels WHERE node_two = ?1 AND node_one != ?1 ",
+                    "AND close_height IS NOT NULL ",
                     "ORDER BY close_height DESC, scid DESC"
                 ))?
                 .query_map(params![node.to_vec()], row)?
