@@ -4,6 +4,7 @@
 // and that block's header. Everything read from the proof is shown as text, a calendar's address
 // included, which is never a link.
 import {
+  createContext,
   createEffect,
   createMemo,
   createSignal,
@@ -13,6 +14,7 @@ import {
   onSettled,
   Show,
   Switch,
+  useContext,
 } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { Link } from "../../components/Link";
@@ -85,6 +87,29 @@ async function readProofFile(file: File): Promise<ProofInput> {
   }
 }
 
+/**
+ * When a verdict may move the reader (docs/FRONTEND.md "Timestamp proofs"). It takes focus, and is
+ * brought into view, only where the reader's own action left them: focus still on the control
+ * that caused it, on nothing in particular (the page's body), or in the digest field after the
+ * reader pressed Enter there (on a phone, "Done"), before or after the verdict came. Anywhere
+ * else (another control the reader has moved to, or the digest field while it is typed in) the
+ * verdict is announced in a live region and nothing moves.
+ */
+interface Attention {
+  /** A verdict has just been drawn. */
+  arrived: (article: HTMLElement, heading: HTMLElement) => void;
+}
+const AttentionScope = createContext<Attention | null>(null);
+
+/** Focus to the heading, so a screen reader reads it; into view if it is not, instantly when still. */
+function bring(article: HTMLElement, heading: HTMLElement): void {
+  heading.focus({ preventScroll: true });
+  const r = heading.getBoundingClientRect();
+  if (r.top >= 0 && r.bottom <= window.innerHeight) return;
+  const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? true;
+  article.scrollIntoView?.({ block: "start", behavior: still ? "instant" : "smooth" });
+}
+
 export default function TimestampPage() {
   usePageTitle(() => "Check a timestamp");
   const network = useNetwork();
@@ -97,6 +122,32 @@ export default function TimestampPage() {
   // removal makes it moot, whenever it finishes.
   let proofPick = 0;
   let job: AbortController | undefined;
+  // The control whose choice the next verdict answers, and whether the reader pressed Enter in the
+  // digest field since last typing in it.
+  let origin: Element | null = null;
+  let asked = false;
+  let digestField: HTMLTextAreaElement | undefined;
+  const [said, setSaid] = createSignal("");
+  const attention: Attention = {
+    arrived(article, heading) {
+      const active = document.activeElement;
+      const free = active === null || active === document.body;
+      const take =
+        free ||
+        (origin !== null && active === origin) ||
+        (asked && digestField !== undefined && active === digestField);
+      asked = false;
+      if (take) bring(article, heading);
+      else setSaid(heading.textContent ?? "");
+    },
+  };
+  /** Enter in the digest field: the verdict now if it is there, else the next one when it comes. */
+  const ask = () => {
+    const article = document.querySelector<HTMLElement>(".ots-verdict");
+    const heading = article?.querySelector<HTMLElement>(".ots-verdict__title");
+    if (article && heading) bring(article, heading);
+    else asked = true;
+  };
 
   const proof = (): Proof | undefined => {
     const p = proofIn();
@@ -201,8 +252,10 @@ export default function TimestampPage() {
     );
   };
 
-  const chooseProof = (f: File | undefined) => {
+  const chooseProof = (f: File | undefined, from: Element | null) => {
     if (!f) return;
+    origin = from;
+    asked = false;
     const pick = ++proofPick;
     // The last proof and its verdict go at once: never a verdict beside a choice it is not for.
     setProofIn({ name: f.name, size: f.size, reading: true });
@@ -210,8 +263,10 @@ export default function TimestampPage() {
       if (pick === proofPick) setProofIn(p);
     });
   };
-  const chooseFile = (f: File | undefined) => {
+  const chooseFile = (f: File | undefined, from: Element | null) => {
     if (!f) return;
+    origin = from;
+    asked = false;
     setHex("");
     setFile(f);
   };
@@ -276,38 +331,51 @@ export default function TimestampPage() {
           digits={DIGEST_LENGTH[algorithm()] * 2}
           value={hex()}
           problem={hexProblem()}
-          onInput={setHex}
+          onInput={(v) => {
+            origin = null;
+            asked = false;
+            setHex(v);
+          }}
+          onAsk={ask}
+          ref={(el) => {
+            digestField = el;
+          }}
         />
       </Show>
 
+      <p id="ots-said" class="visually-hidden" aria-live="polite">
+        {said()}
+      </p>
       <section class="ots-result" aria-label="Result">
-        <Switch>
-          <Match when={proofError()}>{(e) => <NotAProof error={e()} />}</Match>
-          <Match when={unreadable()}>
-            <Unreadable what="proof" />
-          </Match>
-          <Match when={file() && hashing()?.kind === "failed"}>
-            <Unreadable what="file" />
-          </Match>
-          <Match when={reading()}>
-            <Loading label="Reading the proof" />
-          </Match>
-          <Match when={!proof() || !digest()}>
-            <Waiting proof={proof() !== undefined} digest={digest() !== undefined} />
-          </Match>
-          <Match when={verdict.state === "errored" && !(verdict.error instanceof ProofError)}>
-            <ErrorState title="Could not check the block" error={verdict.error} retry={refetch} />
-          </Match>
-          <Match when={verdict.state === "errored"}>
-            <NotAProof error={verdict.error as ProofError} />
-          </Match>
-          <Match when={verdict.loading || !current(verdict.latest)}>
-            <Loading label="Checking the block" />
-          </Match>
-          <Match when={verdict.latest}>
-            {(r) => <Result v={r().v} digest={r().d} from={r().from} proof={proof()} />}
-          </Match>
-        </Switch>
+        <AttentionScope value={attention}>
+          <Switch>
+            <Match when={proofError()}>{(e) => <NotAProof error={e()} />}</Match>
+            <Match when={unreadable()}>
+              <Unreadable what="proof" />
+            </Match>
+            <Match when={file() && hashing()?.kind === "failed"}>
+              <Unreadable what="file" />
+            </Match>
+            <Match when={reading()}>
+              <Loading label="Reading the proof" />
+            </Match>
+            <Match when={!proof() || !digest()}>
+              <Waiting proof={proof() !== undefined} digest={digest() !== undefined} />
+            </Match>
+            <Match when={verdict.state === "errored" && !(verdict.error instanceof ProofError)}>
+              <ErrorState title="Could not check the block" error={verdict.error} retry={refetch} />
+            </Match>
+            <Match when={verdict.state === "errored"}>
+              <NotAProof error={verdict.error as ProofError} />
+            </Match>
+            <Match when={verdict.loading || !current(verdict.latest)}>
+              <Loading label="Checking the block" />
+            </Match>
+            <Match when={verdict.latest}>
+              {(r) => <Result v={r().v} digest={r().d} from={r().from} proof={proof()} />}
+            </Match>
+          </Switch>
+        </AttentionScope>
       </section>
     </div>
   );
@@ -320,7 +388,8 @@ function Slot(props: {
   accept?: string;
   chosen: string | undefined;
   detail: string | undefined;
-  onChoose: (f: File | undefined) => void;
+  /** A file chosen, and the control it came from (none for a drop). */
+  onChoose: (f: File | undefined, from: Element | null) => void;
   onClear: () => void;
   clearLabel: string;
   /** Said after "Change" to a screen reader: which file it changes. */
@@ -349,7 +418,7 @@ function Slot(props: {
       onDrop={(e) => {
         e.preventDefault();
         setOver(false);
-        props.onChoose(e.dataTransfer?.files[0]);
+        props.onChoose(e.dataTransfer?.files[0], null);
       }}
     >
       <h2 class="ots-slot__title">{props.title}</h2>
@@ -372,7 +441,7 @@ function Slot(props: {
             type="file"
             {...(props.accept ? { accept: props.accept } : {})}
             onChange={(e) => {
-              props.onChoose(e.currentTarget.files?.[0]);
+              props.onChoose(e.currentTarget.files?.[0], e.currentTarget);
               // The same file chosen again is a new choice.
               e.currentTarget.value = "";
             }}
@@ -419,6 +488,9 @@ function DigestField(props: {
   value: string;
   problem: string | undefined;
   onInput: (v: string) => void;
+  /** Enter: the reader is done typing and asks for the verdict. */
+  onAsk: () => void;
+  ref: (el: HTMLTextAreaElement) => void;
 }) {
   let field: HTMLTextAreaElement | undefined;
   return (
@@ -431,7 +503,10 @@ function DigestField(props: {
       </span>
       <div class="ots-hex__field">
         <textarea
-          ref={field}
+          ref={(el) => {
+            field = el;
+            props.ref(el);
+          }}
           id="ots-hex"
           class="ots-hex__input mono"
           name="digest"
@@ -445,13 +520,10 @@ function DigestField(props: {
           enterkeyhint="done"
           onInput={(e) => props.onInput(e.currentTarget.value)}
           onKeyDown={(e) => {
-            // Enter is done typing: a digest holds no line breaks, and the verdict, if one has
-            // come, is brought into view as it would be for a file.
+            // Enter is done typing (a digest holds no line breaks): the reader asks for the verdict.
             if (e.key !== "Enter") return;
             e.preventDefault();
-            const article = document.querySelector<HTMLElement>(".ots-verdict");
-            const heading = article?.querySelector<HTMLElement>(".ots-verdict__title");
-            if (article && heading) reveal(article, heading, true);
+            props.onAsk();
           }}
         />
         <Show when={props.value !== ""}>
@@ -553,22 +625,6 @@ function NotAProof(props: { error: ProofError }) {
   );
 }
 
-/**
- * A verdict that has just arrived: its heading takes focus, so a screen reader reads it, and it is
- * brought into view where it is not (a phone, under the two slots), at once under reduced motion.
- * Never while the reader is typing a digest: the field keeps focus and the page stays put.
- */
-export function reveal(article: HTMLElement, heading: HTMLElement, asked = false): void {
-  const active = document.activeElement;
-  if (!asked && active instanceof HTMLTextAreaElement) return;
-  if (!asked && active instanceof HTMLInputElement && active.type !== "file") return;
-  heading.focus({ preventScroll: true });
-  const r = heading.getBoundingClientRect();
-  if (r.top >= 0 && r.bottom <= window.innerHeight) return;
-  const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? true;
-  article.scrollIntoView?.({ block: "start", behavior: still ? "instant" : "smooth" });
-}
-
 const ICONS = {
   positive: "M3.5 8.5l3 3 6-7",
   negative: "M4.5 4.5l7 7M11.5 4.5l-7 7",
@@ -584,8 +640,9 @@ function Verdictbox(props: {
 }) {
   let article: HTMLElement | undefined;
   let heading: HTMLHeadingElement | undefined;
+  const attention = useContext(AttentionScope);
   onSettled(() => {
-    if (article && heading) reveal(article, heading);
+    if (article && heading) attention?.arrived(article, heading);
   });
   return (
     <article

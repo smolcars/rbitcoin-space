@@ -162,30 +162,6 @@ describe("a replacement chosen while a verdict shows (review round 2, T12)", () 
     slow.resolve();
     await vi.waitFor(() => expect(text(el)).toContain("This proof is not for this file"));
   });
-  it("brings a verdict to the reader: its heading takes focus, but never from a digest being typed (council F-D1)", async () => {
-    const { el, proof, file } = open();
-    choose(proof, fakeFile("a.ots", verifiedProof));
-    choose(file, fakeFile("the-file.txt", content));
-    await vi.waitFor(() => expect(text(el)).toContain("This file existed before block 100"));
-    const heading = () => el.querySelector(".ots-verdict__title");
-    await vi.waitFor(() => expect(document.activeElement).toBe(heading()));
-    // Typing a digest: the field keeps focus while the verdict comes.
-    el.querySelector<HTMLButtonElement>('button[aria-label="Remove the file"]')?.click();
-    await vi.waitFor(() => expect(el.querySelector("textarea")).not.toBeNull());
-    const field = el.querySelector("textarea");
-    if (!(field instanceof HTMLTextAreaElement)) throw new TypeError("no digest field");
-    field.focus();
-    field.value = toHex(hash("sha256", content));
-    field.dispatchEvent(new Event("input", { bubbles: true }));
-    await vi.waitFor(() => expect(text(el)).toContain("This digest is committed to by block 100"));
-    await settle();
-    expect(document.activeElement).toBe(field);
-    // Enter is done typing: then the verdict is brought to the reader.
-    field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-    expect(document.activeElement).toBe(heading());
-    expect(field.value).toHaveLength(64);
-  });
-
   it("draws a filled slot as one row, names what Change changes, and clears a digest (council F-D1, N-D2)", async () => {
     const { el, proof } = open();
     choose(proof, fakeFile("a.ots", verifiedProof));
@@ -288,5 +264,102 @@ describe("review round 3", () => {
     slow.resolve();
     await vi.waitFor(() => expect(text(el)).toContain("Not verified yet"));
     expect(starts).toBe(1);
+  });
+});
+
+// When a verdict may move the reader's focus (docs/FRONTEND.md "Timestamp proofs", code review
+// S-1, S-2, G-2): it takes focus where the reader's own action left it (the control that caused
+// it, or nowhere), or where the reader asked with Enter in the digest field; anywhere else it is
+// announced and nothing moves. The block's answer is held, so each verdict comes late.
+describe("when a verdict takes the reader's focus", () => {
+  let gate = deferred();
+  beforeEach(() => {
+    const block = madeBlock();
+    gate = deferred();
+    vi.stubGlobal("fetch", async (url: string) => {
+      if (url.endsWith("/api/block-height/100")) {
+        await gate.promise;
+        return new Response(block.hash);
+      }
+      if (url.endsWith(`/api/block/${block.hash}/header`)) return new Response(block.header);
+      return Response.json({ networks: ["mainnet"], version: "0" });
+    });
+  });
+  const heading = (el: HTMLElement) => el.querySelector(".ots-verdict__title");
+  const said = (el: HTMLElement) => el.querySelector("#ots-said")?.textContent ?? "";
+  /** The proof chosen, and the digest field with the matching digest typed into it. */
+  const typed = async (el: HTMLElement, proof: Element | undefined) => {
+    choose(proof, fakeFile("a.ots", verifiedProof));
+    await vi.waitFor(() => expect(el.querySelector("textarea")).not.toBeNull());
+    const field = el.querySelector("textarea");
+    if (!(field instanceof HTMLTextAreaElement)) throw new TypeError("no digest field");
+    field.focus();
+    field.value = toHex(hash("sha256", content));
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+    return field;
+  };
+  const enter = (field: HTMLElement) =>
+    field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+
+  it("takes focus when it stayed on the control that caused the verdict", async () => {
+    const { el, proof, file } = open();
+    choose(proof, fakeFile("a.ots", verifiedProof));
+    if (file instanceof HTMLElement) file.focus();
+    choose(file, fakeFile("the-file.txt", content));
+    gate.resolve();
+    await vi.waitFor(() => expect(document.activeElement).toBe(heading(el)));
+  });
+
+  it("takes focus when focus is on nothing in particular", async () => {
+    const { el, proof, file } = open();
+    choose(proof, fakeFile("a.ots", verifiedProof));
+    choose(file, fakeFile("the-file.txt", content));
+    expect(document.activeElement).toBe(document.body);
+    gate.resolve();
+    await vi.waitFor(() => expect(document.activeElement).toBe(heading(el)));
+  });
+
+  it("leaves focus on another control the reader moved to, and says the verdict instead", async () => {
+    const { el, proof, file } = open();
+    choose(proof, fakeFile("a.ots", verifiedProof));
+    if (file instanceof HTMLElement) file.focus();
+    choose(file, fakeFile("the-file.txt", content));
+    // While the block is looked up, the reader moves to the proof's Change.
+    if (proof instanceof HTMLElement) proof.focus();
+    gate.resolve();
+    await vi.waitFor(() => expect(said(el)).toContain("This file existed before block 100"));
+    expect(document.activeElement).toBe(proof);
+  });
+
+  it("leaves focus in the digest field while it is typed in, and says the verdict", async () => {
+    const { el, proof } = open();
+    const field = await typed(el, proof);
+    gate.resolve();
+    await vi.waitFor(() => expect(said(el)).toContain("This digest is committed to by block 100"));
+    expect(document.activeElement).toBe(field);
+    // Enter now, with the verdict there: it is brought to the reader.
+    enter(field);
+    expect(document.activeElement).toBe(heading(el));
+    expect(field.value).toHaveLength(64);
+  });
+
+  it("honours Enter pressed before the verdict came", async () => {
+    const { el, proof } = open();
+    const field = await typed(el, proof);
+    enter(field);
+    expect(el.querySelector(".ots-verdict")).toBeNull();
+    gate.resolve();
+    await vi.waitFor(() => expect(document.activeElement).toBe(heading(el)));
+  });
+
+  it("forgets that Enter once the reader types again", async () => {
+    const { el, proof } = open();
+    const field = await typed(el, proof);
+    enter(field);
+    field.value = `${field.value} `;
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+    gate.resolve();
+    await vi.waitFor(() => expect(said(el)).toContain("This digest is committed to by block 100"));
+    expect(document.activeElement).toBe(field);
   });
 });
