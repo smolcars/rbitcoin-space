@@ -234,8 +234,11 @@ describe("a replacement chosen while a verdict shows (review round 2, T12)", () 
     choose(file, fakeFile("the-file.txt", content));
     await vi.waitFor(() => expect(text(el)).toContain("This file existed before block 100"));
     const figures = [...el.querySelectorAll(".ots-figures dt")].map((dt) => text(dt));
-    expect(figures).toStrictEqual(["Block", "Its header time"]);
-    expect(el.querySelector(".ots-figures a")?.getAttribute("href")).toMatch(/^\/block\//);
+    // The headline names the block, linked; the figure under it is its header time, and the
+    // height is not said again (council A-D1).
+    expect(figures).toStrictEqual(["Its header time"]);
+    expect(el.querySelector(".ots-verdict__title a")?.getAttribute("href")).toMatch(/^\/block\//);
+    expect(text(el.querySelector(".ots-verdict") ?? el).match(/\b100\b/g)).toHaveLength(1);
     expect(text(el.querySelector(".ots-figures__caveat") ?? el)).toMatch(
       /^The header time is the miner's claim/,
     );

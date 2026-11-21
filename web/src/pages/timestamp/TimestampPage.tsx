@@ -872,15 +872,6 @@ function Verified(props: {
     >
       <dl class="ots-figures">
         <div class="ots-figures__item">
-          <dt>Block</dt>
-          <dd>
-            <Link class="ots-figures__value num" href={paths.block(c().block.hash)}>
-              {groupDigits(c().height)}
-            </Link>
-            <span class="ots-figures__sub">proven by the proof's steps</span>
-          </dd>
-        </div>
-        <div class="ots-figures__item">
           <dt>Its header time</dt>
           <dd>
             <span class="ots-figures__value">
@@ -897,15 +888,14 @@ function Verified(props: {
         when={props.from === "file"}
         fallback={
           <p>
-            Whatever has this {name()} existed before block {groupDigits(c().height)}. This page has
-            not seen a file: it checked only the digest you gave, and cannot say which file that is.
+            Whatever has this {name()} existed before this block. This page has not seen a file: it
+            checked only the digest you gave, and cannot say which file that is.
           </p>
         }
       >
         <p>
-          This proves the file existed by the time block {groupDigits(c().height)} was mined. It
-          does not say who made the file or who held it, and it does not say the file was new then:
-          it may be older.
+          This proves the file existed by the time this block was mined. It does not say who made
+          the file or who held it, and it does not say the file was new then: it may be older.
         </p>
       </Show>
       <Show when={props.proof?.fileHash === "sha1"}>

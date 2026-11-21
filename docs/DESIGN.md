@@ -686,9 +686,9 @@ Or its SHA-256, in hex, instead of the file       64 characters, 0 to 9 and a to
   two-blocks.ots  1 768 B           The digest below stands in for it    the same height
 ┌ (✓ Verified) ─────────────────────────────────────────────┐
 │ This digest is committed to by block 449 397               │
-│ Block          Its header time                             │
-│ 449 397        21 Jan 2017, 23:47:07 UTC                   │
-│ proven …       3 590 days ago                              │
+│ Its header time                                            │
+│ 21 Jan 2017, 23:47:07 UTC                                  │
+│ 3 590 days ago                                             │
 │ The header time is the miner's claim: … (one sentence)     │
 │ What it proves and what it does not                        │
 │ Also in this proof: block 449 399 (a link), calendars      │
@@ -700,7 +700,7 @@ The two inputs are drawn as the site draws what has not settled: a dashed outlin
 
 The introduction is one sentence on what a proof shows and one that the file never leaves the browser; how the proof is followed, and what is asked of the server, is said inside "Show the steps".
 
-The verdict is the answer: a status pill with an icon and a word (positive Verified, caution Pending or Not checked, negative for a different file or a proof that does not verify), then the sentence that says it as the page title's size. When a verdict comes, its heading takes focus (so a screen reader says it) and it is scrolled into view if it is not, at once under reduced motion, except while the reader is typing a digest: then nothing moves until they press Enter. Under a verified headline, two figures in the summary style: the block, the proven fact, and its header time with its age in days, then the one sentence that the time is the miner's claim and what a node checks of it, then the paragraph on what a timestamp does and does not prove. Every block named under "Also in this proof" that this node has is a link.
+The verdict is the answer: a status pill with an icon and a word (positive Verified, caution Pending or Not checked, negative for a different file or a proof that does not verify), then the sentence that says it as the page title's size. When a verdict comes, its heading takes focus (so a screen reader says it) and it is scrolled into view if it is not, at once under reduced motion, except while the reader is typing a digest: then nothing moves until they press Enter. The headline names the block, the proven fact, as a link. Under it, one figure in the summary style: the block's header time with its age in days, readable at a glance; then the one sentence that the time is the miner's claim and what a node checks of it, then the paragraph on what a timestamp does and does not prove, which says "this block" rather than give the height a third time. Every block named under "Also in this proof" that this node has is a link.
 
 The steps are a core drawn down the page: one line from the file's digest at the top to the block's merkle root at the bottom, a small square at each step, larger ones at the two ends. Values are shortened, each kept whole on one line; "Show the values in full" (a toggle button, pressed state) writes every one out in monospace, wrapping, so no value needs a hover or a long press. On a phone each step's operation is its own line and each value its own. The two inputs sit side by side above 40em; stacked on a phone.
 
