@@ -392,9 +392,6 @@ export const LIST_TITLE = "What an observer can read";
 export const UNSENT_TITLE = "Once it is sent, anyone can read this from it";
 export const UNSENT_CLOSING =
   "It is not sent yet: a wallet can still change which coins it spends and where the change goes.";
-/** After a broadcast that ended without a definite answer: the node may have it. */
-export const UNCONFIRMED_CLOSING =
-  "The broadcast could not be confirmed. It may already be public.";
 
 /** "What this checks": each check in a sentence, then what it does not do. */
 export const CHECKS: readonly string[] = [

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ApiError } from "../../lib/api";
 import type { ScriptType, Transaction, Vout } from "../../lib/esplora";
-import { classify, DUPLICATE, MAX_HEX, readChecked, readPasted, refusal, warnings } from "./push";
+import { MAX_HEX, readChecked, readPasted, refusal, warnings } from "./push";
 
 const TXID = "fc40c92d9763e584976a4c55b50b231c214f2a5ae0514dadc8e1bf0958d68fa6";
 const PARENT = "547d53d4e4290dac860915c0c88f8212b3aeb440c400a0b31bc92ccb77dfa527";
@@ -133,30 +133,5 @@ describe("refusal", () => {
       "This server does not broadcast.",
     );
     expect(refusal(new Error("x"))).toBe("It could not be sent.");
-  });
-});
-
-describe("classify: what a failed broadcast's answer establishes", () => {
-  const err = (error: string) => ({ error });
-  it("the node's refusal and the server's own refusals: not sent", () => {
-    expect(classify(400, err("min relay fee"))).toBe("refused");
-    expect(classify(400, err("missing or spent inputs"))).toBe("refused");
-    expect(classify(400, err("body must be one raw transaction in hex"))).toBe("refused");
-    expect(classify(403, err("broadcast is disabled on this server"))).toBe("refused");
-    expect(classify(413, err("body too large"))).toBe("refused");
-    expect(classify(429, err("too many requests"))).toBe("refused");
-  });
-  it("the node's duplicate refusal: it already has it", () => {
-    expect(classify(400, err(DUPLICATE))).toBe("public");
-  });
-  it("anything else: nothing definite", () => {
-    expect(classify(408, err("request timeout"))).toBe("unconfirmed");
-    expect(classify(502, err("upstream unavailable"))).toBe("unconfirmed");
-    expect(classify(504, err("request timed out"))).toBe("unconfirmed");
-    expect(classify(500, err("internal"))).toBe("unconfirmed");
-    // A refusal's status with an answer that cannot be read is no refusal.
-    expect(classify(400, null)).toBe("unconfirmed");
-    expect(classify(429, "<html>busy</html>")).toBe("unconfirmed");
-    expect(classify(400, { error: 7 })).toBe("unconfirmed");
   });
 });

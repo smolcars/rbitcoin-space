@@ -235,24 +235,6 @@ test.describe("a broadcast that does not go through", () => {
   /** The server's own words for the node's refusals (crates/server/src/esplora.rs). */
   const refused = (error: string) => ({ status: 400, json: { error } });
 
-  test("refused by the node on the first press, it is still not sent", async ({
-    page,
-    request,
-  }) => {
-    const hex = await unsent(request);
-    await page.route(/\/regtest\/api\/tx$/, (r) =>
-      r.request().method() === "POST" ? r.fulfill(refused("min relay fee")) : r.continue(),
-    );
-    await page.goto("/regtest/tx/push");
-    await page.getByRole("textbox", { name: "Signed transaction in hex" }).fill(hex);
-    await page.getByRole("button", { name: "Broadcast" }).click();
-    await expect(page.getByText("The node refused it: min relay fee.")).toBeVisible();
-    const notice = page.getByRole("region", {
-      name: "Once it is sent, anyone can read this from it",
-    });
-    await expect(notice).toContainText(NOT_SENT);
-  });
-
   test("from the first press on it never says not sent: a lost reply, then the node's duplicate", async ({
     page,
     request,
@@ -304,19 +286,64 @@ test.describe("a broadcast that does not go through", () => {
     await expect(together).toHaveCount(0);
 
     release();
-    const notice = page.getByRole("region", { name: "What an observer can read" });
-    await expect(notice).toContainText(
-      "The broadcast could not be confirmed. It may already be public.",
-    );
+    await expect(
+      page.getByText("The server cannot be reached. Check your connection."),
+    ).toBeVisible();
+    // The button's line says what came back; the notice claims nothing either way.
+    await expect(page.getByRole("region", { name: "What an observer can read" })).toBeVisible();
     await expect(together).toHaveCount(0);
 
-    // The retry's duplicate refusal: the node has it.
+    // The retry's duplicate refusal, said by the button's line alone.
     await page.getByRole("button", { name: /^Broadcast/ }).click();
-    await expect(page.getByText("Sent", { exact: true })).toBeVisible();
-    await expect(page.getByText(/could not be confirmed/)).toHaveCount(0);
+    await expect(
+      page.getByText("The node refused it: transaction already in the mempool or chain."),
+    ).toBeVisible();
+    await expect(together).toHaveCount(0);
     expect(posts).toBe(2);
     expect(
       await page.evaluate(() => (window as unknown as { sawNotSent?: boolean }).sawNotSent),
     ).toBe(false);
+  });
+
+  test("remade by an edit after a press, it still never says not sent", async ({
+    page,
+    request,
+  }) => {
+    const hex = await unsent(request);
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await page.route(/\/regtest\/api\/tx$/, async (r) => {
+      if (r.request().method() !== "POST") return r.continue();
+      await held;
+      // The view the press came from may be gone, its request aborted with it.
+      return r.fulfill(refused("min relay fee")).catch(() => undefined);
+    });
+    await page.goto("/regtest/tx/push");
+    const box = page.getByRole("textbox", { name: "Signed transaction in hex" });
+    await box.fill(hex);
+    await expect(page.getByText(NOT_SENT)).toBeVisible();
+    await page.getByRole("button", { name: "Broadcast" }).click();
+
+    // One character taken away and put back: the result is drawn again, from a new check.
+    const edit = async () => {
+      await box.fill(hex.slice(0, -1));
+      await expect(page.getByRole("heading", { name: "Inputs and outputs" })).toHaveCount(0);
+      await box.fill(hex);
+      await expect(page.getByRole("heading", { name: "Inputs and outputs" })).toBeVisible();
+    };
+    await edit();
+    await expect(page.getByRole("region", { name: "What an observer can read" })).toBeVisible();
+    await expect(page.getByText(NOT_SENT)).toHaveCount(0);
+
+    // The same after a refusal.
+    release();
+    await edit();
+    await page.getByRole("button", { name: "Broadcast" }).click();
+    await expect(page.getByText("The node refused it: min relay fee.")).toBeVisible();
+    await edit();
+    await expect(page.getByRole("region", { name: "What an observer can read" })).toBeVisible();
+    await expect(page.getByText(NOT_SENT)).toHaveCount(0);
   });
 });

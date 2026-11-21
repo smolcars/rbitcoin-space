@@ -17,15 +17,8 @@ import { isCoinbase, totalOut, vsize } from "../tx/tx";
 import { checkPrivacy } from "../../lib/privacy";
 import { UnsentPrivacy } from "../tx/Privacy";
 import { cardMarks, shownFindings } from "../tx/privacytext";
-import {
-  broadcast,
-  type Checked,
-  BroadcastError,
-  needsSecondThought,
-  rateOf,
-  refusal,
-  warnings,
-} from "./push";
+import { markAttempted, wasAttempted } from "./attempted";
+import { broadcast, type Checked, needsSecondThought, rateOf, refusal, warnings } from "./push";
 import "../tx/TransactionPage.css";
 import "./Push.css";
 
@@ -55,17 +48,11 @@ export function CheckedTx(props: {
   const [sending, setSending] = createSignal(false);
   /** The txid the node accepted. */
   const [sent, setSent] = createSignal<string>();
-  /** A press ended without a definite answer: it may be public. Only a confirmed send clears it. */
-  const [unconfirmed, setUnconfirmed] = createSignal(false);
-  // "Not sent yet" only while nothing has been pressed, or after a definite refusal of every press.
-  const state = () =>
-    sent() === undefined
-      ? unconfirmed()
-        ? "unconfirmed"
-        : sending()
-          ? "pending"
-          : "unsent"
-      : "sent";
+  // Pressed on this page at any time, in this view or one before it (attempted.ts): then it is
+  // never again said to be unsent. Read again for each transaction and after each press.
+  const [presses, setPresses] = createSignal(0);
+  const attempted = () => presses() >= 0 && wasAttempted(network(), tx().txid);
+  const state = () => (sent() === undefined ? (attempted() ? "attempted" : "unsent") : "sent");
   // What sending it would show an observer: said while it can still change, so not for one the
   // node already has, nor for a coinbase, which has no sender.
   const privacy = createMemo(() => checkPrivacy(tx()));
@@ -93,7 +80,6 @@ export function CheckedTx(props: {
       controller?.abort();
       setSending(false);
       setSent(undefined);
-      setUnconfirmed(false);
       setWhy(undefined);
     },
   );
@@ -102,6 +88,8 @@ export function CheckedTx(props: {
     controller = new AbortController();
     const signal = controller.signal;
     setSending(true);
+    markAttempted(network(), tx().txid);
+    setPresses((n) => n + 1);
     setWhy(undefined);
     broadcast(network(), props.hex, signal).then(
       (txid) => {
@@ -111,11 +99,7 @@ export function CheckedTx(props: {
       (e: unknown) => {
         if (signal.aborted) return;
         setSending(false);
-        const answer = e instanceof BroadcastError ? e.answer : "unconfirmed";
-        // The node's duplicate refusal: it already has it, so it is public.
-        if (answer === "public") setSent(tx().txid);
-        else if (answer === "unconfirmed") setUnconfirmed(true);
-        setWhy(answer === "public" ? undefined : refusal(e));
+        setWhy(refusal(e));
       },
     );
   };
