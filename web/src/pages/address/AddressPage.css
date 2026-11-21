@@ -224,6 +224,10 @@
   .address-txs th:nth-child(2) {
     width: 34%;
   }
+  /* As of a block the time is a date and time, longer than an age: it may take two lines. */
+  .address-txs--asof td:first-child {
+    white-space: normal;
+  }
   .address-txs th:nth-child(3),
   .address-txs th:nth-child(4) {
     width: 23%;
@@ -379,9 +383,24 @@
     font-weight: var(--weight-medium);
   }
 
-  /* As of a block (Pinned.tsx). Live, a quiet button at the end of the title's row opens the block
-     field under the address. Pinned, a band leads the page: its left edge drawn as settled layers,
-     a core sample read at one depth, so the page cannot be mistaken for the live one. */
+  /* As of a block (Pinned.tsx). Live, a quiet button at the end of the live line's row opens the
+     block field: over the page from 65em, anchored under it, and in the page below that. Pinned,
+     a band leads the page, one row from 65em, a thick rule down its left edge and the mark's
+     layers beside its heading, so the page cannot be mistaken for the live one. */
+  .address-status {
+    position: relative;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-3);
+    margin-top: var(--space-3);
+  }
+  /* The live line takes what the button leaves, so the two share a row even on a phone. */
+  .address-status .address-live {
+    flex: 1 1 0%;
+    min-width: 4rem;
+    margin-top: 0;
+  }
   .address-asof-open {
     margin-inline-start: auto;
   }
@@ -394,41 +413,105 @@
     stroke-width: 1.6;
     stroke-linecap: round;
   }
-  .address-asof-pick {
-    /* Its field's own width (twenty characters) must not widen the header past a phone. */
+  .address-asof-picker[aria-expanded="true"] {
+    border-color: var(--color-accent);
+    box-shadow: inset 0 0 0 1px var(--color-accent);
+  }
+  /* In the page under its button's row, as wide as the row. */
+  .address-asof-pop {
+    flex: 1 0 100%;
     min-width: 0;
-    max-width: 34rem;
-    padding: var(--space-4);
+    padding: var(--space-3) var(--space-4) var(--space-4);
     border-radius: var(--radius-m);
     background: var(--color-surface-sunken);
   }
-  .address-asof-pick__lead {
-    margin: 0 0 var(--space-3);
-    font-size: var(--text-sm);
+  .address-asof-pop[hidden] {
+    display: none;
+  }
+  .address-asof-pop__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    margin-bottom: var(--space-2);
+  }
+  .address-asof-pop__title {
+    margin: 0;
+    font-weight: var(--weight-bold);
+  }
+  .address-asof-pop__close {
+    flex: none;
+    display: inline-grid;
+    place-items: center;
+    width: var(--touch);
+    height: var(--touch);
+    margin: -10px -12px -10px 0;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-m);
+    background: none;
+    color: var(--color-text-muted);
+    cursor: pointer;
+  }
+  .address-asof-pop__close svg {
+    width: 12px;
+    height: 12px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+  }
+  @media (hover: hover) {
+    .address-asof-pop__close:hover {
+      color: var(--color-text);
+    }
+  }
+  /* Over the page, under its button, its right edge on the button's. */
+  @media (min-width: 65em) {
+    .address-asof-pop {
+      position: absolute;
+      top: calc(100% + var(--space-2));
+      right: 0;
+      z-index: var(--z-tooltip);
+      width: 24rem;
+      border: 1px solid var(--color-line);
+      border-radius: var(--radius-l);
+      background: var(--color-surface-raised);
+      box-shadow: var(--shadow-pop);
+    }
   }
   .address-asof {
     display: flex;
-    align-items: flex-start;
-    gap: var(--space-4);
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3) var(--space-5);
     margin-top: var(--space-4);
-    /* The layers: three bands of the line colours, thickest at the bottom, as a tile's gauge. */
-    padding-inline-start: calc(var(--panel-pad) + 6px);
-    background:
-      linear-gradient(
-          var(--color-line) 0 22%,
-          var(--color-surface) 22% 26%,
-          var(--color-line-strong) 26% 48%,
-          var(--color-surface) 48% 52%,
-          var(--color-text-muted) 52% 100%
-        )
-        left / 6px 100% no-repeat,
-      var(--color-surface);
+    padding-block: var(--space-3);
+    /* One rule down its left edge; the mark beside the heading carries the layers. Three layers
+       stretched down the whole edge read as a broken border once the band is short. */
+    padding-inline-start: calc(var(--panel-pad) + 2px);
+    border-left: 6px solid var(--color-text-muted);
+    border-radius: 0 var(--radius-l) var(--radius-l) 0;
+  }
+  .address-asof__body {
+    display: grid;
+    gap: var(--space-1);
+    flex: 1 1 26rem;
+    min-width: 0;
+  }
+  /* The mark, the heading and the block's time on one line, wrapping as the width asks. */
+  .address-asof__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 var(--space-3);
   }
   .address-asof__mark {
-    width: 28px;
-    height: 28px;
+    width: 24px;
+    height: 24px;
     flex: none;
-    margin-top: 2px;
+    align-self: center;
     fill: var(--color-surface-sunken);
     stroke: var(--color-line-strong);
     stroke-width: 1.2;
@@ -437,11 +520,6 @@
     stroke: var(--color-text);
     stroke-width: 1.6;
     stroke-dasharray: 2.5 1.5;
-  }
-  .address-asof__body {
-    display: grid;
-    gap: var(--space-1);
-    min-width: 0;
   }
   .address-asof__title {
     margin: 0;
@@ -453,23 +531,39 @@
   }
   .address-asof__when {
     margin: 0;
-    min-height: 1lh;
+    min-width: 0;
     color: var(--color-text-muted);
     font-size: var(--text-sm);
   }
   .address-asof__what {
-    max-width: 60ch;
-    margin: var(--space-1) 0 0;
+    margin: 0;
+    color: var(--color-text-muted);
     font-size: var(--text-sm);
   }
   .address-asof__actions {
+    position: relative;
     display: flex;
     flex-wrap: wrap;
+    justify-content: flex-end;
     gap: var(--space-2);
-    margin-top: var(--space-3);
   }
-  .address-asof .address-asof-form {
+  /* A step still being worked out holds its place, as a disabled button looks. */
+  .address-asof__actions .btn[aria-disabled="true"] {
+    cursor: default;
+    color: var(--color-text-muted);
+    border-color: var(--color-line);
+    background: none;
+  }
+  /* Every notice on the page as of a block is the band's width. */
+  .address-asof ~ .address-notice {
+    max-width: none;
     margin-top: var(--space-4);
+  }
+  .address-stat__more {
+    margin-top: var(--space-1);
+    color: var(--color-text-muted);
+    font-size: var(--text-sm);
+    line-height: var(--leading-snug);
   }
   .address-asof-form {
     display: grid;
@@ -516,10 +610,11 @@
     grid-template-columns: minmax(22rem, auto) repeat(3, minmax(min-content, 1fr));
   }
   @media (max-width: 40em) {
-    .address-asof {
-      gap: var(--space-3);
+    .address-asof__actions {
+      justify-content: flex-start;
     }
-    .address-asof__mark {
+    /* "‹ Previous" and "Next ›", so the four controls take two rows; their names keep "change". */
+    .address-asof__long {
       display: none;
     }
     .address-asof__title {

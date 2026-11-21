@@ -12,7 +12,10 @@ import {
   Switch,
   untrack,
 } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import "../../components/Button.css";
+import { Amount } from "../../components/Amount";
+import { openPop } from "../../components/pop";
 import { Link } from "../../components/Link";
 import { ErrorState } from "../../components/States";
 import { TimeAgo, TimeUtc } from "../../components/Time";
@@ -30,8 +33,12 @@ import {
   readPinned,
   readTip,
   readTyped,
+  nextChange,
+  previousChange,
+  type Step,
   unusedThen,
 } from "./asof";
+import { readRows } from "./balance";
 import { BalanceChart } from "./BalanceChart";
 import { History } from "./History";
 import { createLookalikes } from "./LookalikeNotice";
@@ -48,6 +55,8 @@ export function AsOfForm(props: {
   /** The page it belongs to: its network and normalised address, as `AddressPage` keys it. */
   page: string;
   current?: number | undefined;
+  /** Takes focus once shown: it opened at the reader's asking. */
+  focus?: boolean;
 }) {
   const network = useNetwork();
   const [, setSearch] = useSearchParams<{ at: string }>();
@@ -126,6 +135,12 @@ export function AsOfForm(props: {
           ref={(el) => {
             // Set once: a bound value would be put back over what the reader types.
             el.value = props.current === undefined ? "" : String(props.current);
+            // A frame later, once it is in the document.
+            if (props.focus === true)
+              requestAnimationFrame(() => {
+                el.focus({ preventScroll: true });
+                el.select();
+              });
           }}
           aria-invalid={note() === undefined ? "false" : "true"}
           aria-describedby={`${props.id}-hint${note() === undefined ? "" : ` ${noteId}`}`}
@@ -158,6 +173,107 @@ function DepthMark() {
       <rect x="4" y="15" width="16" height="6" rx="1" />
       <path class="address-asof__cut" d="M1 13.9h22" />
     </svg>
+  );
+}
+
+/** From this width the block field opens over the page, under its button; below, in the page. */
+const OVER = "(min-width: 65em)";
+
+/**
+ * A button that opens the block field: from 65em over the page, anchored under the button so
+ * nothing moves (components/pop.ts closes it on a press outside or Escape); narrower, in the page
+ * under the button's row. Either way the field takes focus, a close button and Escape close it,
+ * and focus returns to the button. Place it in a wrapping flex row that is `position: relative`.
+ */
+export function AsOfPicker(props: {
+  id: string;
+  page: string;
+  title: string;
+  label: JSX.Element;
+  class?: string;
+  current?: number | undefined;
+}) {
+  const [open, setOpen] = createSignal(false);
+  let button: HTMLButtonElement | undefined;
+  let panel: HTMLDivElement | undefined;
+  let closePop: (() => void) | undefined;
+  // In the page, Escape is heard here; over it, pop.ts hears it.
+  const escape = (e: KeyboardEvent) => {
+    if (e.key !== "Escape") return;
+    shut();
+    button?.focus();
+  };
+  const shut = () => {
+    const close = closePop;
+    closePop = undefined;
+    close?.();
+    document.removeEventListener("keydown", escape);
+    setOpen(false);
+  };
+  const show = () => {
+    setOpen(true);
+    if (!window.matchMedia(OVER).matches) {
+      document.addEventListener("keydown", escape);
+      return;
+    }
+    closePop = openPop(
+      () => {
+        closePop = undefined;
+        // Closed by a press outside while it held focus: focus goes back to its button.
+        if (panel?.contains(document.activeElement) === true)
+          button?.focus({ preventScroll: true });
+        setOpen(false);
+      },
+      () => [button, panel],
+    );
+  };
+  onCleanup(() => {
+    closePop?.();
+    document.removeEventListener("keydown", escape);
+  });
+  return (
+    <>
+      <button
+        ref={button}
+        class={`btn address-asof-picker ${props.class ?? ""}`}
+        type="button"
+        aria-expanded={open() ? "true" : "false"}
+        aria-controls={props.id}
+        onClick={() => (open() ? shut() : show())}
+      >
+        {props.label}
+      </button>
+      <div
+        ref={panel}
+        id={props.id}
+        class="address-asof-pop"
+        role="group"
+        aria-labelledby={`${props.id}-title`}
+        hidden={!open()}
+      >
+        <Show when={open()}>
+          <div class="address-asof-pop__head">
+            <p class="address-asof-pop__title" id={`${props.id}-title`}>
+              {props.title}
+            </p>
+            <button
+              class="address-asof-pop__close"
+              type="button"
+              aria-label="Close"
+              onClick={() => {
+                shut();
+                button?.focus();
+              }}
+            >
+              <svg viewBox="0 0 12 12" aria-hidden="true">
+                <path d="M2 2l8 8M10 2l-8 8" />
+              </svg>
+            </button>
+          </div>
+          <AsOfForm id={`${props.id}-at`} page={props.page} current={props.current} focus />
+        </Show>
+      </div>
+    </>
   );
 }
 
@@ -246,56 +362,111 @@ export function PinnedBody(props: { address: string; isKey: boolean; at: At }) {
   );
 }
 
+/** Shown in a step button while what it leads to is still being worked out. */
+interface Pending {
+  kind: "pending";
+}
+
 /**
- * The band's actions: back to the present, and another block. "Next" is always offered: a step
- * past the tip lands on "has not been mined yet", which names the newest block then.
+ * The band's actions: back to the present, a step to the address's previous and next change (one
+ * block rarely changes an address, so a step of one block would mostly lead to the same page), and
+ * another block. A step that cannot be known cheaply is not offered; one being worked out holds
+ * its place, unpressable, so the row does not move when it lands.
  */
 function Actions(props: {
   page: string;
   height?: number | undefined;
   /** The newest block, read when the height asked is past it: a step straight back to it. */
   newest?: number | undefined;
+  previous?: Step | Pending | undefined;
+  next?: Step | Pending | undefined;
 }) {
   const [, setSearch] = useSearchParams<{ at: string }>();
-  const [open, setOpen] = createSignal(false);
-  const step = (h: number) => setSearch({ at: String(h) }, { scroll: false });
+  const go = (h: number) => setSearch({ at: String(h) }, { scroll: false });
+  const stepTo = (s: Step | Pending | undefined) =>
+    s !== undefined && s.kind !== "none" && s.kind !== "pending" ? s.height : undefined;
   return (
-    <>
-      <div class="address-asof__actions">
-        <button class="btn btn--accent" type="button" onClick={() => setSearch({ at: undefined })}>
-          Back to now
-        </button>
-        <Show when={props.newest !== undefined}>
-          <button class="btn" type="button" onClick={() => step(props.newest ?? 0)}>
-            Show block {groupDigits(props.newest ?? 0)}
+    <div class="address-asof__actions">
+      <button class="btn btn--accent" type="button" onClick={() => setSearch({ at: undefined })}>
+        Back to now
+      </button>
+      <Show when={props.newest}>
+        {(n) => (
+          <button class="btn" type="button" onClick={() => go(n())}>
+            Show block {groupDigits(n())}
           </button>
-        </Show>
-        <Show when={props.height !== undefined}>
-          <Show when={(props.height ?? 0) > 0}>
-            <button class="btn" type="button" onClick={() => step((props.height ?? 1) - 1)}>
-              <span aria-hidden="true">‹</span> Block {groupDigits((props.height ?? 1) - 1)}
-            </button>
-          </Show>
-          <button class="btn" type="button" onClick={() => step((props.height ?? 0) + 1)}>
-            Block {groupDigits((props.height ?? 0) + 1)} <span aria-hidden="true">›</span>
-          </button>
-        </Show>
+        )}
+      </Show>
+      <Show when={props.previous !== undefined && props.previous.kind !== "none"}>
         <button
           class="btn"
           type="button"
-          aria-expanded={open() ? "true" : "false"}
-          aria-controls="address-asof-other"
-          onClick={() => setOpen((o) => !o)}
+          aria-disabled={props.previous?.kind === "pending" ? "true" : "false"}
+          aria-label={
+            props.previous?.kind === "before-first"
+              ? `Before first use: block ${groupDigits(stepTo(props.previous) ?? 0)}`
+              : stepTo(props.previous) === undefined
+                ? undefined
+                : `Previous change: block ${groupDigits(stepTo(props.previous) ?? 0)}`
+          }
+          title={
+            stepTo(props.previous) === undefined
+              ? undefined
+              : `Block ${groupDigits(stepTo(props.previous) ?? 0)}`
+          }
+          onClick={() => {
+            const h = stepTo(props.previous);
+            if (h !== undefined) go(h);
+          }}
         >
-          Another block
+          <span aria-hidden="true">‹</span>{" "}
+          {props.previous?.kind === "before-first" ? (
+            "Before first use"
+          ) : (
+            <>
+              Previous<span class="address-asof__long"> change</span>
+            </>
+          )}
         </button>
-      </div>
-      <div id="address-asof-other" hidden={!open()}>
-        <Show when={open()}>
-          <AsOfForm id="address-asof-at" page={props.page} current={props.height} />
-        </Show>
-      </div>
-    </>
+      </Show>
+      <Show when={props.next !== undefined && props.next.kind !== "none"}>
+        <button
+          class="btn"
+          type="button"
+          aria-disabled={props.next?.kind === "pending" ? "true" : "false"}
+          aria-label={
+            props.next?.kind === "change"
+              ? `Next change: block ${groupDigits(props.next.height)}`
+              : undefined
+          }
+          title={
+            stepTo(props.next) === undefined
+              ? undefined
+              : `Block ${groupDigits(stepTo(props.next) ?? 0)}`
+          }
+          onClick={() => {
+            const h = stepTo(props.next);
+            if (h !== undefined) go(h);
+          }}
+        >
+          {props.next?.kind === "first" ? (
+            `First used at block ${groupDigits(props.next.height)}`
+          ) : (
+            <>
+              Next<span class="address-asof__long"> change</span>
+            </>
+          )}{" "}
+          <span aria-hidden="true">›</span>
+        </button>
+      </Show>
+      <AsOfPicker
+        id="address-asof-other"
+        page={props.page}
+        title="Show another block"
+        label="Another block"
+        current={props.height}
+      />
+    </div>
   );
 }
 
@@ -303,17 +474,18 @@ function Actions(props: {
 function NotAHeight(props: { text: string; page: string }) {
   return (
     <section class="address-asof panel" aria-labelledby="address-asof-title">
-      <DepthMark />
       <div class="address-asof__body">
-        <h2 class="address-asof__title" id="address-asof-title">
-          {`“${props.text}” is not a block height`}
-        </h2>
+        <div class="address-asof__head">
+          <DepthMark />
+          <h2 class="address-asof__title" id="address-asof-title">
+            {`“${props.text}” is not a block height`}
+          </h2>
+        </div>
         <p class="address-asof__what">
-          The link asks for this address as of a block, but names none this page can read. Give a
-          height in digits, or a date.
+          The link names no block this page can read. Give a height in digits, or a date.
         </p>
-        <Actions page={props.page} />
       </div>
+      <Actions page={props.page} />
     </section>
   );
 }
@@ -365,6 +537,66 @@ function PinnedAt(props: { address: string; isKey: boolean; height: number; agai
     const a = answer();
     return a?.kind === "future" ? a.tip : undefined;
   };
+  // How it stands now, and where its next change is: the unpinned totals and newest history page,
+  // asked once the pinned totals answered, so an address refused those asks nothing more. One
+  // page each, never a walk of the history.
+  const [now] = createApi<AddressStats>(() => settled(stats) !== undefined && path);
+  const later = () => {
+    const n = settled(now);
+    const t = settled(stats);
+    return n && t ? n.chain_stats.tx_count - t.chain_stats.tx_count : undefined;
+  };
+  const [recent] = createApi<unknown>(() => {
+    const l = later();
+    return (
+      ((l !== undefined && l > 0) || (kept() && hash() !== undefined)) && `${path}/txs/summary`
+    );
+  });
+  const previous = createMemo((): Step | Pending | undefined => {
+    if (unused()) return undefined; // Every block before shows the same: nothing.
+    const rows = settled(first);
+    if (rows === undefined) {
+      return first.state === "pending" || first.state === "unresolved"
+        ? { kind: "pending" }
+        : undefined;
+    }
+    return previousChange(
+      rows.flatMap((t) =>
+        t.status.confirmed && t.status.block_height !== undefined ? [t.status.block_height] : [],
+      ),
+    );
+  });
+  const next = createMemo((): Step | Pending | undefined => {
+    if (later() === 0) return { kind: "none" };
+    if (recent.state === "errored" || now.state === "errored") return undefined;
+    const page = settled(recent);
+    if (page === undefined) {
+      // Not asked: a refusal or failure of the totals leaves nothing to step by.
+      return stats.state === "errored" && !kept() ? undefined : { kind: "pending" };
+    }
+    try {
+      const rows = readRows(page);
+      const heights = rows.flatMap((r) => (r.height > 0 ? [r.height] : []));
+      return nextChange(heights, rows.length, height, !unused());
+    } catch {
+      return undefined;
+    }
+  });
+  /** Under the balance at the block, how it stands now. */
+  const since = () => {
+    const n = settled(now);
+    const l = later();
+    if (n === undefined || l === undefined) {
+      return now.state === "errored" ? undefined : <Skeleton width="20ch" />;
+    }
+    if (l === 0) return "The same now: no transaction since";
+    return (
+      <>
+        Now <Amount sats={n.chain_stats.funded_txo_sum - n.chain_stats.spent_txo_sum} />,{" "}
+        {groupDigits(l)} {l === 1 ? "transaction" : "transactions"} later
+      </>
+    );
+  };
   const pinnedFor = createMemo(() => {
     const b = block();
     return b === undefined ? undefined : { hash: b.hash, height: b.height };
@@ -376,47 +608,63 @@ function PinnedAt(props: { address: string; isKey: boolean; height: number; agai
         {announced()}
       </p>
       <section class="address-asof panel" aria-labelledby="address-asof-title">
-        <DepthMark />
         <div class="address-asof__body">
-          <h2 class="address-asof__title" id="address-asof-title">
-            As of block {/* A link only to a block there is: not one past the tip. */}
-            <Show
-              when={answer()?.kind !== "future"}
-              fallback={<span class="num">{groupDigits(height)}</span>}
-            >
-              <Link class="num" href={paths.block(hash() ?? height)}>
-                {groupDigits(height)}
-              </Link>
-            </Show>
-          </h2>
-          <p class="address-asof__when" hidden={answer()?.kind === "future"}>
-            <Show
-              when={block()}
-              fallback={
-                <Show when={resolved.loading}>
-                  <Skeleton width="22ch" />
-                </Show>
-              }
-            >
-              {(b) => (
-                <>
-                  Mined <TimeUtc time={b().time} />, <TimeAgo time={b().time} />
-                </>
-              )}
-            </Show>
-          </p>
-          {/* A block not mined yet has no "then" and no neighbours to step to. */}
+          <div class="address-asof__head">
+            <DepthMark />
+            <h2 class="address-asof__title" id="address-asof-title">
+              As of block {/* A link only to a block there is: not one past the tip. */}
+              <Show
+                when={answer()?.kind !== "future"}
+                fallback={<span class="num">{groupDigits(height)}</span>}
+              >
+                <Link class="num" href={paths.block(hash() ?? height)}>
+                  {groupDigits(height)}
+                </Link>
+              </Show>
+            </h2>
+            <p class="address-asof__when">
+              <Switch
+                fallback={
+                  <Show when={resolved.loading}>
+                    <Skeleton width="22ch" />
+                  </Show>
+                }
+              >
+                <Match when={block()}>
+                  {(b) => (
+                    <>
+                      Mined <TimeUtc time={b().time} seconds={false} />, <TimeAgo time={b().time} />
+                    </>
+                  )}
+                </Match>
+                <Match when={tip()}>
+                  {(t) => (
+                    <>
+                      Not mined yet. The newest block is{" "}
+                      <Link class="num" href={paths.block(t())}>
+                        {groupDigits(t())}
+                      </Link>
+                      .
+                    </>
+                  )}
+                </Match>
+              </Switch>
+            </p>
+          </div>
+          {/* A block not mined yet has no "then". */}
           <Show when={answer()?.kind !== "future"}>
             <p class="address-asof__what">
-              {`The ${noun}'s figures, coins and history as they stood at this block. Later blocks and unconfirmed transactions are left out, and the page does not update.`}
+              Later blocks and unconfirmed transactions are left out; it never updates.
             </p>
           </Show>
-          <Actions
-            page={`${network()} ${address}`}
-            height={answer()?.kind === "future" ? undefined : height}
-            newest={tip()}
-          />
         </div>
+        <Actions
+          page={`${network()} ${address}`}
+          height={answer()?.kind === "future" ? undefined : height}
+          newest={tip()}
+          previous={block() === undefined || gone() ? undefined : previous()}
+          next={block() === undefined || gone() ? undefined : next()}
+        />
       </section>
       <Switch>
         <Match when={resolved.state === "errored"}>
@@ -426,19 +674,8 @@ function PinnedAt(props: { address: string; isKey: boolean; height: number; agai
             retry={retryResolve}
           />
         </Match>
-        <Match when={answer()?.kind === "future"}>
-          <Notice title={`Block ${groupDigits(height)} has not been mined yet`}>
-            <Show when={tip() !== undefined}>
-              <p>
-                The newest block is{" "}
-                <Link class="num" href={paths.block(tip() ?? 0)}>
-                  {groupDigits(tip() ?? 0)}
-                </Link>
-                . Show this {noun} as of it, pick a block at or below it, or go back to now.
-              </p>
-            </Show>
-          </Notice>
-        </Match>
+        {/* Said in the band: nothing more to show. */}
+        <Match when={answer()?.kind === "future"}>{null}</Match>
         <Match when={gone()}>
           <Notice
             title={`Block ${groupDigits(height)} is no longer on the best chain`}
@@ -491,12 +728,23 @@ function PinnedAt(props: { address: string; isKey: boolean; height: number; agai
         </Match>
         <Match when={unused()}>
           <Notice title={`Not used yet at block ${groupDigits(height)}`}>
-            {`No transaction paying or spending this ${noun} had confirmed by block ${groupDigits(height)}.`}
+            <p>
+              {`No transaction paying or spending this ${noun} had confirmed by block ${groupDigits(height)}.`}
+            </p>
+            <Show when={settled(now)}>
+              {(n) => (
+                <p>
+                  {n().chain_stats.tx_count === 0
+                    ? "None has since."
+                    : `It has ${groupDigits(n().chain_stats.tx_count)} confirmed ${n().chain_stats.tx_count === 1 ? "transaction" : "transactions"} now.`}
+                </p>
+              )}
+            </Show>
           </Notice>
         </Match>
         <Match when={true}>
           {notice()}
-          <Totals stats={stats} retry={retryAll} at={height} />
+          <Totals stats={stats} retry={retryAll} at={height} since={since()} />
           <Show when={block()}>
             {(b) => (
               <BalanceChart

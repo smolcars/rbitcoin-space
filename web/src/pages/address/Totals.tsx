@@ -18,6 +18,8 @@ export function Stat(props: {
   ready: boolean;
   value: JSX.Element;
   sub: JSX.Element;
+  /** A further muted line under the sub-line, when given. */
+  more?: JSX.Element;
   class?: string;
 }) {
   return (
@@ -33,6 +35,9 @@ export function Stat(props: {
           {props.sub}
         </Show>
       </dd>
+      <Show when={props.more !== undefined}>
+        <dd class="address-stat__more">{props.more}</dd>
+      </Show>
     </div>
   );
 }
@@ -57,12 +62,14 @@ const EMPTY = {
 
 /**
  * Balance, received, sent, transaction count and the unconfirmed change. As of a block (`at`, its
- * height; `stats` then asked with `?asof=`), the confirmed figures only: nothing waits at a past block.
+ * height; `stats` then asked with `?asof=`), the confirmed figures only: nothing waits at a past block,
+ * and `since` says under the balance how it stands now.
  */
 export function Totals(props: {
   stats: ApiResource<AddressStats>;
   retry: () => void;
   at?: number;
+  since?: JSX.Element;
 }) {
   const s = () => settled(props.stats);
   const chain = () => s()?.chain_stats ?? EMPTY;
@@ -98,6 +105,7 @@ export function Totals(props: {
               ready={ready()}
               value={<Total sats={chain().funded_txo_sum - chain().spent_txo_sum} what="balance" />}
               sub={props.at === undefined ? "Confirmed" : `At block ${groupDigits(props.at)}`}
+              more={props.since}
             />
             <Stat
               label="Received"

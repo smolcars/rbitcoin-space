@@ -41,6 +41,8 @@ test("the balance at block N and N + 1 differ by the payment between them, and a
   // Pinned at N + 1: a payment waits, then a block takes it, and the page does not move.
   await page.goto(`/regtest/address/${address}?at=${n + 1}`);
   await expect(balance(page)).toHaveText("0.42 345 678 BTC");
+  // Its one look at the address now, for the line under the balance, is in.
+  await expect(page.getByText("The same now: no transaction since")).toBeVisible();
   const asked: string[] = [];
   page.on("request", (r) => asked.push(r.url()));
   const waiting = await pay(rpc, address, 5_000_000n);

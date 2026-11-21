@@ -26,7 +26,7 @@ test("the address as of a block shows its figures, history and coins then", asyn
     `/regtest/block/${chain.blocks[106]}`,
   );
   // Block 106 is at 2026-01-01T00:00:00Z plus 106 × 10 minutes.
-  await expect(band(page)).toContainText("Mined 1 Jan 2026, 17:40:00 UTC");
+  await expect(band(page)).toContainText("Mined 1 Jan 2026, 17:40 UTC");
   await expect(stat(page, "Balance")).toHaveText("0.50 000 000 BTC");
   await expect(stat(page, "Received")).toHaveText("0.50 000 000 BTC");
   await expect(stat(page, "Sent")).toHaveText("0.00 000 000 BTC");
@@ -45,8 +45,16 @@ test("the address as of a block shows its figures, history and coins then", asyn
   await expect(rows(page).first()).toContainText("0.50 000 000");
   await expect(rows(page).first().locator("td").last()).toHaveText("1");
 
-  // The next block spent it, and the view stays as the reader left it.
-  await band(page).getByRole("button", { name: "Block 107" }).click();
+  // Its history now reaches back to 106, so the next change is known: 107, which spent it.
+  await expect(page.getByText("Now 0.00 000 000 BTC, 1 transaction later")).toBeVisible();
+  // Each row's date and time, not an age counted from today.
+  await page.getByRole("tab", { name: "Transactions" }).click();
+  await expect(rows(page).first()).toContainText("1 Jan 2026, 17:40 UTC");
+  await expect(rows(page).first()).not.toContainText("ago");
+  await page.getByRole("tab", { name: "Unspent outputs" }).click();
+
+  // The next change spent it, and the view stays as the reader left it.
+  await band(page).getByRole("button", { name: "Next change: block 107" }).click();
   await expect(page).toHaveURL(/\?at=107&view=unspent$/);
   await expect(band(page).getByRole("heading")).toHaveText("As of block 107");
   await expect(page.getByText("No unspent outputs at this block")).toBeVisible();
@@ -54,15 +62,29 @@ test("the address as of a block shows its figures, history and coins then", asyn
   await expect(stat(page, "Sent")).toHaveText("0.50 000 000 BTC");
   await expect(stat(page, "Transactions")).toHaveText("2");
 
-  // Before it was first used, said in words, not an empty page.
-  await band(page).getByRole("button", { name: "Block 106" }).click();
-  await band(page).getByRole("button", { name: "Block 105" }).click();
+  // Nothing changed since: no step forward, and the line under the balance says so.
+  await expect(page.getByText("The same now: no transaction since")).toBeVisible();
+  await expect(band(page).getByRole("button", { name: /^Next change/ })).toHaveCount(0);
+
+  // Back a change, then before its first transaction, said in words, not an empty page.
+  await band(page).getByRole("button", { name: "Previous change: block 106" }).click();
+  await expect(band(page).getByRole("heading")).toHaveText("As of block 106");
+  await band(page).getByRole("button", { name: "Before first use: block 105" }).click();
   await expect(page).toHaveURL(/\?at=105/);
   await expect(page.getByText("Not used yet at block 105")).toBeVisible();
+  await expect(page.getByText("It has 2 confirmed transactions now.")).toBeVisible();
   await expect(page.getByRole("table")).toHaveCount(0);
+  // Every earlier block shows the same, so no step back; forward, its first use.
+  await expect(band(page).getByRole("button", { name: /^‹|Previous change|Before/ })).toHaveCount(
+    0,
+  );
+  await band(page).getByRole("button", { name: "First used at block 106" }).click();
+  await expect(page).toHaveURL(/\?at=106/);
 });
 
-test("nothing live reaches the page as of a block", async ({ page }) => {
+test("nothing live reaches the page as of a block, but one look at the address now", async ({
+  page,
+}) => {
   const address = chain.addresses.p2wpkh;
   const topics: string[] = [];
   page.on("websocket", (ws) => {
@@ -86,7 +108,12 @@ test("nothing live reaches the page as of a block", async ({ page }) => {
   await expect(page.getByText("Live", { exact: true })).toHaveCount(0);
   await page.waitForTimeout(1500);
   expect(topics).toStrictEqual([]);
-  expect(unpinned).toStrictEqual([]);
+  // The totals now and, when it changed since, the newest history page, once each, for the line
+  // under the balance and the next change: never the figures, coins or history shown.
+  const now = [`/regtest/api/address/${address}`, `/regtest/api/address/${address}/txs/summary`];
+  expect(unpinned.filter((u) => !now.includes(u))).toStrictEqual([]);
+  expect(new Set(unpinned).size).toBe(unpinned.length);
+  expect(unpinned).toContain(now[0]);
 
   // Back to now: the live page, which follows the address and shows what waits.
   await band(page).getByRole("button", { name: "Back to now" }).click();
@@ -100,10 +127,34 @@ test("a block is picked by height or date, kept in the URL and across a reload",
 }) => {
   const p2tr = chain.addresses.p2tr;
   await page.goto(`/regtest/address/${p2tr}`);
+  await expect(stat(page, "Balance")).toHaveText("1.49 000 000 BTC");
   const open = page.getByRole("button", { name: "As of a block" });
   await expect(open).toHaveAttribute("aria-expanded", "false");
+  const totals = page.locator(".address-totals");
+  const before = await totals.boundingBox();
   await open.click();
+  await expect(open).toHaveAttribute("aria-expanded", "true");
   const field = page.getByLabel("Block height or date");
+  // At a desktop's width it opens over the page, just under its button and flush with its right
+  // edge, and takes focus: nothing on the page moves.
+  await expect(field).toBeFocused();
+  expect(await totals.boundingBox()).toStrictEqual(before);
+  const pop = page.getByRole("group", { name: "This address at a past block" });
+  const [b, p] = [await open.boundingBox(), await pop.boundingBox()];
+  if (!b || !p) throw new Error("the button or its field has no box");
+  expect(p.y - (b.y + b.height)).toBeGreaterThanOrEqual(0);
+  expect(p.y - (b.y + b.height)).toBeLessThan(16);
+  expect(Math.abs(p.x + p.width - (b.x + b.width))).toBeLessThan(2);
+  // Escape closes it, and so does its close button; either gives focus back to the button.
+  await page.keyboard.press("Escape");
+  await expect(pop).toBeHidden();
+  await expect(open).toBeFocused();
+  await expect(open).toHaveAttribute("aria-expanded", "false");
+  await open.click();
+  await pop.getByRole("button", { name: "Close" }).click();
+  await expect(pop).toBeHidden();
+  await expect(open).toBeFocused();
+  await open.click();
   await field.fill("nonsense");
   await field.press("Enter");
   await expect(page.getByRole("alert")).toHaveText(
@@ -137,8 +188,9 @@ test("a height past the tip and a parameter that is no height are said plainly",
 }) => {
   const p2tr = chain.addresses.p2tr;
   await page.goto(`/regtest/address/${p2tr}?at=5000`);
-  await expect(page.getByText("Block 5 000 has not been mined yet")).toBeVisible();
-  await expect(page.getByText(/The newest block is 1\d\d\./)).toBeVisible();
+  // Said in the band itself, the band's width: no second card.
+  await expect(band(page)).toContainText(/Not mined yet\. The newest block is 1\d\d\./);
+  await expect(page.locator(".address-notice")).toHaveCount(0);
   await expect(page.locator(".address-stats")).toHaveCount(0);
 
   await page.goto(`/regtest/address/${p2tr}?at=yesterday`);
@@ -250,22 +302,79 @@ test("the copy and QR buttons keep working as of a block", async ({ page }) => {
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(address);
 });
 
-test("the block field and the band fit a 320 px phone without a sideways scroll", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 320, height: 720 });
-  const wide = () =>
+test.describe("in the wide stand-in font", () => {
+  // CI draws text wider than a workstation (docs/FRONTEND.md "Checks").
+  test.use({ prose: "wide" });
+  const wide = (page: Page) =>
     page.evaluate(
       () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
     );
-  await page.goto(`/regtest/address/${chain.addresses.p2wsh}`);
-  await page.getByRole("button", { name: "As of a block" }).click();
-  await expect(page.getByLabel("Block height or date")).toBeVisible();
-  expect(await wide()).toBe(false);
-  await page.goto(`/regtest/address/${chain.addresses.p2wsh}?at=106`);
-  await band(page).getByRole("button", { name: "Another block" }).click();
-  await expect(page.getByLabel("Block height or date")).toHaveValue("106");
-  expect(await wide()).toBe(false);
+
+  test("on a phone the block field opens in the page and the band leaves the balance on the first screen", async ({
+    page,
+  }) => {
+    for (const [width, height] of [
+      [360, 780],
+      [320, 720],
+    ] as const) {
+      await page.setViewportSize({ width, height });
+      await page.goto(`/regtest/address/${chain.addresses.p2wsh}`);
+      const open = page.getByRole("button", { name: "As of a block" });
+      const live = page.getByText("Live", { exact: true });
+      await expect(live).toBeVisible();
+      // On the live line's row, not a row of its own.
+      const [o, l] = [await open.boundingBox(), await live.boundingBox()];
+      if (!o || !l) throw new Error("the button or the live line has no box");
+      expect(Math.abs(o.y + o.height / 2 - (l.y + l.height / 2))).toBeLessThan(12);
+      await open.click();
+      await expect(page.getByLabel("Block height or date")).toBeFocused();
+      // In the page under the row, and the balance after it.
+      const pop = await page
+        .getByRole("group", { name: "This address at a past block" })
+        .boundingBox();
+      const totals = await page.locator(".address-totals").boundingBox();
+      if (!pop || !totals) throw new Error("the field or the totals have no box");
+      expect(pop.y).toBeGreaterThanOrEqual(o.y + o.height);
+      expect(totals.y).toBeGreaterThanOrEqual(pop.y + pop.height);
+      expect(await wide(page)).toBe(false);
+
+      await page.goto(`/regtest/address/${chain.addresses.p2wsh}?at=106`);
+      const balance = stat(page, "Balance");
+      await expect(balance).toBeVisible();
+      const box = await balance.boundingBox();
+      expect((box?.y ?? Infinity) + (box?.height ?? 0)).toBeLessThanOrEqual(height);
+      await band(page).getByRole("button", { name: "Another block" }).click();
+      await expect(page.getByLabel("Block height or date")).toHaveValue("106");
+      await expect(page.getByLabel("Block height or date")).toBeFocused();
+      expect(await wide(page)).toBe(false);
+
+      // All four controls, both steps known (the miner changes in every block), in two rows.
+      await page.goto(`/regtest/address/${chain.addresses.miner}?at=107`);
+      await expect(band(page).getByRole("button", { name: /^Next change/ })).toBeEnabled();
+      await expect(band(page).getByRole("button", { name: /^Previous change/ })).toBeEnabled();
+      const tops = new Set<number>();
+      for (const button of await band(page).getByRole("button").all()) {
+        tops.add(Math.round((await button.boundingBox())?.y ?? 0));
+      }
+      expect(tops.size).toBeLessThanOrEqual(2);
+    }
+  });
+
+  test("at a desktop's width the band is one row", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto(`/regtest/address/${chain.addresses.p2sh}?at=106`);
+    await expect(band(page).getByRole("button", { name: /^Next change/ })).toBeEnabled();
+    const [box, heading, last] = [
+      await band(page).boundingBox(),
+      await band(page).getByRole("heading").boundingBox(),
+      await band(page).getByRole("button", { name: "Another block" }).boundingBox(),
+    ];
+    if (!box || !heading || !last) throw new Error("the band has no box");
+    expect(box.height).toBeLessThanOrEqual(100);
+    // The controls beside the heading, at the band's right.
+    expect(Math.abs(last.y + last.height / 2 - (box.y + box.height / 2))).toBeLessThan(12);
+    expect(box.x + box.width - (last.x + last.width)).toBeLessThan(40);
+  });
 });
 
 test("a date's lookup still running when the reader moves to another address is dropped", async ({
@@ -333,7 +442,7 @@ test("a height not found while the tip already reaches it is looked up again", a
   await expect(page.getByText("has not been mined yet")).toHaveCount(0);
 });
 
-test("next is offered at the tip, and a step past it says the block is not mined yet", async ({
+test("at the tip nothing changed since, and a block past it says it is not mined yet", async ({
   page,
 }) => {
   const tip = chain.tip.height;
@@ -343,14 +452,12 @@ test("next is offered at the tip, and a step past it says the block is not mined
   });
   await page.goto(`/regtest/address/${chain.addresses.p2tr}?at=${tip}`);
   await expect(stat(page, "Balance")).toHaveText("1.49 000 000 BTC");
-  await band(page)
-    .getByRole("button", { name: `Block ${tip + 1}` })
-    .click();
-  await expect(page).toHaveURL(new RegExp(`\\?at=${tip + 1}$`));
-  await expect(page.getByText(`Block ${tip + 1} has not been mined yet`)).toBeVisible();
+  await expect(page.getByText("The same now: no transaction since")).toBeVisible();
+  await expect(band(page).getByRole("button", { name: /^Next change/ })).toHaveCount(0);
+  await page.goto(`/regtest/address/${chain.addresses.p2tr}?at=${tip + 1}`);
+  await expect(band(page)).toContainText(`Not mined yet. The newest block is ${tip}.`);
   // The lookup, then once more after a tip short of it: never more.
   expect(lookups).toBe(2);
-  await expect(page.getByText(`The newest block is ${tip}.`)).toBeVisible();
   // Not a dead end: straight back to the address as of the newest block.
   await band(page)
     .getByRole("button", { name: `Show block ${tip}` })
@@ -481,7 +588,8 @@ test("every address read carries the one resolved hash, paged and after a change
   expect(paged.length).toBeGreaterThan(0);
 
   want = at108;
-  await band(page).getByRole("button", { name: "Block 108" }).click();
+  // The miner is paid in every block: its next change is the next block.
+  await band(page).getByRole("button", { name: "Next change: block 108" }).click();
   await expect(band(page).getByRole("heading")).toHaveText("As of block 108");
   await expect(rows(page)).toHaveCount(25);
   await page.getByRole("button", { name: "Show 25 more" }).click();
@@ -491,7 +599,14 @@ test("every address read carries the one resolved hash, paged and after a change
   await expect(chart).toBeVisible();
 
   expect(seen.filter((s) => s.want === at108).length).toBeGreaterThan(3);
-  expect(seen.filter((s) => s.asof !== s.want)).toStrictEqual([]);
+  // All but the page's one look at the address now (the totals and newest history page).
+  const now = new Set([
+    `/regtest/api/address/${address}`,
+    `/regtest/api/address/${address}/txs/summary`,
+  ]);
+  expect(
+    seen.filter((s) => s.asof !== s.want && !(s.asof === null && now.has(s.url))),
+  ).toStrictEqual([]);
 });
 
 test("a block found between its lookup and a cached tip short of it is shown, not called unmined", async ({
