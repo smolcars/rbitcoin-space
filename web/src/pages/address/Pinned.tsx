@@ -1,7 +1,7 @@
 // The address page as of a past block (`?at=<height>`): the block field that picks one, the band
 // that says which block the page shows, and the page itself, every read pinned to that block's
 // hash. Nothing live: no topic, no ledger, no refresh. docs/FRONTEND.md "An address as of a block".
-import { useSearchParams } from "@solidjs/router";
+import { useBeforeLeave, useSearchParams } from "@solidjs/router";
 import {
   createEffect,
   createMemo,
@@ -43,10 +43,12 @@ import {
   nextChange,
   previousChange,
   PAGE_ROWS,
+  type Since,
   type Step,
+  compareNow,
   unusedThen,
 } from "./asof";
-import { loadHistory, MAX_PAGES, readRows } from "./balance";
+import { loadHistory, MAX_PAGES, MAX_ROWS, readRows } from "./balance";
 import { BalanceChart } from "./BalanceChart";
 import { History } from "./History";
 import { createLookalikes } from "./LookalikeNotice";
@@ -57,18 +59,19 @@ import { Totals } from "./Totals";
  * Where focus goes once a page this file navigated to arrives: the control the reader pressed is
  * gone with the page it was on, and focus would fall to the body with no word that the page
  * changed. To the band's heading for a block (read out as the page's new subject), or to "As of
- * a block" back on the live page. Named by its `at`, so a navigation that changed nothing (the
- * same block asked again) leaves nothing to take focus later.
+ * a block" back on the live page. Scoped to the page and `at` navigated to, set only when there
+ * is somewhere to go, and taken by the next address page to arrive whether it is that one or not,
+ * so it never lingers to fire on a later visit.
  */
-let arriving: { at: string | undefined } | undefined;
-function arrive(at: string | undefined): void {
-  arriving = { at };
+let arriving: { page: string; at: string | undefined } | undefined;
+function arrive(page: string, at: string | undefined): void {
+  arriving = { page, at };
 }
-/** Takes focus, a frame later, when it is the page the last navigation from here was to. */
-function takeFocus(el: HTMLElement, at: string | undefined): void {
-  if (arriving === undefined || arriving.at !== at) return;
+/** Takes focus, a frame later, when this is the page the last navigation from here was to. */
+function takeFocus(el: HTMLElement, page: string, at: string | undefined): void {
+  const was = arriving;
   arriving = undefined;
-  requestAnimationFrame(() => el.focus());
+  if (was?.page === page && was.at === at) requestAnimationFrame(() => el.focus());
 }
 
 /**
@@ -83,6 +86,8 @@ export function AsOfForm(props: {
   current?: number | undefined;
   /** Takes focus once shown: it opened at the reader's asking. */
   focus?: boolean;
+  /** The block asked is the one shown: nothing to navigate to. */
+  onSame?: () => void;
 }) {
   const network = useNetwork();
   const [, setSearch] = useSearchParams<{ at: string }>();
@@ -90,12 +95,23 @@ export function AsOfForm(props: {
   /** The newest block, named when the reader asked for a day still to come. */
   const [newest, setNewest] = createSignal<number>();
   const show = (height: number) => {
-    arrive(String(height));
+    if (height === props.current) {
+      props.onSame?.();
+      return;
+    }
+    arrive(props.page, String(height));
     setSearch({ at: String(height) });
   };
   const [asking, setAsking] = createSignal(false);
   let ask: AbortController | undefined;
-  onCleanup(() => ask?.abort());
+  const drop = () => {
+    ask?.abort();
+    setAsking(false);
+  };
+  onCleanup(drop);
+  // A date's answer belongs to the page it was asked on: once any navigation starts (a link, a
+  // step, Back), it is dropped, so it never lands on the router's pending destination.
+  useBeforeLeave(drop);
   // A date's lookup belongs to the page that asked it: moving to another address or network
   // (the router keeps this form mounted) drops it, so its height never lands on that page. Another
   // spelling of the same address (upper-case Bech32) is the same page.
@@ -270,22 +286,31 @@ export function AsOfPicker(props: {
   let button: HTMLButtonElement | undefined;
   let panel: HTMLDivElement | undefined;
   let closePop: (() => void) | undefined;
-  // In the page, Escape is heard here; over it, pop.ts hears it.
+  // In the page, Escape is heard here (pop.ts hears it over the page), and only while focus is
+  // in the field or on its button: an Escape for another pop-up (the QR code) is that one's.
   const escape = (e: KeyboardEvent) => {
     if (e.key !== "Escape") return;
+    const at = document.activeElement;
+    if (!(panel?.contains(at) === true || at === button)) return;
     shut();
     button?.focus();
   };
+  // Across 65em its form would change under it (floating with no press outside to close it, or
+  // the reverse): it closes instead.
+  const media = window.matchMedia(OVER);
+  const crossed = () => shut();
   const shut = () => {
     const close = closePop;
     closePop = undefined;
     close?.();
     document.removeEventListener("keydown", escape);
+    media.removeEventListener("change", crossed);
     setOpen(false);
   };
   const show = () => {
     setOpen(true);
-    if (!window.matchMedia(OVER).matches) {
+    media.addEventListener("change", crossed);
+    if (!media.matches) {
       document.addEventListener("keydown", escape);
       return;
     }
@@ -303,13 +328,14 @@ export function AsOfPicker(props: {
   onCleanup(() => {
     closePop?.();
     document.removeEventListener("keydown", escape);
+    media.removeEventListener("change", crossed);
   });
   return (
     <>
       <button
         ref={(el) => {
           button = el;
-          if (props.arrival === true) takeFocus(el, undefined);
+          if (props.arrival === true) takeFocus(el, props.page, undefined);
         }}
         class={`btn address-asof-picker ${props.class ?? ""}`}
         type="button"
@@ -347,7 +373,17 @@ export function AsOfPicker(props: {
               </svg>
             </button>
           </div>
-          <AsOfForm id={`${props.id}-at`} page={props.page} current={props.current} focus />
+          <AsOfForm
+            id={`${props.id}-at`}
+            page={props.page}
+            current={props.current}
+            focus
+            onSame={() => {
+              // The block shown: close, and focus its heading, the page's subject, read out.
+              shut();
+              document.getElementById("address-asof-title")?.focus();
+            }}
+          />
         </Show>
       </div>
     </>
@@ -460,7 +496,7 @@ function Actions(props: {
 }) {
   const [, setSearch] = useSearchParams<{ at: string }>();
   const go = (h: number) => {
-    arrive(String(h));
+    arrive(props.page, String(h));
     setSearch({ at: String(h) }, { scroll: false });
   };
   const target = (s: Step | Pending | undefined) =>
@@ -485,7 +521,7 @@ function Actions(props: {
         class="btn btn--accent"
         type="button"
         onClick={() => {
-          arrive(undefined);
+          arrive(props.page, undefined);
           setSearch({ at: undefined });
         }}
       >
@@ -582,7 +618,7 @@ function NotAHeight(props: { text: string; page: string }) {
             class="address-asof__title"
             id="address-asof-title"
             tabindex="-1"
-            ref={(el) => takeFocus(el, props.text)}
+            ref={(el) => takeFocus(el, props.page, props.text)}
           >
             {`“${props.text}” is not a block height`}
           </h2>
@@ -603,6 +639,8 @@ function PinnedAt(props: { address: string; isKey: boolean; height: number; agai
   const height = untrack(() => props.height);
   const noun = untrack(() => (props.isKey ? "key" : "address"));
   const path = `/address/${encodeURIComponent(address)}`;
+  /** This page, as `AddressPage` keys it: what a focus request on arrival is scoped to. */
+  const page = `${untrack(network)} ${address}`;
   const [resolved, { refetch: retryResolve }] = createRequest(
     () => network(),
     (net, signal) => resolve(net, height, signal),
@@ -644,38 +682,52 @@ function PinnedAt(props: { address: string; isKey: boolean; height: number; agai
     const a = answer();
     return a?.kind === "future" ? a.tip : undefined;
   };
-  // How it stands now, and where its next change is: the unpinned totals and newest history page,
-  // asked once the pinned totals answered, so an address refused those asks nothing more. One
-  // page each, never a walk of the history.
+  // How it stands now, and where its next change is: the current totals, read fresh and stamped
+  // with the tip they are as of, then its newest history as of that same tip, so the comparison
+  // and the step come from one snapshot. Asked once the pinned totals answered, so an address
+  // refused those asks nothing more. Neither feeds the figures, coins, chart or history shown.
   const [now, { refetch: refetchNow }] = createApi<AddressStats>(
     () => settled(stats) !== undefined && path,
+    { stamped: true, fresh: true },
   );
-  const later = () => {
+  /** The present beside the block, or undefined until both totals are in. */
+  const present = createMemo((): Since | undefined => {
     const n = settled(now);
     const t = settled(stats);
-    return n && t ? n.chain_stats.tx_count - t.chain_stats.tx_count : undefined;
+    if (n === undefined || t === undefined) return undefined;
+    return compareNow(t.chain_stats, n.value.chain_stats, n.tip?.height, height);
+  });
+  /** Before its first transaction with more history now than the lookup reads: further back. */
+  const beyondReach = () => {
+    const p = present();
+    return unused() && p?.kind === "later" && p.transactions > MAX_ROWS;
   };
-  // Its history now, newest first: one page, or, before its first transaction, as much as the
-  // live page's chart reads (MAX_PAGES), which this page then spends instead: it draws no chart,
-  // list or coins. Either way within what the address routes allow one page view.
+  // Its history as of that tip, newest first: one page, or, before its first transaction, as much
+  // as the live page's chart reads (MAX_PAGES), which this page then spends instead: it draws no
+  // chart, list or coins. A kept address has no current totals asked, so its page is unpinned.
   const [recent, { refetch: refetchRecent }] = createRequest(
     () => {
-      const l = later();
-      const asks = (l !== undefined && l > 0) || (kept() && hash() !== undefined);
-      return asks && `${network()} ${unused() ? "whole" : "page"}`;
+      if (kept()) return hash() !== undefined && `${network()} page -`;
+      if (present()?.kind !== "later" || beyondReach()) return false;
+      return `${network()} ${unused() ? "whole" : "page"} ${settled(now)?.tip?.hash ?? "-"}`;
     },
     async (key, signal): Promise<{ heights: number[]; whole: boolean }> => {
+      const [, mode, tipHash] = key.split(" ");
+      const pin = tipHash === undefined || tipHash === "-" ? undefined : tipHash;
       const net = untrack(network);
       const read = (p: string) => fetchStamped<unknown>(net, p, { signal });
-      if (key.endsWith("whole")) {
-        const h = await loadHistory(path, read, MAX_PAGES);
+      if (mode === "whole") {
+        // Strict: a page that fails is a failed lookup, offered again, never a short history.
+        const h = await loadHistory(path, read, MAX_PAGES, undefined, pin, true);
         return { heights: h.rows.map((r) => r.height), whole: h.complete };
       }
-      const rows = readRows((await read(`${path}/txs/summary`)).value);
-      return {
-        heights: rows.flatMap((r) => (r.height > 0 ? [r.height] : [])),
-        whole: rows.length < PAGE_ROWS,
-      };
+      const rows = readRows(
+        (await read(pin ? pinnedPath(`${path}/txs/summary`, pin) : `${path}/txs/summary`)).value,
+      );
+      const heights = rows.flatMap((r) => (r.height > 0 ? [r.height] : []));
+      // A full page is still the whole history when it holds every transaction the totals count.
+      const count = untrack(() => settled(now)?.value.chain_stats.tx_count);
+      return { heights, whole: rows.length < PAGE_ROWS || heights.length === count };
     },
   );
   const previous = createMemo((): Step | Pending | undefined => {
@@ -686,46 +738,66 @@ function PinnedAt(props: { address: string; isKey: boolean; height: number; agai
         ? { kind: "pending" }
         : undefined;
     }
-    return previousChange(
-      rows.flatMap((t) =>
-        t.status.confirmed && t.status.block_height !== undefined ? [t.status.block_height] : [],
-      ),
+    const heights = rows.flatMap((t) =>
+      t.status.confirmed && t.status.block_height !== undefined ? [t.status.block_height] : [],
     );
+    // A full page is the whole history by then when the pinned totals count no more.
+    const count = settled(stats)?.chain_stats.tx_count;
+    return previousChange(heights, rows.length < PAGE_ROWS || heights.length === count);
   });
-  /** The look at the present failed (refused, or the server stayed busy past its retries). */
-  const nowFailed = () =>
-    now.state === "errored" ? now.error : recent.state === "errored" ? recent.error : undefined;
+  /** A refusal that will never change (too large, not kept): no step, and nothing to retry. */
+  const lasting = (error: unknown) => {
+    const kind = refusal(error);
+    return kind === "too-large" || kind === "not-kept";
+  };
+  /** The look at the present failed (busy past its retries, or the node failing): worth a retry. */
+  const nowFailed = () => {
+    for (const r of [now, recent]) {
+      if (r.state === "errored" && !lasting(r.error)) return r.error;
+    }
+    return undefined;
+  };
   const retryNow = () => {
-    if (now.state === "errored") refetchNow();
-    else refetchRecent();
+    // A history read as of a tip that has since left the chain asks for a new snapshot.
+    if (now.state === "errored" || (recent.state === "errored" && isNotFound(recent.error))) {
+      refetchNow();
+    } else refetchRecent();
   };
   const next = createMemo((): Step | Pending | undefined => {
-    if (later() === 0) return { kind: "none" };
-    if (nowFailed() !== undefined) return undefined;
+    const p = present();
+    if (p?.kind === "same") return { kind: "none" };
+    // Not comparable, failed, refused for good, or beyond what is read: no step.
+    if (p?.kind === "unknown" || beyondReach()) return undefined;
+    if (now.state === "errored" || recent.state === "errored") return undefined;
     const r = settled(recent);
-    if (r === undefined) {
-      // Not asked: a refusal or failure of the totals leaves nothing to step by.
-      return stats.state === "errored" && !kept() ? undefined : { kind: "pending" };
-    }
-    return nextChange(r.heights, r.whole, height, !unused());
+    if (r !== undefined) return nextChange(r.heights, r.whole, height, !unused());
+    // Still to come: the totals now, or the history after them. Not asked otherwise.
+    const coming = kept() || (stats.state !== "errored" && (p === undefined || p.kind === "later"));
+    return coming ? { kind: "pending" } : undefined;
   });
   /** Its first block, when it had none by this one and its history reaches back to it. */
   const firstUse = () => {
     const n = next();
     return n?.kind === "first" ? n.height : undefined;
   };
-  /** Under the balance at the block, how it stands now. */
+  /** Before its first transaction, its first use is further back than this page reads. */
+  const firstFarBack = () =>
+    unused() &&
+    present()?.kind === "later" &&
+    (beyondReach() ||
+      (recent.state === "ready" && next() === undefined && nowFailed() === undefined));
+  /** Under the balance at the block, how it stands now: said only of a comparable snapshot. */
   const since = () => {
-    const n = settled(now);
-    const l = later();
-    if (n === undefined || l === undefined) {
+    const p = present();
+    if (p === undefined) {
       return now.state === "errored" ? undefined : <Skeleton width="20ch" />;
     }
-    if (l === 0) return "The same now: no transaction since";
+    if (p.kind === "unknown") return undefined;
+    if (p.kind === "same") return "The same now: no transaction since";
     return (
       <>
-        Now <Amount sats={n.chain_stats.funded_txo_sum - n.chain_stats.spent_txo_sum} />,{" "}
-        {groupDigits(l)} {l === 1 ? "transaction" : "transactions"} later
+        Now <Amount sats={p.balance} />, {groupDigits(p.transactions)}{" "}
+        {p.transactions === 1 ? "transaction" : "transactions"} later
       </>
     );
   };
@@ -747,7 +819,7 @@ function PinnedAt(props: { address: string; isKey: boolean; height: number; agai
               class="address-asof__title"
               id="address-asof-title"
               tabindex="-1"
-              ref={(el) => takeFocus(el, String(height))}
+              ref={(el) => takeFocus(el, page, String(height))}
             >
               As of block {/* A link only to a block there is: not one past the tip. */}
               <Show
@@ -894,25 +966,29 @@ function PinnedAt(props: { address: string; isKey: boolean; height: number; agai
             <p>
               {`No transaction paying or spending this ${noun} had confirmed by block ${groupDigits(height)}.`}
             </p>
-            <Show when={settled(now)}>
-              {(n) => (
-                <p>
-                  {n().chain_stats.tx_count === 0
-                    ? "None has since."
-                    : `It has ${groupDigits(n().chain_stats.tx_count)} confirmed ${n().chain_stats.tx_count === 1 ? "transaction" : "transactions"} now.`}
-                </p>
-              )}
-            </Show>
+            {/* Only of a snapshot comparable with the block: never a count from an older reply. */}
+            <Switch>
+              <Match when={present()?.kind === "same"}>
+                <p>None has since.</p>
+              </Match>
+              <Match when={present()?.kind === "later" && (present() as { transactions: number })}>
+                {(p) => (
+                  <p>
+                    {`It has ${groupDigits(p().transactions)} confirmed ${p().transactions === 1 ? "transaction" : "transactions"} now.`}
+                  </p>
+                )}
+              </Match>
+            </Switch>
             {/* Where to go from here: its first use when its history reaches it, else now. */}
             <Switch>
-              <Match when={firstUse()}>
+              <Match when={firstUse() !== undefined && firstUse()}>
                 {(h) => (
                   <p class="address-asof__onward">
                     <button
                       class="btn"
                       type="button"
                       onClick={() => {
-                        arrive(String(h()));
+                        arrive(page, String(h()));
                         setSearch({ at: String(h()) }, { scroll: false });
                       }}
                     >
@@ -921,18 +997,14 @@ function PinnedAt(props: { address: string; isKey: boolean; height: number; agai
                   </p>
                 )}
               </Match>
-              <Match
-                when={
-                  settled(now) !== undefined && next() === undefined && nowFailed() === undefined
-                }
-              >
+              <Match when={firstFarBack()}>
                 <p>{`Its first transaction is further back than the newest ${groupDigits(MAX_PAGES * PAGE_ROWS)} this page reads.`}</p>
                 <p class="address-asof__onward">
                   <button
                     class="btn"
                     type="button"
                     onClick={() => {
-                      arrive(undefined);
+                      arrive(page, undefined);
                       setSearch({ at: undefined });
                     }}
                   >

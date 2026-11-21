@@ -162,6 +162,16 @@ describe("loadHistory", () => {
     expect(h.rows).toHaveLength(50);
   });
 
+  it("strict, a later page that fails fails the whole: a lookup must not read it as a cap", async () => {
+    const rows = Array.from({ length: 50 }, (_, i) => row(50 - i, 100));
+    const n = node(rows);
+    const flaky = (p: string) =>
+      p.includes(`/txs/summary/${txid(26)}`) ? Promise.reject(new Error("504")) : n.fetch(p);
+    await expect(loadHistory(BASE, flaky, MAX_PAGES, undefined, undefined, true)).rejects.toThrow(
+      "504",
+    );
+  });
+
   it("as of a block, a later page answered 404 means the block left the chain: no partial chart", async () => {
     const rows = Array.from({ length: 300 }, (_, i) => row(300 - i, 100));
     const n = node(rows, 77_777, 300);

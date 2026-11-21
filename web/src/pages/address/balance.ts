@@ -64,7 +64,9 @@ const confirmed = (rows: readonly TxSummary[]) => rows.filter((r) => r.height > 
  * The newest history, at most `pages` pages, every page as of the first's block. When it stops
  * short of the first transaction (the cap, or a later page that failed), the address's totals as
  * of that block anchor it. `given` is the first page when it is already in. `asof` pins every
- * request, the first too, to that block hash.
+ * request, the first too, to that block hash. `strict`: a later page that fails fails the whole,
+ * for a caller that reads `complete` as "reached the first transaction or the cap", never as a
+ * page that went missing.
  */
 export async function loadHistory(
   base: string,
@@ -72,6 +74,7 @@ export async function loadHistory(
   pages = MAX_PAGES,
   given?: Stamped<unknown>,
   asof?: string,
+  strict = false,
 ): Promise<History> {
   const first =
     given ?? (await fetch(`${base}/txs/summary${asof === undefined ? "" : `?asof=${asof}`}`));
@@ -86,7 +89,7 @@ export async function loadHistory(
       page = readRows((await fetch(`${base}/txs/summary/${last}${pin}`)).value);
     } catch (error) {
       // As of a block, a 404 says the block left the best chain: nothing loaded may be shown.
-      if (asof !== undefined && isNotFound(error)) throw error;
+      if (strict || (asof !== undefined && isNotFound(error))) throw error;
       // A later page that fails (a node too slow to answer) leaves the newer ones, anchored below.
       break;
     }

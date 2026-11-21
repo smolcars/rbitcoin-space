@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  compareNow,
   nextChange,
   PAGE_ROWS,
   pinnedPath,
@@ -66,6 +67,15 @@ describe("readTyped", () => {
       label: "20 Nov 2026, 00:30",
     });
   });
+
+  it("reads the minute under way as begun, not still to come", () => {
+    // 12:30:15 on 20 Nov 2026: 12:30 has begun, 12:31 has not; with seconds, to the second.
+    const t = Date.UTC(2026, 10, 20, 12, 30, 15) / 1000;
+    expect(readTyped("2026-11-20 12:30Z", t).kind).toBe("date");
+    expect(readTyped("2026-11-20 12:31", t).kind).toBe("future");
+    expect(readTyped("2026-11-20 12:30:10", t).kind).toBe("date");
+    expect(readTyped("2026-11-20 12:30:20", t).kind).toBe("future");
+  });
 });
 
 describe("readPinned", () => {
@@ -126,22 +136,45 @@ describe("the rest", () => {
 
 describe("previousChange", () => {
   it("leads to the change before the latest one by the block", () => {
-    expect(previousChange([975_000, 975_000, 974_257, 974_100])).toStrictEqual({
+    expect(previousChange([975_000, 975_000, 974_257, 974_100], false)).toStrictEqual({
       kind: "change",
       height: 974_257,
     });
   });
 
   it("leads to the block before the first transaction when the page is the whole history", () => {
-    expect(previousChange([800_010, 800_010])).toStrictEqual({
+    expect(previousChange([800_010, 800_010], true)).toStrictEqual({
       kind: "before-first",
       height: 800_009,
     });
   });
 
-  it("cannot say when a full page holds one block only, or nothing", () => {
-    expect(previousChange(Array.from({ length: PAGE_ROWS }, () => 900_000))).toBeUndefined();
-    expect(previousChange([])).toBeUndefined();
+  it("cannot say when a page short of the whole history holds one block only, or nothing", () => {
+    expect(
+      previousChange(
+        Array.from({ length: PAGE_ROWS }, () => 900_000),
+        false,
+      ),
+    ).toBeUndefined();
+    expect(previousChange([], false)).toBeUndefined();
+  });
+
+  it("knows a full page is the whole history when the totals say so", () => {
+    // 25 transactions, all in its first block: the step back is to the block before it.
+    expect(
+      previousChange(
+        Array.from({ length: PAGE_ROWS }, () => 900_000),
+        true,
+      ),
+    ).toStrictEqual({
+      kind: "before-first",
+      height: 899_999,
+    });
+  });
+
+  it("offers no step back from a first transaction in block 0: nothing precedes it", () => {
+    expect(previousChange([0], true)).toStrictEqual({ kind: "none" });
+    expect(previousChange([5, 0, 0], true)).toStrictEqual({ kind: "change", height: 0 });
   });
 });
 
@@ -172,5 +205,43 @@ describe("nextChange", () => {
     const page = Array.from({ length: PAGE_ROWS }, (_, i) => 976_000 - i);
     expect(nextChange(page, false, 900_000, true)).toBeUndefined();
     expect(nextChange([], false, 900_000, true)).toBeUndefined();
+  });
+});
+
+describe("compareNow", () => {
+  const part = (tx: number, funded: number, spent: number, fc = tx, sc = 0) => ({
+    tx_count: tx,
+    funded_txo_count: fc,
+    funded_txo_sum: funded,
+    spent_txo_count: sc,
+    spent_txo_sum: spent,
+  });
+  const then = part(2, 50, 20, 2, 1);
+
+  it("counts the transactions since, and the balance now, from a later answer on the same chain", () => {
+    expect(compareNow(then, part(5, 90, 20, 4, 1), 980, 975)).toStrictEqual({
+      kind: "later",
+      transactions: 3,
+      balance: 70,
+    });
+    expect(compareNow(then, part(2, 50, 20, 2, 1), 975, 975)).toStrictEqual({
+      kind: "same",
+      balance: 30,
+    });
+  });
+
+  it("will not compare an answer from before the block, kept a second, or from another chain", () => {
+    // Fewer transactions: an answer older than the block (a cached one), or a reorganization.
+    expect(compareNow(then, part(1, 50, 0, 1, 0), 980, 975)).toStrictEqual({ kind: "unknown" });
+    // As many, but other sums: a replacement block confirmed another payment.
+    expect(compareNow(then, part(2, 60, 20, 2, 1), 980, 975)).toStrictEqual({ kind: "unknown" });
+    // A total that shrank: no later state of this chain has less received.
+    expect(compareNow(then, part(4, 40, 20, 4, 1), 980, 975)).toStrictEqual({ kind: "unknown" });
+    // Stamped with a tip below the block.
+    expect(compareNow(then, part(5, 90, 20, 4, 1), 974, 975)).toStrictEqual({ kind: "unknown" });
+  });
+
+  it("compares without a stamp, on the totals alone", () => {
+    expect(compareNow(then, part(3, 60, 20, 3, 1), undefined, 975).kind).toBe("later");
   });
 });

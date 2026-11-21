@@ -1,7 +1,7 @@
 // The address page as of a past block (`?at=<height>`): reading the parameter and what the reader
 // types, and checking the block the height resolves to. Pure. docs/FRONTEND.md "An address as of
 // a block".
-import type { AddressStats } from "../../lib/esplora";
+import type { AddressStats, AddressStatsPart } from "../../lib/esplora";
 import { readDate, type Moment } from "../../palette/match";
 import { parseHeight } from "../block/chain";
 
@@ -45,7 +45,10 @@ export function readTyped(input: string, now: number): Typed {
   // reached) has no block, however far ahead, and is said so rather than called no date.
   const any = readDate(q, Number.MAX_SAFE_INTEGER);
   if (any === null) return { kind: "invalid" };
-  const begins = any.timed ? any.at : any.at - (DAY - 1);
+  // The lookup's cutoff is the end of what was typed (its day, or its minute when no seconds were
+  // given); "still to come" is decided from its start.
+  const seconds = /\d:\d{2}:\d{2}$/.test(any.label);
+  const begins = any.timed ? (seconds ? any.at : any.at - 59) : any.at - (DAY - 1);
   if (begins > now) return { kind: "future", label: any.label };
   const moment = readDate(q, now);
   return moment === null ? { kind: "invalid" } : { kind: "date", moment };
@@ -94,17 +97,18 @@ export type Step =
 
 /**
  * "Previous change": the address as it stood before its latest change by the block. `heights` are
- * the confirmed heights of the newest history page as of the block, newest first; a short page is
- * the whole history by then. With no earlier change in it, the address's first transaction is in
- * the page, and the step leads to the block before it. Undefined when the page cannot say.
+ * the confirmed heights of the newest history page as of the block, newest first; `whole`, the
+ * page is its whole history by then (a short page, or as many rows as the pinned totals count).
+ * With no earlier change in a whole history, its first transaction is in the page, and the step
+ * leads to the block before it; before block 0 there is none. Undefined when the page cannot say.
  */
-export function previousChange(heights: readonly number[]): Step | undefined {
+export function previousChange(heights: readonly number[], whole: boolean): Step | undefined {
   const latest = heights[0];
   if (latest === undefined) return undefined;
   const earlier = heights.filter((h) => h < latest);
   if (earlier.length > 0) return { kind: "change", height: Math.max(...earlier) };
-  if (heights.length < PAGE_ROWS) return { kind: "before-first", height: latest - 1 };
-  return undefined;
+  if (!whole) return undefined;
+  return latest === 0 ? { kind: "none" } : { kind: "before-first", height: latest - 1 };
 }
 
 /**
@@ -123,4 +127,38 @@ export function nextChange(
   if (later.length === heights.length && !whole) return undefined;
   if (later.length === 0) return { kind: "none" };
   return { kind: used ? "change" : "first", height: Math.min(...later) };
+}
+
+/** How the address stands now beside the block: later, the same, or not comparable. */
+export type Since =
+  | { kind: "later"; transactions: number; balance: number }
+  | { kind: "same"; balance: number }
+  | { kind: "unknown" };
+
+/**
+ * The confirmed totals now (`now`, stamped with its tip's height when the reply said) beside those
+ * at block `at` (`then`). Every total only grows along one chain, so an answer with any total
+ * smaller, as many transactions but other sums, or a tip below the block, is from before the block
+ * (a reply kept a second) or from another chain (a reorganization): not comparable, so the page
+ * says nothing rather than a negative count or a false "the same".
+ */
+export function compareNow(
+  then: AddressStatsPart,
+  now: AddressStatsPart,
+  nowHeight: number | undefined,
+  at: number,
+): Since {
+  if (nowHeight !== undefined && nowHeight < at) return { kind: "unknown" };
+  const keys = [
+    "tx_count",
+    "funded_txo_count",
+    "funded_txo_sum",
+    "spent_txo_count",
+    "spent_txo_sum",
+  ] as const;
+  if (keys.some((k) => now[k] < then[k])) return { kind: "unknown" };
+  const balance = now.funded_txo_sum - now.spent_txo_sum;
+  const transactions = now.tx_count - then.tx_count;
+  if (transactions > 0) return { kind: "later", transactions, balance };
+  return keys.every((k) => now[k] === then[k]) ? { kind: "same", balance } : { kind: "unknown" };
 }

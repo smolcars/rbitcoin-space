@@ -367,6 +367,15 @@ test.describe("in the wide stand-in font", () => {
       expect(pop.y).toBeGreaterThanOrEqual(o.y + o.height);
       expect(totals.y).toBeGreaterThanOrEqual(pop.y + pop.height);
       expect(await wide(page)).toBe(false);
+      // Escape for a pop-up opened over it (the QR code) closes that one only.
+      await page.getByRole("button", { name: "Show the address as a QR code" }).click();
+      await page.keyboard.press("Escape");
+      await expect(page.getByRole("dialog", { name: "Scan the address" })).toBeHidden();
+      await expect(page.getByLabel("Block height or date")).toBeVisible();
+      // Turned to a desktop's width it would float with nothing to close it: it closes instead.
+      await page.setViewportSize({ width: 1280, height });
+      await expect(page.getByLabel("Block height or date")).toBeHidden();
+      await page.setViewportSize({ width, height });
 
       await page.goto(`/regtest/address/${chain.addresses.p2wsh}?at=106`);
       const balance = stat(page, "Balance");
@@ -731,4 +740,58 @@ test("before a long history's first transaction, its first use is found from the
   await first.click();
   await expect(page.getByText(/Not used yet/)).toHaveCount(0);
   await expect(stat(page, "Transactions")).toHaveText("1");
+});
+
+test("asking for the block already shown closes the field and leaves no focus request behind", async ({
+  page,
+}) => {
+  const address = chain.addresses.p2tr;
+  await page.goto(`/regtest/address/${address}?at=105`);
+  await page.goto(`/regtest/address/${address}?at=106`);
+  await expect(stat(page, "Balance")).toHaveText("1.00 000 000 BTC");
+  await band(page).getByRole("button", { name: "Another block" }).click();
+  const field = page.getByLabel("Block height or date");
+  await expect(field).toHaveValue("106");
+  await field.press("Enter");
+  // Nothing to navigate to: the field closes and focus goes to the band's heading.
+  await expect(field).toBeHidden();
+  await expect(band(page).getByRole("heading")).toBeFocused();
+  // No request left over for a later arrival: back, then forward to this block, takes no focus.
+  await page.goBack();
+  await expect(page).toHaveURL(/\?at=105$/);
+  await page.goForward();
+  await expect(band(page).getByRole("heading")).toHaveText("As of block 106");
+  await expect(band(page).getByRole("heading")).not.toBeFocused();
+});
+
+test("a date's lookup still running when the reader follows a link writes nothing onto the next page", async ({
+  page,
+}) => {
+  const address = chain.addresses.p2tr;
+  const date = gate();
+  const chunk = gate();
+  await page.route(
+    (url) => url.pathname.startsWith("/regtest/api/v1/mining/blocks/timestamp/"),
+    async (route) => {
+      await date.shut;
+      await route.continue().catch(() => undefined);
+    },
+  );
+  await page.goto(`/regtest/address/${address}?at=107`);
+  await expect(stat(page, "Balance")).toHaveText("1.49 000 000 BTC");
+  // The block page's code is held, so the move there stays under way while the date answers.
+  await page.route(/\/assets\/BlockPage-[\w-]+\.js$/, async (route) => {
+    await chunk.shut;
+    await route.continue().catch(() => undefined);
+  });
+  await band(page).getByRole("button", { name: "Another block" }).click();
+  await page.getByLabel("Block height or date").fill("2026-01-01 17:35");
+  await page.getByLabel("Block height or date").press("Enter");
+  await expect(page.getByRole("button", { name: "Looking up…" })).toBeVisible();
+  await band(page).getByRole("link", { name: "107" }).press("Enter");
+  date.open();
+  // The answer has had its moment; then the block page's code arrives.
+  await page.waitForTimeout(300);
+  chunk.open();
+  await expect(page).toHaveURL(/\/regtest\/block\/[0-9a-f]{64}$/);
 });
