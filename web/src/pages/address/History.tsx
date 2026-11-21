@@ -19,7 +19,7 @@ import { Hash } from "../../components/Hash";
 import { Pagination } from "../../components/Pagination";
 import "../../components/SectionHeader.css";
 import { Empty, ErrorState } from "../../components/States";
-import { TimeAgo } from "../../components/Time";
+import { TimeAgo, TimeUtc } from "../../components/Time";
 import { type ApiResource, createApi, fetchApi } from "../../lib/api";
 import type { AddressStats, Transaction, Utxo } from "../../lib/esplora";
 import { groupDigits, MISSING } from "../../lib/format";
@@ -422,12 +422,15 @@ export function History(props: {
   );
 }
 
-/** When a transaction confirmed, or that it has not. */
-function When(props: { tx: Transaction }) {
+/**
+ * When a transaction confirmed, or that it has not. As of a block (`utc`), the date and time: an
+ * age counted from today would read oddly under a block itself days old.
+ */
+function When(props: { tx: Transaction; utc: boolean }) {
   return (
     <Show when={props.tx.status.confirmed} fallback={<UnconfirmedMark />}>
       <Show when={props.tx.status.block_time} fallback={MISSING}>
-        {(t) => <TimeAgo time={t()} />}
+        {(t) => (props.utc ? <TimeUtc time={t()} seconds={false} /> : <TimeAgo time={t()} />)}
       </Show>
     </Show>
   );
@@ -459,7 +462,7 @@ function Transactions(props: {
     {
       header: "Time",
       optional: true,
-      cell: (tx) => (tx ? <When tx={tx} /> : <Skeleton width="8ch" />),
+      cell: (tx) => (tx ? <When tx={tx} utc={props.at !== undefined} /> : <Skeleton width="8ch" />),
     },
     {
       header: "Transaction",
@@ -475,7 +478,7 @@ function Transactions(props: {
             />
             {/* Phones drop the time column, so the time moves under the txid. */}
             <span class="address-txcell__when">
-              <When tx={tx} />
+              <When tx={tx} utc={props.at !== undefined} />
             </span>
           </span>
         ) : (
@@ -543,7 +546,10 @@ function Transactions(props: {
         </Empty>
       </Match>
       <Match when={true}>
-        <div class="address-txs" aria-busy={props.shown === undefined ? "true" : "false"}>
+        <div
+          class={["address-txs", { "address-txs--asof": props.at !== undefined }]}
+          aria-busy={props.shown === undefined ? "true" : "false"}
+        >
           <DataTable
             caption={
               props.at === undefined

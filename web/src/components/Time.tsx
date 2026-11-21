@@ -11,11 +11,11 @@ export function TimeAgo(props: { time: number; suffix?: boolean }) {
   );
 }
 
-/** Absolute UTC time ("11 Nov 2026, 20:41:07 UTC"). Unix seconds. */
-export function TimeUtc(props: { time: number }) {
+/** Absolute UTC time ("11 Nov 2026, 20:41:07 UTC"; without seconds, "11 Nov 2026, 20:41 UTC"). */
+export function TimeUtc(props: { time: number; seconds?: boolean }) {
   return (
     <time class="num" datetime={isoTime(props.time)}>
-      {formatUtc(props.time)}
+      {formatUtc(props.time, props.seconds !== false)}
     </time>
   );
 }
