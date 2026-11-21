@@ -130,75 +130,82 @@ test("nothing live reaches the page as of a block, but one look at the address n
   await expect(rows(page).first()).toContainText("Unconfirmed");
 });
 
-test("a block is picked by height or date, kept in the URL and across a reload", async ({
-  page,
-}) => {
-  const p2tr = chain.addresses.p2tr;
-  await page.goto(`/regtest/address/${p2tr}`);
-  await expect(stat(page, "Balance")).toHaveText("1.49 000 000 BTC");
-  const open = page.getByRole("button", { name: "As of a block" });
-  await expect(open).toHaveAttribute("aria-expanded", "false");
-  const totals = page.locator(".address-totals");
-  const before = await totals.boundingBox();
-  await open.click();
-  await expect(open).toHaveAttribute("aria-expanded", "true");
-  const field = page.getByLabel("Block height or date");
-  // At a desktop's width it opens over the page, just under its button and flush with its right
-  // edge, and takes focus: nothing on the page moves.
-  await expect(field).toBeFocused();
-  expect(await totals.boundingBox()).toStrictEqual(before);
-  const pop = page.getByRole("group", { name: "This address at a past block" });
-  const [b, p] = [await open.boundingBox(), await pop.boundingBox()];
-  if (!b || !p) throw new Error("the button or its field has no box");
-  expect(p.y - (b.y + b.height)).toBeGreaterThanOrEqual(0);
-  expect(p.y - (b.y + b.height)).toBeLessThan(16);
-  expect(Math.abs(p.x + p.width - (b.x + b.width))).toBeLessThan(2);
-  // Escape closes it, and so does its close button; either gives focus back to the button.
-  await page.keyboard.press("Escape");
-  await expect(pop).toBeHidden();
-  await expect(open).toBeFocused();
-  await expect(open).toHaveAttribute("aria-expanded", "false");
-  await open.click();
-  await pop.getByRole("button", { name: "Close" }).click();
-  await expect(pop).toBeHidden();
-  await expect(open).toBeFocused();
-  await open.click();
-  await field.fill("nonsense");
-  await field.press("Enter");
-  await expect(page.getByRole("alert")).toHaveText(
-    "That is neither a block height nor a date. Try 840000 or 2024-04-20.",
-  );
-  await expect(field).toHaveAttribute("aria-invalid", "true");
-  // A day still to come is said as a height past the tip is, naming the newest block.
-  await field.fill("2030-01-01");
-  await field.press("Enter");
-  await expect(page.getByRole("alert")).toHaveText(
-    new RegExp(`^1 Jan 2030 has not come yet\\. The newest block is ${chain.tip.height}\\.$`),
-  );
-  await expect(page.getByRole("button", { name: `Show block ${chain.tip.height}` })).toBeVisible();
-  await field.fill("106");
-  await field.press("Enter");
-  await expect(page).toHaveURL(`/regtest/address/${p2tr}?at=106`);
-  await expect(stat(page, "Balance")).toHaveText("1.00 000 000 BTC");
-  // The field went with the live page: focus is on the band's heading, not lost to the body.
-  await expect(band(page).getByRole("heading")).toBeFocused();
-  await page.reload();
-  await expect(band(page).getByRole("heading")).toHaveText("As of block 106");
-  await expect(stat(page, "Balance")).toHaveText("1.00 000 000 BTC");
-  // Back goes to the live page it came from.
-  await page.goBack();
-  await expect(page).toHaveURL(`/regtest/address/${p2tr}`);
+// The pop-over's place is measured: in the wide stand-in font, as CI draws text (docs/CI.md).
+test.describe("the block field, in the wide stand-in font", () => {
+  test.use({ prose: "wide" });
 
-  // A date: the newest block by the end of that day, UTC. The scenario's blocks all fall on
-  // 1 Jan 2026, block 105 at 17:30.
-  await page.goto(`/regtest/address/${p2tr}?at=107`);
-  await band(page).getByRole("button", { name: "Another block" }).click();
-  await expect(page.getByLabel("Block height or date")).toHaveValue("107");
-  await page.getByLabel("Block height or date").fill("2026-01-01 17:35");
-  await page.getByLabel("Block height or date").press("Enter");
-  await expect(page).toHaveURL(`/regtest/address/${p2tr}?at=105`);
-  await expect(page.getByText("Not used yet at block 105")).toBeVisible();
-  await expect(band(page).getByRole("heading")).toBeFocused();
+  test("a block is picked by height or date, kept in the URL and across a reload", async ({
+    page,
+  }) => {
+    const p2tr = chain.addresses.p2tr;
+    await page.goto(`/regtest/address/${p2tr}`);
+    await expect(stat(page, "Balance")).toHaveText("1.49 000 000 BTC");
+    const open = page.getByRole("button", { name: "As of a block" });
+    await expect(open).toHaveAttribute("aria-expanded", "false");
+    const totals = page.locator(".address-totals");
+    const before = await totals.boundingBox();
+    await open.click();
+    await expect(open).toHaveAttribute("aria-expanded", "true");
+    const field = page.getByLabel("Block height or date");
+    // At a desktop's width it opens over the page, just under its button and flush with its right
+    // edge, and takes focus: nothing on the page moves.
+    await expect(field).toBeFocused();
+    expect(await totals.boundingBox()).toStrictEqual(before);
+    const pop = page.getByRole("group", { name: "This address at a past block" });
+    const [b, p] = [await open.boundingBox(), await pop.boundingBox()];
+    if (!b || !p) throw new Error("the button or its field has no box");
+    expect(p.y - (b.y + b.height)).toBeGreaterThanOrEqual(0);
+    expect(p.y - (b.y + b.height)).toBeLessThan(16);
+    expect(Math.abs(p.x + p.width - (b.x + b.width))).toBeLessThan(2);
+    // Escape closes it, and so does its close button; either gives focus back to the button.
+    await page.keyboard.press("Escape");
+    await expect(pop).toBeHidden();
+    await expect(open).toBeFocused();
+    await expect(open).toHaveAttribute("aria-expanded", "false");
+    await open.click();
+    await pop.getByRole("button", { name: "Close" }).click();
+    await expect(pop).toBeHidden();
+    await expect(open).toBeFocused();
+    await open.click();
+    await field.fill("nonsense");
+    await field.press("Enter");
+    await expect(page.getByRole("alert")).toHaveText(
+      "That is neither a block height nor a date. Try 840000 or 2024-04-20.",
+    );
+    await expect(field).toHaveAttribute("aria-invalid", "true");
+    // A day still to come is said as a height past the tip is, naming the newest block.
+    await field.fill("2030-01-01");
+    await field.press("Enter");
+    await expect(page.getByRole("alert")).toHaveText(
+      new RegExp(`^1 Jan 2030 has not come yet\\. The newest block is ${chain.tip.height}\\.$`),
+    );
+    await expect(
+      page.getByRole("button", { name: `Show block ${chain.tip.height}` }),
+    ).toBeVisible();
+    await field.fill("106");
+    await field.press("Enter");
+    await expect(page).toHaveURL(`/regtest/address/${p2tr}?at=106`);
+    await expect(stat(page, "Balance")).toHaveText("1.00 000 000 BTC");
+    // The field went with the live page: focus is on the band's heading, not lost to the body.
+    await expect(band(page).getByRole("heading")).toBeFocused();
+    await page.reload();
+    await expect(band(page).getByRole("heading")).toHaveText("As of block 106");
+    await expect(stat(page, "Balance")).toHaveText("1.00 000 000 BTC");
+    // Back goes to the live page it came from.
+    await page.goBack();
+    await expect(page).toHaveURL(`/regtest/address/${p2tr}`);
+
+    // A date: the newest block by the end of that day, UTC. The scenario's blocks all fall on
+    // 1 Jan 2026, block 105 at 17:30.
+    await page.goto(`/regtest/address/${p2tr}?at=107`);
+    await band(page).getByRole("button", { name: "Another block" }).click();
+    await expect(page.getByLabel("Block height or date")).toHaveValue("107");
+    await page.getByLabel("Block height or date").fill("2026-01-01 17:35");
+    await page.getByLabel("Block height or date").press("Enter");
+    await expect(page).toHaveURL(`/regtest/address/${p2tr}?at=105`);
+    await expect(page.getByText("Not used yet at block 105")).toBeVisible();
+    await expect(band(page).getByRole("heading")).toBeFocused();
+  });
 });
 
 test("a height past the tip and a parameter that is no height are said plainly", async ({
@@ -249,6 +256,12 @@ test("a large address, kept or not, says what it cannot show as of a block", asy
     (url) => url.pathname === `/regtest/api/address/${address}/txs/chain`,
     (route) => route.fulfill({ status: 503, json: { error: notKept } }),
   );
+  // Its newest history is refused too while the server does not keep it whole: for good.
+  await page.route(
+    (url) => url.pathname === `/regtest/api/address/${address}/txs/summary`,
+    (route) =>
+      route.fulfill({ status: 503, json: { error: "address history too large for this server" } }),
+  );
   const asked: string[] = [];
   page.on("request", (r) => {
     if (r.url().includes(`/api/address/${address}`)) asked.push(r.url());
@@ -258,6 +271,11 @@ test("a large address, kept or not, says what it cannot show as of a block", asy
   await expect(
     page.getByText("Transactions at this block are not kept for this address"),
   ).toBeVisible();
+  // A refusal that will never change offers no step and nothing to try again.
+  await expect(band(page).getByRole("button", { name: /Next change|Previous change/ })).toHaveCount(
+    0,
+  );
+  await expect(band(page).getByText(/could not be looked up/)).toHaveCount(0);
   // A refusal of that kind is not "busy": it is not asked again.
   await page.waitForTimeout(1500);
   expect(asked.filter((u) => new URL(u).pathname.endsWith(address))).toHaveLength(1);
@@ -650,14 +668,12 @@ test("every address read carries the one resolved hash, paged and after a change
   await expect(chart).toBeVisible();
 
   expect(seen.filter((s) => s.want === at108).length).toBeGreaterThan(3);
-  // All but the page's one look at the address now (the totals and newest history page).
-  const now = new Set([
-    `/regtest/api/address/${address}`,
-    `/regtest/api/address/${address}/txs/summary`,
-  ]);
-  expect(
-    seen.filter((s) => s.asof !== s.want && !(s.asof === null && now.has(s.url))),
-  ).toStrictEqual([]);
+  // All but the page's one look at the address now: its totals, then its newest history as of
+  // the tip those totals were stamped with.
+  const now = (s: { url: string; asof: string | null }) =>
+    (s.url === `/regtest/api/address/${address}` && s.asof === null) ||
+    (s.url.startsWith(`/regtest/api/address/${address}/txs/summary?`) && s.asof === chain.tip.hash);
+  expect(seen.filter((s) => s.asof !== s.want && !now(s))).toStrictEqual([]);
 });
 
 test("a block found between its lookup and a cached tip short of it is shown, not called unmined", async ({
@@ -689,7 +705,12 @@ test("a step the server refuses to work out says so, and comes once it answers",
 }) => {
   // P2SH: paid in block 106, spent in 107, so as of 106 its next change is 107.
   const address = chain.addresses.p2sh;
-  const summary = (url: URL) => url.pathname === `/regtest/api/address/${address}/txs/summary`;
+  // The lookup's page only, as of the tip: not the chart's, which is as of block 106.
+  const summary = (url: URL) =>
+    url.pathname === `/regtest/api/address/${address}/txs/summary` &&
+    url.searchParams.get("asof") !== chain.blocks[106];
+  // The retry's back-off runs on a clock the test drives, not on real waiting.
+  await page.clock.install();
   // Busy (429): asked again as the server says, while the band says why the step waits.
   await page.route(summary, (route) =>
     route.fulfill({ status: 429, headers: { "retry-after": "1" }, json: { error: "slow down" } }),
@@ -701,10 +722,9 @@ test("a step the server refuses to work out says so, and comes once it answers",
     "The server is busy, so the next change is still being looked up.",
   );
   await page.unroute(summary);
-  // Its next ask comes after a back-off of a few seconds (lib/api.ts, retryDelay).
-  await expect(band(page).getByRole("button", { name: "Next change: block 107" })).toBeEnabled({
-    timeout: 15_000,
-  });
+  // Past the back-off (lib/api.ts, retryDelay: at most 2.5 s for the first retries).
+  await page.clock.runFor(5000);
+  await expect(band(page).getByRole("button", { name: "Next change: block 107" })).toBeEnabled();
   await expect(band(page).getByText(/still being looked up/)).toHaveCount(0);
 
   // Failed outright: said, with a way to ask again, never a button greyed for good.
@@ -794,4 +814,62 @@ test("a date's lookup still running when the reader follows a link writes nothin
   await page.waitForTimeout(300);
   chunk.open();
   await expect(page).toHaveURL(/\/regtest\/block\/[0-9a-f]{64}$/);
+});
+
+test("a present that cannot be compared, or a lookup that fails partway, never states a false fact", async ({
+  page,
+}) => {
+  const p2sh = chain.addresses.p2sh;
+  const totals = (address: string) => (url: URL) =>
+    url.pathname === `/regtest/api/address/${address}` && !url.searchParams.has("asof");
+  const stats = (tx: number, funded: number, spent: number) => ({
+    chain_stats: {
+      tx_count: tx,
+      funded_txo_count: 1,
+      funded_txo_sum: funded,
+      spent_txo_count: spent > 0 ? 1 : 0,
+      spent_txo_sum: spent,
+    },
+    mempool_stats: {
+      tx_count: 0,
+      funded_txo_count: 0,
+      funded_txo_sum: 0,
+      spent_txo_count: 0,
+      spent_txo_sum: 0,
+    },
+  });
+  // A current answer older than block 107 (kept a second, or another chain): fewer transactions.
+  await page.route(totals(p2sh), (route) => route.fulfill({ json: stats(1, 50_000_000, 0) }));
+  await page.goto(`/regtest/address/${p2sh}?at=107`);
+  await expect(stat(page, "Transactions")).toHaveText("2");
+  await expect(band(page).getByRole("button", { name: /^Previous change/ })).toBeEnabled();
+  await expect(page.locator(".address-stat__more")).toHaveCount(0);
+  await expect(page.getByText(/later|The same now/)).toHaveCount(0);
+  await expect(band(page).getByRole("button", { name: /^Next change/ })).toHaveCount(0);
+  await page.unrouteAll();
+
+  // Before the miner's first transaction its history is read page by page; one that fails is a
+  // failed lookup, offered again, never "further back than the newest 200".
+  const miner = chain.addresses.miner;
+  const later = (url: URL) => url.pathname.startsWith(`/regtest/api/address/${miner}/txs/summary/`);
+  await page.route(later, (route) =>
+    route.fulfill({ status: 504, json: { error: "request timed out" } }),
+  );
+  await page.goto(`/regtest/address/${miner}?at=0`);
+  await expect(band(page)).toContainText("The next change could not be looked up");
+  await expect(page.getByText(/further back/)).toHaveCount(0);
+  await page.unrouteAll();
+  await band(page).getByRole("button", { name: "Try again" }).click();
+  await expect(band(page).getByRole("button", { name: /^First used at block \d+$/ })).toBeEnabled();
+
+  // More history now than the lookup reads: said at once, with nothing read to learn it.
+  const pages: string[] = [];
+  page.on("request", (r) => {
+    if (new URL(r.url()).pathname.includes(`/address/${miner}/txs/summary`)) pages.push(r.url());
+  });
+  await page.route(totals(miner), (route) => route.fulfill({ json: stats(250, 5_000_000_000, 0) }));
+  await page.goto(`/regtest/address/${miner}?at=0`);
+  await expect(page.getByText("It has 250 confirmed transactions now.")).toBeVisible();
+  await expect(page.getByText(/further back than the newest 200/)).toBeVisible();
+  expect(pages).toStrictEqual([]);
 });

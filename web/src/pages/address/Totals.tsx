@@ -35,9 +35,7 @@ export function Stat(props: {
           {props.sub}
         </Show>
       </dd>
-      <Show when={props.more !== undefined}>
-        <dd class="address-stat__more">{props.more}</dd>
-      </Show>
+      <Show when={props.more}>{(more) => <dd class="address-stat__more">{more()}</dd>}</Show>
     </div>
   );
 }

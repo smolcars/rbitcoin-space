@@ -1,7 +1,7 @@
 // The address page as of a past block (`?at=<height>`): the block field that picks one, the band
 // that says which block the page shows, and the page itself, every read pinned to that block's
 // hash. Nothing live: no topic, no ledger, no refresh. docs/FRONTEND.md "An address as of a block".
-import { useBeforeLeave, useSearchParams } from "@solidjs/router";
+import { useBeforeLeave, useLocation, useSearchParams } from "@solidjs/router";
 import {
   createEffect,
   createMemo,
@@ -32,6 +32,7 @@ import { groupDigits } from "../../lib/format";
 import { NETWORK_NAMES, type Network, paths } from "../../lib/network";
 import { useNetwork } from "../../lib/page";
 import { blockAt } from "../../palette/block-at";
+import { recognise } from "../../lib/address";
 import { refusal } from "./address";
 import {
   type At,
@@ -109,9 +110,14 @@ export function AsOfForm(props: {
     setAsking(false);
   };
   onCleanup(drop);
-  // A date's answer belongs to the page it was asked on: once any navigation starts (a link, a
-  // step, Back), it is dropped, so it never lands on the router's pending destination.
-  useBeforeLeave(drop);
+  // A date's answer belongs to the page it was asked on: once a navigation starts to anywhere
+  // else (a link, a step, Back), it is dropped, so it never lands on the router's pending
+  // destination. Another spelling of the same address, at the same block, is the same page.
+  const location = useLocation();
+  useBeforeLeave((e) => {
+    if (typeof e.to === "string" && samePage(e.to, location.pathname, location.search)) return;
+    drop();
+  });
   // A date's lookup belongs to the page that asked it: moving to another address or network
   // (the router keeps this form mounted) drops it, so its height never lands on that page. Another
   // spelling of the same address (upper-case Bech32) is the same page.
@@ -226,11 +232,12 @@ export function AsOfForm(props: {
           </p>
         )}
       </Show>
-      <Show when={newest()}>
+      {/* Wrapped, so a newest block at height 0 (a new chain) is not taken for none. */}
+      <Show when={boxed(newest())}>
         {(n) => (
           <p>
-            <button class="btn" type="button" onClick={() => show(n())}>
-              Show block {groupDigits(n())}
+            <button class="btn" type="button" onClick={() => show(n().height)}>
+              Show block {groupDigits(n().height)}
             </button>
           </p>
         )}
@@ -260,6 +267,39 @@ function DepthMark() {
     </svg>
   );
 }
+
+/** The address a path names, as `AddressPage` keys it, and what precedes it (the network). */
+function addressOf(path: string): { before: string; address: string } | undefined {
+  const at = path.indexOf("/address/");
+  if (at === -1) return undefined;
+  const raw = path.slice(at + "/address/".length).split("/")[0] ?? "";
+  let text = raw;
+  try {
+    text = decodeURIComponent(raw);
+  } catch {
+    // Kept as it came.
+  }
+  const found = recognise(text);
+  return found === null ? undefined : { before: path.slice(0, at), address: found.address };
+}
+
+/** `to` is the page at `path` and `search` still: the same address, network and block. */
+function samePage(to: string, path: string, search: string): boolean {
+  const url = new URL(to, "http://page.invalid");
+  const there = addressOf(url.pathname);
+  const here = addressOf(path);
+  return (
+    there !== undefined &&
+    here !== undefined &&
+    there.before === here.before &&
+    there.address === here.address &&
+    url.searchParams.get("at") === new URLSearchParams(search).get("at")
+  );
+}
+
+/** A height for `Show`/`Match`, which take 0 for "nothing": block 0 is a block. */
+const boxed = (height: number | undefined): { height: number } | undefined =>
+  height === undefined ? undefined : { height };
 
 /** From this width the block field opens over the page, under its button; below, in the page. */
 const OVER = "(min-width: 65em)";
@@ -297,18 +337,20 @@ export function AsOfPicker(props: {
   };
   // Across 65em its form would change under it (floating with no press outside to close it, or
   // the reverse): it closes instead.
-  const media = window.matchMedia(OVER);
+  let media: MediaQueryList | undefined;
   const crossed = () => shut();
   const shut = () => {
     const close = closePop;
     closePop = undefined;
     close?.();
     document.removeEventListener("keydown", escape);
-    media.removeEventListener("change", crossed);
+    media?.removeEventListener("change", crossed);
+    media = undefined;
     setOpen(false);
   };
   const show = () => {
     setOpen(true);
+    media = window.matchMedia(OVER);
     media.addEventListener("change", crossed);
     if (!media.matches) {
       document.addEventListener("keydown", escape);
@@ -328,7 +370,7 @@ export function AsOfPicker(props: {
   onCleanup(() => {
     closePop?.();
     document.removeEventListener("keydown", escape);
-    media.removeEventListener("change", crossed);
+    media?.removeEventListener("change", crossed);
   });
   return (
     <>
@@ -527,16 +569,16 @@ function Actions(props: {
       >
         Back to now
       </button>
-      <Show when={props.newest}>
+      <Show when={boxed(props.newest)}>
         {(n) => (
           <button
             class="btn"
             type="button"
-            aria-label={`Show block ${groupDigits(n())}`}
-            onClick={() => go(n())}
+            aria-label={`Show block ${groupDigits(n().height)}`}
+            onClick={() => go(n().height)}
           >
             Show <span class="address-asof__long">block </span>
-            {groupDigits(n())}
+            {groupDigits(n().height)}
           </button>
         )}
       </Show>
@@ -848,12 +890,12 @@ function PinnedAt(props: { address: string; isKey: boolean; height: number; agai
                     </>
                   )}
                 </Match>
-                <Match when={tip()}>
+                <Match when={boxed(tip())}>
                   {(t) => (
                     <>
                       Not mined yet. The newest block is{" "}
-                      <Link class="num" href={paths.block(t())}>
-                        {groupDigits(t())}
+                      <Link class="num" href={paths.block(t().height)}>
+                        {groupDigits(t().height)}
                       </Link>
                       .
                     </>
@@ -981,18 +1023,18 @@ function PinnedAt(props: { address: string; isKey: boolean; height: number; agai
             </Switch>
             {/* Where to go from here: its first use when its history reaches it, else now. */}
             <Switch>
-              <Match when={firstUse() !== undefined && firstUse()}>
+              <Match when={boxed(firstUse())}>
                 {(h) => (
                   <p class="address-asof__onward">
                     <button
                       class="btn"
                       type="button"
                       onClick={() => {
-                        arrive(page, String(h()));
-                        setSearch({ at: String(h()) }, { scroll: false });
+                        arrive(page, String(h().height));
+                        setSearch({ at: String(h().height) }, { scroll: false });
                       }}
                     >
-                      {`First used at block ${groupDigits(h())}`}
+                      {`First used at block ${groupDigits(h().height)}`}
                     </button>
                   </p>
                 )}
