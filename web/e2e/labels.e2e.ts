@@ -780,7 +780,10 @@ async function walk(page: Page, seen: Seen, gate: Gate, block: string, paid: str
     ],
     /"state":"watching"/,
   );
-  // The schedule held: the page asked for the address's totals only after its first status.
+  // The schedule held, as far as the test can see: Playwright forwarded the first status to the page
+  // before the page asked for the totals. Forwarding is not delivery: this does not show the
+  // browser had handed the frame to the page before it asked, only that the server answered in
+  // time for that to be possible.
   const visit = seen.events.slice(addressFrom);
   const status = visit.findIndex((e) => e.startsWith("gave") && e.includes('"watching"'));
   const totals = visit.indexOf(`asked /regtest/api/address/${paid}`);
