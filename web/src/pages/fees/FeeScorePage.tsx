@@ -17,12 +17,12 @@ import {
   costGap,
   costView,
   hasSamples,
+  leftOutView,
   type LevelView,
   levelViews,
   notOursSentence,
   parseWindow,
   type Score,
-  type Standing,
   TARGET,
   TARGET_TEXT,
   WINDOWS,
@@ -85,21 +85,11 @@ function FeeScore(props: { network: Network }) {
         <h1>{TITLE}</h1>
         <Periods choices={WINDOWS} current={win().id} href={paths.feeScore} fitted={false} />
       </header>
-      <div class="fee-score__intro">
-        <p>
-          How this server's fee recommendations, the numbers behind the home page's{" "}
-          <Link href={paths.home()}>Fee to pay now</Link>, fared against the blocks that followed
-          them. The home page rounds each one up, so a reader who paid what it showed did no worse.
-          Every level is held to {TARGET_TEXT}.
-        </p>
-        <Show when={props.network !== "mainnet"}>
-          <p class="fee-score__caveat">
-            On a test network most blocks have room to spare. A block with room is judged by the
-            cheapest rates it took, so an answer at the network's minimum, which would have got in
-            too, counts as a miss: low shares here say more about the blocks than the answers.
-          </p>
-        </Show>
-      </div>
+      <p class="fee-score__intro">
+        How often this server's recommended fees, the numbers behind the home page's{" "}
+        <Link href={paths.home()}>Fee to pay now</Link>, were mined in time. Each level is held to{" "}
+        {TARGET_TEXT}.
+      </p>
       <Show
         when={request.state !== "errored"}
         fallback={<Failure error={request.error} retry={refetch} />}
@@ -118,7 +108,7 @@ function FeeScore(props: { network: Network }) {
               aria-busy={current() && !request.loading ? "false" : "true"}
             >
               <Show when={hasSamples(s())} fallback={<NothingRecorded score={s()} />}>
-                <Board score={s()} />
+                <Board score={s()} testNet={props.network !== "mainnet"} />
               </Show>
             </div>
           )}
@@ -182,31 +172,59 @@ function NothingRecorded(props: { score: Score }) {
   );
 }
 
-function Board(props: { score: Score }) {
-  const views = createMemo(() => levelViews(props.score));
+function Board(props: { score: Score; testNet: boolean }) {
+  const views = createMemo(() => levelViews(props.score, props.testNet));
   const coverage = () => {
     const s = props.score;
     return s.from === null
       ? undefined
-      : `The period these figures cover: ${formatUtc(s.from, false)} to ${formatUtc(s.to, false)}.`;
+      : `${formatUtc(s.from, false).replace(/ UTC$/, "")} to ${formatUtc(s.to, false)}`;
   };
   return (
     <>
       <section class="fee-score__levels" aria-labelledby="fee-score-met">
         <SectionHeader title="Mined in time" id="fee-score-met" />
-        <Show when={coverage()}>{(text) => <p class="fee-score__coverage">{text()}</p>}</Show>
+        <div class="fee-score__key">
+          <Show when={coverage()}>
+            {(text) => (
+              <p>
+                <span class="visually-hidden">The period these figures cover: </span>
+                {text()}
+              </p>
+            )}
+          </Show>
+          <p aria-hidden="true">
+            <span class="fee-key fee-key--target" />
+            {TARGET_TEXT} target
+            <span class="fee-key fee-key--band" />
+            95% interval
+          </p>
+        </div>
+        <Show when={props.testNet}>
+          <p class="fee-score__caveat">
+            <DashedCircle />
+            <span>
+              On a test network most blocks have room to spare, and a block with room is judged by
+              the cheapest rate it took: an answer at the network's minimum, which would have got in
+              too, counts as a miss. So a share under {TARGET_TEXT} here is not called a failure.
+            </span>
+          </p>
+        </Show>
         <ul class="fee-levels">
           <For each={views()}>{(v) => <LevelRow view={v} />}</For>
         </ul>
       </section>
-      <CostPanel views={views()} />
-      <EvidencePanel views={views()} score={props.score} />
+      <div class="fee-score__tables">
+        <CostPanel views={views()} />
+        <EvidencePanel views={views()} score={props.score} />
+      </div>
       <More label="How the score is kept">
         <p>
           Every 30 seconds the server notes the four rates it is recommending. Each answer is then
           judged against the blocks that came after it: it is <strong>met</strong> when its rate was
           at least 0.001 sat/vB above the clearing rate of one of the blocks it promised, the next
           block for High, the next 3 for Medium, the next 6 for Low and the next 144 for No rush.
+          The home page rounds each rate up, so a reader who paid what it showed did no worse.
         </p>
         <p>
           A block's clearing rate comes from the effective rates the server's last projection before
@@ -222,27 +240,49 @@ function Board(props: { score: Score }) {
           no share is given: the interval would be too wide to say anything.
         </p>
         <p>
-          Every level is held to {TARGET_TEXT}: met at least that often. A level whose share is
-          under it is shown as below target, whatever its interval.
+          Every level is held to {TARGET_TEXT}: met at least that often. On mainnet a level whose
+          share is under it is shown as below target, whatever its interval.
+        </p>
+        <p>
+          Some answers are left out rather than judged. <strong>Not finished</strong>: the blocks
+          they promised have not all come yet; No rush waits 144 blocks, about a day.{" "}
+          <strong>Outage</strong>: their blocks reached into a gap of over two hours between
+          recorded blocks, which the server takes as an outage, or into the half hour after it,
+          while the mempool refills. <strong>No clearing rate</strong>: none of their blocks has a
+          rate that got in, because the server had seen none of those blocks' transactions waiting,
+          or missed the blocks.
         </p>
         <p>
           A block with room to spare is judged by the cheapest transaction it took, not the cheapest
           it would have taken, so an answer at the network's minimum counts as a miss against it. On
-          mainnet, whose blocks are full, this does not arise.
+          mainnet, whose blocks are full, this does not arise; on a test network a share under the
+          target is therefore marked "Not a fair test here" rather than below target.
         </p>
       </More>
     </>
   );
 }
 
-const VERDICT_ICON: Record<Standing, string> = {
+const VERDICT_ICON: Record<"meets" | "below", string> = {
   meets: "M4.5 8.5l2.4 2.4L11.8 5.6",
   below: "M5.2 5.2l5.6 5.6M10.8 5.2l-5.6 5.6",
-  "too-few": "",
 };
+
+/** The mark of a verdict that is not one: too few blocks, or a test the blocks did not allow. */
+function DashedCircle() {
+  return (
+    <svg class="fee-level__icon" viewBox="0 0 16 16" aria-hidden="true">
+      <circle cx="8" cy="8" r="5.5" stroke-dasharray="2.6 2" />
+    </svg>
+  );
+}
 
 function LevelRow(props: { view: LevelView }) {
   const v = () => props.view;
+  const icon = () => {
+    const s = v().standing;
+    return s === "meets" || s === "below" ? VERDICT_ICON[s] : undefined;
+  };
   return (
     <li class={["fee-level", `fee-level--${v().standing}`]}>
       <div class="fee-level__name">
@@ -268,36 +308,41 @@ function LevelRow(props: { view: LevelView }) {
       </div>
       <Meter view={v()} />
       <p class="fee-level__verdict">
-        <svg class="fee-level__icon" viewBox="0 0 16 16" aria-hidden="true">
-          <Show
-            when={v().standing !== "too-few"}
-            fallback={<circle cx="8" cy="8" r="5.5" stroke-dasharray="2.6 2" />}
-          >
-            <path d={VERDICT_ICON[v().standing]} />
-          </Show>
-        </svg>
-        {v().verdict}
-      </p>
-      <p class="fee-level__detail">
-        <Show when={v().interval}>
-          {(range) => (
-            <>
-              95% interval <span class="num">{range()}</span>.{" "}
-            </>
+        <Show when={icon()} fallback={<DashedCircle />}>
+          {(d) => (
+            <svg class="fee-level__icon" viewBox="0 0 16 16" aria-hidden="true">
+              <path d={d()} />
+            </svg>
           )}
         </Show>
-        {v().detail} {v().evidence.charAt(0).toUpperCase() + v().evidence.slice(1)}.
+        {v().verdict}
+      </p>
+      {/* The drawing shows the interval; the words are read aloud always, and shown when they
+          add to it: the interval reaches across the target, or there is no share yet. */}
+      <p class={["fee-level__detail", { "visually-hidden": !v().unsure }]}>
+        <Show when={v().interval}>
+          {(range) => (
+            <span class="visually-hidden">
+              95% interval <span class="num">{range()}</span>.{" "}
+            </span>
+          )}
+        </Show>
+        {v().detail}
       </p>
     </li>
   );
 }
 
-/** The share on a 0 to 100% line: the interval as a band, the share as a mark, the target. */
+/**
+ * The share on a 0 to 100% line: the interval as a band with its ends written under it, the share
+ * as a mark, the target as a dashed line. The ends' label is centred on the band and slides to stay
+ * inside the line: moved left by the band's own share of its width.
+ */
 function Meter(props: { view: LevelView }) {
   const marks = () => props.view.marks;
   return (
     <div class="fee-meter" aria-hidden="true" style={{ "--target": `${TARGET * 100}%` }}>
-      <span class="fee-meter__target-label num">{TARGET_TEXT}</span>
+      <span class="fee-meter__end num">0%</span>
       <div
         class="fee-meter__track"
         style={
@@ -316,10 +361,17 @@ function Meter(props: { view: LevelView }) {
         </Show>
         <span class="fee-meter__target" />
       </div>
-      <span class="fee-meter__ends num">
-        <span>0%</span>
-        <span>100%</span>
-      </span>
+      <span class="fee-meter__end num">100%</span>
+      <Show when={marks() && props.view.interval}>
+        {(range) => (
+          <span
+            class="fee-meter__range num"
+            style={{ "--mid": `${((marks()?.lo ?? 0) + (marks()?.hi ?? 0)) / 2}%` }}
+          >
+            {range()}
+          </span>
+        )}
+      </Show>
     </div>
   );
 }
@@ -332,6 +384,20 @@ function CostPanel(props: { views: LevelView[] }) {
   );
   const columns: Column<LevelView>[] = [
     { header: "Level", cell: (v) => v.name },
+    {
+      header: "Recommended, median",
+      short: "Rate",
+      sub: "sat/vB",
+      numeric: true,
+      cell: (v) => (
+        <Show
+          when={costView(v).recommended}
+          fallback={<span class="muted">{v.standing === "too-few" ? "too few blocks" : "–"}</span>}
+        >
+          {(text) => <span class="num">{text()}</span>}
+        </Show>
+      ),
+    },
     {
       header: "Overpaid when met, mean",
       short: "Over, mean",
@@ -357,21 +423,16 @@ function CostPanel(props: { views: LevelView[] }) {
   return (
     <section class="fee-score__cost" aria-labelledby="fee-score-cost">
       <SectionHeader title="What it cost" id="fee-score-cost" />
-      <div class="fee-score__prose">
-        <p>
-          <strong>Overpaid</strong> is how far an answer that was met paid above the lowest rate
-          that would have counted as getting in: 0.001 sat/vB over the cheapest clearing rate among
-          the blocks it promised.
-        </p>
-        <p>
-          <strong>Short</strong> is how far an answer that missed was below that same lowest rate.
-        </p>
-      </div>
       <DataTable
-        caption="What each level paid above, or fell short of, the rate that sufficed"
+        caption="What each level recommended, and paid above or fell short of the rate that sufficed"
         columns={columns}
         rows={props.views}
       />
+      <p class="fee-score__prose">
+        Measured from the lowest rate that would have got in, 0.001 sat/vB over the cheapest
+        clearing rate among the blocks an answer promised: <strong>overpaid</strong> is how far a
+        met answer paid above it, <strong>short</strong> how far a missed one fell below it.
+      </p>
     </section>
   );
 }
@@ -393,24 +454,19 @@ function EvidencePanel(props: { views: LevelView[]; score: Score }) {
       cell: (v) => count(v.source.outcomes),
     },
     {
-      header: "Left out: not finished",
-      short: "Not finished",
+      header: "Left out",
       numeric: true,
-      cell: (v) => count(v.source.leftOut.unfinished),
-    },
-    {
-      header: "Left out: outage",
-      short: "Outage",
-      numeric: true,
-      drop: 1,
-      cell: (v) => count(v.source.leftOut.outage),
-    },
-    {
-      header: "Left out: no clearing rate",
-      short: "No rate",
-      numeric: true,
-      drop: 1,
-      cell: (v) => count(v.source.leftOut.noClearing),
+      cell: (v) => {
+        const left = leftOutView(v.source);
+        return (
+          <>
+            <span class="num">{left.total}</span>
+            <Show when={left.kinds}>
+              {(kinds) => <span class="fee-score__kinds">{kinds()}</span>}
+            </Show>
+          </>
+        );
+      },
     },
   ];
   return (
@@ -423,13 +479,8 @@ function EvidencePanel(props: { views: LevelView[]; score: Score }) {
       />
       <div class="fee-score__prose">
         <p>
-          Some answers are left out rather than judged. <strong>Not finished</strong>: the blocks
-          they promised have not all come yet; No rush waits 144 blocks, about a day.{" "}
-          <strong>Outage</strong>: their blocks reached into a gap of over two hours between
-          recorded blocks, which the server takes as an outage, or into the half hour after it,
-          while the mempool refills. <strong>No clearing rate</strong>: none of their blocks has a
-          rate that got in, because the server had seen none of those blocks' transactions waiting,
-          or missed the blocks.
+          An answer is left out, not judged, while its blocks have not all come, when they fell in
+          an outage, or when none of them has a clearing rate.
         </p>
         <Show when={notOursSentence(props.score)}>{(text) => <p>{text()}</p>}</Show>
       </div>

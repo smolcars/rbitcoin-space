@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mount } from "../../components/test-utils";
 import { clearApiCache } from "../../lib/api";
 import FeeScorePage from "./FeeScorePage";
-import { MAINNET_1W, MAINNET_24H, nothingRecorded } from "./testdata";
+import { MAINNET_1W, MAINNET_24H, nothingRecorded, SIGNET_1W } from "./testdata";
 
 type Reply = () => Response;
 let replies: Record<string, Reply>;
@@ -64,7 +64,14 @@ describe("fee track record page", () => {
     expect(noRush?.classList.contains("fee-level--below")).toBe(true);
     expect(text(noRush?.querySelector(".fee-level__met"))).toBe("67.4%");
     expect(text(noRush?.querySelector(".fee-level__verdict"))).toBe("Below target");
-    expect(text(noRush?.querySelector(".fee-level__detail"))).toContain("95% interval 63.3–71.4%.");
+    // The interval is drawn, its ends written under the band; the sentence is read aloud, and
+    // shown only where it says more than the drawing.
+    expect(text(noRush?.querySelector(".fee-meter__range"))).toBe("63.3–71.4%");
+    const detail = noRush?.querySelector(".fee-level__detail");
+    expect(text(detail)).toBe("95% interval 63.3–71.4%. Under 85% across its whole interval.");
+    expect(detail?.classList.contains("visually-hidden")).toBe(true);
+    // The counts are in the last table only.
+    expect(text(noRush)).not.toContain("answers decided by");
     for (const r of [low, medium, high])
       expect(text(r?.querySelector(".fee-level__verdict"))).toBe("Meets target");
     expect(text(high?.querySelector(".fee-level__said"))).toBe("mined within the next block");
@@ -86,8 +93,32 @@ describe("fee track record page", () => {
       "A share is given from 30 blocks",
     );
     expect(noRush?.querySelector(".fee-meter__mark")).toBeNull();
-    // A test network says why its shares read low.
-    expect(text(el)).toContain("On a test network most blocks have room to spare.");
+    expect(noRush?.querySelector(".fee-level__detail")?.classList.contains("visually-hidden")).toBe(
+      false,
+    );
+    // A test network says why its shares read low, in the panel of the verdicts.
+    expect(text(el.querySelector(".fee-score__levels"))).toContain(
+      "On a test network most blocks have room to spare",
+    );
+  });
+
+  it("on a test network marks a share under the target as no fair test, figures kept", async () => {
+    replies["/signet/app/fees/score?window=1w"] = () => Response.json(SIGNET_1W);
+    const el = mount(() => <FeeScorePage />, "/signet/fees/score");
+    await vi.waitFor(() => expect(rows(el)).toHaveLength(4));
+    for (const r of rows(el)) {
+      expect(r.classList.contains("fee-level--untested")).toBe(true);
+      expect(text(r.querySelector(".fee-level__verdict"))).toBe("Not a fair test here");
+      expect(r.querySelector(".fee-level__verdict circle")).not.toBeNull();
+      expect(text(r.querySelector(".fee-level__met"))).toBe("0%");
+      expect(text(r.querySelector(".fee-meter__range"))).toMatch(/^0–0\.\d%$/);
+    }
+    // Mainnet's miss stays red and says so.
+    replies["/app/fees/score?window=1w"] = () => Response.json(SIGNET_1W);
+    const main = mount(() => <FeeScorePage />, "/fees/score");
+    await vi.waitFor(() => expect(rows(main)).toHaveLength(4));
+    expect(rows(main).every((r) => r.classList.contains("fee-level--below"))).toBe(true);
+    expect(text(main)).not.toContain("On a test network");
   });
 
   it("says when nothing was recorded in the window, and offers everything", async () => {
@@ -128,12 +159,14 @@ describe("fee track record page", () => {
     const [cost, evidence] = [...el.querySelectorAll("table")];
     expect(tableRow(cost, "No rush")).toStrictEqual({
       Level: "No rush",
+      "Recommended, median": "0.12",
       "Overpaid when met, mean": "0.04",
       "Overpaid when met, median": "under 0.01",
       "Short when missed, mean": "0.01",
     });
     expect(tableRow(cost, "High")).toStrictEqual({
       Level: "High",
+      "Recommended, median": "2.00",
       "Overpaid when met, mean": "1.06",
       "Overpaid when met, median": "0.98",
       "Short when missed, mean": "0.75",
@@ -142,10 +175,10 @@ describe("fee track record page", () => {
       Level: "High",
       "Answers judged": "19\u202F521",
       "Blocks that decided them": "1\u202F035",
-      "Left out: not finished": "34",
-      "Left out: outage": "0",
-      "Left out: no clearing rate": "4",
+      "Left out": "3834 not finished, 4 no clearing rate",
     });
+    // One kind is named by its word; none, by the total alone.
+    expect(tableRow(evidence, "No rush")["Left out"]).toBe("2\u202F769not finished");
   });
 
   it("refuses an answer for another window than the one asked", async () => {

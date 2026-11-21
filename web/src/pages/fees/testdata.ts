@@ -1,5 +1,7 @@
 // Answers of `/app/fees/score` recorded on the live site on 2026-11-20 (mainnet and signet), for the
 // tests: the page drawn from real figures, a level below its target and one with too few blocks.
+// `recommended` came to the route after they were recorded: its values here are the medians the
+// scorer finds for the same windows in the same stores' samples, recomputed on 2026-11-21.
 
 /** Mainnet, the last week: the day-long level under its target. */
 export const MAINNET_1W: unknown = {
@@ -15,6 +17,7 @@ export const MAINNET_1W: unknown = {
       outcomes: 1035,
       overpay: { mean: 1.064, median: 0.977 },
       scored: 19521,
+      recommended: 2.001,
       shortfall: 0.753,
     },
     {
@@ -27,6 +30,7 @@ export const MAINNET_1W: unknown = {
       outcomes: 1035,
       overpay: { mean: 0.851, median: 0.879 },
       scored: 19500,
+      recommended: 1.016,
       shortfall: 0.67,
     },
     {
@@ -39,6 +43,7 @@ export const MAINNET_1W: unknown = {
       outcomes: 1032,
       overpay: { mean: 0.598, median: 0.552 },
       scored: 19441,
+      recommended: 1.001,
       shortfall: 0.771,
     },
     {
@@ -51,6 +56,7 @@ export const MAINNET_1W: unknown = {
       outcomes: 897,
       overpay: { mean: 0.043, median: 0.002 },
       scored: 16790,
+      recommended: 0.123,
       shortfall: 0.014,
     },
   ],
@@ -74,6 +80,7 @@ export const MAINNET_24H: unknown = {
       outcomes: 145,
       overpay: { mean: 1.392, median: 1.081 },
       scored: 2846,
+      recommended: 2.284,
       shortfall: 0.938,
     },
     {
@@ -86,6 +93,7 @@ export const MAINNET_24H: unknown = {
       outcomes: 144,
       overpay: { mean: 1.382, median: 0.996 },
       scored: 2822,
+      recommended: 1.207,
       shortfall: 1.19,
     },
     {
@@ -98,6 +106,7 @@ export const MAINNET_24H: unknown = {
       outcomes: 141,
       overpay: { mean: 1.163, median: 0.884 },
       scored: 2763,
+      recommended: 1.011,
       shortfall: 1.742,
     },
     {
@@ -110,6 +119,7 @@ export const MAINNET_24H: unknown = {
       outcomes: 6,
       overpay: null,
       scored: 112,
+      recommended: null,
       shortfall: null,
     },
   ],
@@ -133,6 +143,7 @@ export const SIGNET_1W: unknown = {
       outcomes: 979,
       overpay: { mean: null, median: null },
       scored: 19483,
+      recommended: 0.1,
       shortfall: 0.671,
     },
     {
@@ -145,6 +156,7 @@ export const SIGNET_1W: unknown = {
       outcomes: 987,
       overpay: { mean: null, median: null },
       scored: 19527,
+      recommended: 0.1,
       shortfall: 0.172,
     },
     {
@@ -157,6 +169,7 @@ export const SIGNET_1W: unknown = {
       outcomes: 985,
       overpay: { mean: null, median: null },
       scored: 19475,
+      recommended: 0.1,
       shortfall: 0.056,
     },
     {
@@ -169,6 +182,7 @@ export const SIGNET_1W: unknown = {
       outcomes: 849,
       overpay: { mean: null, median: null },
       scored: 16744,
+      recommended: 0.1,
       shortfall: 0.001,
     },
   ],

@@ -4,6 +4,7 @@ import {
   costGap,
   costView,
   hasSamples,
+  leftOutView,
   LEVELS,
   levelView,
   type LevelView,
@@ -44,6 +45,7 @@ const level = (over: Partial<ScoreLevel> = {}): ScoreLevel => ({
   interval: [0.87, 0.93],
   overpay: { mean: 1.2, median: 1 },
   shortfall: 0.5,
+  recommended: 2,
   leftOut: { outage: 0, unfinished: 20, noClearing: 1 },
   ...over,
 });
@@ -88,6 +90,7 @@ describe("readScore", () => {
       interval: [0.8575, 0.9118],
     });
     expect(high?.leftOut).toStrictEqual({ outage: 0, unfinished: 34, noClearing: 4 });
+    expect(high?.recommended).toBe(2.001);
     expect(s.notOurs).toStrictEqual({ node: 268, nothing: 271 });
   });
 
@@ -96,6 +99,13 @@ describe("readScore", () => {
     expect(noRush).toMatchObject({ name: "no_rush", enough: false, met: null, interval: null });
     expect(noRush?.overpay).toBeNull();
     expect(noRush?.shortfall).toBeNull();
+    expect(noRush?.recommended).toBeNull();
+  });
+
+  it("reads an answer from a server older than the recommended rate as not knowing it", () => {
+    const s = read(edited((v) => delete firstLevel(v)["recommended"]));
+    expect(s.levels[3]?.recommended).toBeNull();
+    expect(s.levels[2]?.recommended).toBe(1.016);
   });
 
   it("refuses a level with enough evidence but no share or no interval", () => {
@@ -138,6 +148,8 @@ describe("readScore", () => {
       (v) => (firstLevel(v)["interval"] = [0.8]),
       (v) => (firstLevel(v)["overpay"] = { mean: -1, median: 0 }),
       (v) => (firstLevel(v)["scored"] = 1.5),
+      (v) => (firstLevel(v)["recommended"] = -1),
+      (v) => (firstLevel(v)["recommended"] = "2"),
       (v) => (firstLevel(v)["left_out"] = { outage: 0, unfinished: 0 }),
       (v) => {
         const [a, b, c, d] = v["levels"] as unknown[];
@@ -218,13 +230,14 @@ describe("levelView", () => {
       interval: "87.0–93.0%",
     });
     expect(v.detail).toBe("At or above 85% across its whole interval.");
-    expect(v.evidence).toBe("3\u202F000 answers decided by 150 blocks");
+    expect(v.unsure).toBe(false);
     expect(v.marks?.met).toBeCloseTo(90, 9);
     const unsure = levelView(level({ met: 0.86, interval: [0.8, 0.92] }), 30);
     expect(unsure.standing).toBe("meets");
     expect(unsure.detail).toBe(
       "Its interval reaches below 85%, so more blocks are needed to be sure.",
     );
+    expect(unsure.unsure).toBe(true);
   });
 
   it("is below target under 85%, plainly, whatever its interval", () => {
@@ -241,6 +254,28 @@ describe("levelView", () => {
     const close = levelView(level({ met: 0.84, interval: [0.8, 0.88] }), 30);
     expect(close.verdict).toBe("Below target");
     expect(close.detail).toBe("Its interval reaches 85%, so more blocks are needed to be sure.");
+  });
+
+  it("on a test network calls a share under the target no fair test, not a miss", () => {
+    const signet = (testNet: boolean) => levelViews(read(SIGNET_1W), testNet);
+    // The condition: a test network, and a share under the target.
+    expect(signet(true).map((v) => [v.standing, v.verdict])).toStrictEqual(
+      Array.from({ length: 4 }, () => ["untested", "Not a fair test here"]),
+    );
+    // Every figure stays.
+    expect(at(signet(true), 3)).toMatchObject({ met: "0%", interval: "0–0.4%" });
+    expect(at(signet(true), 3).marks).toBeDefined();
+    // The same figures on mainnet are a plain miss.
+    expect(at(signet(false), 3)).toMatchObject({ standing: "below", verdict: "Below target" });
+    // A test network's level at or over the target, or without enough blocks, is as anywhere.
+    expect(levelView(level(), 30, true).standing).toBe("meets");
+    expect(levelView(level({ met: 0.85, interval: [0.8, 0.9] }), 30, true).standing).toBe("meets");
+    expect(levelView(level({ met: 0.849, interval: [0.8, 0.9] }), 30, true).standing).toBe(
+      "untested",
+    );
+    expect(at(levelViews(read(MAINNET_24H), true), 0).standing).toBe("too-few");
+    // Mainnet's miss stays a plain miss.
+    expect(at(views(MAINNET_1W), 0).standing).toBe("below");
   });
 
   it("gives no share with too few blocks, and says how many are needed", () => {
@@ -269,7 +304,6 @@ describe("levelView", () => {
     expect(one.detail).toBe(
       "A share is given from 30 blocks; 1 block has decided this level so far.",
     );
-    expect(one.evidence).toBe("2 answers decided by 1 block");
     // Most of the level's own samples were left out for an outage, not still waiting.
     const outage = levelView(
       level({
@@ -303,17 +337,35 @@ describe("cost", () => {
     const week = views(MAINNET_1W);
     expect(costView(at(week, 0))).toStrictEqual({
       name: "No rush",
+      recommended: "0.12",
       overpayMean: "0.04",
       overpayMedian: "under 0.01",
       shortfall: "0.01",
     });
     expect(costView(at(week, 3)).overpayMean).toBe("1.06");
+    expect(costView(at(week, 3)).recommended).toBe("2.00");
+    expect(costView(at(views(MAINNET_24H), 0)).recommended).toBeUndefined();
     const signetHigh = at(views(SIGNET_1W), 3);
     expect(costView(signetHigh).overpayMean).toBeUndefined();
     expect(costGap(signetHigh, "met")).toBe("none met");
     const tooFew = at(views(MAINNET_24H), 0);
     expect(costGap(tooFew, "missed")).toBe("too few blocks");
     expect(costGap(levelView(level({ shortfall: null }), 30), "missed")).toBe("none missed");
+  });
+});
+
+describe("leftOutView", () => {
+  const left = (unfinished: number, outage: number, noClearing: number) =>
+    leftOutView(level({ leftOut: { unfinished, outage, noClearing } }));
+  it("gives the total and names every kind that is not zero", () => {
+    expect(left(0, 0, 0)).toStrictEqual({ total: "0", kinds: undefined });
+    expect(left(2235, 0, 0)).toStrictEqual({ total: "2\u202F235", kinds: "not finished" });
+    expect(left(0, 0, 67)).toStrictEqual({ total: "67", kinds: "no clearing rate" });
+    expect(left(13, 0, 5)).toStrictEqual({
+      total: "18",
+      kinds: "13 not finished, 5 no clearing rate",
+    });
+    expect(left(1, 2, 3).kinds).toBe("1 not finished, 2 outage, 3 no clearing rate");
   });
 });
 

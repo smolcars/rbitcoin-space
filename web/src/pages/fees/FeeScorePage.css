@@ -10,30 +10,21 @@
     min-width: 0;
   }
 
-  /* The title and the periods on one row where they fit, as on the mempool page. */
+  /* The title and the periods on one row where they fit; wrapped under it, the periods start at
+     the left edge with the title, not at the right with half the row empty. */
   .fee-score__head {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
+    justify-content: space-between;
     gap: var(--space-2) var(--space-5);
   }
   .fee-score__head h1 {
     margin: 0;
   }
-  .fee-score__head .periods {
-    margin-left: auto;
-  }
   .fee-score__intro {
-    display: grid;
-    gap: var(--space-2);
     max-width: 44rem;
-  }
-  .fee-score__intro p {
     margin: 0;
-  }
-  .fee-score__caveat {
-    font-size: var(--text-sm);
-    color: var(--color-text-muted);
   }
   .fee-score__slot {
     min-height: 32rem;
@@ -46,23 +37,79 @@
     opacity: 0.55;
     transition: opacity var(--dur-quick) var(--ease-out);
   }
-  .fee-score__coverage {
-    margin: calc(var(--space-2) * -1) 0 var(--space-2);
+
+  /* The period covered, and the key to the meters: one line each, or one line on a wide screen. */
+  .fee-score__key {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: var(--space-1) var(--space-5);
+    margin: calc(var(--space-2) * -1) 0 var(--space-3);
     font-size: var(--text-sm);
     color: var(--color-text-muted);
+  }
+  .fee-score__key p {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-2);
+    margin: 0;
+  }
+  .fee-key {
+    display: inline-block;
+    flex: none;
+  }
+  .fee-key--target {
+    width: 0;
+    height: 14px;
+    border-left: 1px dashed var(--color-text);
+  }
+  .fee-key--band {
+    width: 18px;
+    height: 10px;
+    margin-left: var(--space-2);
+    border-radius: var(--radius-s);
+    background: var(--color-line-strong);
+  }
+  /* A test network's note, where the verdicts it qualifies are, with their dashed mark. */
+  .fee-score__caveat {
+    display: flex;
+    gap: var(--space-2);
+    max-width: 44rem;
+    margin: 0 0 var(--space-3);
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+  .fee-score__caveat .fee-level__icon {
+    margin-top: 0.2em;
+  }
+
+  /* What it cost beside what it rests on, where both hold their columns whole. */
+  .fee-score__tables {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 30rem), 1fr));
+    align-items: start;
+    gap: var(--space-5);
+  }
+  .fee-score__tables > * {
+    min-width: 0;
   }
   .fee-score__prose {
     display: grid;
     gap: var(--space-2);
     max-width: 44rem;
-    margin-bottom: var(--space-4);
+    margin: var(--space-3) 0 0;
     font-size: var(--text-sm);
-  }
-  .fee-score__evidence .fee-score__prose {
-    margin: var(--space-4) 0 0;
+    color: var(--color-text-muted);
   }
   .fee-score__prose p {
     margin: 0;
+  }
+  .fee-score__kinds {
+    display: block;
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+    white-space: normal;
   }
 
   /* One row per level: its name, its share, the share on a line against the target, the verdict. */
@@ -74,13 +121,13 @@
   }
   .fee-level {
     display: grid;
-    grid-template-columns: 8rem 14rem minmax(10rem, 1fr) 10rem;
+    grid-template-columns: 8rem 14rem minmax(10rem, 1fr) 11rem;
     grid-template-areas:
       "name figure meter verdict"
       ". detail detail detail";
     align-items: center;
-    gap: var(--space-2) var(--space-5);
-    padding: var(--space-4) 0;
+    gap: var(--space-1) var(--space-5);
+    padding: var(--space-3) 0;
     border-top: 1px solid var(--color-line);
   }
   .fee-level:first-child {
@@ -93,7 +140,6 @@
   .fee-level__name {
     grid-area: name;
     display: grid;
-    gap: var(--space-1);
   }
   .fee-level__name h3 {
     margin: 0;
@@ -108,7 +154,6 @@
   .fee-level__figure {
     grid-area: figure;
     display: grid;
-    gap: var(--space-1);
   }
   .fee-level__met {
     font-size: var(--text-xl);
@@ -133,7 +178,8 @@
   .fee-level--below .fee-level__verdict {
     color: var(--color-negative);
   }
-  .fee-level--too-few .fee-level__verdict {
+  .fee-level--too-few .fee-level__verdict,
+  .fee-level--untested .fee-level__verdict {
     color: var(--color-text-muted);
     font-weight: var(--weight-medium);
   }
@@ -155,22 +201,24 @@
     color: var(--color-text-muted);
   }
 
-  /* 0 to 100%: the interval a band, the share a mark in the verdict's colour, the target a line. */
+  /* 0 to 100%: the interval a band with its ends under it, the share a mark in the verdict's
+     colour, the target a dashed line (the key above the rows names both). */
   .fee-meter {
     grid-area: meter;
     display: grid;
-    gap: var(--space-1);
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 2px var(--space-2);
     font-size: var(--text-xs);
     color: var(--color-text-muted);
   }
-  .fee-meter__target-label {
+  .fee-meter__range {
+    grid-column: 2;
     justify-self: start;
-    margin-left: var(--target);
-    transform: translateX(-50%);
-  }
-  .fee-meter__ends {
-    display: flex;
-    justify-content: space-between;
+    margin-left: var(--mid);
+    transform: translateX(calc(var(--mid) * -1));
+    color: var(--color-text);
+    white-space: nowrap;
   }
   .fee-meter__track {
     position: relative;
@@ -213,7 +261,7 @@
     border-left: 1px dashed var(--color-text);
   }
 
-  /* Narrower: the name and the verdict on one line, the share beside its line, the detail under. */
+  /* Narrower: the name and the verdict on one line, the share beside its line. */
   @media (max-width: 65em) {
     .fee-level {
       grid-template-columns: minmax(7rem, auto) 1fr;
@@ -226,14 +274,37 @@
       justify-self: end;
     }
   }
+  /* A phone: the name and window at the left, the share over its verdict at the right, the meter
+     under both; how far "in time" reaches is in the window's words. */
   @media (max-width: 40em) {
     .fee-level {
       grid-template-columns: 1fr auto;
       grid-template-areas:
+        "name figure"
         "name verdict"
-        "figure figure"
         "meter meter"
         "detail detail";
+      align-items: start;
+      column-gap: var(--space-3);
+      row-gap: 0;
+    }
+    .fee-level__figure {
+      justify-items: end;
+    }
+    .fee-level__said {
+      display: none;
+    }
+    .fee-level__met {
+      font-size: var(--text-lg);
+    }
+    .fee-level__verdict {
+      font-size: var(--text-sm);
+    }
+    .fee-meter {
+      margin-top: var(--space-2);
+    }
+    .fee-level__detail {
+      margin-top: var(--space-1);
     }
   }
 }

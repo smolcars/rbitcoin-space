@@ -313,7 +313,7 @@ export function levelView(l: ScoreLevel, minBlocks: number, testNet = false): Le
 /** The levels as the page lists them: the home page's order, slowest first. */
 export const levelViews = (s: Score, testNet = false): LevelView[] =>
   LEVELS.flatMap((want) => {
-    const l = s.levels.find((x) => x.level === want.level);
+    const l = s.levels.find((x) => x.name === want.level);
     return l ? [levelView(l, s.minBlocks, testNet)] : [];
   });
 
