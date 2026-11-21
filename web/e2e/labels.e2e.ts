@@ -455,43 +455,68 @@ test("an import over long kept records works a few at a time, never holding the 
   }
 });
 
-test("an open editor on page 2 follows its row to page 1 when another tab deletes a label before it, keeping the draft and focus", async ({
-  page,
-  context,
-}) => {
-  const ref = (i: number) => i.toString(16).padStart(2, "0").repeat(32);
-  const name = (i: number) =>
-    `Edit the label of transaction ${ref(i).slice(0, 8)}…${ref(i).slice(-8)}`;
-  // Newest first: page 1 lists L99 to L50, page 2 L49 to L0.
-  await seedLabels(
+// Chromium moves a row with `moveBefore`, which keeps focus; without it (other engines, older
+// Chromium) a moved row loses focus and the manager gives it back: both paths, the second with
+// `moveBefore` taken away before the app loads.
+for (const fallback of [false, true])
+  test(`an open editor on page 2 follows its row to page 1 when another tab deletes a label before it, keeping the draft, focus, selection and view${fallback ? ", without moveBefore" : ""}`, async ({
     page,
-    Array.from({ length: 100 }, (_, i) => ({ type: "tx", ref: ref(i), label: `L${i}` })),
-  );
-  await page.goto("/regtest/labels");
-  const pages = page.getByRole("navigation", { name: "Label pages" });
-  await pages.getByRole("button", { name: "Next" }).click();
-  await expect(pages).toContainText("Page 2");
-  await page.getByRole("button", { name: name(49) }).click();
-  const field = page.getByRole("textbox", { name: /^Your label for transaction/ });
-  await expect(field).toBeFocused();
-  await field.fill("L49, my draft");
-  // Another tab deletes L99, the first row of page 1: L49 now belongs to page 1.
-  const other = await context.newPage();
-  await other.goto("/regtest/labels");
-  await other
-    .getByRole("button", {
-      name: `Delete the label of transaction ${ref(99).slice(0, 8)}…${ref(99).slice(-8)}`,
-    })
-    .click();
-  await expect(page.getByText(/^99 labels$/)).toBeVisible();
-  await expect(pages).toContainText("Page 1");
-  await expect(field).toHaveValue("L49, my draft");
-  await expect(field).toBeFocused();
-  // Typing goes on where it was.
-  await page.keyboard.type(", and more");
-  await expect(field).toHaveValue("L49, my draft, and more");
-  await other.close();
-});
+    context,
+  }) => {
+    if (fallback)
+      await page.addInitScript(() => {
+        Reflect.deleteProperty(Element.prototype, "moveBefore");
+      });
+    const ref = (i: number) => i.toString(16).padStart(2, "0").repeat(32);
+    const name = (i: number) =>
+      `Edit the label of transaction ${ref(i).slice(0, 8)}…${ref(i).slice(-8)}`;
+    // Newest first: page 1 lists L99 to L50, page 2 L49 to L0.
+    await seedLabels(
+      page,
+      Array.from({ length: 100 }, (_, i) => ({ type: "tx", ref: ref(i), label: `L${i}` })),
+    );
+    await page.goto("/regtest/labels");
+    if (fallback) expect(await page.evaluate(() => "moveBefore" in Element.prototype)).toBe(false);
+    // The status region is in the accessibility tree from the start, empty: not display: none.
+    const region = page.locator(".labels-page__said");
+    await expect(region).toBeAttached();
+    expect(await region.evaluate((el) => getComputedStyle(el).display)).not.toBe("none");
+    const pages = page.getByRole("navigation", { name: "Label pages" });
+    await pages.getByRole("button", { name: "Next" }).click();
+    await expect(pages).toContainText("Page 2");
+    await page.getByRole("button", { name: name(49) }).click();
+    const field = page.getByRole("textbox", { name: /^Your label for transaction/ });
+    await expect(field).toBeFocused();
+    await field.fill("L49, my draft");
+    await expect(field).toBeInViewport();
+    // A selection made backward.
+    await field.evaluate((el: HTMLInputElement) => el.setSelectionRange(2, 6, "backward"));
+    // Another tab deletes L99, the first row of page 1: L49 now belongs to page 1, at its end.
+    const other = await context.newPage();
+    await other.goto("/regtest/labels");
+    await other
+      .getByRole("button", {
+        name: `Delete the label of transaction ${ref(99).slice(0, 8)}…${ref(99).slice(-8)}`,
+      })
+      .click();
+    await expect(page.getByText(/^99 labels$/)).toBeVisible();
+    await expect(pages).toContainText("Page 1");
+    await expect(field).toHaveValue("L49, my draft");
+    await expect(field).toBeFocused();
+    await expect(field).toBeInViewport();
+    expect(
+      await field.evaluate((el: HTMLInputElement) => [
+        el.selectionStart,
+        el.selectionEnd,
+        el.selectionDirection,
+      ]),
+    ).toStrictEqual([2, 6, "backward"]);
+    // Typing goes on in the field.
+    await page.keyboard.press("End");
+    await page.keyboard.type(", and more");
+    await expect(field).toHaveValue("L49, my draft, and more");
+    await other.close();
+  });
 
 test("an untouched Save keeps a label with line breaks as it is: nothing is written", async ({
   page,

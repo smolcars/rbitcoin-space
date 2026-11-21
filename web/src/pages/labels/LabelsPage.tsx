@@ -291,10 +291,25 @@ function Manager(props: {
   let fileInput: HTMLInputElement | undefined;
   let dismissButton: HTMLButtonElement | undefined;
   let reading = 0;
+  // Copying the draft given back: done, or the clipboard unavailable (a page over plain HTTP has
+  // none, and a browser may refuse), when the draft is offered in a field to copy by hand.
+  const [copied, setCopied] = createSignal<"copied" | "by hand" | undefined>();
+  const copyDraft = (text: string) => {
+    const clipboard = typeof navigator === "undefined" ? undefined : navigator.clipboard;
+    if (clipboard === undefined) {
+      setCopied("by hand");
+      return;
+    }
+    clipboard.writeText(text).then(
+      () => setCopied("copied"),
+      () => setCopied("by hand"),
+    );
+  };
   // The editor that held focus closed under the reader: focus goes to the message that says why.
   createEffect(
     () => props.lost,
     (l) => {
+      setCopied(undefined);
       if (l === undefined) return;
       const at = document.activeElement;
       if (at === null || at === document.body || !at.isConnected) dismissButton?.focus();
@@ -338,21 +353,44 @@ function Manager(props: {
   // A row that moves within the table is taken out of the document and put back, which drops
   // focus: the editor's field, if it has focus, is noted as the rows are worked out (before the
   // table changes) and given focus and its caret back once the table has changed.
-  let refocus: { field: HTMLInputElement; start: number | null; end: number | null } | undefined;
+  // Its selection keeps its direction, and a field the reader could see is brought back into
+  // view when its row moved away from it (to the end of an earlier page).
+  let refocus:
+    | {
+        field: HTMLInputElement;
+        start: number | null;
+        end: number | null;
+        direction: "forward" | "backward";
+        seen: boolean;
+      }
+    | undefined;
+  const inView = (el: Element) => {
+    const b = el.getBoundingClientRect();
+    return b.bottom > 0 && b.top < window.innerHeight;
+  };
   const shown = createMemo(() => {
     const at = document.activeElement;
     refocus =
       at instanceof HTMLInputElement && at.classList.contains("label-editor__field")
-        ? { field: at, start: at.selectionStart, end: at.selectionEnd }
+        ? {
+            field: at,
+            start: at.selectionStart,
+            end: at.selectionEnd,
+            direction: at.selectionDirection === "backward" ? "backward" : "forward",
+            seen: inView(at),
+          }
         : undefined;
     return found().rows.slice((current() - 1) * PER_PAGE, current() * PER_PAGE);
   });
   createEffect(shown, () => {
     const r = refocus;
     refocus = undefined;
-    if (!r || !r.field.isConnected || document.activeElement === r.field) return;
-    r.field.focus({ preventScroll: true });
-    r.field.setSelectionRange(r.start, r.end);
+    if (!r || !r.field.isConnected) return;
+    if (document.activeElement !== r.field) {
+      r.field.focus({ preventScroll: true });
+      r.field.setSelectionRange(r.start, r.end, r.direction);
+    }
+    if (r.seen && !inView(r.field)) r.field.scrollIntoView({ block: "center" });
   });
   // Turning the page is leaving the editor: it closes, as opening another row's editor does.
   const turn = (p: number) => {
@@ -591,9 +629,47 @@ function Manager(props: {
                   </span>
                 </Show>
               </p>
-              <button ref={dismissButton} type="button" class="btn" onClick={() => props.dismiss()}>
-                Dismiss
-              </button>
+              <div class="labels-page__buttons">
+                <Show when={l().draft !== ""}>
+                  {/* The text above is cleaned for showing; this copies what was typed, as typed. */}
+                  <button type="button" class="btn" onClick={() => copyDraft(l().draft)}>
+                    Copy draft
+                  </button>
+                </Show>
+                <button
+                  ref={dismissButton}
+                  type="button"
+                  class="btn"
+                  onClick={() => props.dismiss()}
+                >
+                  Dismiss
+                </button>
+              </div>
+              <Show when={copied() === "copied"}>
+                <p>Draft copied.</p>
+              </Show>
+              <Show when={copied() === "by hand"}>
+                <p class="labels-page__by-hand">
+                  <label for="labels-draft">
+                    This page cannot use the clipboard here. Your draft, as typed, selected to copy
+                    with Ctrl+C or ⌘C:
+                  </label>
+                  <input
+                    ref={(el) => {
+                      queueMicrotask(() => {
+                        el.focus();
+                        el.select();
+                      });
+                    }}
+                    id="labels-draft"
+                    type="text"
+                    readonly
+                    value={l().draft}
+                    autocomplete="off"
+                    spellcheck="false"
+                  />
+                </p>
+              </Show>
             </div>
           )}
         </Show>

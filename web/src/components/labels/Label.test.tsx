@@ -138,7 +138,9 @@ describe("LabelControl", () => {
 
     button?.click();
     await until(() => el.querySelector("input") !== null);
-    const removeButton = [...el.querySelectorAll("button")].find((b) => b.textContent === "Remove label");
+    const removeButton = [...el.querySelectorAll("button")].find(
+      (b) => b.textContent === "Remove label",
+    );
     removeButton?.click();
     await until(() => el.querySelector(".your-label") === null);
     expect(el.querySelector(".your-label")).toBeNull();

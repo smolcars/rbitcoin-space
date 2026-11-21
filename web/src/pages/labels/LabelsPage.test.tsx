@@ -248,6 +248,83 @@ describe("the manager", () => {
     );
   });
 
+  it("keeps its status region, a live region, in place from the start, empty", async () => {
+    const el = mount(() => <LabelsPage />, "/regtest/labels");
+    await until(() => el.querySelector(".labels-page__said") !== null);
+    const region = el.querySelector(".labels-page__said");
+    expect(region?.getAttribute("aria-live")).toBe("polite");
+    expect(region?.textContent).toBe("");
+  });
+
+  describe("Copy draft", () => {
+    // A letter with three combining marks: shown with two, copied with all three.
+    const DRAFT = "e\u0301\u0302\u0303 rent";
+    const lose = async () => {
+      const A = "aa".repeat(32);
+      await importLines([`{"type":"tx","ref":"${A}","label":"A"}`]);
+      const el = mount(() => <LabelsPage />, "/regtest/labels");
+      const edit = () =>
+        [...el.querySelectorAll("button")].find((b) =>
+          (b.textContent ?? "").startsWith("Edit the label of transaction aaaaaaaa"),
+        );
+      await until(() => edit() !== undefined);
+      edit()?.click();
+      await until(() => el.querySelector<HTMLInputElement>("input.label-editor__field") !== null);
+      const field = el.querySelector<HTMLInputElement>("input.label-editor__field");
+      if (!field) throw new TypeError("no field");
+      field.value = DRAFT;
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+      await remove([recordKey("tx", A, undefined)]);
+      await until(() => el.querySelector(".labels-page__draft") !== null);
+      expect(el.querySelector(".labels-page__draft")?.textContent).not.toBe(DRAFT);
+      const copy = [...el.querySelectorAll("button")].find((b) => b.textContent === "Copy draft");
+      if (!copy) throw new TypeError("no Copy draft");
+      return { el, copy };
+    };
+    const original = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    afterEach(() => {
+      if (original) Object.defineProperty(navigator, "clipboard", original);
+      else Reflect.deleteProperty(navigator, "clipboard");
+    });
+
+    it("puts the draft on the clipboard as typed, and says so", async () => {
+      const writeText = vi.fn<(t: string) => Promise<void>>(() => Promise.resolve());
+      Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+      const { el, copy } = await lose();
+      copy.click();
+      await until(() => (el.textContent ?? "").includes("Draft copied."));
+      expect(writeText).toHaveBeenCalledWith(DRAFT);
+      expect(el.querySelector(".labels-page__said")?.textContent).toContain("Draft copied.");
+    });
+
+    it("without a clipboard, offers the draft as typed in a field, selected to copy by hand", async () => {
+      Object.defineProperty(navigator, "clipboard", { value: undefined, configurable: true });
+      const { el, copy } = await lose();
+      copy.click();
+      await until(() => el.querySelector<HTMLInputElement>("#labels-draft") !== null);
+      await until(() => document.activeElement?.id === "labels-draft");
+      const field = el.querySelector<HTMLInputElement>("#labels-draft");
+      expect(field?.value).toBe(DRAFT);
+      expect(field?.readOnly).toBe(true);
+      expect(document.activeElement).toBe(field);
+      expect([field?.selectionStart, field?.selectionEnd]).toStrictEqual([0, DRAFT.length]);
+      expect(el.querySelector(".labels-page__said")?.textContent).toContain(
+        "cannot use the clipboard here",
+      );
+    });
+
+    it("when the browser refuses the clipboard, offers the draft to copy by hand", async () => {
+      const writeText = vi.fn<(t: string) => Promise<void>>(() =>
+        Promise.reject(new DOMException("denied", "NotAllowedError")),
+      );
+      Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+      const { el, copy } = await lose();
+      copy.click();
+      await until(() => el.querySelector<HTMLInputElement>("#labels-draft") !== null);
+      expect(el.querySelector<HTMLInputElement>("#labels-draft")?.value).toBe(DRAFT);
+    });
+  });
+
   it("clears the message about a deleted label when another edit starts", async () => {
     const A = "aa".repeat(32);
     const B = "bb".repeat(32);
@@ -343,11 +420,19 @@ describe("the manager", () => {
       await hundred();
       const el = mount(() => <LabelsPage />, "/regtest/labels");
       const field = await open(el, 49, 2);
+      // A selection made backward, from its end to its start.
+      field.setSelectionRange(2, 6, "backward");
       await remove([recordKey("tx", ref(99), undefined), recordKey("tx", ref(70), undefined)]);
       await until(() => pageShown(el) === "Page 1" || editOf(el, 99) !== undefined);
       await until(() => el.querySelector(".labels-page__list .num")?.textContent === "98 labels");
       expect(field.value).toBe("L49, my draft");
       kept(el, field, 49, 1);
+      // jsdom has no moveBefore: the row was moved by removing it, and focus given back.
+      expect([field.selectionStart, field.selectionEnd, field.selectionDirection]).toStrictEqual([
+        2,
+        6,
+        "backward",
+      ]);
       await agree(el, 98, 50);
     });
 

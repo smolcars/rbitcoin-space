@@ -92,8 +92,16 @@
     padding-left: var(--space-5);
     font-size: var(--text-sm);
   }
+  /* Empty, it takes no room but stays a live region in the accessibility tree from the start, so
+     its first words are announced: a region added with its words often is not. */
   .labels-page__said:empty {
-    display: none;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
   .labels-page__said,
   .labels-page__problem {
@@ -101,16 +109,33 @@
     font-size: var(--text-sm);
     overflow-wrap: anywhere;
   }
-  /* A label deleted in another tab while edited here: the reader's draft, to copy, and Dismiss. */
+  /* A label deleted in another tab while edited here: the reader's draft, Copy draft and Dismiss. */
   .labels-page__lost {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-2) var(--space-3);
+    display: grid;
+    gap: var(--space-2);
   }
   .labels-page__lost p {
-    flex: 1 1 20rem;
     margin: 0;
+  }
+  .labels-page__by-hand {
+    display: grid;
+    gap: var(--space-1);
+    max-width: 32rem;
+  }
+  .labels-page__by-hand input {
+    min-width: 0;
+    min-height: 36px;
+    padding: var(--space-1) var(--space-3);
+    border: 1px solid var(--color-line-strong);
+    border-radius: var(--radius-m);
+    background: var(--color-surface-sunken);
+    color: var(--color-text);
+    font: inherit;
+  }
+  @media (pointer: coarse) {
+    .labels-page__by-hand input {
+      min-height: var(--touch);
+    }
   }
   .labels-page__draft {
     font-weight: var(--weight-medium);
