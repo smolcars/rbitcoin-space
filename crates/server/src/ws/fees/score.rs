@@ -315,6 +315,7 @@ fn level_json(name: &str, blocks: u32, t: &Tally) -> Value {
         "interval": shown(json!([num(lo, 4), num(hi, 4)])),
         "overpay": shown(json!({ "mean": num(t.mean_over(), 3), "median": num(t.median_over(), 3) })),
         "shortfall": shown(num(t.mean_short(), 3)),
+        "recommended": shown(num(t.median_given(), 3)),
         "left_out": {
             "outage": t.left_out,
             "unfinished": t.unfinished,
@@ -427,4 +428,35 @@ pub(crate) async fn route(State(ctx): State<Arc<NetworkContext>>, uri: Uri) -> R
         upstream_error: None,
     });
     res
+}
+
+#[cfg(test)]
+#[allow(clippy::indexing_slicing)]
+mod tests {
+    use super::*;
+    use engine::fees::score::Outcome;
+
+    /// A tally of `n` samples, each decided by its own block, given `rate` against `need`.
+    fn tally(n: usize, rate: u64, need: u64) -> Tally {
+        let mut t = Tally::default();
+        for waited_for in 0..n {
+            t.count(Outcome::Scored {
+                met: rate >= need,
+                rate,
+                need,
+                waited_for,
+                faster: true,
+            });
+        }
+        t
+    }
+
+    #[test]
+    fn a_level_says_the_median_rate_it_recommended_only_with_enough_blocks() {
+        let enough = level_json("high", 1, &tally(MIN_BLOCKS, 2_345, 1_000));
+        assert_eq!(enough["recommended"], json!(2.345));
+        assert_eq!(enough["overpay"]["median"], json!(1.345));
+        let few = level_json("high", 1, &tally(MIN_BLOCKS - 1, 2_345, 1_000));
+        assert_eq!(few["recommended"], Value::Null);
+    }
 }

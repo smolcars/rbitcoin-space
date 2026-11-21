@@ -262,3 +262,25 @@ fn the_clearing_rate_is_the_first_percentile_by_size() {
     assert_eq!(clearing(&mut rates), Some(1_000));
     assert_eq!(clearing(&mut []), None);
 }
+
+#[test]
+fn the_rate_given_is_kept_for_every_sample_scored_and_only_those() {
+    let scored = |rate, need, met| Outcome::Scored {
+        met,
+        rate,
+        need,
+        waited_for: 0,
+        faster: true,
+    };
+    let mut t = Tally::default();
+    assert!(t.median_given().is_nan());
+    t.count(scored(1_000, 1_500, false));
+    t.count(scored(3_000, 1_500, true));
+    t.count(scored(2_000, 1_500, true));
+    // Not scored: none of these is a rate the level was judged on.
+    t.count(Outcome::Unfinished);
+    t.count(Outcome::LeftOut);
+    t.count(Outcome::Unscored);
+    assert_eq!(t.given, [1.0, 3.0, 2.0]);
+    assert_eq!(t.median_given(), 2.0);
+}

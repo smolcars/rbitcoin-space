@@ -171,6 +171,8 @@ pub struct Tally {
     /// Overpay when met and shortfall when missed, sat/vB.
     pub over: Vec<f64>,
     pub short: Vec<f64>,
+    /// The rate given, sat/vB, for every sample scored: the base overpay is read against.
+    pub given: Vec<f64>,
     /// No block of the horizon has a clearing rate (all held none of our transactions).
     pub unscored: usize,
     /// Left out: the horizon reaches into an outage.
@@ -211,6 +213,7 @@ impl Tally {
                 };
                 pace.0 += usize::from(met);
                 pace.1 += 1;
+                self.given.push(rate as f64 / 1000.0);
                 if met {
                     self.over.push((rate - need) as f64 / 1000.0);
                 } else {
@@ -261,15 +264,24 @@ impl Tally {
 
     /// Median overpay when met, sat/vB: the upper middle, as the recordings report it.
     pub fn median_over(&self) -> f64 {
-        let mut v = self.over.clone();
-        v.sort_by(f64::total_cmp);
-        v.get(v.len() / 2).copied().unwrap_or(f64::NAN)
+        upper_median(&self.over)
+    }
+
+    /// Median rate given among the samples scored, sat/vB, the upper middle; `NaN` with none.
+    pub fn median_given(&self) -> f64 {
+        upper_median(&self.given)
     }
 
     /// Mean shortfall when missed, sat/vB; `NaN` when none was missed.
     pub fn mean_short(&self) -> f64 {
         mean(&self.short)
     }
+}
+
+fn upper_median(v: &[f64]) -> f64 {
+    let mut v = v.to_vec();
+    v.sort_by(f64::total_cmp);
+    v.get(v.len() / 2).copied().unwrap_or(f64::NAN)
 }
 
 fn mean(v: &[f64]) -> f64 {
