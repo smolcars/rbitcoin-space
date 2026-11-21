@@ -44,7 +44,7 @@ function choose(input: Element | undefined, file: File) {
   input.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
-const text = (el: HTMLElement) => el.textContent ?? "";
+const text = (el: Element) => el.textContent ?? "";
 const settle = () =>
   new Promise<void>((resolve) => {
     setTimeout(resolve, 20);
