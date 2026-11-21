@@ -509,6 +509,21 @@ export default function Chart(props: ChartProps) {
       rare: l.rare === true,
     })),
   ];
+
+  /**
+   * Each reading's longest figure over the whole chart, laid out unseen under the one shown, so the
+   * readout keeps its lines at every point: an exact amount's length varies, and a line more would
+   * move the plot from under the pointer.
+   */
+  const widest = createMemo(() => {
+    const out = readings(0).map((r) => r.value);
+    for (let i = 1; i < props.x.length; i++) {
+      readings(i).forEach((r, k) => {
+        if (r.value.length > (out[k] ?? "").length) out[k] = r.value;
+      });
+    }
+    return out;
+  });
   const valueText = () => {
     const i = index();
     return `${when(i)}: ${readings(i)
@@ -655,7 +670,7 @@ export default function Chart(props: ChartProps) {
         <span class="chart__when num">{when(index())}</span>
         <ul class="chart__values">
           <For keyed={false} each={readings(index())}>
-            {(r) => (
+            {(r, k) => (
               <li
                 class={[
                   "chart__value",
@@ -671,8 +686,14 @@ export default function Chart(props: ChartProps) {
                   <span class={`chart__key chart__key--${r().kind}`} style={r().style} />
                 </Show>
                 <span class="chart__name">{r().short ?? r().name}</span>
-                <span class="chart__figure num">
-                  <Figure text={r().value} />
+                {/* Over the reading's widest figure, drawn unseen by CSS so it is in no text. */}
+                <span
+                  class="chart__figure num"
+                  data-widest={(widest()[k] ?? "").replace(".", ".\u200B")}
+                >
+                  <span class="chart__now">
+                    <Figure text={r().value} />
+                  </span>
                 </span>
               </li>
             )}

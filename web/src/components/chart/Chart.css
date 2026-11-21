@@ -75,8 +75,20 @@
     box-shadow: 0 2px 0 var(--color-text);
   }
   .chart__figure {
+    display: inline-grid;
+    justify-items: start;
     color: var(--color-text);
     font-weight: var(--weight-medium);
+  }
+  /* The figure shown over the reading's widest, unseen, which holds its room (Chart's `widest`),
+     breaking where the figure would (after its point). */
+  .chart__now,
+  .chart__figure::after {
+    grid-area: 1 / 1;
+  }
+  .chart__figure::after {
+    content: attr(data-widest);
+    visibility: hidden;
   }
   .chart__key {
     flex: none;

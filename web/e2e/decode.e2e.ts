@@ -20,6 +20,7 @@ const HEADINGS: Record<string, string> = {
   arkade: "Arkade address",
   bark: "Bark address",
   "a long invoice": "Lightning invoice",
+  "a long fractional invoice": "Lightning invoice",
   "a long offer": "Lightning offer",
   "a long LNURL": "LNURL login",
   "a long address": "Lightning address",
@@ -178,6 +179,12 @@ test.describe("on a touch screen", () => {
         current = answer;
         await page.setViewportSize({ width: 320, height: 800 });
         await decode(page, `case ${name}`, HEADINGS[name] ?? "");
+        // Over a bitcoin with a fraction of a sat: exact, to the msat, whatever its room.
+        if (name === "a long fractional invoice") {
+          await expect(page.locator(".dec-figure").first()).toHaveText(
+            "9 007 199 254 739.001 sats",
+          );
+        }
         for (const width of WIDTHS) {
           await page.setViewportSize({ width, height: 800 });
           await frames(page);
