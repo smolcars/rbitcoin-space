@@ -53,6 +53,18 @@ describe("readTyped", () => {
     expect(readTyped("yesterday", NOW)).toStrictEqual({ kind: "invalid" });
     expect(readTyped("04/05/2024", NOW)).toStrictEqual({ kind: "invalid" });
     expect(readTyped("99999999999", NOW)).toStrictEqual({ kind: "invalid" });
+    expect(readTyped("2030-02-30", NOW)).toStrictEqual({ kind: "invalid" });
+  });
+
+  it("says a day not begun yet is to come, however far ahead, but reads today as a date", () => {
+    expect(readTyped("2030-01-01", NOW)).toStrictEqual({ kind: "future", label: "1 Jan 2030" });
+    expect(readTyped("2026-11-21", NOW)).toStrictEqual({ kind: "future", label: "21 Nov 2026" });
+    // NOW is the start of 20 Nov 2026: that day has begun, so its newest block is asked.
+    expect(readTyped("2026-11-20", NOW).kind).toBe("date");
+    expect(readTyped("2026-11-20 00:30", NOW)).toStrictEqual({
+      kind: "future",
+      label: "20 Nov 2026, 00:30",
+    });
   });
 });
 
@@ -135,30 +147,30 @@ describe("previousChange", () => {
 
 describe("nextChange", () => {
   it("is the first block after the one shown, when the page reaches back to it", () => {
-    expect(nextChange([976_100, 975_400, 975_010, 975_000], 4, 975_000, true)).toStrictEqual({
+    expect(nextChange([976_100, 975_400, 975_010, 975_000], false, 975_000, true)).toStrictEqual({
       kind: "change",
       height: 975_010,
     });
-    expect(nextChange([976_100, 975_400], 2, 975_000, true)).toStrictEqual({
+    expect(nextChange([976_100, 975_400], true, 975_000, true)).toStrictEqual({
       kind: "change",
       height: 975_400,
     });
   });
 
   it("is the first use for an address with no history by then", () => {
-    expect(nextChange([976_100, 975_400], 3, 800_000, false)).toStrictEqual({
+    expect(nextChange([976_100, 975_400], true, 800_000, false)).toStrictEqual({
       kind: "first",
       height: 975_400,
     });
   });
 
   it("says nothing changed since when no confirmed row is later", () => {
-    expect(nextChange([975_000, 974_000], 3, 975_000, true)).toStrictEqual({ kind: "none" });
+    expect(nextChange([975_000, 974_000], false, 975_000, true)).toStrictEqual({ kind: "none" });
   });
 
-  it("cannot say when a full page is all later than the block", () => {
+  it("cannot say when rows short of the whole history are all later than the block", () => {
     const page = Array.from({ length: PAGE_ROWS }, (_, i) => 976_000 - i);
-    expect(nextChange(page, PAGE_ROWS, 900_000, true)).toBeUndefined();
-    expect(nextChange([], PAGE_ROWS, 900_000, true)).toBeUndefined();
+    expect(nextChange(page, false, 900_000, true)).toBeUndefined();
+    expect(nextChange([], false, 900_000, true)).toBeUndefined();
   });
 });

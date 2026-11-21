@@ -19,10 +19,13 @@ export function readAt(value: string | string[] | undefined): At {
   return height === null ? { kind: "invalid", text } : { kind: "height", height };
 }
 
+const DAY = 86_400;
+
 /** What the reader typed in the block field: a height, a date or moment, or neither. */
 export type Typed =
   | { kind: "height"; height: number }
   | { kind: "date"; moment: Moment }
+  | { kind: "future"; label: string }
   | { kind: "empty" }
   | { kind: "invalid" };
 
@@ -38,6 +41,12 @@ export function readTyped(input: string, now: number): Typed {
     const height = parseHeight(digits);
     return height === null ? { kind: "invalid" } : { kind: "height", height };
   }
+  // Read once with no "now" to know a date of any year; then a day not begun yet (or a moment not
+  // reached) has no block, however far ahead, and is said so rather than called no date.
+  const any = readDate(q, Number.MAX_SAFE_INTEGER);
+  if (any === null) return { kind: "invalid" };
+  const begins = any.timed ? any.at : any.at - (DAY - 1);
+  if (begins > now) return { kind: "future", label: any.label };
   const moment = readDate(q, now);
   return moment === null ? { kind: "invalid" } : { kind: "date", moment };
 }
@@ -99,19 +108,19 @@ export function previousChange(heights: readonly number[]): Step | undefined {
 }
 
 /**
- * "Next change": the first block after `at` in which the address changed, from the newest history
- * page now (`heights`, its confirmed rows' heights; `rows`, how many rows it held, unconfirmed ones
- * too). Known only when the page reaches back to `at` or is the whole history. `used`: the address
- * had confirmed history by `at`, so a change after none is its first use.
+ * "Next change": the first block after `at` in which the address changed, from its newest history
+ * now (`heights`, the confirmed rows' heights; `whole`, the rows reach its first transaction).
+ * Known only when the rows reach back to `at` or are the whole history. `used`: the address had
+ * confirmed history by `at`, so a change after none is its first use.
  */
 export function nextChange(
   heights: readonly number[],
-  rows: number,
+  whole: boolean,
   at: number,
   used: boolean,
 ): Step | undefined {
   const later = heights.filter((h) => h > at);
-  if (later.length === heights.length && rows >= PAGE_ROWS) return undefined;
+  if (later.length === heights.length && !whole) return undefined;
   if (later.length === 0) return { kind: "none" };
   return { kind: used ? "change" : "first", height: Math.min(...later) };
 }
