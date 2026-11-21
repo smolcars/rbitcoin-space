@@ -144,7 +144,7 @@ describe("the manager", () => {
     field.focus();
     // Another tab changes this very label.
     await setLabel("tx", A, "A, from the other tab");
-    await until(() => el.querySelector(".label-editor__elsewhere") !== null);
+    await until(() => (el.querySelector(".label-editor__elsewhere")?.textContent ?? "") !== "");
     expect(el.querySelector(".label-editor__elsewhere")?.textContent).toContain(
       "“A, from the other tab”",
     );
@@ -209,5 +209,31 @@ describe("the manager", () => {
     await until(() => el.querySelector("input.label-editor__field") === null);
     const { records } = await readAll();
     expect(records.map((r) => r.label)).toStrictEqual(["A, again"]);
+  });
+
+  it("says in one status region, there from the start, what changed elsewhere, and clears it once undone", async () => {
+    const A = "aa".repeat(32);
+    const one = (await readFile(`{"type":"tx","ref":"${A}","label":"A"}`)).records;
+    await runImport(one, await previewImport(one));
+    const el = mount(() => <LabelsPage />, "/regtest/labels");
+    const edit = () =>
+      [...el.querySelectorAll("button")].find((b) =>
+        (b.textContent ?? "").startsWith("Edit the label of transaction aaaaaaaa"),
+      );
+    await until(() => edit() !== undefined);
+    edit()?.click();
+    await until(() => el.querySelector(".label-editor__elsewhere") !== null);
+    const region = el.querySelector(".label-editor__elsewhere");
+    expect(region?.getAttribute("role")).toBe("status");
+    expect(region?.textContent).toBe("");
+    await setLabel("tx", A, "A, from elsewhere");
+    await until(() => (region?.textContent ?? "") !== "");
+    expect(el.querySelector(".label-editor__elsewhere")).toBe(region);
+    expect(region?.textContent).toContain("“A, from elsewhere”");
+    // Changed back to what the editor opened with: nothing to warn of.
+    await setLabel("tx", A, "A");
+    await until(() => (region?.textContent ?? "") === "");
+    expect(el.querySelector(".label-editor__elsewhere")).toBe(region);
+    expect(region?.textContent).toBe("");
   });
 });

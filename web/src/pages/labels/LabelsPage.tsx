@@ -132,8 +132,15 @@ export default function LabelsPage() {
           // The row being edited keeps its object, and with it the editor and its draft, even when
           // another tab changed it: the editor says so, and shows what it was changed to.
           const edited = old !== undefined && fresh.key === untrack(editing);
-          if (edited && !same)
-            setElsewhere(fresh.label === undefined ? { removed: true } : { changed: fresh.label });
+          // Back to what the editor opened with: nothing to warn of any more.
+          if (edited)
+            setElsewhere(
+              same
+                ? undefined
+                : fresh.label === undefined
+                  ? { removed: true }
+                  : { changed: fresh.label },
+            );
           const r = old !== undefined && (same || edited) ? old : fresh;
           next.set(r.key, r);
           out.push(r);
