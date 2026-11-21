@@ -2533,9 +2533,12 @@
   .ln-node-closed > * {
     min-width: 0;
   }
+  /* A container, so its narrowest layout follows its own width in its own text size: a 320 px phone
+     or larger text, where a media query's em would not see the larger text. */
   .ln-record {
     display: grid;
     gap: var(--space-3);
+    container: record / inline-size;
   }
   .ln-record > *,
   .ln-record__part > *,
@@ -2598,7 +2601,8 @@
   /* The shares of a row: each figure with its bar on one line, the bars starting together. */
   .ln-record__shares {
     display: grid;
-    grid-template-columns: auto minmax(3rem, 1fr);
+    /* The figures' column as wide in every row, so the bars of the rows start together. */
+    grid-template-columns: minmax(4.5em, auto) minmax(3rem, 1fr);
     align-items: center;
     gap: var(--space-1) var(--space-2);
     min-width: 9rem;
@@ -2606,6 +2610,38 @@
   @media (min-width: 65em) {
     .ln-record__shares {
       min-width: 18rem;
+    }
+  }
+  /* On a phone the bars give way first: the figures beside them are what the row says. */
+  @media (max-width: 40em) {
+    .ln-record__shares {
+      grid-template-columns: minmax(4em, auto) minmax(1.5rem, 1fr);
+      min-width: 0;
+    }
+  }
+  /* A 320 px phone, or larger text (not a 360 px one): each bar under its figure, and the one long
+     kind's word short. */
+  .ln-record__short {
+    display: none;
+  }
+  .ln-record .table__short {
+    white-space: nowrap;
+  }
+  @container record (max-width: 17.5em) {
+    .ln-record__shares {
+      grid-template-columns: minmax(3rem, 1fr);
+    }
+    /* The full word stays for screen readers; the short one is what fits. */
+    .ln-record__long {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+    .ln-record__short {
+      display: inline;
     }
   }
   .ln-record__shares--one {
@@ -2641,6 +2677,25 @@
   .ln-record__fee {
     display: grid;
     justify-items: end;
+  }
+  /* A column a phone has no room for: its figure as a second line of the row's first cell, shown
+     wherever the column is not, by the phone's breakpoint or dropped to fit. Never both. */
+  .ln-record__cell {
+    display: grid;
+  }
+  .ln-record__second {
+    display: none;
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+    white-space: normal;
+  }
+  .ln-record__part--dropped .ln-record__second {
+    display: block;
+  }
+  @media (max-width: 40em) {
+    .ln-record__second:not(.ln-record__second--fit) {
+      display: block;
+    }
   }
   /* Too few closes for a share: the record in a line, every channel's beside it. */
   .ln-record__few {

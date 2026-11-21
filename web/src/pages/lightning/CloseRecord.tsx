@@ -79,11 +79,19 @@ export function RecordSection(props: { request: ApiRequest<NodeCloses>; gone: bo
   );
 }
 
-/** A kind as its icon and word, in the muted tone whatever the kind: a tally is not a warning. */
+/**
+ * A kind as its icon and word, in the muted tone whatever the kind: a tally is not a warning. The
+ * one long word is shorter where a narrow screen or large text leaves no room; read in full.
+ */
 function Kind(props: { kind: CloseKind }) {
   return (
     <Tag icon={KIND_TAG[props.kind].icon} tone="muted">
-      {KIND_SHORT[props.kind]}
+      <Show when={props.kind === "cooperative"} fallback={KIND_SHORT[props.kind]}>
+        <span class="ln-record__long">{KIND_SHORT[props.kind]}</span>
+        <span class="ln-record__short" aria-hidden="true">
+          Co-op
+        </span>
+      </Show>
     </Tag>
   );
 }
@@ -318,10 +326,27 @@ function Ended(props: { record: NodeCloses }) {
 }
 
 function Fees(props: { record: NodeCloses }) {
+  const [dropped, setDropped] = createSignal(0);
   const r = () => props.record;
   const kinds = () => kindsIn(r().node);
+  const all = (k: CloseKind) => {
+    const n = r().network;
+    return n === null ? MISSING : sats(perClose(n.fees[k]));
+  };
   const columns = (): Column<CloseKind>[] => [
-    { header: "Closing transactions", short: "Closes", cell: (k) => <Kind kind={k} /> },
+    {
+      header: "Closing transactions",
+      short: "Closes",
+      cell: (k) => (
+        <span class="ln-record__cell">
+          <Kind kind={k} />
+          {/* Where the last column has no room, its figure is this row's second line. */}
+          <span class="ln-record__second ln-record__second--fit">
+            All channels: <span class="num">{all(k)}</span> sats a close
+          </span>
+        </span>
+      ),
+    },
     {
       // In all, and a close's mean under it: one column, so the table fits a phone.
       header: "In all",
@@ -349,20 +374,20 @@ function Fees(props: { record: NodeCloses }) {
       header: "All channels",
       sub: "a close, sats",
       numeric: true,
-      cell: (k) => {
-        const n = r().network;
-        return n === null ? MISSING : sats(perClose(n.fees[k]));
-      },
+      // Kept on a phone, where it fits at the usual text size; dropped only where it does not.
+      drop: 1,
+      cell: all,
     },
   ];
   const unknown = () => kinds().reduce((a, k) => a + r().node[k] - r().node.fees[k].known, 0);
   return (
-    <div class="ln-record__part">
+    <div class={`ln-record__part${dropped() > 0 ? " ln-record__part--dropped" : ""}`}>
       <h3 class="ln-record__h">Closing fees</h3>
       <DataTable
         caption="The fees of its channels' closing transactions, beside every channel's"
         columns={columns()}
         rows={kinds()}
+        onDropped={setDropped}
       />
       <p class="ln-record__note">
         The fee each closing transaction paid: the chain does not say which end paid it.
@@ -373,14 +398,42 @@ function Fees(props: { record: NodeCloses }) {
 }
 
 function Weeks(props: { record: NodeCloses }) {
+  const [dropped, setDropped] = createSignal(0);
   const rows = () => weekRows(props.record.node.weeks, props.record.network?.weeks ?? null);
   const kinds = () => kindsIn(props.record.node);
+  /** Every channel's figure for a week: a share, a count under the minimum, or none yet. */
+  const all = (w: WeekRow) => {
+    const n = w.network;
+    if (n === null)
+      return (
+        <span>
+          <span aria-hidden="true">{MISSING}</span>
+          <span class="visually-hidden">
+            {/* The "Earlier" row sums several weeks: one of them missing withholds its figure. */}
+            {w.time === null
+              ? "No figure for all of these weeks yet"
+              : "No figure for this week yet"}
+          </span>
+        </span>
+      );
+    if (n.closed < props.record.minimum)
+      return `${groupDigits(n.forced)} of ${groupDigits(n.closed)}`;
+    return shareText((n.forced * 100) / n.closed, n.forced);
+  };
   const columns = (): Column<WeekRow>[] => [
     {
       header: "Week of",
       // "Monday, UTC" would hold the column wider than a phone allows; the note under says it.
       sub: "UTC",
-      cell: (w) => (w.time === null ? "Earlier" : formatDay(w.time)),
+      cell: (w) => (
+        <span class="ln-record__cell">
+          <span>{w.time === null ? "Earlier" : formatDay(w.time)}</span>
+          {/* Where the last column has no room, its figure is this row's second line. */}
+          <span class="ln-record__second">
+            all <span class="num">{all(w)}</span> force or penalty
+          </span>
+        </span>
+      ),
     },
     ...kinds().map((k): Column<WeekRow> => {
       const column: Column<WeekRow> = {
@@ -394,36 +447,21 @@ function Weeks(props: { record: NodeCloses }) {
     }),
     {
       header: "All channels",
-      short: "All",
       sub: "force or penalty",
       numeric: true,
-      cell: (w) => {
-        const n = w.network;
-        if (n === null)
-          return (
-            <span>
-              <span aria-hidden="true">{MISSING}</span>
-              <span class="visually-hidden">
-                {/* The "Earlier" row sums several weeks: one of them missing withholds its figure. */}
-                {w.time === null
-                  ? "No figure for all of these weeks yet"
-                  : "No figure for this week yet"}
-              </span>
-            </span>
-          );
-        if (n.closed < props.record.minimum)
-          return `${groupDigits(n.forced)} of ${groupDigits(n.closed)}`;
-        return shareText((n.forced * 100) / n.closed, n.forced);
-      },
+      // On a phone, or where it does not fit, the figure is the row's second line instead.
+      optional: true,
+      cell: all,
     },
   ];
   return (
-    <div class="ln-record__part">
+    <div class={`ln-record__part${dropped() > 0 ? " ln-record__part--dropped" : ""}`}>
       <h3 class="ln-record__h">Week by week</h3>
       <DataTable
         caption="Its closes each week, newest first, beside every channel's"
         columns={columns()}
         rows={rows()}
+        onDropped={setDropped}
       />
       <p class="ln-record__note">
         Each week runs from Monday, 00:00 UTC.
@@ -438,6 +476,7 @@ function Weeks(props: { record: NodeCloses }) {
 }
 
 function Peers(props: { record: NodeCloses; gone: boolean }) {
+  const [dropped, setDropped] = createSignal(0);
   const base = () => paths.lightningNode(props.record.id);
   const [all, setAll] = createSignal(false);
   const shown = () => peersShown(props.record.peers.list, all());
@@ -472,6 +511,10 @@ function Peers(props: { record: NodeCloses; gone: boolean }) {
           <span class="ln-key" title={p.id}>
             {truncateMiddle(p.id, 6, 4)}
           </span>
+          {/* Where the last column has no room, its figure is this row's third line. */}
+          <span class="ln-record__second">
+            <span class="num">{groupDigits(p.open)}</span> open now
+          </span>
         </span>
       ),
     },
@@ -501,14 +544,17 @@ function Peers(props: { record: NodeCloses; gone: boolean }) {
     },
     {
       header: "Open now",
-      short: "Open",
       sub: "channels",
       numeric: true,
+      // On a phone, or where it does not fit, the figure is under the peer instead.
+      optional: true,
       cell: (p) => groupDigits(p.open),
     },
   ];
   return (
-    <div class="ln-record__part ln-record__part--wide">
+    <div
+      class={`ln-record__part ln-record__part--wide${dropped() > 0 ? " ln-record__part--dropped" : ""}`}
+    >
       <h3 class="ln-record__h">With whom</h3>
       <p class="ln-record__lead">
         {peersInWords(props.record)}
@@ -521,6 +567,7 @@ function Peers(props: { record: NodeCloses; gone: boolean }) {
           caption="The other ends of its channels that ended in a force close or a penalty, most first"
           columns={columns()}
           rows={shown().rows}
+          onDropped={setDropped}
         />
       </Show>
       <Show when={shown().button}>
