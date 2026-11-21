@@ -42,8 +42,8 @@ export const FAILURE_WORDS: Record<Failure, string> = {
   outdated: "This site was updated in another tab. Reload this page to keep labels here.",
   full: "This browser has no room left for the site's data, so the labels were not saved.",
   failed: "The browser could not save the labels. Try again.",
-  "too-many": "This browser keeps at most 250 000 labels.",
-  "too-big": "This browser keeps at most 40 MB of labels.",
+  "too-many": "This browser keeps at most 50 000 labels.",
+  "too-big": "This browser keeps at most 16 000 000 characters of labels.",
   stale: "Your labels changed since this was read, in this tab or another. Look again.",
   long: "That would make the record longer than a label file's line may be.",
 };
@@ -297,58 +297,95 @@ export async function setLabel(
   });
 }
 
-/** What an import would do, against the revision it was worked out from. */
+/**
+ * What an import would do, and the revision of the store it was worked out against: counts only.
+ * The records it would write are worked out again inside the write, never kept from a preview.
+ */
 export interface ImportPlan {
-  /** The records read from the file, kept so the import can be worked out again in the write. */
-  incoming: readonly LabelRecord[];
-  added: Stored[];
-  replaced: Stored[];
+  added: number;
+  replaced: number;
   /** Lines whose record would pass MAX_LINE with the reader's label carried into it: left out. */
   grown: number;
   rev: number;
+}
+
+/** The records an import would write, and the store's figures after it. */
+interface Work {
+  puts: Stored[];
+  added: number;
+  replaced: number;
+  grown: number;
   seq: number;
   bytes: number;
 }
 
+/** Records worked through between two turns of the page. */
+const PLAN_SLICE = 2000;
+
 /**
- * Works out an import against what the store holds: BIP329's rule for each record (`mergeInto`),
- * and the limits on how many records and how much text this browser keeps. Pure.
+ * Works out an import against what the store holds, a slice at a time: BIP329's rule for each
+ * record (`mergeInto`), then the limits on how many records and how much text this browser keeps.
+ * `step` does one slice and says whether more are left; `result` checks the limits.
  */
-export function plan(
-  incoming: readonly LabelRecord[],
-  held: readonly Stored[],
-  meta: Meta,
-): ImportPlan {
-  const byKey = new Map(held.map((r) => [r.key, r]));
-  let { seq, bytes } = meta;
-  let grown = 0;
-  const added: Stored[] = [];
-  const replaced: Stored[] = [];
-  for (const r of incoming) {
-    const old = byKey.get(r.key);
-    if (old) {
-      const merged = mergeInto(old, r);
-      if (merged === null) {
-        grown++;
-        continue;
-      }
-      bytes += merged.line.length - old.line.length;
-      replaced.push({ ...merged, seq: old.seq });
-    } else {
-      seq++;
-      bytes += r.line.length;
-      added.push({ ...r, seq });
+function planner(incoming: readonly LabelRecord[], held: readonly Stored[], meta: Meta) {
+  let byKey: Map<string, Stored> | undefined;
+  let i = 0;
+  const work: Work = {
+    puts: [],
+    added: 0,
+    replaced: 0,
+    grown: 0,
+    seq: meta.seq,
+    bytes: meta.bytes,
+  };
+  const step = (): boolean => {
+    if (!byKey) {
+      byKey = new Map(held.map((r) => [r.key, r]));
+      return true;
     }
-  }
-  if (held.length + added.length > MAX_RECORDS) throw new LabelStoreError("too-many");
-  if (bytes > MAX_BYTES) throw new LabelStoreError("too-big");
-  return { incoming, added, replaced, grown, rev: meta.rev, seq, bytes };
+    const end = Math.min(incoming.length, i + PLAN_SLICE);
+    for (; i < end; i++) {
+      const r = incoming[i] as LabelRecord;
+      const old = byKey.get(r.key);
+      if (old) {
+        const merged = mergeInto(old, r);
+        if (merged === null) {
+          work.grown++;
+          continue;
+        }
+        work.bytes += merged.line.length - old.line.length;
+        work.replaced++;
+        work.puts.push({ ...merged, seq: old.seq });
+      } else {
+        work.seq++;
+        work.bytes += r.line.length;
+        work.added++;
+        work.puts.push({ ...r, seq: work.seq });
+      }
+    }
+    return i < incoming.length;
+  };
+  const result = (): Work => {
+    if (held.length + work.added > MAX_RECORDS) throw new LabelStoreError("too-many");
+    if (work.bytes > MAX_BYTES) throw new LabelStoreError("too-big");
+    return work;
+  };
+  return { step, result };
 }
 
-/** A preview of an import, worked out from one read of the store. Nothing is written. */
+const turn = () =>
+  new Promise<void>((resolve) => {
+    setTimeout(resolve, 0);
+  });
+
+/** A preview of an import, worked out from one read of the store, a slice at a time. Nothing is written. */
 export async function previewImport(incoming: readonly LabelRecord[]): Promise<ImportPlan> {
   const { records, ...meta } = await readAll();
-  return plan(incoming, records, meta);
+  const p = planner(incoming, records, meta);
+  // oxlint-disable-next-line no-await-in-loop -- a slice, then the page's turn
+  while (p.step()) await turn();
+  const w = p.result();
+  return { added: w.added, replaced: w.replaced, grown: w.grown, rev: meta.rev };
 }
 
 /** The import's preview was of an older store: the new one, worked out in the refused write. */
@@ -363,40 +400,56 @@ export class StaleImportError extends LabelStoreError {
 
 /**
  * Writes an import: worked out again inside the write transaction from what the store holds then,
- * and written only if that is the store the preview was worked out from (the same revision). If it
- * is not, nothing is written and the error carries the new preview. A slice of puts at a time, so
- * the page draws between them.
+ * a slice at a time (each slice in the answer to a small request, which keeps the transaction
+ * open while the page draws), and written only if that is the store the preview was worked out
+ * from (the same revision). If it is not, nothing is written and the error carries the new
+ * preview. Then a slice of puts at a time.
  */
 export async function runImport(
+  incoming: readonly LabelRecord[],
   preview: ImportPlan,
   progress?: (done: number, total: number) => void,
-): Promise<void> {
-  await transact((c, done) => {
+): Promise<{ shown: boolean }> {
+  return transact((c, done) => {
     readRecords(c.records, (held) => {
-      let now: ImportPlan;
-      try {
-        now = plan(preview.incoming, held, c);
-      } catch (e) {
-        c.fail(e);
-        return;
-      }
-      if (now.rev !== preview.rev) {
-        c.fail(new StaleImportError(now));
-        return;
-      }
-      const puts = [...now.replaced, ...now.added];
-      let i = 0;
-      // Each slice's last put answers in a task of its own, where the next slice is queued: the
-      // transaction stays open and the page draws between them.
-      const next = () => {
-        const end = Math.min(puts.length, i + 1000);
-        let last: IDBRequest | undefined;
-        for (; i < end; i++) last = putBoth(c, puts[i] as Stored);
-        progress?.(i, puts.length);
-        if (last && i < puts.length) last.addEventListener("success", next);
-        else done({ seq: now.seq, bytes: now.bytes });
+      const p = planner(incoming, held, c);
+      const work = () => {
+        if (p.step()) {
+          c.records.count().addEventListener("success", work);
+          return;
+        }
+        let now: Work;
+        try {
+          now = p.result();
+        } catch (e) {
+          c.fail(e);
+          return;
+        }
+        if (c.rev !== preview.rev) {
+          c.fail(
+            new StaleImportError({
+              added: now.added,
+              replaced: now.replaced,
+              grown: now.grown,
+              rev: c.rev,
+            }),
+          );
+          return;
+        }
+        const puts = now.puts;
+        let i = 0;
+        // Each slice's last put answers in a task of its own, where the next slice is queued.
+        const next = () => {
+          const end = Math.min(puts.length, i + 1000);
+          let last: IDBRequest | undefined;
+          for (; i < end; i++) last = putBoth(c, puts[i] as Stored);
+          progress?.(i, puts.length);
+          if (last && i < puts.length) last.addEventListener("success", next);
+          else done({ seq: now.seq, bytes: now.bytes });
+        };
+        next();
       };
-      next();
+      work();
     });
   });
 }

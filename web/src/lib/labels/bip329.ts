@@ -24,13 +24,13 @@ export interface LabelRecord {
 /** The longest line read, or written by a merge or an edit, in UTF-16 code units. */
 export const MAX_LINE = 64 * 1024;
 /** The largest file read at all, in bytes. Larger is refused before it is read. */
-export const MAX_FILE = 20 * 1024 * 1024;
+export const MAX_FILE = 8 * 1024 * 1024;
 /** The most lines of a file read, blank ones included, before the file is refused. */
 export const MAX_LINES = 500_000;
 /** The most records one file may hold, and this browser keeps. */
-export const MAX_RECORDS = 250_000;
+export const MAX_RECORDS = 50_000;
 /** The most text this browser keeps, all records' lines together, in UTF-16 code units. */
-export const MAX_BYTES = 40 * 1024 * 1024;
+export const MAX_BYTES = 16_000_000;
 /** The longest label typed in the editor: BIP329's suggested limit. Longer imported ones are kept. */
 export const MAX_LABEL = 255;
 

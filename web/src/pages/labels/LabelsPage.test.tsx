@@ -67,7 +67,8 @@ describe("the manager", () => {
 
   it("lists and exports a record named like a plain object's own members", async () => {
     const line = `{"type":"constructor","ref":"__proto__","label":"test"}`;
-    await runImport(await previewImport((await readFile(line)).records));
+    const one = (await readFile(line)).records;
+    await runImport(one, await previewImport(one));
     const el = mount(() => <LabelsPage />, "/regtest/labels");
     await until(() => (el.textContent ?? "").includes("Other (constructor)"));
     expect(el.textContent).toContain("Other (constructor)");
@@ -96,7 +97,8 @@ describe("the manager", () => {
       `{"type":"tx","ref":"${A}","label":"A"}`,
       `{"type":"tx","ref":"${B}","label":"B"}`,
     ];
-    await runImport(await previewImport((await readFile(text.join("\n"))).records));
+    const both = (await readFile(text.join("\n"))).records;
+    await runImport(both, await previewImport(both));
     const el = mount(() => <LabelsPage />, "/regtest/labels");
     const editA = () =>
       [...el.querySelectorAll("button")].find((b) =>

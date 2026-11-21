@@ -42,7 +42,14 @@ const shown = (type: Parameters<typeof labelOf>[0], ref: string) => {
 };
 
 const lines = async (text: string) => (await readFile(text)).records;
-const importText = async (text: string) => runImport(await previewImport(await lines(text)));
+/** A file's records and the preview of importing them. */
+const preview = async (text: string) => {
+  const incoming = await lines(text);
+  return { incoming, plan: await previewImport(incoming) };
+};
+const run = (p: Awaited<ReturnType<typeof preview>>, progress?: (done: number) => void) =>
+  runImport(p.incoming, p.plan, progress);
+const importText = async (text: string) => run(await preview(text));
 
 /** As a reload: what this tab read is forgotten and read again from the store. */
 const reload = async () => {
@@ -114,18 +121,16 @@ describe("the label store", () => {
   it("imports by BIP329's rule: the file's label wins, an omitted one keeps the reader's", async () => {
     await setLabel("tx", TXID, "mine");
     await setLabel("addr", ADDR, "mine too");
-    const plan = await previewImport(
-      await lines(
-        [
-          `{"type":"tx","ref":"${TXID}","label":"theirs"}`,
-          `{"type":"addr","ref":"${ADDR}","keypath":"/0/1"}`,
-          `{"type":"output","ref":"${TXID}:0","label":"new"}`,
-        ].join("\n"),
-      ),
+    const plan = await preview(
+      [
+        `{"type":"tx","ref":"${TXID}","label":"theirs"}`,
+        `{"type":"addr","ref":"${ADDR}","keypath":"/0/1"}`,
+        `{"type":"output","ref":"${TXID}:0","label":"new"}`,
+      ].join("\n"),
     );
-    expect(plan.added).toHaveLength(1);
-    expect(plan.replaced).toHaveLength(2);
-    await runImport(plan);
+    expect(plan.plan.added).toBe(1);
+    expect(plan.plan.replaced).toBe(2);
+    await run(plan);
     expect(shown("tx", TXID)).toBe("theirs");
     expect(shown("addr", ADDR)).toBe("mine too");
     expect(shown("output", `${TXID}:0`)).toBe("new");
@@ -162,44 +167,44 @@ describe("the label store", () => {
     expect(shown("addr", ADDR)).toBeUndefined();
   });
 
-  it("imports 100 000 records in one transaction, and reads them back for pages in slices", async () => {
+  it("imports 50 000 records, the most kept, in one transaction, and reads them back in slices", async () => {
     const text = Array.from(
-      { length: 100_000 },
+      { length: 50_000 },
       (_, i) => `{"type":"output","ref":"${TXID}:${i}","label":"coin ${i}"}`,
     ).join("\n");
     const seen: number[] = [];
-    await runImport(await previewImport(await lines(text)), (done) => seen.push(done));
-    expect(seen).toHaveLength(100);
-    expect(shown("output", `${TXID}:99999`)).toBe("coin 99999");
+    await run(await preview(text), (done) => seen.push(done));
+    expect(seen).toHaveLength(50);
+    expect(shown("output", `${TXID}:49999`)).toBe("coin 49999");
     await reload();
-    expect(shown("output", `${TXID}:99999`)).toBe("coin 99999");
+    expect(shown("output", `${TXID}:49999`)).toBe("coin 49999");
     resetStore();
-    expect((await readAll()).records).toHaveLength(100_000);
+    expect((await readAll()).records).toHaveLength(50_000);
+    // One more is refused.
+    await expect(setLabel("tx", TXID, "one more")).rejects.toMatchObject({ kind: "too-many" });
   }, 60_000);
 });
 
 describe("a change made against an older read", () => {
   it("refuses a plan made before another change, so a newer label is never undone", async () => {
     await setLabel("tx", TXID, "old");
-    const plan = await previewImport(await lines(`{"type":"tx","ref":"${TXID}","height":800000}`));
+    const plan = await preview(`{"type":"tx","ref":"${TXID}","height":800000}`);
     // Another tab, or the editor, changes the label after the file was read.
     await setLabel("tx", TXID, "newer");
-    await expect(runImport(plan)).rejects.toMatchObject({ kind: "stale" });
+    await expect(run(plan)).rejects.toMatchObject({ kind: "stale" });
     expect(shown("tx", TXID)).toBe("newer");
     // Planned again, the file's line keeps the newer label.
-    await runImport(
-      await previewImport(await lines(`{"type":"tx","ref":"${TXID}","height":800000}`)),
-    );
+    await run(await preview(`{"type":"tx","ref":"${TXID}","height":800000}`));
     expect((await exportFile()).text).toBe(
       `{"type":"tx","ref":"${TXID}","height":800000,"label":"newer"}\n`,
     );
   });
 
   it("lets only one of two plans made together pass, so they cannot pass the limit together", async () => {
-    const a = await previewImport(await lines(`{"type":"tx","ref":"${TXID}","label":"a"}`));
-    const b = await previewImport(await lines(`{"type":"addr","ref":"${ADDR}","label":"b"}`));
-    await runImport(a);
-    await expect(runImport(b)).rejects.toMatchObject({ kind: "stale" });
+    const a = await preview(`{"type":"tx","ref":"${TXID}","label":"a"}`);
+    const b = await preview(`{"type":"addr","ref":"${ADDR}","label":"b"}`);
+    await run(a);
+    await expect(run(b)).rejects.toMatchObject({ kind: "stale" });
     expect(shown("addr", ADDR)).toBeUndefined();
   });
 
@@ -248,12 +253,10 @@ describe("when storage fails", () => {
     async (quotaAt) => {
       use({ room: 2, quotaAt });
       await setLabel("tx", TXID, "a");
-      const plan = await previewImport(
-        await lines(
-          [0, 1, 2].map((i) => `{"type":"output","ref":"${TXID}:${i}","label":"c"}`).join("\n"),
-        ),
+      const plan = await preview(
+        [0, 1, 2].map((i) => `{"type":"output","ref":"${TXID}:${i}","label":"c"}`).join("\n"),
       );
-      await expect(runImport(plan)).rejects.toMatchObject({ kind: "full" });
+      await expect(run(plan)).rejects.toMatchObject({ kind: "full" });
       expect(shown("output", `${TXID}:0`)).toBeUndefined();
       resetStore();
       expect((await readAll()).records).toHaveLength(1);
@@ -346,18 +349,17 @@ describe("one truth: the database", () => {
     try {
       await setLabel("tx", TXID, "old");
       // Tab A reads the file and previews it; its line leaves the label out.
-      const preview = await previewImport(
-        await lines(`{"type":"tx","ref":"${TXID}","height":800000}`),
-      );
+      const file = await preview(`{"type":"tx","ref":"${TXID}","height":800000}`);
       // Tab B changes the label; A hears nothing (no hint), then A saves a label of its own.
       await setLabel("tx", TXID, "newer, from tab B");
       await setLabel("addr", ADDR, "A's own");
-      const refused = runImport(preview);
+      const refused = run(file);
       await expect(refused).rejects.toBeInstanceOf(StaleImportError);
       expect(shown("tx", TXID)).toBe("newer, from tab B");
       // The refusal carries the import worked out against the store as it is now.
       const fresh = (await refused.catch((e: unknown) => e)) as StaleImportError;
-      await runImport(fresh.fresh);
+      expect(fresh.fresh).toMatchObject({ added: 0, replaced: 1, grown: 0 });
+      await runImport(file.incoming, fresh.fresh);
       expect((await exportFile()).text.split("\n")[0]).toBe(
         `{"type":"tx","ref":"${TXID}","height":800000,"label":"newer, from tab B"}`,
       );

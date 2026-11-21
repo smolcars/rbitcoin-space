@@ -282,10 +282,10 @@ function Manager(props: { all: Stored[]; network: Network }) {
   };
 
   const commitImport = (p: Extract<Phase, { kind: "planned" }>) => {
-    const total = p.plan.added.length + p.plan.replaced.length;
+    const total = p.plan.added + p.plan.replaced;
     const run = reading;
     setPhase({ kind: "saving", done: 0, total });
-    runImport(p.plan, (done) => setPhase({ kind: "saving", done, total }))
+    runImport(p.read.records, p.plan, (done) => setPhase({ kind: "saving", done, total }))
       .then(() => {
         setPhase({ kind: "idle" });
         setPage(1);
@@ -587,8 +587,8 @@ function Plan(props: {
   onCancel: () => void;
 }) {
   const n = (x: number, one: string, many: string) => `${groupDigits(x)} ${x === 1 ? one : many}`;
-  const added = () => props.p.plan.added.length;
-  const replaced = () => props.p.plan.replaced.length;
+  const added = () => props.p.plan.added;
+  const replaced = () => props.p.plan.replaced;
   const total = () => added() + replaced();
   const skipped = () => [...props.p.read.skipped.values()].reduce((a, b) => a + b, 0);
   return (

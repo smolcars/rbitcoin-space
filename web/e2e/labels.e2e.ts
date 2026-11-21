@@ -234,65 +234,89 @@ test.describe("the manager", () => {
     await expect(page.locator(".your-label")).toHaveCount(0);
   });
 
-  test("refuses a file over its size with a plain message, and reads 100 000 lines without holding the page", async ({
-    page,
-  }) => {
+  test("refuses a file over its size with a plain message", async ({ page }) => {
     await page.goto("/regtest/labels");
     await page.locator('input[type="file"]').setInputFiles({
       name: "huge.jsonl",
       mimeType: "application/jsonl",
-      buffer: Buffer.alloc(21 * 1024 * 1024, 0x20),
+      buffer: Buffer.alloc(9 * 1024 * 1024, 0x20),
     });
     await expect(page.getByRole("alert")).toContainText(
-      "This file is 21.0 MB. The most this page reads is 20.0 MB",
+      "This file is 9.0 MB. The most this page reads is 8.0 MB",
     );
-    await page.getByRole("button", { name: "Close" }).click();
+  });
 
-    const lines = Array.from(
-      { length: 100_000 },
-      (_, i) => `{"type":"output","ref":"${TX}:${i}","label":"coin ${i}"}`,
-    ).join("\n");
-    // Handing Playwright's 6.5 MB file to the input holds the page by itself (0.8 s here) before
-    // the page hears of it; what is measured starts after, while the page reads and saves.
-    await page.locator('input[type="file"]').setInputFiles({
-      name: "many.jsonl",
-      mimeType: "application/jsonl",
-      buffer: Buffer.from(lines),
-    });
-    // The longest the page then goes without drawing a frame, and its longest task.
-    await page.evaluate(() => {
-      const w = window as unknown as { longest: number; tasks: number };
-      w.longest = 0;
-      w.tasks = 0;
-      let last = performance.now();
-      const tick = (t: number) => {
-        w.longest = Math.max(w.longest, t - last);
-        last = t;
+  test("the worst import at the limits, 50 000 labels each replaced, never holds the page", async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    /** The longest the page goes without drawing a frame, from now until asked. */
+    const startWatch = () =>
+      page.evaluate(() => {
+        const w = window as unknown as { longest: number; watching: number };
+        w.longest = 0;
+        w.watching = (w.watching ?? 0) + 1;
+        const run = w.watching;
+        let last = performance.now();
+        const tick = (t: number) => {
+          if (w.watching !== run) return;
+          w.longest = Math.max(w.longest, t - last);
+          last = t;
+          requestAnimationFrame(tick);
+        };
         requestAnimationFrame(tick);
-      };
-      requestAnimationFrame(tick);
-      new PerformanceObserver((l) => {
-        for (const e of l.getEntries()) w.tasks = Math.max(w.tasks, e.duration);
-      }).observe({ type: "longtask" });
+      });
+    const longest = () =>
+      page.evaluate(() => Math.round((window as unknown as { longest: number }).longest));
+    const file = (name: string, lines: string[]) => ({
+      name,
+      mimeType: "application/jsonl",
+      buffer: Buffer.from(`${lines.join("\n")}\n`),
     });
-    await page.getByRole("button", { name: "Import 100 000 labels" }).click({ timeout: 30_000 });
-    await expect(page.getByText("Imported 100 000 labels.")).toBeVisible({ timeout: 60_000 });
-    const { longest, tasks } = await page.evaluate(() => {
-      const w = window as unknown as { longest: number; tasks: number };
-      return { longest: w.longest, tasks: w.tasks };
-    });
+    const N = 50_000;
+    await page.goto("/regtest/labels");
+    await expect(page.getByRole("button", { name: "Import a file" })).toBeEnabled();
+    // 50 000 labels kept: the most there may be.
+    await page.locator('input[type="file"]').setInputFiles(
+      file(
+        "held.jsonl",
+        Array.from({ length: N }, (_, i) =>
+          JSON.stringify({ type: "output", ref: `${TX}:${i}`, label: `coin ${i}` }),
+        ),
+      ),
+    );
+    await page.getByRole("button", { name: "Import 50 000 labels" }).click({ timeout: 60_000 });
+    await expect(page.getByText(/^Imported 50\s000 labels\./)).toBeVisible({ timeout: 60_000 });
+    // A file as near the 8 MiB limit as 50 000 lines go, each replacing a kept record and leaving
+    // its label out, so every record is merged with the one kept: the most work an import does.
+    const filler = "f".repeat(42);
+    const replacing = Array.from({ length: N }, (_, i) =>
+      JSON.stringify({ type: "output", ref: `${TX}:${i}`, spendable: true, note: filler }),
+    );
+    const big = file("replacing.jsonl", replacing);
+    expect(big.buffer.length).toBeGreaterThan(7.5 * 1024 * 1024);
+    expect(big.buffer.length).toBeLessThan(8 * 1024 * 1024);
+    // Handing Playwright's file to the input holds the page by itself before the page hears of
+    // it; what is measured starts after, while the page reads, previews, and then saves.
+    await page.locator('input[type="file"]').setInputFiles(big);
+    await startWatch();
+    const confirm = page.getByRole("button", { name: "Import 50 000 labels" });
+    await expect(confirm).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByText(/50\s000 replace labels you have/)).toBeVisible();
+    const preview = await longest();
+    await startWatch();
+    await confirm.click();
+    await expect(page.getByText(/^Imported 50\s000 labels\./)).toBeVisible({ timeout: 60_000 });
+    const saving = await longest();
     test.info().annotations.push({
-      type: "100 000 lines",
-      description: `longest gap between frames ${Math.round(longest)} ms, longest task ${Math.round(tasks)} ms`,
+      type: "worst import at the limits",
+      description: `longest gap between frames: ${preview} ms reading and previewing, ${saving} ms confirming`,
     });
-    // A frozen page shows a gap of seconds. Idle, the longest is about 70 ms (the index of 100 000
-    // labels built again after the save); the whole suite at once stretched it to 380 ms. That
-    // the reading yields between slices is bip329.test.ts's to prove.
-    expect(longest).toBeLessThan(1000);
+    expect(saving).toBeLessThan(100);
+    expect(preview).toBeLessThan(100);
     await page.goto(`/regtest/tx/${TX}`);
     const cards = page.getByRole("list", { name: "Outputs" }).getByRole("listitem");
     await expect(tagIn(cards.first())).toHaveText("coin 0");
-    await expect(tagIn(cards.nth(1))).toHaveText("coin 1");
   });
 });
 

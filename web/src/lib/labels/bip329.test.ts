@@ -240,7 +240,7 @@ describe("readFile", () => {
 
   it("gives the page a turn between slices of a long file, and can be stopped", async () => {
     const lines = Array.from(
-      { length: 100_000 },
+      { length: 50_000 },
       (_, i) => `{"type":"output","ref":"${TXID}:${i}","label":"coin ${i}"}`,
     ).join("\n");
     const seen: number[] = [];
@@ -248,14 +248,14 @@ describe("readFile", () => {
     const timer = setInterval(() => ticks++, 0);
     const f = await readFile(lines, (done) => seen.push(done));
     clearInterval(timer);
-    expect(f.records).toHaveLength(100_000);
+    expect(f.records).toHaveLength(50_000);
     // Reported each time it gives the page its turn, every few milliseconds.
     expect(seen.length).toBeGreaterThan(5);
     // Other tasks ran while it read.
-    expect(ticks).toBeGreaterThan(10);
+    expect(ticks).toBeGreaterThan(3);
     let calls = 0;
     const stopped = await readFile(lines, undefined, () => ++calls > 2);
-    expect(stopped.records.length).toBeLessThan(100_000);
+    expect(stopped.records.length).toBeLessThan(50_000);
   });
 
   it("reads a slice of 2 000 lines in well under a frame's worth of processor time each", async () => {
