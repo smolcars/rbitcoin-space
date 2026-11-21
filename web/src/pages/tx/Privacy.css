@@ -124,7 +124,10 @@
   .pv-item__title {
     font-weight: var(--weight-bold);
   }
+  /* Moves to the next line whole rather than breaking. */
   .pv-item__note {
+    display: inline-block;
+    white-space: nowrap;
     margin-left: var(--space-2);
     color: var(--color-text-muted);
     font-weight: var(--weight-regular);
