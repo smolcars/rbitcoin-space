@@ -42,8 +42,8 @@ const PAYMENT_FORMS: [RegExp, PaymentLabel][] = [
 
 /**
  * A payment string by its form alone: a prefix, or for a Lightning address the shape of an email
- * address with a dotted domain. A node URI (`<key>@<host>:<port>`) and a name without a dotted
- * domain stay searches.
+ * address with a dotted domain. A node URI (`<key>@<host>:<port>`, read as its node) and a name
+ * without a dotted domain are not payment strings.
  */
 export function payment(input: string): Query | null {
   if (input.length > MAX_PAYMENT) return null;
@@ -174,8 +174,10 @@ function plain(q: string, hint: Hint): Query | null {
     const node = hint === null && address?.type === "p2pk" && compact.length === 66;
     if (address && !node) return { kind: "address", address };
   }
-  if ((hint === null || hint === "node") && /^0[23][0-9a-f]{64}$/i.test(compact)) {
-    return { kind: "node", key: compact.toLowerCase() };
+  // A node's connect string (`<key>@<host>:<port>`, what a node's QR code holds) names its key.
+  const key = /^(0[23][0-9a-f]{64})(?:@[^@/]+)?$/i.exec(compact)?.[1];
+  if ((hint === null || hint === "node") && key !== undefined) {
+    return { kind: "node", key: key.toLowerCase() };
   }
   // A plain number that fits a height was taken as one above.
   if (hint === null || hint === "channel") {

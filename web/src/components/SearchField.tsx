@@ -4,6 +4,7 @@ import { ApiError } from "../lib/api";
 import { formatBtcShort, groupDigits, truncateMiddle } from "../lib/format";
 import { NETWORK_NAMES, type Network, onNetwork, paths } from "../lib/network";
 import { useNetwork } from "../lib/page";
+import { ScanButton } from "../scan/ScanButton";
 import type { Logic, Outcome, Query, Suggestion } from "../search/search";
 import { Link } from "./Link";
 import "./Button.css";
@@ -26,10 +27,13 @@ type Miss = Exclude<Outcome, { kind: "go" }>;
 const queried = (miss: Miss) => (miss.kind === "missing" ? miss.query : null);
 
 /** What a finished search that leads nowhere says, in one sentence for screen readers. */
-function summary(miss: Miss, network: string): string {
+function summary(miss: Miss, network: string, scanned: boolean): string {
   if (miss.kind === "failed") return "Search could not finish.";
-  return miss.query?.kind === "hash"
-    ? `Nothing matches: no block or transaction on ${network} has this ID.`
+  if (miss.query?.kind === "hash") {
+    return `Nothing matches: no block or transaction on ${network} has this ID.`;
+  }
+  return scanned
+    ? "Code not recognised: what it holds is not a transaction ID, block hash, height or address."
     : "Nothing matches: this is not a transaction ID, block hash, height or address.";
 }
 
@@ -54,7 +58,8 @@ export function SearchField(props: SearchFieldProps) {
   const [text, setText] = createSignal("");
   const [logic, setLogic] = createSignal<Logic>();
   const [busy, setBusy] = createSignal(false);
-  const [miss, setMiss] = createSignal<{ query: string; miss: Miss }>();
+  // `scanned`: the query is what a QR code held, not what was typed.
+  const [miss, setMiss] = createSignal<{ query: string; miss: Miss; scanned: boolean }>();
   const [said, setSaid] = createSignal("");
   // A well-formed ID that nothing on this network has: the field says so, not what it looks like.
   const [nothingFor, setNothingFor] = createSignal<string>();
@@ -175,7 +180,8 @@ export function SearchField(props: SearchFieldProps) {
     setNothingFor(undefined);
   });
 
-  const search = async (query: string) => {
+  // A scanned code is looked up as what it holds: never as a Lightning node's name.
+  const search = async (query: string, scanned = false) => {
     stop();
     const mine = generation;
     const net = network();
@@ -184,7 +190,7 @@ export function SearchField(props: SearchFieldProps) {
     try {
       await load();
       if (mine !== generation) return;
-      outcome = await searcher?.run(query, net);
+      outcome = await searcher?.run(query, net, !scanned);
     } catch (error) {
       outcome = { kind: "failed", error };
     }
@@ -195,9 +201,9 @@ export function SearchField(props: SearchFieldProps) {
       input?.blur();
       navigate(onNetwork(net, outcome.path));
     } else {
-      setMiss({ query, miss: outcome });
+      setMiss({ query, miss: outcome, scanned });
       if (outcome.kind === "missing" && outcome.query?.kind === "hash") setNothingFor(query);
-      setSaid(summary(outcome, NETWORK_NAMES[net]));
+      setSaid(summary(outcome, NETWORK_NAMES[net], scanned));
     }
   };
 
@@ -328,6 +334,16 @@ export function SearchField(props: SearchFieldProps) {
         <kbd class="search__slash" aria-hidden="true" title="Press / to search">
           /
         </kbd>
+        <ScanButton
+          onScan={(value) => {
+            // The code's text goes in the field and is looked up as if typed; it is only text.
+            const query = value.trim();
+            setText(query);
+            setNothingFor(undefined);
+            dismiss();
+            if (query !== "") void search(query, true);
+          }}
+        />
       </form>
       <span class="visually-hidden" role="status">
         {said()}
@@ -390,7 +406,7 @@ export function SearchField(props: SearchFieldProps) {
                 <Failed
                   miss={m().miss}
                   retry={() => {
-                    void search(m().query);
+                    void search(m().query, m().scanned);
                   }}
                 />
               }
@@ -399,6 +415,8 @@ export function SearchField(props: SearchFieldProps) {
                 query={m().query}
                 found={queried(m().miss)}
                 network={NETWORK_NAMES[network()]}
+                scanned={m().scanned}
+                visible={logic()?.visible ?? (() => "")}
               />
             </Show>
           </div>
@@ -408,17 +426,40 @@ export function SearchField(props: SearchFieldProps) {
   );
 }
 
-function Nothing(props: { query: string; found: Query | null; network: string }) {
+function Nothing(props: {
+  query: string;
+  found: Query | null;
+  network: string;
+  scanned: boolean;
+  visible: (text: string) => string;
+}) {
+  const isHash = () => props.found?.kind === "hash";
   return (
     <>
-      <p class="search__title">Nothing matches</p>
+      <p class="search__title">
+        {props.scanned && !isHash() ? "Code not recognised" : "Nothing matches"}
+      </p>
       <Show
         when={props.found?.kind === "hash" && props.found.hash}
         fallback={
-          <p>
-            <q class="search__query">{truncateMiddle(props.query, 28, 12)}</q> is not a transaction
-            ID, block hash, block height or address.
-          </p>
+          <Show
+            when={props.scanned}
+            fallback={
+              <p>
+                <q class="search__query">{truncateMiddle(props.query, 28, 12)}</q> is not a
+                transaction ID, block hash, block height or address.
+              </p>
+            }
+          >
+            {/* What a code holds is someone else's text: shown as text, cut, never followed. */}
+            <p>
+              The QR code holds{" "}
+              <q class="search__query" title={props.visible(props.query)}>
+                {truncateMiddle(props.visible(props.query), 96, 32)}
+              </q>
+              , which is not a transaction ID, block hash, block height or address.
+            </p>
+          </Show>
         }
       >
         {(hash) => (

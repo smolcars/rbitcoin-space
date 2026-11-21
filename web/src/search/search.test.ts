@@ -335,3 +335,65 @@ describe("payment strings", () => {
     });
   });
 });
+
+describe("createSearch, for a scanned code", () => {
+  const config = () =>
+    Promise.resolve({
+      networks: [],
+      version: "",
+      ark: {},
+      lightning: [...NETWORKS],
+      broadcast: true,
+    });
+  const ADDRESS = "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq";
+  const INVOICE = "lnbc2500u1pvjluezsp5zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zygs";
+
+  it.each([
+    // What wallets and nodes put in their codes, in the case they put it.
+    [`bitcoin:${ADDRESS.toUpperCase()}?amount=0.001&label=Tip`, `/address/${ADDRESS}`],
+    [`BITCOIN:${ADDRESS}`, `/address/${ADDRESS}`],
+    [ADDRESS, `/address/${ADDRESS}`],
+    ["1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2", "/address/1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2"],
+    [KEY, `/lightning/node/${KEY}`],
+    [`${KEY}@203.0.113.7:9735`, `/lightning/node/${KEY}`],
+    [`${KEY}@[2001:db8::1]:9735`, `/lightning/node/${KEY}`],
+    [
+      `${KEY}@abcdefghijklmnopqrstuvwxyz234567abcdefghijklmnopqrstuvwx.onion:9735`,
+      `/lightning/node/${KEY}`,
+    ],
+    [`lightning:${INVOICE.toUpperCase()}`, `/decode#lightning%3A${INVOICE.toUpperCase()}`],
+  ])("%s leads to %s", async (scanned, path) => {
+    const search = createSearch(notFound, notFound, config);
+    await expect(search.run(scanned, "mainnet", false)).resolves.toStrictEqual({
+      kind: "go",
+      path,
+    });
+  });
+
+  it("looks up a scanned id as a typed one is", async () => {
+    const { asked, probe } = api([`/tx/${TXID}/status`]);
+    const search = createSearch(async (_network, path) => probe(path), notFound, config);
+    await expect(search.run(TXID, "mainnet", false)).resolves.toStrictEqual({
+      kind: "go",
+      path: `/tx/${TXID}`,
+    });
+    expect(asked).toStrictEqual([`/tx/${TXID}/status`]);
+  });
+
+  it("never takes a code's text for a node's name, even where Lightning is on", async () => {
+    const app = vi.fn<Get>(notFound);
+    const search = createSearch(notFound, app, config);
+    for (const text of ["noderunner", "https://example.com/menu", "WIFI:S:home;T:WPA;P:secret;;"]) {
+      await expect(search.run(text, "signet", false)).resolves.toStrictEqual({
+        kind: "missing",
+        query: null,
+      });
+    }
+    expect(app).not.toHaveBeenCalled();
+    // Typed, the same name is a search of the index.
+    await expect(search.run("noderunner", "signet")).resolves.toStrictEqual({
+      kind: "go",
+      path: "/lightning/search?q=noderunner",
+    });
+  });
+});

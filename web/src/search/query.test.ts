@@ -417,3 +417,23 @@ describe("classify: payment strings go to the decoder", () => {
     expect(classify(`lnbc1${"q".repeat(9000)}`)).toBeNull();
   });
 });
+
+describe("classify: a node's connect string", () => {
+  const KEY = "03864ef025fde8fb587d989186ce6a4a186895ee44a926bfc370e2c366597a3f8f";
+
+  it.each([
+    `${KEY}@1.2.3.4:9735`,
+    `${KEY.toUpperCase()}@example.com`,
+    `${KEY}@[2001:db8::1]:9735`,
+    `${KEY}@abcdefghijklmnopqrstuvwxyz234567abcdefghijklmnopqrstuvwx.onion:9735`,
+  ])("%s is its node", (q) => {
+    expect(classify(q)).toStrictEqual({ kind: "node", key: KEY });
+  });
+
+  it.each([`${KEY}@`, `${KEY}@a@b`, `${KEY}@host/path`, `04${KEY.slice(2)}@1.2.3.4:9735`])(
+    "%s is not",
+    (q) => {
+      expect(classify(q)?.kind).not.toBe("node");
+    },
+  );
+});

@@ -19,6 +19,17 @@ vi.mock(import("../lib/config"), () => ({
   }),
 }));
 
+// The scanner stands in as a button that hands over what `scan.text` says a code held; the real
+// one is tested in scan/ and e2e/scan.e2e.ts.
+const scan = vi.hoisted(() => ({ text: "" }));
+vi.mock(import("../scan/ScanButton"), () => ({
+  ScanButton: (props: { onScan: (text: string) => void }) => (
+    <button type="button" onClick={() => props.onScan(scan.text)}>
+      Scan a QR code
+    </button>
+  ),
+}));
+
 const TXID = "65428488a6202f1d681d053b3ff5d8ea9f5b0e5e1e0dcf7bf2e4c1e5a3f9c2e1";
 
 /** The field, and the path the router is on. */
@@ -383,5 +394,38 @@ describe("SearchField and Lightning", () => {
       // @ts-expect-error -- jsdom has none; the stand-in goes with the test
       delete Element.prototype.scrollIntoView;
     }
+  });
+});
+
+describe("SearchField and a scanned code", () => {
+  const scanned = (el: HTMLElement, text: string) => {
+    scan.text = text;
+    [...el.querySelectorAll("button")].find((b) => b.textContent === "Scan a QR code")?.click();
+    flush();
+  };
+
+  it("opens the page a scanned code leads to, on the field's network", async () => {
+    config.lightning = ["signet"];
+    const { el, path } = setup("/signet/");
+    scanned(el, " bitcoin:TB1QW508D6QEJXTDG4Y5R3ZARVARY0C5XW7KXPJZSX?amount=0.1 ");
+    await vi.waitFor(() =>
+      expect(path()).toBe("/signet/address/tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx"),
+    );
+  });
+
+  it("shows what an unknown code holds, as visible text, and never searches it as a name", async () => {
+    config.lightning = ["signet"];
+    const fetch = vi.fn<typeof globalThis.fetch>();
+    vi.stubGlobal("fetch", fetch);
+    const { el, input } = setup("/signet/");
+    scanned(el, "<b>menu</b>\u{202E}gpj.exe");
+    const panel = () => el.querySelector(".search__panel");
+    await vi.waitFor(() => expect(panel()?.textContent).toContain("Code not recognised"));
+    // The override is shown as a mark, not obeyed; the markup is text.
+    expect(panel()?.querySelector("q")?.textContent).toBe("<b>menu</b>\u{FFFD}gpj.exe");
+    expect(panel()?.querySelector("b")).toBeNull();
+    expect(input.value).toBe("<b>menu</b>\u{202E}gpj.exe");
+    expect(el.querySelector('[role="status"]')?.textContent).toMatch(/^Code not recognised/);
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

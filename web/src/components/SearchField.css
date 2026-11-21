@@ -130,6 +130,60 @@
     }
   }
 
+  /* Opens the QR scanner (scan/ScanButton.tsx): at the field's right end, inside its box. */
+  .search__scan {
+    flex: none;
+    display: inline-grid;
+    place-items: center;
+    align-self: stretch;
+    width: 36px;
+    margin: 3px 3px 3px 0;
+    padding: 0;
+    border: 0;
+    border-radius: calc(var(--radius-m) - 2px);
+    background: none;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    transition: color var(--dur-quick) var(--ease-out);
+  }
+  .search__scan svg {
+    width: 18px;
+    height: 18px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  @media (hover: hover) {
+    .search__scan:hover {
+      color: var(--color-text);
+      background: var(--color-surface);
+    }
+    .search__scan:hover .search__scan-line {
+      stroke: var(--color-accent);
+    }
+  }
+  /* Loading the scanner: the line across the frame pulses, as the search's own busy dot does. */
+  .search__scan[aria-busy="true"] .search__scan-line {
+    stroke: var(--color-accent);
+    animation: search-pulse 900ms var(--ease-in-out) infinite alternate;
+  }
+  /* A thumb's target: the field's whole height, and as wide. */
+  @media (pointer: coarse) {
+    .search__scan {
+      width: var(--touch);
+      margin: -1px 0;
+    }
+  }
+  /* Under 360 px the resting field has no room for it beside "Search": it shows once the search
+     has focus, which gives the search the header's whole first row (Header.css). */
+  @media (max-width: 22.4375em) {
+    .search:not(:focus-within) .search__scan {
+      display: none;
+    }
+  }
+
   /* Fades in late, so a quick answer shows nothing. */
   .search__busy {
     display: flex;

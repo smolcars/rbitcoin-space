@@ -531,10 +531,12 @@ test("Escape closes the network menu and the search's answer", async ({ page, br
   const search = page.getByRole("combobox", { name: "Search" });
   await search.fill("nothing like an id");
   await search.press("Enter");
-  // The answer is said, and Tab reaches its links.
+  // The answer is said, and Tab reaches its links, after the search's own scan button.
   await expect(page.getByRole("status").filter({ hasText: "Nothing matches" })).toHaveCount(1);
   await expect(page.getByText("Nothing matches", { exact: true })).toBeVisible();
   expect(await axe(page), "axe-core, the search's answer open").toEqual([]);
+  await page.keyboard.press(tab);
+  await expect(page.getByRole("button", { name: "Scan a QR code" })).toBeFocused();
   await page.keyboard.press(tab);
   await expect(page.locator(".search__panel a").first()).toBeFocused();
   await search.focus();
@@ -561,6 +563,18 @@ test("the command palette has no checker finding, empty and with results, in eit
   await dialog.getByRole("combobox").fill("106");
   await expect(dialog.getByRole("option").first()).toContainText("Block 106");
   expect.soft(await axe(page), "axe-core, the palette with results").toEqual([]);
+  await page.emulateMedia({ colorScheme: "dark" });
+  expect.soft(await axe(page, ["color-contrast"]), "contrast, dark").toEqual([]);
+});
+
+test("the QR scanner has no checker finding, in either theme", async ({ page }) => {
+  await page.goto("/regtest/blocks");
+  await page.getByRole("button", { name: "Scan a QR code" }).click();
+  const dialog = page.getByRole("dialog", { name: "Scan a QR code" });
+  // Headless Chromium has no camera: the scanner says so, beside the picture it offers instead.
+  await expect(dialog.getByRole("status")).not.toHaveText("Starting the camera…");
+  await expect(dialog).toBeFocused();
+  expect.soft(await axe(page), "axe-core, the scanner").toEqual([]);
   await page.emulateMedia({ colorScheme: "dark" });
   expect.soft(await axe(page, ["color-contrast"]), "contrast, dark").toEqual([]);
 });

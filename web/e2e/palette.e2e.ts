@@ -540,6 +540,9 @@ test("a phone's opener stays while Tab reaches it, and takes what was typed", as
   await search.click();
   await search.fill("foundry");
   const go = page.getByRole("button", { name: "Go to a page, pool or date" });
+  // The search's own scan button, at the field's end, comes first.
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("button", { name: "Scan a QR code" })).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(go).toBeFocused();
   await expect(go).toBeVisible();
@@ -708,20 +711,25 @@ test("Tab and Shift+Tab reach every section of the header at 360 px", async ({ p
   const links = page.getByRole("navigation", { name: "Main" }).getByRole("link");
   await expect(links).toHaveCount(4);
   const names = await links.allInnerTexts();
-  const focusedName = () => page.evaluate(() => document.activeElement?.textContent?.trim() ?? "");
-  // Forward from the search: "Go to", then every section, then the theme.
+  const focusedName = () =>
+    page.evaluate(() => {
+      const el = document.activeElement;
+      return el?.getAttribute("aria-label") ?? el?.textContent?.trim() ?? "";
+    });
+  // Forward from the search: its scan button, "Go to", then every section, then the theme.
   await page.getByRole("combobox", { name: "Search" }).focus();
   const forward: string[] = [];
-  for (let i = 0; i < names.length + 2; i += 1) {
+  for (let i = 0; i < names.length + 3; i += 1) {
     await page.keyboard.press("Tab");
     forward.push(await focusedName());
   }
-  expect(forward.slice(0, names.length + 1)).toStrictEqual([
+  expect(forward.slice(0, names.length + 2)).toStrictEqual([
+    "Scan a QR code",
     "Go to a page, pool or date",
     ...names,
   ]);
-  // Back from the theme: every section, then the search ("Go to" shows only while the search or
-  // it has focus, so going back it is the search that is reached).
+  // Back from the theme: every section, then the search's scan button and the search ("Go to"
+  // shows only while the search or it has focus, so going back it is not reached).
   await page.getByRole("button", { name: /Switch to (light|dark) theme/ }).focus();
   const back: string[] = [];
   for (const _ of names) {
@@ -729,6 +737,8 @@ test("Tab and Shift+Tab reach every section of the header at 360 px", async ({ p
     back.push(await focusedName());
   }
   expect(back).toStrictEqual(names.map((_, i) => names[names.length - 1 - i] ?? ""));
+  await page.keyboard.press("Shift+Tab");
+  await expect(page.getByRole("button", { name: "Scan a QR code" })).toBeFocused();
   await page.keyboard.press("Shift+Tab");
   await expect(page.getByRole("combobox", { name: "Search" })).toBeFocused();
 });

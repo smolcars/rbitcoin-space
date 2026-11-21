@@ -1,0 +1,211 @@
+@layer components {
+  /* Read by ScanButton.tsx to know this stylesheet applies before the scanner opens. */
+  .scanner-probe {
+    --scanner-styled: 1;
+  }
+
+  .scanner {
+    width: min(26rem, 100% - 2 * var(--gutter));
+    max-width: none;
+    max-height: none;
+    margin: clamp(var(--space-4), 12vh, 7rem) auto 0;
+    padding: 0;
+    overflow: visible;
+    border: 0;
+    background: none;
+    color: var(--color-text);
+  }
+  /* Focused only to start reading inside it (Scanner.tsx); its controls show focus themselves. */
+  .scanner:focus {
+    outline: none;
+  }
+  .scanner::backdrop {
+    background: var(--color-veil, rgb(22 27 30 / 0.5));
+  }
+
+  .scanner__panel {
+    display: grid;
+    gap: var(--space-3);
+    max-height: calc(100dvh - clamp(var(--space-4), 12vh, 7rem) - var(--space-4));
+    overflow-y: auto;
+    padding: var(--space-3) var(--space-4) var(--space-4);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-l);
+    background: var(--color-surface-raised);
+    box-shadow: var(--shadow-pop);
+    font-size: var(--text-sm);
+    line-height: var(--leading-snug);
+  }
+  .scanner__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+  }
+  .scanner__title {
+    margin: 0;
+    font-size: var(--text-md);
+    font-weight: var(--weight-bold);
+  }
+  .scanner__close {
+    flex: none;
+    display: inline-grid;
+    place-items: center;
+    width: var(--touch);
+    height: var(--touch);
+    margin: -10px -12px -10px 0;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-m);
+    background: none;
+    color: var(--color-text-muted);
+    cursor: pointer;
+  }
+  .scanner__close svg {
+    width: 12px;
+    height: 12px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+  }
+  @media (hover: hover) {
+    .scanner__close:hover {
+      color: var(--color-text);
+    }
+  }
+
+  /* The camera's view: a square, so a code held anywhere in it is in frame on a phone or laptop. */
+  .scanner__well {
+    position: relative;
+    display: grid;
+    place-items: center;
+    aspect-ratio: 1;
+    overflow: hidden;
+    border-radius: var(--radius-m);
+    background: var(--color-surface-sunken);
+  }
+  .scanner__video {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0;
+    transition: opacity var(--dur-fade) linear;
+  }
+  .scanner__well--live .scanner__video {
+    opacity: 1;
+  }
+  .scanner__video--mirrored {
+    transform: scaleX(-1);
+  }
+  .scanner__idle {
+    width: 40px;
+    height: 40px;
+    fill: none;
+    stroke: var(--color-text-muted);
+    stroke-width: 1.4;
+    stroke-linejoin: round;
+  }
+
+  /* The frame: four corners to hold the code inside. On a read code they close in on it and take
+     the accent, as a block that lands does, then the scanner hands the code on. */
+  .scanner__frame {
+    --corner: 22%;
+    --frame-ink: var(--color-line-strong);
+    position: absolute;
+    inset: 16%;
+    transition: transform var(--dur-base) var(--ease-settle);
+  }
+  .scanner__well--live .scanner__frame {
+    /* Light over any picture, with a shadow so it holds on a pale one. */
+    --frame-ink: rgb(255 255 255 / 0.92);
+    filter: drop-shadow(0 0 1.5px rgb(0 0 0 / 0.45));
+  }
+  .scanner--found .scanner__frame {
+    --frame-ink: var(--color-accent);
+    transform: scale(0.86);
+  }
+  .scanner__frame span {
+    position: absolute;
+    width: var(--corner);
+    height: var(--corner);
+    border: 0 solid var(--frame-ink);
+    transition: border-color var(--dur-quick) var(--ease-out);
+  }
+  .scanner__frame span:nth-child(1) {
+    top: 0;
+    left: 0;
+    border-width: 3px 0 0 3px;
+    border-top-left-radius: var(--radius-m);
+  }
+  .scanner__frame span:nth-child(2) {
+    top: 0;
+    right: 0;
+    border-width: 3px 3px 0 0;
+    border-top-right-radius: var(--radius-m);
+  }
+  .scanner__frame span:nth-child(3) {
+    bottom: 0;
+    left: 0;
+    border-width: 0 0 3px 3px;
+    border-bottom-left-radius: var(--radius-m);
+  }
+  .scanner__frame span:nth-child(4) {
+    right: 0;
+    bottom: 0;
+    border-width: 0 3px 3px 0;
+    border-bottom-right-radius: var(--radius-m);
+  }
+
+  .scanner__status {
+    margin: 0;
+    min-height: calc(2 * var(--leading-snug) * 1em);
+  }
+  .scanner__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+  .scanner__note {
+    margin: 0;
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+  }
+
+  .scanner[open] .scanner__panel {
+    animation: scanner-in var(--dur-base) var(--ease-out);
+  }
+  .scanner[open]::backdrop {
+    animation: scanner-dim var(--dur-quick) linear;
+  }
+  @keyframes scanner-in {
+    from {
+      opacity: 0;
+      transform: translateY(-8px) scale(0.985);
+    }
+  }
+  @keyframes scanner-dim {
+    from {
+      opacity: 0;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .scanner[open] .scanner__panel,
+    .scanner[open]::backdrop {
+      animation: none;
+    }
+  }
+
+  /* Phones: a sheet from the top, nearly as wide as the screen. */
+  @media (max-width: 40em) {
+    .scanner {
+      width: calc(100% - 2 * var(--space-2));
+      margin-top: max(var(--space-2), env(safe-area-inset-top));
+    }
+    .scanner__panel {
+      max-height: calc(100dvh - max(var(--space-2), env(safe-area-inset-top)) - var(--space-2));
+    }
+  }
+}
