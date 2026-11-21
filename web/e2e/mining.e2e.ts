@@ -36,19 +36,32 @@ test("regtest's mining page says what is and is not meaningful there", async ({ 
   await expect(unknown).toContainText("100.0%");
 });
 
-test("regtest's mining page fits a phone without scrolling sideways", async ({ page }) => {
-  // Regtest's difficulty, 0.00000000046565 written out, ran 10 to 19 px past a phone's width.
-  for (const width of [320, 360]) {
-    await page.setViewportSize({ width, height: 700 });
-    // All of history, so every section holds figures.
-    await page.goto("/regtest/mining?period=all");
-    await expect(page.getByText(/^4\.66\s×\s10⁻¹⁰$/).first()).toBeVisible();
-    await expect(page.getByRole("table", { name: /Pools ranked by blocks found/ })).toBeVisible({
-      timeout: 30_000,
-    });
-    const scrolled = await page.evaluate(() => document.documentElement.scrollWidth);
-    expect(scrolled, `page width at ${width} px`).toBeLessThanOrEqual(width);
-  }
+// Layout at a phone's width in the widest prose face CI may draw (docs/FRONTEND.md).
+test.describe("in a wide prose font", () => {
+  test.use({ prose: "wide" });
+
+  test("regtest's mining page fits a phone without scrolling sideways, every pool named whole", async ({
+    page,
+  }) => {
+    // Regtest's difficulty, 0.00000000046565 written out, ran 10 to 19 px past a phone's width.
+    for (const width of [320, 360]) {
+      await page.setViewportSize({ width, height: 700 });
+      // All of history, so every section holds figures.
+      await page.goto("/regtest/mining?period=all");
+      await expect(page.getByText(/^4\.66\s×\s10⁻¹⁰$/).first()).toBeVisible();
+      const table = page.getByRole("table", { name: /Pools ranked by blocks found/ });
+      await expect(table).toBeVisible({ timeout: 30_000 });
+      const scrolled = await page.evaluate(() => document.documentElement.scrollWidth);
+      expect(scrolled, `page width at ${width} px`).toBeLessThanOrEqual(width);
+      // Unknown's "98 empty" once kept its width and cut the name beside it to under a pixel.
+      const cut = await table
+        .locator(".mining-pool__name")
+        .evaluateAll((names) =>
+          names.filter((n) => n.scrollWidth > n.clientWidth).map((n) => n.textContent),
+        );
+      expect(cut, `pool names cut at ${width} px`).toEqual([]);
+    }
+  });
 });
 
 test("a chart draws and its readout shows the route's figure", async ({ page }) => {
