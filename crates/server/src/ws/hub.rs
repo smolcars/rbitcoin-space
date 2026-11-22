@@ -386,7 +386,7 @@ async fn fetch_block(
     deadline: Instant,
 ) -> Option<Value> {
     let id = hash.to_string();
-    let once = async || {
+    let once = || async {
         let raw = esplora.raw(&Route::Block(hash)).await.ok()?;
         if !raw.status.is_success() {
             return None;
@@ -394,46 +394,66 @@ async fn fetch_block(
         let block = serde_json::from_slice::<Value>(&raw.body).ok()?;
         (block.get("id").and_then(Value::as_str) == Some(id.as_str())).then_some(block)
     };
-    let retry = async {
-        loop {
-            let started = tokio::time::Instant::now();
-            if let Some(block) = once().await {
-                return block;
-            }
-            tokio::time::sleep_until(started + retry_wait(since.elapsed())).await;
-        }
-    };
-    tokio::time::timeout_at(deadline.into(), retry).await.ok()
+    tokio::time::timeout_at(deadline.into(), retry(once, since.into()))
+        .await
+        .ok()
 }
 
-/// The wait before asking again for a block first asked for `waited` ago, within the retry bounds.
-fn retry_wait(waited: Duration) -> Duration {
-    (waited / 8).clamp(BLOCK_RETRY, BLOCK_RETRY_MAX)
+/// `once`'s first answer, asked again after each miss on [`fetch_block`]'s schedule. It times the
+/// wait from `since` on tokio's clock, so that a paused test steps through the schedule.
+async fn retry<T, F: Future<Output = Option<T>>>(
+    once: impl Fn() -> F,
+    since: tokio::time::Instant,
+) -> T {
+    loop {
+        let started = tokio::time::Instant::now();
+        if let Some(found) = once().await {
+            return found;
+        }
+        let wait = (since.elapsed() / 8).clamp(BLOCK_RETRY, BLOCK_RETRY_MAX);
+        tokio::time::sleep_until(started + wait).await;
+    }
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::indexing_slicing)]
 mod tests {
+    use std::sync::Mutex;
     use std::time::Duration;
 
-    use super::retry_wait;
+    use tokio::time::Instant;
 
-    /// docs/WS.md: every 25 ms for the first 200 ms, then an eighth of the time waited, at most a
-    /// second apart.
-    #[test]
-    fn a_late_block_is_asked_for_again_after_an_eighth_of_the_wait() {
-        for (waited, wait) in [
-            (0, 25),
-            (200, 25),
-            (500, 62),
-            (5_000, 625),
-            (8_000, 1_000),
-            (60_000, 1_000),
-        ] {
-            assert_eq!(
-                retry_wait(Duration::from_millis(waited)).as_millis(),
-                wait,
-                "after {waited} ms"
+    use super::retry;
+
+    /// docs/WS.md: a block the node has not served yet is asked for again every 25 ms for the first
+    /// 200 ms, then after an eighth of the time waited, at most a second apart.
+    #[tokio::test(start_paused = true)]
+    async fn a_late_block_is_asked_for_again_after_an_eighth_of_the_wait() {
+        let since = Instant::now();
+        let asks = Mutex::new(Vec::new());
+        retry(
+            || async {
+                asks.lock().unwrap().push(since.elapsed());
+                (since.elapsed() >= Duration::from_secs(12)).then_some(())
+            },
+            since,
+        )
+        .await;
+        let asks = asks.into_inner().unwrap();
+        assert_eq!(asks[0], Duration::ZERO);
+        for ask in asks.windows(2) {
+            let wait = (ask[0] / 8).clamp(Duration::from_millis(25), Duration::from_secs(1));
+            // A tokio timer fires on the first millisecond at or past its deadline.
+            assert!(
+                (wait..wait + Duration::from_millis(1)).contains(&(ask[1] - ask[0])),
+                "asked at {:?}, then at {:?}",
+                ask[0],
+                ask[1]
             );
         }
+        assert_eq!(
+            asks[asks.len() - 1] - asks[asks.len() - 2],
+            Duration::from_secs(1)
+        );
     }
 }
