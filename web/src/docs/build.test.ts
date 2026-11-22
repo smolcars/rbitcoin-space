@@ -23,10 +23,10 @@ describe("the Markdown copies", () => {
   it("link to each other's Markdown, and to this site in full", () => {
     expect(
       absoluteLinks(
-        "[a](/docs) [b](/docs/limits#retrying) [c](/llms.txt) [d](https://x.org/y) [e](//x.org) [f](/)",
+        "[a](/docs) [b](/docs/limits#retrying) [c](/llms.txt) [d](https://x.org/y) [e](//x.org) [f](/) [g](/\\x.org)",
       ),
     ).toBe(
-      `[a](${SITE}/docs.md) [b](${SITE}/docs/limits.md#retrying) [c](${SITE}/llms.txt) [d](https://x.org/y) [e](//x.org) [f](${SITE}/)`,
+      `[a](${SITE}/docs.md) [b](${SITE}/docs/limits.md#retrying) [c](${SITE}/llms.txt) [d](https://x.org/y) [e](//x.org) [f](${SITE}/) [g](/\\x.org)`,
     );
   });
 

@@ -31,10 +31,6 @@ function pageMarkdown(): Promise<string> {
 }
 
 /**
- * The page's Markdown, fetched at load where there is no async clipboard (plain HTTP): the copy
- * command works only inside the click's own task, with the text already at hand.
- */
-/**
  * Whether the page can hand the clipboard text still on its way. Undefined parts outside a secure
  * context, and in some browsers on HTTPS too, whatever the types say.
  */
@@ -42,6 +38,10 @@ const asyncWrite =
   typeof ClipboardItem !== "undefined" &&
   typeof (navigator.clipboard as Clipboard | undefined)?.write === "function";
 
+/**
+ * The page's Markdown, fetched at load where the clipboard cannot take a promise: the copy command
+ * works only inside the click's own task, with the text already at hand.
+ */
 let prefetched: string | undefined;
 let prefetching = false;
 function prefetch(): void {
