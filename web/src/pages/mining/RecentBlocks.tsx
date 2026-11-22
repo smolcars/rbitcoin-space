@@ -14,6 +14,7 @@ import { paths } from "../../lib/network";
 import { useNetwork } from "../../lib/page";
 import { type BlockSummary, fetchSummaries } from "../../lib/summary";
 import { dragScroll } from "../../components/dragScroll";
+import { owned } from "../../components/owned";
 
 const MAX_WEIGHT = 4_000_000;
 /** The thinnest layer, as a share of the tile's strata box: about 2 px. */
@@ -63,7 +64,7 @@ export function RecentBlocks() {
       >
         <ol
           class="mining-tiles"
-          ref={(el) => dragScroll(el)}
+          ref={owned((el) => dragScroll(el))}
           aria-label="Latest blocks, newest first"
           aria-busy={blocks.state === "ready" ? "false" : "true"}
         >

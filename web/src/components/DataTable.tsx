@@ -3,6 +3,7 @@ import type { JSX } from "@solidjs/web";
 import { Link } from "./Link";
 import { scrollCue } from "./scrollCue";
 import "./DataTable.css";
+import { owned } from "./owned";
 
 export interface Column<T> {
   /** Header text. Units go here ("Value, BTC"), so cells hold bare numbers. */
@@ -140,10 +141,10 @@ export function DataTable<T>(props: DataTableProps<T>) {
     <Show when={props.rows.length > 0 || props.empty === undefined} fallback={props.empty}>
       <div
         class="table-scroll"
-        ref={(el) => {
+        ref={owned((el) => {
           fit(el);
           scrollCue(el);
-        }}
+        })}
       >
         <table class={["table", { "table--rows": props.rowHref !== undefined }]}>
           <caption class={{ "visually-hidden": !props.showCaption, table__caption: true }}>

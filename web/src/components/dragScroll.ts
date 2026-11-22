@@ -10,9 +10,9 @@ const FRICTION = 0.95;
 const MIN_SPEED = 0.02;
 
 /**
- * Use as a `ref` on anything that scrolls sideways with its scrollbar hidden. A mouse press and
- * drag scrolls it, and on release it glides on and slows, as a swipe does on a touch screen
- * (unless motion is reduced). Touch and pen are left to the browser. A press that moves less than
+ * Use as a `ref` through `owned` (./owned.ts) on anything that scrolls sideways with its scrollbar
+ * hidden. A mouse press and drag scrolls it, and on release it glides on and slows, as a swipe
+ * does on a touch screen (unless motion is reduced). Touch and pen are left to the browser. A press that moves less than
  * a few pixels is still a click, and a drag released over a link does not follow it. While the
  * mouse is over a box that can scroll, it is marked `data-grab`; while dragging, `data-dragging`.
  * Returns a stop for the glide: call it before scrolling the box from code, since a smooth scroll

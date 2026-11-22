@@ -1,9 +1,9 @@
 import { onCleanup } from "solid-js";
 
 /**
- * Use as a `ref` on anything that scrolls sideways. It marks the edges that hide more,
- * `data-more-start` and `data-more-end`, and global.css fades them, so a cut-off column reads as
- * "there is more this way", not as a fault. While it scrolls, it also takes keyboard focus, so the
+ * Use as a `ref` through `owned` (./owned.ts) on anything that scrolls sideways. It marks the
+ * edges that hide more, `data-more-start` and `data-more-end`, and global.css fades them, so a
+ * cut-off column reads as "there is more this way", not as a fault. While it scrolls, it also takes keyboard focus, so the
  * arrow keys can reach what is off to the side.
  */
 export function scrollCue(el: HTMLElement): void {

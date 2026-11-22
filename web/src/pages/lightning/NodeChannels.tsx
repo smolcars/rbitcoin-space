@@ -74,6 +74,7 @@ import {
   usePhone,
 } from "./parts";
 import { dragScroll } from "../../components/dragScroll";
+import { owned } from "../../components/owned";
 
 /** How long typing must pause before the filter asks, as the header's search waits. */
 export const FILTER_WAIT_MS = 280;
@@ -473,10 +474,10 @@ export function OpenList(props: ListProps) {
           class="ln-node-chips"
           role="group"
           aria-label="Channel state"
-          ref={(el) => {
+          ref={owned((el) => {
             scrollCue(el);
             dragScroll(el);
-          }}
+          })}
         >
           <Link
             class="btn ln-node-chip"
@@ -932,10 +933,10 @@ export function ClosedList(props: { node: ClosedOf; network: Network; now: numbe
             class="ln-node-chips"
             role="group"
             aria-label="Kind of close"
-            ref={(el) => {
+            ref={owned((el) => {
               scrollCue(el);
               dragScroll(el);
-            }}
+            })}
           >
             <Link
               class="btn ln-node-chip"

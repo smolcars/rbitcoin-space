@@ -9,6 +9,7 @@ import { ThemeToggle } from "./ThemeToggle";
 import "./Header.css";
 import { dragScroll } from "../components/dragScroll";
 import { PaletteKey } from "../palette/PaletteKey";
+import { owned } from "../components/owned";
 
 const NAV = [
   { href: "/blocks", label: "Blocks", match: (p: string) => /^\/blocks?(\/|$)/.test(p) },
@@ -116,7 +117,7 @@ export function Header(props: {
           <SearchField ref={(el) => (search = el)} />
           <PaletteKey typed={typed} query={() => search?.value ?? ""} />
         </div>
-        <nav class="nav" aria-label="Main" ref={(el) => dragScroll(el)}>
+        <nav class="nav" aria-label="Main" ref={owned((el) => dragScroll(el))}>
           {nav().map((item) => (
             // "true", the current section, not "page": the router marks and unmarks "page" on
             // links whose address is exactly the page's, and took the mark off when a query

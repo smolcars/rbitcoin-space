@@ -3,6 +3,7 @@ import { Link } from "./Link";
 import { scrollCue } from "./scrollCue";
 import "./Periods.css";
 import { dragScroll } from "./dragScroll";
+import { owned } from "./owned";
 
 /**
  * A chart's periods: one row of links, the current one pressed in, scrolling sideways on a phone
@@ -39,11 +40,11 @@ export function Periods(props: {
   return (
     <nav class="periods" aria-label="Period">
       <ul
-        ref={(el) => {
+        ref={owned((el) => {
           list = el;
           scrollCue(el);
           dragScroll(el);
-        }}
+        })}
       >
         <Show when={props.fitted}>
           <li>

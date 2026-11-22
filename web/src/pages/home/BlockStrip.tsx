@@ -60,6 +60,7 @@ import {
 import { ProjectedTile, projectedLayers, sameLayers, TILE_LAYER_MIN } from "./ProjectedTile";
 import { createSummaries, type TileFacts } from "./summaries";
 import { dragScroll } from "../../components/dragScroll";
+import { owned } from "../../components/owned";
 
 const MAX_WEIGHT = 4_000_000;
 /** Projected tiles on screen, not the ones fading out. */
@@ -722,10 +723,10 @@ export function BlockStrip(props: {
       </div>
       <div
         class="home-strip__scroller"
-        ref={(el) => {
+        ref={owned((el) => {
           scroller = el;
           stopGlide = dragScroll(el);
-        }}
+        })}
       >
         <div class="home-strip__track">
           <div class="home-strip__upcoming" ref={upcoming}>

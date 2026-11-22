@@ -44,8 +44,7 @@ describe("LevelTable", () => {
       ),
       el,
     );
-    // Its own observer, the one watching the table's box (DataTable and scrollCue keep theirs:
-    // an older pattern outside this page).
+    // Its own observer, the one watching the table's box (DataTable's are tested with it).
     const own = () =>
       live.filter((o) => o.watched.some((w) => w.classList.contains("level-table")));
     await vi.waitFor(() => expect(own()).toHaveLength(1));
