@@ -739,6 +739,12 @@
       font-size: var(--text-md);
     }
   }
+  /* A large text size: regtest's difficulty is wider than half the panel, so one to a row. */
+  @media (max-width: 18.75em) {
+    .mining-figs {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
 }
 
 @layer pages {
