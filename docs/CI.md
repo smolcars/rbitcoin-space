@@ -13,6 +13,7 @@ A PR that adds a slower step must make room for it or move it out of the PR path
 | `rust` | 170 s | 92 to 121 s |
 | `e2e`, each of its five shards | 180 s | 62 to 93 s with three; 68 to 106 s with four, on 2026-11-14; 97 to 162 s with five, on 2026-11-21 ([below](#browser-test-shards)) |
 | `web` | 75 s | 30 to 39 s |
+| `models` | 45 s | MEASURED |
 
 The owner raised the budget from 3 to 4 minutes on 2026-11-15, and each limit by about a quarter (from 135, 145 and 60 s), as the project grew: a `rust` job 2 s over its limit had failed a pull request that added one small test. The whole run is `changes`, the slowest job and `ci-ok`, so the 180 s shard limit leaves about a minute of the four.
 
@@ -47,9 +48,26 @@ Make room in the same pull request; never raise a limit to pass. In order: shrin
 | `web` | `web/`, the files the frontend imports from `design/` (`tokens.css`, `logo.svg`, `fonts/`) or workflow changes | Type check (both tsconfigs), `oxlint` with type-aware rules and the `oxfmt` format check, unit tests, production build, bundle-size check |
 | `e2e` | anything `rust` or `web` runs for, or `dev/regtest/` | `bun run e2e` ([`FRONTEND.md`](FRONTEND.md#browser-tests)): the server and frontend built from the PR, a regtest node with the known chain, Playwright in headless Chromium. Five shards, each on a runner of its own |
 | `image` | anything `web` runs for, `Dockerfile` or `.dockerignore`; pull requests only | Builds the Docker image's frontend stage, so a Dockerfile that cannot build the frontend fails before merge. The Rust stage is left to the post-merge build |
+| `models` | Rust (`crates/`), `dev/models/` or workflow changes | The [models](#models) of concurrent code: each checked in every order of its steps, each past mistake shown to break it, and the code each describes compared with what it was last read against |
 | `ci-ok` | always | Fails if any job above failed |
 
 Outside the PR path, daily and when a lockfile changes on `master`: the [dependency audit](#dependency-audit) (`audit.yml`). Weekly: the browser tests in [other browsers](#other-browsers) (`browsers.yml`). After merge to `master`, and on a version tag: the [release workflow](#releases) (`release.yml`).
+
+## Models
+
+A test tries the orders of events its author thought of. Where requests or tasks share state, the bug is an order nobody thought of: two requests leaving one shared node call together left it in memory for good (#88). The test written for that fix runs 20,000 rounds on eight threads to meet the order by chance: with the bug put back it left 1 to 10 calls behind in each of ten runs, and passed once on a busy machine. A model checker tries every order, and finds this one in five steps.
+
+Each folder under [`dev/models/`](../dev/models) holds one model: a TLA+ spec of a piece of bookkeeping, a `README.md` that maps each step of the spec to the code and says what the model leaves out, and a `model.json` for the check. [`dev/models/check.py`](../dev/models/check.py) runs them all with TLC, a prebuilt checker held to a pinned checksum, on the Java the runner already has:
+
+- **The rules hold on today's design,** in every order of its steps, for the number of actors `model.json` names.
+- **Each recorded mistake breaks its rule.** A mistake is the spec with one step written as it once wrongly was. A rule that no mistake breaks was never seen to fail, and a spec changed until it no longer catches a past bug fails here.
+- **The code is the code the spec was read against.** `model.json` records a checksum of the lines each spec describes. Change them and the check fails until someone has compared the two and recorded the new text (`--pin`). A model does not read the code; this is what keeps it from describing code that is gone.
+
+| Model | Describes | Rules |
+|---|---|---|
+| [`flights`](../dev/models/flights/README.md) | Identical `/api` requests sharing one node call (`Flights` in `crates/server/src/esplora.rs`) | A call nobody holds never stays in the map; requests for one path never wait on two node calls at once |
+
+How to read a failure, change a model with its code, or add one: the `verify-models` skill ([`.claude/skills/verify-models/SKILL.md`](../.claude/skills/verify-models/SKILL.md)).
 
 ## Dependency audit
 

@@ -1,0 +1,38 @@
+{
+  "spec": "Flights.tla",
+  "constants": {
+    "Reqs": "{r1, r2, r3, r4}"
+  },
+  "rules": [
+    "TypeOK",
+    "NothingLeftBehind",
+    "OneCallAtATime"
+  ],
+  "today": {
+    "Variant": "\"fixed\""
+  },
+  "mistakes": [
+    {
+      "was": "#88: holders counted by the call's handles, which a request lets go of after the lock",
+      "constants": {
+        "Variant": "\"handles\""
+      },
+      "breaks": "NothingLeftBehind"
+    },
+    {
+      "was": "a request leaving releases whatever call the map holds, not its own",
+      "constants": {
+        "Variant": "\"anycall\""
+      },
+      "breaks": "OneCallAtATime"
+    }
+  ],
+  "covers": [
+    {
+      "file": "crates/server/src/esplora.rs",
+      "from": "^/// Upstream calls in flight",
+      "to": "^#\\[cfg\\(test\\)\\]",
+      "sha256": "63b512565c3581433a0105af27fb57bf1800426f9c8f7661acf936cd334bb9b0"
+    }
+  ]
+}

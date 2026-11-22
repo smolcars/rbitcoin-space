@@ -30,6 +30,7 @@ jobs:
       rust: ${{ steps.filter.outputs.rust == 'true' || (github.event_name == 'push' && steps.filter.outputs.code == 'true') }}
       web: ${{ steps.filter.outputs.web == 'true' || steps.filter.outputs.docs == 'true' || (github.event_name == 'push' && steps.filter.outputs.code == 'true') }}
       e2e: ${{ steps.filter.outputs.e2e == 'true' || (github.event_name == 'push' && steps.filter.outputs.code == 'true') }}
+      models: ${{ steps.filter.outputs.models == 'true' || (github.event_name == 'push' && steps.filter.outputs.code == 'true') }}
       # The post-merge Image workflow builds the whole image, so master skips this.
       image: ${{ github.event_name == 'pull_request' && steps.filter.outputs.image == 'true' }}
     steps:
@@ -72,6 +73,12 @@ jobs:
               - *rust
               - *web
               - dev/regtest/**
+            # Any Rust change: a model's check fails when the code it describes has changed.
+            models: &models
+              - crates/**
+              - dev/models/**
+              - .github/workflows/ci.yml
+              - .github/job-limit.sh
             image:
               - *web
               - Cargo.toml
@@ -79,6 +86,7 @@ jobs:
               - .dockerignore
             code:
               - *e2e
+              - *models
               - Dockerfile
               - .dockerignore
 
@@ -231,9 +239,30 @@ jobs:
           persist-credentials: false
       - run: docker build --target web .
 
+  # Each design under dev/models in every order of its steps, and each past mistake shown to
+  # break it (docs/CI.md "Models"). The runner's image has Java; the checker is downloaded and
+  # held to a pinned checksum.
+  models:
+    needs: changes
+    if: needs.changes.outputs.models == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      JOB_LIMIT: 45
+    steps:
+      - run: echo "JOB_STARTED=$(date +%s)" >> "$GITHUB_ENV"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: python3 -I dev/models/check.py
+      - name: Within the job's limit
+        run: .github/job-limit.sh
+        env:
+          WARM: true
+
   ci-ok:
     if: always()
-    needs: [changes, rust, web, e2e, image]
+    needs: [changes, rust, web, e2e, image, models]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
