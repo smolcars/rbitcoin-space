@@ -65,14 +65,14 @@ curl https://rbitcoin.space/api/v1/fees/mempool-blocks
 ]
 ```
 
-| Field        | Means                                                                                                                                                                                              |
-| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `blockSize`  | Bytes                                                                                                                                                                                              |
-| `blockVSize` | Virtual bytes. About 1,000,000 in every block but the last, which holds the rest of the mempool: blocks are filled by weight, so the sum of their transactions' vsizes can pass 1,000,000 a little |
-| `nTx`        | Transactions                                                                                                                                                                                       |
-| `totalFees`  | Satoshis                                                                                                                                                                                           |
-| `medianFee`  | sat/vB                                                                                                                                                                                             |
-| `feeRange`   | sat/vB: the lowest, then the 10th, 25th, 50th, 75th and 90th percentiles, then the highest                                                                                                         |
+| Field        | Means                                                                                                                                                                                                                                                        |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `blockSize`  | Bytes                                                                                                                                                                                                                                                        |
+| `blockVSize` | The sum of its transactions' sigop-adjusted vsizes. Blocks are filled up to 3,992,000 weight units, so this can be well over or under 1,000,000: over when sigops count, under when what is left cannot fill a block. The last holds the rest of the mempool |
+| `nTx`        | Transactions                                                                                                                                                                                                                                                 |
+| `totalFees`  | Satoshis                                                                                                                                                                                                                                                     |
+| `medianFee`  | sat/vB                                                                                                                                                                                                                                                       |
+| `feeRange`   | sat/vB: the lowest, then the 10th, 25th, 50th, 75th and 90th percentiles, then the highest                                                                                                                                                                   |
 
 `503` `the mempool engine is off on this server` where the server does not track the mempool.
 
