@@ -127,6 +127,18 @@ describe("the document", () => {
   };
   const op = (path: string, method = "get") => doc.paths[path]?.[method];
 
+  it("refuses one route written twice with its parameters named apart", () => {
+    const twice = new Map(sources).set(
+      "api/transactions",
+      "# T\n## GET /api/tx/:txid\n\nOne.\n## GET /api/tx/:id\n\nTwo.\n",
+    );
+    expect(() => openapi(twice, "1")).toThrow(/one route/);
+  });
+
+  it("takes a heading as a route only where the page draws one", () => {
+    expect(routes(page, "# T\n## GET `/api/a`\n\nText.\n")).toStrictEqual([]);
+  });
+
   it("is OpenAPI 3.1 at the server's version, its tags each named once", () => {
     expect(doc.openapi).toBe("3.1.0");
     expect(doc.info.version).toBe("1.2.3");
@@ -161,7 +173,28 @@ describe("the document", () => {
     expect(required("/api/txs/outspends")).toStrictEqual(["txids"]);
     expect(required("/api/v1/lightning/search")).toStrictEqual(["searchText"]);
     expect(required("/api/v1/lightning/channels")).toStrictEqual(["public_key"]);
-    expect(required("/api/v1/transaction-times")).toStrictEqual(["txId[]"]);
+    const times = op("/api/v1/transaction-times")?.parameters as unknown as Record<
+      string,
+      unknown
+    >[];
+    expect(times).toStrictEqual([
+      {
+        name: "txId[]",
+        in: "query",
+        required: false,
+        description: "A txid; repeat it for each, up to 100. Without any, the answer is []",
+        schema: { type: "array", items: { type: "string" } },
+        style: "form",
+        explode: true,
+      },
+    ]);
+    const optional = (path: string) =>
+      (op(path)?.parameters ?? []).filter((p) => p.in === "query").map((p) => p.name);
+    expect(optional("/api/address/{address}/txs")).toStrictEqual(["asof", "after_txid"]);
+    expect(optional("/api/address/{address}/txs/summary/{last_seen_txid}")).toStrictEqual(["asof"]);
+    expect(optional("/api/address/{address}/txs/mempool")).toStrictEqual([]);
+    expect(optional("/api/tx/{txid}/status")).toStrictEqual(["asof"]);
+    expect(optional("/api/blindbit/v1/tweak-index/{height}")).toStrictEqual(["dustLimit"]);
     expect(Object.keys(op("/api/v1/prevouts", "post")?.requestBody?.content ?? {})).toStrictEqual([
       "application/json",
     ]);

@@ -3,7 +3,7 @@
 // shown under it the example, its parameter tables its inputs. One source, so the description
 // cannot drift from the pages (docs/FRONTEND.md "Public docs").
 
-import { type Block, plain, render, ROUTE } from "./markdown";
+import { type Block, plain, render } from "./markdown";
 import { type DocPage, href, PAGES, SITE } from "./pages";
 
 export interface Param {
@@ -11,6 +11,8 @@ export interface Param {
   in: "path" | "query";
   required: boolean;
   description: string;
+  /** Given once for each value, as `txId[]=a&txId[]=b`. */
+  repeated?: boolean;
 }
 
 export interface Route {
@@ -37,7 +39,7 @@ export function expand(path: string): string[] {
   return [...expand(before + after), ...expand(before + path.slice(open + 1, close) + after)];
 }
 
-const isRoute = (b: Block | undefined): boolean => b?.kind === "heading" && ROUTE.test(b.text);
+const isRoute = (b: Block | undefined): boolean => b?.kind === "heading" && b.route !== undefined;
 
 /**
  * A route's parameters: its parameter tables (`| Parameter | ... |`, a name in backticks, "Required"
@@ -63,12 +65,25 @@ function params(path: string, section: Block[]): Param[] {
   }));
   const query = new Set([...named.keys()].filter((n) => !inPath.includes(n)));
   for (const b of section) {
-    if (b.kind !== "code" || b.lang !== "sh") continue;
-    for (const m of b.text.matchAll(/[?&]([\w[\]]+)=/g)) query.add(m[1] ?? "");
+    if (b.kind === "code" && b.lang === "sh") {
+      for (const m of b.text.matchAll(/[?&]([\w[\]]+)=/g)) query.add(m[1] ?? "");
+    }
+    // "Takes `?asof=` and `?after_txid=`": the list stops at anything else ("not `?after_txid=`").
+    if (b.kind === "paragraph") {
+      for (const list of b.text.matchAll(/\bTakes ((?:`\?\w+=`(?:,? and |, )?)+)/g)) {
+        for (const m of (list[1] ?? "").matchAll(/`\?(\w+)=`/g)) query.add(m[1] ?? "");
+      }
+    }
   }
   for (const name of query) {
     const description = named.get(name) ?? "";
-    out.push({ name, in: "query", required: /\bRequired\b/.test(description), description });
+    out.push({
+      name,
+      in: "query",
+      required: /\bRequired\b/.test(description),
+      description,
+      ...(name.endsWith("[]") ? { repeated: true } : {}),
+    });
   }
   return out;
 }
@@ -79,9 +94,8 @@ export function routes(page: DocPage, md: string): Route[] {
   const found: Route[] = [];
   blocks.forEach((b, i) => {
     if (b.kind !== "heading") return;
-    const m = ROUTE.exec(b.text);
-    const method = m?.[1];
-    const path = m?.[2] ?? "";
+    const method = b.route?.method;
+    const path = b.route?.path ?? "";
     if ((method !== "GET" && method !== "POST") || !path.startsWith("/api/")) return;
     // Everything under the heading, to the next heading as high or the next route; its own part,
     // where the summary and the example are, ends at the first heading of any depth.
@@ -148,6 +162,8 @@ function tag(page: DocPage): string {
 /** The OpenAPI 3.1 document for every route the pages document. */
 export function openapi(sources: ReadonlyMap<string, string>, version: string): Json {
   const paths: Record<string, Record<string, Json>> = {};
+  // One template per route: `/tx/{txid}` and `/tx/{id}` are the same path to a client.
+  const templates = new Map<string, string>();
   const tags: Json[] = [];
   for (const page of PAGES) {
     const found = routes(page, sources.get(page.slug) ?? "");
@@ -160,6 +176,12 @@ export function openapi(sources: ReadonlyMap<string, string>, version: string): 
     for (const r of found) {
       for (const variant of expand(r.path)) {
         const path = variant.replaceAll(/:(\w+)/g, "{$1}");
+        const shape = path.replaceAll(/\{\w+\}/g, "{}");
+        const seen = templates.get(shape);
+        if (seen !== undefined && seen !== path) {
+          throw new Error(`docs: ${path} and ${seen} are one route; name its parameters alike`);
+        }
+        templates.set(shape, path);
         const op = r.method.toLowerCase();
         const entry = paths[path] ?? {};
         paths[path] = entry;
@@ -170,7 +192,11 @@ export function openapi(sources: ReadonlyMap<string, string>, version: string): 
           .map((p) => {
             const out: Record<string, Json> = { name: p.name, in: p.in, required: p.required };
             if (p.description !== "") out["description"] = p.description;
-            out["schema"] = { type: "string" };
+            if (p.repeated === true) {
+              out["schema"] = { type: "array", items: { type: "string" } };
+              out["style"] = "form";
+              out["explode"] = true;
+            } else out["schema"] = { type: "string" };
             return out;
           });
         entry[op] = {

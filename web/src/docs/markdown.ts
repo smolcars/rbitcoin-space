@@ -11,7 +11,8 @@ export interface Heading {
 
 /** The page's blocks as the renderer read them, in order: what /openapi.json is made from. */
 export type Block =
-  | ({ kind: "heading" } & Heading)
+  /** `route` is set when the renderer draws the heading as a route: its method and path. */
+  | ({ kind: "heading"; route?: { method: string; path: string } } & Heading)
   | { kind: "paragraph"; text: string }
   | { kind: "code"; lang: string; text: string }
   /** Its rows as cells of Markdown, the header row first. */
@@ -172,7 +173,14 @@ export function render(md: string): Rendered {
       else {
         const id = uniqueId(text);
         headings.push({ depth, text: plain(text), id });
-        blocks.push({ kind: "heading", depth, text: plain(text), id });
+        const route = ROUTE.exec(text);
+        blocks.push({
+          kind: "heading",
+          depth,
+          text: plain(text),
+          id,
+          ...(route ? { route: { method: route[1] ?? "", path: route[2] ?? "" } } : {}),
+        });
         html.push(headingHtml(depth, text, id));
       }
       i += 1;
