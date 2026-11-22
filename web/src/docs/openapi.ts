@@ -43,8 +43,9 @@ const isRoute = (b: Block | undefined): boolean => b?.kind === "heading" && b.ro
 
 /**
  * A route's parameters: its parameter tables (`| Parameter | ... |`, a name in backticks, "Required"
- * in its description when it must be given), the names in its path, and the query names in the
- * request shown, which are optional unless a table says otherwise.
+ * in its description when it must be given), the names in its path, the query names in the request
+ * shown, and those its paragraphs list after "Takes" (`` Takes `?asof=` ``). A query name is
+ * optional unless a table says otherwise.
  */
 function params(path: string, section: Block[]): Param[] {
   const named = new Map<string, string>();
