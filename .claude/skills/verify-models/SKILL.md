@@ -1,6 +1,6 @@
 ---
 name: verify-models
-description: Check a change against the formal models of rbitcoin.space's concurrent code (dev/models). Use when you touch code a model covers (today the shared /api call bookkeeping, `Flights` in crates/server/src/esplora.rs), when the CI job `models` fails, or when you add shared in-flight state, a retry or a state machine that deserves a model.
+description: Check a change against the formal models of rbitcoin.space's concurrent code (dev/models). Use when you touch code a model covers (today the shared /api call bookkeeping, `Flights` in crates/server/src/esplora.rs, and the Lightning peer's batch end markers in crates/ln/src/gossip.rs), when the CI job `models` fails, or when you add shared in-flight state, a retry or a state machine that deserves a model.
 ---
 
 # Verify the models
@@ -14,6 +14,7 @@ Each `dev/models/*/model.json` lists the code it describes under `covers`: a fil
 | Model | Code | Rules |
 |---|---|---|
 | `dev/models/flights` | `Flights`, `InFlight`, `Leave` in `crates/server/src/esplora.rs` | A call nobody holds never stays in the map; requests for one path never wait on two node calls |
+| `dev/models/batch-ends` | `range_tick` and `handle_reply_short_channel_ids_end` in `crates/ln/src/gossip.rs` | An end marker ends only the batch it answers, so one slow batch costs a peer one strike |
 
 ## Run it
 

@@ -1,0 +1,36 @@
+{
+  "spec": "BatchEnds.tla",
+  "constants": {
+    "Batches": "4"
+  },
+  "rules": [
+    "TypeOK",
+    "AMarkerEndsItsOwnBatch"
+  ],
+  "today": {
+    "Variant": "\"fixed\""
+  },
+  "mistakes": [
+    {
+      "was": "#103: a timed-out batch's late end marker ended the next batch",
+      "constants": {
+        "Variant": "\"uncounted\""
+      },
+      "breaks": "AMarkerEndsItsOwnBatch"
+    }
+  ],
+  "covers": [
+    {
+      "file": "crates/ln/src/gossip.rs",
+      "from": "^    fn handle_reply_short_channel_ids_end\\(",
+      "to": "^    /// The spec requires a reply",
+      "sha256": "0c2b8e9b529c4ec7459ddacc4ab6e258b6036680dce978ae292d5a24f224bdd3"
+    },
+    {
+      "file": "crates/ln/src/gossip.rs",
+      "from": "^    pub\\(crate\\) fn range_tick\\(",
+      "to": "^    /// Judges ids asked of a peer",
+      "sha256": "10e3158fe4b4c0298c9bc1423377cc08c348ccb1d1521d5ad21044a9526e4760"
+    }
+  ]
+}
