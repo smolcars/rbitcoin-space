@@ -1,0 +1,23 @@
+# Search engines may crawl everything: pages fill themselves from /api and /app, so a renderer needs both.
+User-agent: *
+Allow: /
+
+# AI crawlers may read the pages but not the data routes behind them, which cost the node work.
+User-agent: Reflectionbot
+User-agent: GPTBot
+User-agent: ClaudeBot
+User-agent: CCBot
+User-agent: Bytespider
+User-agent: PerplexityBot
+User-agent: Amazonbot
+User-agent: meta-externalagent
+Disallow: /api/
+Disallow: /app/
+Disallow: /signet/api/
+Disallow: /signet/app/
+Disallow: /testnet4/api/
+Disallow: /testnet4/app/
+Disallow: /testnet5/api/
+Disallow: /testnet5/app/
+Disallow: /regtest/api/
+Disallow: /regtest/app/

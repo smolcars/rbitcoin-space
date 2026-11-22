@@ -11,6 +11,7 @@ web/
   tsconfig.json         Shared compiler options; tsconfig.app.json (browser) and tsconfig.node.json extend it
   index.html            The shell document: preloads the font, runs public/boot.js, loads src/index.tsx
   public/boot.js        Runs before first paint: applies a stored theme and the network (see "Theme")
+  public/robots.txt     Lets search engines crawl everything (their renderers need /api and /app); keeps AI crawlers off the data routes
   scripts/check-size.js First-load budget check (`bun run size`)
   scripts/e2e.sh        Browser tests in one command (`bun run e2e`)
   e2e/                  Browser tests (Playwright) and their fixtures
