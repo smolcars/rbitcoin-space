@@ -31,7 +31,7 @@ CITED = re.compile(r"(?:(?<![\w/.-])|(?<=\.\./))(docs/(?:[A-Z][A-Z0-9_]*|compat/
 QUOTE = r'\\?"([^"\\\n]+)\\?"'
 # What may follow the path: an anchor, or one or more quoted section names.
 AFTER = re.compile(
-    r"`?(?:#([\w-]+)|,?[ ]\(?(" + QUOTE + r"(?:(?:,[ ]| and | or )" + QUOTE + r")*))"
+    r"`?(?:#((?:[\w-]|%[0-9A-Fa-f]{2})+)|,?[ ]\(?(" + QUOTE + r"(?:(?:,[ ]| and | or )" + QUOTE + r")*))"
 )
 # A paragraph or list item that opens in bold names a section too: "**Versions.** Two ...".
 BOLD_LEAD = re.compile(r"^\s*(?:[-*+] |\d+\. )?\*\*(.+?)\*\*")
@@ -81,7 +81,8 @@ def outside_code(lines):
     """Yields (line number, line) for the lines outside fenced code blocks."""
     fence = None
     for n, line in enumerate(lines, 1):
-        m = FENCE.match(line)
+        # A fence inside a quote is a fence.
+        m = FENCE.match(re.sub(r"^ {0,3}(?:> ?)+", "", line))
         if m:
             if fence is None:
                 fence = m.group(1)
@@ -131,8 +132,8 @@ def anchors(bases, first):
     for b in bases:
         n = seen.get(b, first - 1) + 1
         slug = b if n == first else f"{b}-{n}"
-        # A heading that is itself "a-1" has taken that anchor.
-        while slug in out:
+        # On GitHub a heading that is itself "a-1" has taken that anchor. The site gives it twice.
+        while first == 0 and slug in out:
             n += 1
             slug = f"{b}-{n}"
         seen[b] = n
@@ -248,9 +249,9 @@ def check_citations(repo, path, text, report):
                 continue
             d = repo.doc(doc)
             if after.group(1):
-                if after.group(1) not in d.github:
-                    near = nearest(after.group(1), d.github)
-                    report(path, i + 1, f"{doc}#{after.group(1)}", f"{doc}#{near}")
+                anchor = unquote(after.group(1))
+                if anchor not in d.github:
+                    report(path, i + 1, f"{doc}#{anchor}", f"{doc}#{nearest(anchor, d.github)}")
                 continue
             for name in re.findall(QUOTE, after.group(2)):
                 if github_slug(github_text(name)) not in d.names:

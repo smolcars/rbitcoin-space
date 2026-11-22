@@ -76,6 +76,18 @@ class Links(unittest.TestCase):
         code = '// See docs/B.md "`_foo_` and `__bar__`".\n'
         self.assertEqual(run({"docs/A.md": md, "docs/B.md": target, "src/a.rs": code}), [])
 
+    def test_a_fence_in_a_quote_and_an_encoded_anchor_after_a_doc_path(self):
+        target = "# T\n\n## Caf\u00e9\n"
+        md = "> ```\n> [a](gone.md) docs/GONE.md\n> ```\n\n[b](docs/B.md#caf%C3%A9)\n"
+        self.assertEqual(run({"README.md": md, "docs/B.md": target}), [])
+
+    def test_the_site_numbers_repeats_without_looking_for_a_free_one(self):
+        page = "# Page\n\n## Rules\n\n## Rules-2\n\n## Rules\n\n[a](#rules-2) [b](#rules-3)\n"
+        self.assertEqual(
+            run({"web/docs/page.md": page}),
+            ["web/docs/page.md:9: #rules-3 does not exist; nearest: web/docs/page.md#rules"],
+        )
+
     def test_the_task_list_is_not_read(self):
         self.assertEqual(run({"docs/TODO.md": "[a](GONE.md)\n"}), [])
 
