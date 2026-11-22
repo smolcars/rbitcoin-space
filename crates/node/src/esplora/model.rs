@@ -1,4 +1,4 @@
-//! Decoded Esplora responses, shaped as rbitcoin v0.9.2 serves them.
+//! Decoded Esplora responses, shaped as rbitcoin serves them.
 //!
 //! Strings here (scripts, asm, addresses, witness items) are chain data: untrusted text.
 //! Fields rbitcoin may leave out (pruned transactions, mempool-only rows) are optional.
@@ -158,7 +158,7 @@ pub struct ScriptStats {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct ScriptInfo {
     pub address: Option<String>,
-    /// The hash as the node echoed it from the path, in the order the node reads. Unused.
+    /// The hash as the node echoed it from the path, in digest order. Unused.
     pub scripthash: Option<String>,
     pub chain_stats: ScriptStats,
     pub mempool_stats: ScriptStats,

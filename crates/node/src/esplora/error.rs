@@ -31,10 +31,6 @@ pub enum Error {
     Decode(String),
     /// An `/internal/*` route was called on a TCP endpoint; they exist only on a unix socket.
     InternalUnavailable,
-    /// The route names a script by its hash, and which order the node reads that hash in is
-    /// not known yet ([`ScriptHashOrder`](super::ScriptHashOrder)). Asked in the wrong order the
-    /// node would answer an empty history, so it is not asked. Retry later.
-    ScriptHashOrderUnknown,
 }
 
 impl Error {
@@ -48,7 +44,6 @@ impl Error {
             Self::Decode(_) => "malformed",
             Self::TooLarge | Self::ResponseTooBig => "too_big",
             Self::ChainViewMoved => "chain_moved",
-            Self::ScriptHashOrderUnknown => "not_ready",
             Self::Config(_) | Self::AddressIndexDisabled | Self::InternalUnavailable => "config",
         }
     }
@@ -122,9 +117,6 @@ impl fmt::Display for Error {
             Self::ResponseTooBig => f.write_str("esplora response too big"),
             Self::Decode(m) => write!(f, "esplora response did not decode: {m}"),
             Self::InternalUnavailable => f.write_str("internal routes need a unix-socket endpoint"),
-            Self::ScriptHashOrderUnknown => {
-                f.write_str("the node's scripthash order is not known yet")
-            }
         }
     }
 }

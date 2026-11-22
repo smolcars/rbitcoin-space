@@ -1137,7 +1137,7 @@ fn e_pending(st: &State, sh: ScriptHash) -> bool {
 fn refusal(e: &electrum::Error) -> AddrState {
     match e {
         electrum::Error::SubscriptionLimit { .. } => AddrState::Refused("server_full"),
-        // rbitcoin v0.9.2 answers code 1 with "scripthash index disabled", or "scripthash join
+        // rbitcoin answers code 1 with "scripthash index disabled", or "scripthash join
         // exceeds --max-sh-creates (N creates, cap M)" for an address with too much history.
         electrum::Error::Server { message, .. } => {
             if message.contains("index disabled") {

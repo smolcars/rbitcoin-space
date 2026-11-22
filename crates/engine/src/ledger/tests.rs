@@ -1010,7 +1010,7 @@ fn totals_out_of_range_are_refused() {
 // One test at a time, each after a fresh `scenario`: they mine and reorg the same node.
 mod regtest {
     use super::*;
-    use node::esplora::{Esplora, ScriptHashOrder, ScriptRef};
+    use node::esplora::{Esplora, ScriptRef};
     use node::rpc::{Limits, Rpc};
     use std::time::Duration;
 
@@ -1033,20 +1033,7 @@ mod regtest {
         std::env::var(k).unwrap()
     }
 
-    /// The node, its scripthash order found and recorded as the server does. Says which build it
-    /// talks to, so a run names it.
-    async fn source() -> NodeSource {
-        let node = unprobed();
-        let order = node.esplora.find_scripthash_order().await.unwrap();
-        println!(
-            "the node reads /scripthash/:hash in {} order",
-            order.map_or("no", ScriptHashOrder::label)
-        );
-        node.esplora.set_scripthash_order(Some(order.unwrap()));
-        node
-    }
-
-    fn unprobed() -> NodeSource {
+    fn source() -> NodeSource {
         let limits = Limits {
             timeout: Duration::from_secs(60),
             max_concurrent: 1,
@@ -1063,7 +1050,6 @@ mod regtest {
             .unwrap(),
             esplora: Esplora::new(&var("REGTEST_ESPLORA_URL")).unwrap(),
             electrum: var("REGTEST_ELECTRUM_ADDR"),
-            uncapped: Default::default(),
         }
     }
 
@@ -1156,36 +1142,13 @@ mod regtest {
         regtest(&["mine", &n.to_string()]);
     }
 
-    /// The node's scripthash order, found by the probe, is the one whose answers equal the
-    /// address routes', on every route that names a script by hash; the other order answers an
-    /// empty history, which is why nothing is asked before the order is known. Reads only.
+    /// A script asked by its hash (in digest order) gets the same totals, history and unspent
+    /// outputs as its address. A node older than `nightly-20261122` reads the hash reversed and
+    /// answers empty: this is the test that says so. Reads only.
     #[tokio::test(flavor = "multi_thread")]
     #[ignore = "regtest: needs a node from dev/regtest (see the comment above)"]
-    async fn the_probed_scripthash_order_is_the_one_the_node_answers() {
-        let node = unprobed();
-        let esplora = &node.esplora;
-        assert_eq!(
-            esplora
-                .script_stats(
-                    ScriptRef::ScriptHash(node::esplora::ScriptHash::from_script(
-                        &ScriptBuf::new_p2wsh(&bitcoin::WScriptHash::all_zeros())
-                    )),
-                    None
-                )
-                .await
-                .unwrap_err(),
-            node::esplora::Error::ScriptHashOrderUnknown,
-            "nothing is asked before the order is known"
-        );
-        let order = esplora.find_scripthash_order().await.unwrap().unwrap();
-        let other = match order {
-            ScriptHashOrder::Digest => ScriptHashOrder::Reversed,
-            ScriptHashOrder::Reversed => ScriptHashOrder::Digest,
-        };
-        println!(
-            "the node reads /scripthash/:hash in {} order",
-            order.label()
-        );
+    async fn a_script_asked_by_hash_answers_as_its_address() {
+        let esplora = source().esplora;
         for a in [
             "bcrt1qft5p2uhsdcdc3l2ua4ap5qqfg4pjaqlp250x7us7a8qqhrxrxfsqseac85",
             "bcrt1qw5puevk8wgy5t9d2qjg6frpfmesuqnnpx95u7s",
@@ -1205,67 +1168,48 @@ mod regtest {
                 .unwrap()
                 .value;
             assert!(want.chain_stats.tx_count > 0, "{a}");
-            let want_txs: Vec<_> = esplora
-                .script_txs(by_address.clone(), None, None)
-                .await
-                .unwrap()
-                .value
-                .into_iter()
-                .map(|t| t.txid)
-                .collect();
-            let want_utxo = esplora.script_utxo(by_address, None).await.unwrap().value;
-
-            esplora.set_scripthash_order(Some(order));
             let got = esplora
                 .script_stats(by_hash.clone(), None)
                 .await
                 .unwrap()
                 .value;
-            assert_eq!(got.chain_stats, want.chain_stats, "{a}");
-            assert_eq!(got.mempool_stats, want.mempool_stats, "{a}");
-            let txs: Vec<_> = esplora
-                .script_txs(by_hash.clone(), None, None)
-                .await
-                .unwrap()
-                .value
-                .into_iter()
-                .map(|t| t.txid)
-                .collect();
-            assert_eq!(txs, want_txs, "{a}");
             assert_eq!(
-                esplora
-                    .script_utxo(by_hash.clone(), None)
-                    .await
-                    .unwrap()
-                    .value,
-                want_utxo,
+                (got.chain_stats, got.mempool_stats),
+                (want.chain_stats, want.mempool_stats),
+                "{a}: an older node than nightly-20261122 reads the hash reversed"
+            );
+            let txids = |v: Vec<node::esplora::model::Tx>| -> Vec<_> {
+                v.into_iter().map(|t| t.txid).collect()
+            };
+            assert_eq!(
+                txids(
+                    esplora
+                        .script_txs(by_hash.clone(), None, None)
+                        .await
+                        .unwrap()
+                        .value
+                ),
+                txids(
+                    esplora
+                        .script_txs(by_address.clone(), None, None)
+                        .await
+                        .unwrap()
+                        .value
+                ),
                 "{a}"
             );
-
-            esplora.set_scripthash_order(Some(other));
-            let wrong = esplora
-                .script_stats(by_hash.clone(), None)
-                .await
-                .unwrap()
-                .value;
-            assert_eq!(wrong.chain_stats.tx_count, 0, "{a} in {}", other.label());
-            assert_eq!(wrong.mempool_stats.tx_count, 0, "{a} in {}", other.label());
-            assert!(
-                esplora
-                    .script_txs(by_hash, None, None)
-                    .await
-                    .unwrap()
-                    .value
-                    .is_empty()
+            assert_eq!(
+                esplora.script_utxo(by_hash, None).await.unwrap().value,
+                esplora.script_utxo(by_address, None).await.unwrap().value,
+                "{a}"
             );
-            esplora.set_scripthash_order(None);
         }
     }
 
     #[tokio::test(flavor = "multi_thread")]
     #[ignore = "regtest: needs a node from dev/regtest (see the comment above)"]
     async fn the_ledger_equals_the_node_across_reorgs_restarts_and_downtime() {
-        let node = source().await;
+        let node = source();
         // The scenario's addresses (docs/REGTEST.md).
         let addr = |k: &str| {
             match k {
@@ -1376,7 +1320,7 @@ mod regtest {
     #[tokio::test(flavor = "multi_thread")]
     #[ignore = "regtest: needs a node from dev/regtest (see the comment above)"]
     async fn scripts_seeded_from_an_answer_are_filled_with_the_nodes_history() {
-        let node = source().await;
+        let node = source();
         let p2wpkh = "bcrt1qw5puevk8wgy5t9d2qjg6frpfmesuqnnpx95u7s";
         let miner = "bcrt1qft5p2uhsdcdc3l2ua4ap5qqfg4pjaqlp250x7us7a8qqhrxrxfsqseac85";
         let scripts: Vec<ScriptBuf> = [miner, p2wpkh]
@@ -1511,7 +1455,7 @@ mod regtest {
     #[tokio::test(flavor = "multi_thread")]
     #[ignore = "regtest: needs a node from dev/regtest (see the comment above)"]
     async fn whole_histories_equal_the_nodes_across_a_reorg() {
-        let node = source().await;
+        let node = source();
         let p2wpkh = "bcrt1qw5puevk8wgy5t9d2qjg6frpfmesuqnnpx95u7s";
         let miner = "bcrt1qft5p2uhsdcdc3l2ua4ap5qqfg4pjaqlp250x7us7a8qqhrxrxfsqseac85";
         let scripts: Vec<ScriptBuf> = [miner, p2wpkh]

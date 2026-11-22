@@ -295,7 +295,7 @@ pub(crate) fn parse_tx(body: &[u8]) -> Result<Transaction, ApiError> {
 
 async fn read(ctx: &NetworkContext, client: &Client, route: Route) -> Response {
     let mut key = String::with_capacity(160);
-    route.write_key(&mut key);
+    route.write_path(&mut key);
     if let Some((body, _)) = route.body() {
         // Only the outputs batch gets here; its body is JSON we wrote ourselves.
         key.push('\n');
@@ -361,7 +361,7 @@ fn block_of(route: &Route) -> Option<BlockHash> {
 /// Where the pass-through keeps a route's answer among the network's kept answers.
 fn kept_key(route: &Route) -> String {
     let mut key = String::from("esplora ");
-    route.write_key(&mut key);
+    route.write_path(&mut key);
     key
 }
 
@@ -425,7 +425,7 @@ pub(crate) async fn json<T: serde::de::DeserializeOwned>(
     route: Route,
 ) -> Result<(T, Source), ApiError> {
     let mut key = String::with_capacity(160);
-    route.write_key(&mut key);
+    route.write_path(&mut key);
     let ttl = if is_hot(&route) {
         HOT_TTL
     } else {
@@ -936,9 +936,6 @@ fn upstream_error(e: &Error, route: &Route) -> ApiError {
             "address index is disabled on this server",
         ),
         Error::TooLarge => TOO_LARGE,
-        Error::ScriptHashOrderUnknown => {
-            status(StatusCode::SERVICE_UNAVAILABLE, "not ready yet; retry")
-        }
         Error::ChainViewMoved => status(
             StatusCode::SERVICE_UNAVAILABLE,
             "chain tip moved during the request; retry",
@@ -1179,8 +1176,7 @@ fn parse_segments(segs: &[&str], q: &mut Query<'_>, network: Network) -> Result<
             let script = if kind == "address" {
                 payee(s, network)?.script_ref()
             } else {
-                // The digest as hashed, as electrs and mempool.space take it, whatever order this
-                // network's node reads (docs/API.md, "Scripthashes").
+                // The digest as hashed, as the node, electrs and mempool.space take it.
                 ScriptRef::ScriptHash(
                     ScriptHash::from_digest_hex(s)
                         .map_err(|_| ApiError::bad_request("invalid scripthash"))?,
@@ -1549,7 +1545,7 @@ mod tests {
     fn path(c: &Call) -> String {
         let Call::Read(r) = c else { panic!("{c:?}") };
         let mut s = String::new();
-        r.write_path(node::esplora::ScriptHashOrder::Digest, &mut s);
+        r.write_path(&mut s);
         s
     }
 
@@ -1716,13 +1712,9 @@ mod tests {
         }
     }
 
-    /// A signet key paid 513 times, and the hash of its pay-to-pubkey script in digest order, as
-    /// [`path`] writes it for a node that reads that order.
+    /// A signet key paid 513 times, and the hash of its pay-to-pubkey script as the node takes it.
     const KEY: &str = "04a8c3fa3dbc022ca7c9a2214c5e673833317b3cff37c0fc170fc347f1a2f6b6e2a53db4d023387f89209de481cd014a44040e1b09c3226d40fed02c0bc8d0f548";
     const KEY_SH: &str = "d0a91f940a8c68fbc4b13b5ac57cea9acf68a86dc9f05c59bf7e19388b824d8c";
-    /// The same, byte-reversed, as rbitcoin v0.9.2 takes it: checked on signet in 2026-11.
-    const KEY_SH_REVERSED: &str =
-        "8c4d828b38197ebf595cf0c96da868cf9aea7cc55a3bb1c4fb688c0a941fa9d0";
     /// The curve's generator, compressed.
     const G: &str = "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798";
 
@@ -1732,12 +1724,6 @@ mod tests {
             let r = parse(&format!("address/{KEY}/txs"), None, net).unwrap();
             assert_eq!(path(&r), format!("/scripthash/{KEY_SH}/txs"), "{net:?}");
         }
-        let Call::Read(r) = parse(&format!("address/{KEY}"), None, Network::Signet).unwrap() else {
-            panic!("not a read");
-        };
-        let mut reversed = String::new();
-        r.write_path(node::esplora::ScriptHashOrder::Reversed, &mut reversed);
-        assert_eq!(reversed, format!("/scripthash/{KEY_SH_REVERSED}"));
         let upper = KEY.to_ascii_uppercase();
         assert_eq!(
             ok(&format!("address/{upper}")),

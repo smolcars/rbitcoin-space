@@ -220,12 +220,6 @@ async fn logged(names: &[&str], n: usize) -> Vec<Value> {
 
 const INDEX: [&str; 2] = ["address_index_on", "address_index_off"];
 
-/// The address-index check's questions, without the scripthash order probe's.
-fn index_asks(node: &Node) -> Vec<String> {
-    let asked = node.asked.lock().unwrap();
-    asked.iter().filter(|h| *h == ZERO).cloned().collect()
-}
-
 /// A node without `--sh-index` is found at startup, said once in the log and in `/readyz`,
 /// without making the server unready; a restart with the index on is found at the reconnect.
 #[tokio::test]
@@ -244,9 +238,8 @@ async fn the_address_index_is_asked_at_startup_and_after_each_reconnect() {
     );
     let (status, n) = readyz_when(&addr, |n| n["ready"] == true).await;
     assert_eq!((status, &n["address_index"]), (200, &json!("off")));
-    // The cheapest question: one scripthash no script hashes to. (The scripthash order probe
-    // asks another such hash, all `ff`.)
-    assert_eq!(index_asks(&node), [ZERO]);
+    // The cheapest question: one scripthash no script hashes to.
+    assert_eq!(*node.asked.lock().unwrap(), [ZERO]);
 
     // The node restarted with the index on: the reconnect asks again.
     node.index.store(true, Ordering::SeqCst);
@@ -264,7 +257,7 @@ async fn the_address_index_is_asked_at_startup_and_after_each_reconnect() {
     drop(peer);
     let _peer = Peer::connect(&electrum).await;
     let deadline = Instant::now() + WAIT;
-    while index_asks(&node).len() < 3 {
+    while node.asked.lock().unwrap().len() < 3 {
         assert!(
             Instant::now() < deadline,
             "not asked after the second reconnect"

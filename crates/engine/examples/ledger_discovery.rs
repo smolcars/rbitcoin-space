@@ -39,7 +39,6 @@ async fn main() {
         .unwrap(),
         esplora: Esplora::new("http://127.0.0.1:1").unwrap(),
         electrum: String::new(),
-        uncapped: Default::default(),
     };
     let tip = node.height().await.unwrap();
     let started = Instant::now();

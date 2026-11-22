@@ -15,42 +15,17 @@ use hyper::Method;
 /// Largest batch `POST /block-heights/txs/outs` accepts.
 pub const MAX_OUT_POSITIONS: usize = 300;
 
-/// How a node's Esplora reads the hash in `/scripthash/:hash`: a property of the node's build,
-/// found out by asking it ([`Esplora::find_scripthash_order`](super::Esplora::find_scripthash_order)).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ScriptHashOrder {
-    /// Byte-reversed, as Electrum writes it: rbitcoin v0.9.2 and builds before rbitcoin PR 1671.
-    Reversed,
-    /// The SHA-256 digest as hashed, as electrs and other Esplora servers read it: rbitcoin after
-    /// PR 1671 (first in the `nightly-20261122` image).
-    Digest,
-}
-
-impl ScriptHashOrder {
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Reversed => "reversed",
-            Self::Digest => "digest",
-        }
-    }
-}
-
 /// A script's SHA-256: the key the node's address index, its Electrum server and this server's
-/// own tables know a script by. It has no text form of its own, because each interface writes it
-/// in another order: Electrum byte-reversed ([`ScriptHash::electrum`]), the node's Esplora in the
-/// order its build reads ([`ScriptHashOrder`], written only by [`Route`]), and this server's
-/// public API in digest order ([`ScriptHash::from_digest_hex`], [`ScriptHash::digest_hex`]).
+/// own tables know a script by. It has no text form of its own, because the interfaces write it
+/// in two orders: Electrum byte-reversed ([`ScriptHash::electrum`]), Esplora (rbitcoin from
+/// `nightly-20261122`, electrs, mempool.space) and this server's public API in digest order
+/// ([`ScriptHash::from_digest_hex`], [`ScriptHash::digest_hex`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ScriptHash([u8; 32]);
 
 impl ScriptHash {
-    /// The all-zero hash, which no script has: the same in either order, so asking for it needs
-    /// no order and runs no join.
+    /// The all-zero hash, which no script has: asking for it runs no join.
     pub const NONE: Self = Self([0; 32]);
-    /// Another hash no script has and that reads the same both ways: the scripthash order probe
-    /// asks it, so its question and the address-index check's ([`ScriptHash::NONE`]) are told
-    /// apart in a node's log.
-    pub const NONE_PROBE: Self = Self([0xff; 32]);
 
     pub fn from_script(script: &bitcoin::Script) -> Self {
         let mut bytes = sha256::Hash::hash(script.as_bytes()).to_byte_array();
@@ -77,30 +52,18 @@ impl ScriptHash {
         Self(sh.0)
     }
 
-    /// Exactly 64 hex characters of the SHA-256 digest as hashed, the public API's form.
+    /// Exactly 64 hex characters of the SHA-256 digest as hashed, Esplora's form.
     pub fn from_digest_hex(s: &str) -> Result<Self, bitcoin::hex::HexToArrayError> {
         let mut bytes = <[u8; 32]>::from_hex(s)?;
         bytes.reverse();
         Ok(Self(bytes))
     }
 
-    /// The digest as hashed, in lowercase hex: the public API's and the log's form.
+    /// The digest as hashed, in lowercase hex: Esplora's form.
     pub fn digest_hex(self) -> String {
-        self.hex(ScriptHashOrder::Digest)
-    }
-
-    /// Lowercase hex in `order`.
-    pub fn hex(self, order: ScriptHashOrder) -> String {
         let mut bytes = self.0;
-        if order == ScriptHashOrder::Digest {
-            bytes.reverse();
-        }
+        bytes.reverse();
         bytes.as_hex().to_string()
-    }
-
-    /// Reads the same in either order, so a node can be asked without knowing which it reads.
-    pub fn is_order_free(self) -> bool {
-        self.0.iter().eq(self.0.iter().rev())
     }
 }
 
@@ -221,7 +184,7 @@ pub enum Route {
         start: BlockTxsStart,
     },
     BlockRaw(BlockHash),
-    /// `[txid, fee, weight, value]` per transaction. Not in rbitcoin v0.9.2, which answers 400.
+    /// `[txid, fee, weight, value]` per transaction.
     BlockTxsSummary(BlockHash),
     /// The txid at `index` in the block.
     BlockTxid {
@@ -326,8 +289,8 @@ pub enum Route {
     InternalBlockTxs(BlockHash),
     InternalOutspendsByTxid(Vec<Txid>),
     InternalOutspendsByOutpoint(Vec<OutPoint>),
-    /// [`Route::ScriptStats`] without the node's `--max-sh-creates` refusal (rbitcoin PR 1628,
-    /// after v0.9.2): the same JSON, `?asof=` and chain-tip stamp.
+    /// [`Route::ScriptStats`] without the node's `--max-sh-creates` refusal (rbitcoin PR 1628):
+    /// the same JSON, `?asof=` and chain-tip stamp.
     InternalScriptStats {
         script: ScriptRef,
         asof: Option<BlockHash>,
@@ -363,43 +326,13 @@ impl Route {
         )
     }
 
-    /// The script this route names by its hash in the path (`/scripthash/:hash`), if any.
-    pub fn path_script_hash(&self) -> Option<ScriptHash> {
-        match self {
-            Self::ScriptStats { script, .. }
-            | Self::ScriptUtxo { script, .. }
-            | Self::ScriptTxs { script, .. }
-            | Self::ScriptTxsChain { script, .. }
-            | Self::ScriptTxsMempool(script)
-            | Self::ScriptTxsSummary { script, .. }
-            | Self::InternalScriptStats { script, .. } => match script {
-                ScriptRef::Address(_) => None,
-                ScriptRef::ScriptHash(_) | ScriptRef::Key(_) => Some(script.script_hash()),
-            },
-            _ => None,
-        }
-    }
-
-    /// Whether the path can only be written for a node whose [`ScriptHashOrder`] is known: it
-    /// names a script by a hash that does not read the same both ways.
-    pub fn needs_order(&self) -> bool {
-        self.path_script_hash().is_some_and(|h| !h.is_order_free())
-    }
-
-    /// Appends the path and query, relative to the Esplora base, for a node that reads
-    /// `/scripthash/:hash` in `order`.
-    pub fn write_path(&self, order: ScriptHashOrder, out: &mut String) {
+    /// Appends the path and query, relative to the Esplora base.
+    pub fn write_path(&self, out: &mut String) {
         // Writing to a String cannot fail.
-        let _ = self.write(order, out);
+        let _ = self.write(out);
     }
 
-    /// Appends a key that names this route's answer whatever the node's build, for caches and
-    /// shared calls: the path with any script hash in digest order. Never sent to a node.
-    pub fn write_key(&self, out: &mut String) {
-        self.write_path(ScriptHashOrder::Digest, out);
-    }
-
-    fn write(&self, order: ScriptHashOrder, o: &mut String) -> fmt::Result {
+    fn write(&self, o: &mut String) -> fmt::Result {
         let mut asof = None;
         match self {
             Self::BlindbitInfo => o.push_str("/blindbit/v1/info"),
@@ -470,11 +403,11 @@ impl Route {
             }
 
             Self::ScriptStats { script, asof: a } => {
-                write_script(o, script, order)?;
+                write_script(o, script)?;
                 asof = *a;
             }
             Self::ScriptUtxo { script, asof: a } => {
-                write_script(o, script, order)?;
+                write_script(o, script)?;
                 o.push_str("/utxo");
                 asof = *a;
             }
@@ -483,7 +416,7 @@ impl Route {
                 after,
                 asof: a,
             } => {
-                write_script(o, script, order)?;
+                write_script(o, script)?;
                 o.push_str("/txs");
                 if let Some(t) = after {
                     write!(o, "?after_txid={t}")?;
@@ -495,7 +428,7 @@ impl Route {
                 last_seen,
                 asof: a,
             } => {
-                write_script(o, script, order)?;
+                write_script(o, script)?;
                 o.push_str("/txs/chain");
                 if let Some(t) = last_seen {
                     write!(o, "/{t}")?;
@@ -503,7 +436,7 @@ impl Route {
                 asof = *a;
             }
             Self::ScriptTxsMempool(script) => {
-                write_script(o, script, order)?;
+                write_script(o, script)?;
                 o.push_str("/txs/mempool");
             }
             Self::ScriptTxsSummary {
@@ -511,7 +444,7 @@ impl Route {
                 last_seen,
                 asof: a,
             } => {
-                write_script(o, script, order)?;
+                write_script(o, script)?;
                 o.push_str("/txs/summary");
                 if let Some(t) = last_seen {
                     write!(o, "/{t}")?;
@@ -585,7 +518,7 @@ impl Route {
             }
             Self::InternalScriptStats { script, asof: a } => {
                 o.push_str("/internal");
-                write_script(o, script, order)?;
+                write_script(o, script)?;
                 asof = *a;
             }
         }
@@ -622,11 +555,11 @@ impl Route {
     }
 }
 
-fn write_script(o: &mut String, s: &ScriptRef, order: ScriptHashOrder) -> fmt::Result {
+fn write_script(o: &mut String, s: &ScriptRef) -> fmt::Result {
     match s {
         ScriptRef::Address(a) => write!(o, "/address/{a}"),
         ScriptRef::ScriptHash(_) | ScriptRef::Key(_) => {
-            write!(o, "/scripthash/{}", s.script_hash().hex(order))
+            write!(o, "/scripthash/{}", s.script_hash().digest_hex())
         }
     }
 }
@@ -639,7 +572,7 @@ mod tests {
 
     fn path(r: &Route) -> String {
         let mut s = String::new();
-        r.write_path(ScriptHashOrder::Digest, &mut s);
+        r.write_path(&mut s);
         s
     }
 
@@ -750,47 +683,21 @@ mod tests {
         assert_eq!(batch.method(), Method::POST);
     }
 
-    /// The regtest harness's miner script, P2WSH of `OP_TRUE`, and its hash in each order: v0.9.2
-    /// answered its history only for the reversed form, `nightly-20261122` only for the digest.
+    /// The regtest harness's miner script, P2WSH of `OP_TRUE`, its SHA-256, and Electrum's form
+    /// of it: the bytes reversed.
     const MINER_SCRIPT: &str =
         "00204ae81572f06e1b88fd5ced7a1a000945432e83e1551e6f721ee9c00b8cc33260";
     const MINER_DIGEST: &str = "401a08bd4ceb96daf138cd8767abceb68ce779895897dd32edfedab6ce30445c";
     const MINER_REVERSED: &str = "5c4430ceb6dafeed32dd97588979e78cb6ceab6787cd38f1da96eb4cbd081a40";
 
     #[test]
-    fn scripthash_paths_follow_the_nodes_order() {
+    fn esplora_takes_the_digest_and_electrum_the_reverse() {
         let script = ScriptBuf::from_hex(MINER_SCRIPT).unwrap();
         let sh = ScriptHash::from_script(&script);
         assert_eq!(sh.digest_hex(), MINER_DIGEST);
-        assert_eq!(sh.hex(ScriptHashOrder::Reversed), MINER_REVERSED);
         assert_eq!(ScriptHash::from_digest_hex(MINER_DIGEST).unwrap(), sh);
-        // Electrum's form is the reversed one, whatever the node's Esplora reads.
         assert_eq!(sh.electrum().to_string(), MINER_REVERSED);
         assert_eq!(ScriptHash::from_electrum(sh.electrum()), sh);
-
-        let txs = Route::ScriptTxsChain {
-            script: ScriptRef::ScriptHash(sh),
-            last_seen: None,
-            asof: None,
-        };
-        let written = |r: &Route, order| {
-            let mut s = String::new();
-            r.write_path(order, &mut s);
-            s
-        };
-        assert_eq!(
-            written(&txs, ScriptHashOrder::Digest),
-            format!("/scripthash/{MINER_DIGEST}/txs/chain")
-        );
-        assert_eq!(
-            written(&txs, ScriptHashOrder::Reversed),
-            format!("/scripthash/{MINER_REVERSED}/txs/chain")
-        );
-        let mut key = String::new();
-        txs.write_key(&mut key);
-        assert_eq!(key, written(&txs, ScriptHashOrder::Digest));
-        assert!(txs.needs_order());
-        assert_eq!(txs.path_script_hash(), Some(sh));
 
         // Every route that names a script by hash, the uncapped socket one included.
         let script = ScriptRef::ScriptHash(sh);
@@ -819,6 +726,14 @@ mod tests {
             ),
             (Route::ScriptTxsMempool(script.clone()), "/txs/mempool"),
             (
+                Route::ScriptTxsChain {
+                    script: script.clone(),
+                    last_seen: None,
+                    asof: None,
+                },
+                "/txs/chain",
+            ),
+            (
                 Route::ScriptTxsSummary {
                     script: script.clone(),
                     last_seen: None,
@@ -827,59 +742,28 @@ mod tests {
                 "/txs/summary",
             ),
         ] {
-            for (order, hex) in [
-                (ScriptHashOrder::Digest, MINER_DIGEST),
-                (ScriptHashOrder::Reversed, MINER_REVERSED),
-            ] {
-                assert_eq!(written(&route, order), format!("/scripthash/{hex}{tail}"));
-            }
+            assert_eq!(path(&route), format!("/scripthash/{MINER_DIGEST}{tail}"));
         }
-        let uncapped = Route::InternalScriptStats { script, asof: None };
         assert_eq!(
-            written(&uncapped, ScriptHashOrder::Reversed),
-            format!("/internal/scripthash/{MINER_REVERSED}")
+            path(&Route::InternalScriptStats { script, asof: None }),
+            format!("/internal/scripthash/{MINER_DIGEST}")
         );
 
-        // A key is asked by its pay-to-pubkey script's hash, in the same order.
+        // A key is asked by its pay-to-pubkey script's hash.
         let key = PublicKey::from_str(
             "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
         )
         .unwrap();
-        let by_key = Route::ScriptStats {
-            script: ScriptRef::Key(key),
-            asof: None,
-        };
-        let p2pk = ScriptHash::from_script(&ScriptBuf::new_p2pk(&key));
         assert_eq!(
-            written(&by_key, ScriptHashOrder::Reversed),
-            format!("/scripthash/{}", p2pk.hex(ScriptHashOrder::Reversed))
+            path(&Route::ScriptStats {
+                script: ScriptRef::Key(key),
+                asof: None
+            }),
+            format!(
+                "/scripthash/{}",
+                ScriptHash::from_script(&ScriptBuf::new_p2pk(&key)).digest_hex()
+            )
         );
-        assert_eq!(
-            written(&by_key, ScriptHashOrder::Digest),
-            format!("/scripthash/{}", p2pk.digest_hex())
-        );
-        assert!(by_key.needs_order());
-
-        // The empty script hash reads the same both ways; an address names no hash.
-        let none = Route::ScriptStats {
-            script: ScriptRef::ScriptHash(ScriptHash::NONE),
-            asof: None,
-        };
-        assert!(ScriptHash::NONE.is_order_free());
-        assert!(!none.needs_order());
-        assert!(!sh.is_order_free());
-        let a: Address = "bcrt1qft5p2uhsdcdc3l2ua4ap5qqfg4pjaqlp250x7us7a8qqhrxrxfsqseac85"
-            .parse::<Address<_>>()
-            .unwrap()
-            .require_network(bitcoin::Network::Regtest)
-            .unwrap();
-        let by_address = Route::ScriptStats {
-            script: ScriptRef::Address(a),
-            asof: None,
-        };
-        assert!(!by_address.needs_order());
-        assert_eq!(by_address.path_script_hash(), None);
-        assert!(!Route::Tx(MINER_DIGEST.parse().unwrap()).needs_order());
     }
 
     #[test]

@@ -69,13 +69,8 @@ struct Node {
     /// The node serves the uncapped totals route on its socket (rbitcoin PR 1628): totals of any
     /// address, those refused for size included. Without it the route is the unknown path, 404.
     internal: std::sync::atomic::AtomicBool,
-    /// The route's probe answers 503: a node that does not say.
-    probe_fails: std::sync::atomic::AtomicBool,
-    /// Electrum completes its handshake (answers `blockchain.headers.subscribe`), so the server
-    /// asks the node which routes it serves.
+    /// Electrum completes its handshake (answers `blockchain.headers.subscribe`).
     handshake: std::sync::atomic::AtomicBool,
-    /// Closes every Electrum connection: the node restarted (upgraded, say).
-    restart: tokio::sync::Notify,
 }
 
 impl Node {
@@ -233,14 +228,6 @@ async fn esplora(node: Arc<Node>, pq: String) -> Response {
         r
     };
     match parts {
-        ["scripthash", id] if internal && *id == "00".repeat(32) => {
-            if node.probe_fails.load(Ordering::SeqCst) {
-                return (StatusCode::SERVICE_UNAVAILABLE, "busy").into_response();
-            }
-            let body =
-                json!({"scripthash": id, "chain_stats": stats(0), "mempool_stats": stats(0)});
-            stamped(StatusCode::OK, body.to_string())
-        }
         [kind @ ("address" | "scripthash"), id] => {
             let k = node.kinds.lock().unwrap().get(*id).copied();
             let now = node.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
@@ -302,31 +289,6 @@ async fn esplora(node: Arc<Node>, pq: String) -> Response {
             (StatusCode::INTERNAL_SERVER_ERROR, "no").into_response()
         }
         [_, _, "txs", "summary", ..] | [_, _, "utxo"] => stamped(StatusCode::OK, "[]".into()),
-        // Enough of a block and its coinbase for the server's scripthash order probe, which then
-        // finds the coinbase's script has history in both orders, as every unknown script has
-        // here, and takes the digest order.
-        ["block", h] => match height_of(h) {
-            Some(height) => stamped(
-                StatusCode::OK,
-                json!({"id": h, "height": height, "version": 1, "timestamp": 1, "tx_count": 1,
-                    "size": 1, "weight": 4, "merkle_root": h, "mediantime": 1, "nonce": 0,
-                    "bits": 545_259_519, "difficulty": 1.0,
-                    "previousblockhash": (height > 0).then(|| hash(height - 1).to_string())})
-                .to_string(),
-            ),
-            None => (StatusCode::NOT_FOUND, "Block not found").into_response(),
-        },
-        ["block", h, "txid", "0"] => match height_of(h) {
-            Some(height) => stamped(StatusCode::OK, format!("{height:062x}cb")),
-            None => (StatusCode::NOT_FOUND, "Block not found").into_response(),
-        },
-        ["tx", id] if id.ends_with("cb") => stamped(
-            StatusCode::OK,
-            json!({"txid": id, "version": 2, "locktime": 0, "vin": [],
-                "vout": [{"scriptpubkey": "51", "scriptpubkey_asm": "", "scriptpubkey_type":
-                "unknown", "value": 5_000_000_000_u64}], "status": {"confirmed": true}})
-            .to_string(),
-        ),
         ["block", h, "status"] => match height_of(h) {
             Some(height) => {
                 let best = !node.orphaned.lock().unwrap().iter().any(|o| o == h);
@@ -373,11 +335,9 @@ async fn electrum(node: Arc<Node>) -> String {
                 let (rd, mut wr) = stream.into_split();
                 let mut lines = tokio::io::BufReader::new(rd).lines();
                 loop {
-                    let line = tokio::select! {
-                        l = lines.next_line() => l,
-                        () = node.restart.notified() => return,
+                    let Ok(Some(line)) = lines.next_line().await else {
+                        return;
                     };
-                    let Ok(Some(line)) = line else { return };
                     let req: Value = serde_json::from_str(&line).unwrap_or_default();
                     let id = req["id"].clone();
                     let reply = match req["method"].as_str().unwrap_or_default() {
@@ -540,11 +500,6 @@ async fn start_via(
     let electrum_addr = electrum(Arc::clone(&node)).await;
     let (host, port) = mock.split_once(':').unwrap();
     let url = sock_path.map_or_else(|| format!("http://{mock}"), |p| p.display().to_string());
-    // The mock reads scripthashes in digest order. Without an Electrum handshake the server never
-    // probes it, so it is told; with one, its probe finds it.
-    node::esplora::Esplora::new(&url)
-        .unwrap()
-        .set_scripthash_order(Some(node::esplora::ScriptHashOrder::Digest));
     let mut vars: HashMap<String, String> = [
         ("REGTEST_RPC_HOST", host),
         ("REGTEST_RPC_PORT", port),
@@ -863,20 +818,12 @@ async fn a_seed_the_node_refuses_leaves_the_address_as_it_was_and_says_why() {
     );
 }
 
-const PROBE: &str =
-    "/internal/scripthash/0000000000000000000000000000000000000000000000000000000000000000";
-
-/// The server reaches the mock over a unix socket; whether the mock serves the uncapped route.
-async fn on_socket(route: bool) -> Server {
-    let s = start_via(true, true, &[], |n| {
-        n.internal.store(route, Ordering::SeqCst)
+/// The server reaches the mock over a unix socket, which serves the uncapped route.
+async fn on_socket() -> Server {
+    start_via(true, true, &[], |n| {
+        n.internal.store(true, Ordering::SeqCst)
     })
-    .await;
-    wait_for("the probe", || async {
-        s.node.internal_paths().iter().any(|p| p == PROBE)
-    })
-    .await;
-    s
+    .await
 }
 
 /// Reads the address's totals the way a reader does (refused for size), then has the page ask
@@ -890,7 +837,7 @@ async fn refused_then(s: &Server, a: &Address, state: &str) -> Value {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn an_address_above_the_cap_is_added_up_through_the_socket_and_its_list_stays_refused() {
-    let s = on_socket(true).await;
+    let s = on_socket().await;
     let a = address(90);
     s.node.set(&a, Kind::Refused { ms: 0 });
     let sh = ScriptHash::from_script(&a.script_pubkey()).digest_hex();
@@ -919,79 +866,6 @@ async fn an_address_above_the_cap_is_added_up_through_the_socket_and_its_list_st
     assert_eq!(r.body["chain_stats"]["funded_txo_count"], 50_000);
     let r = get(&s.addr, 1, &format!("/regtest/api/address/{a}/txs/chain")).await;
     assert_eq!((r.status, r.body["error"].as_str()), (503, Some(TOO_LARGE)));
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn on_a_socket_without_the_route_a_seed_above_the_cap_is_refused_as_before() {
-    let s = on_socket(false).await;
-    let a = address(91);
-    s.node.set(&a, Kind::Refused { ms: 0 });
-    let v = refused_then(&s, &a, "refused").await;
-    assert_eq!(v["creates"], 20_000);
-    assert_eq!(s.node.internal_paths(), vec![PROBE.to_owned()]);
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_node_that_loses_the_route_is_probed_again_and_asked_the_capped_route() {
-    let s = on_socket(true).await;
-    // Downgraded since the probe: the route is the unknown path again.
-    s.node.internal.store(false, Ordering::SeqCst);
-    let a = address(92);
-    s.node.set(&a, Kind::Refused { ms: 0 });
-    refused_then(&s, &a, "refused").await;
-    let sh = ScriptHash::from_script(&a.script_pubkey()).digest_hex();
-    let internal = s.node.internal_paths();
-    // The probe, the seed's 404, the probe again; then the capped route refused the seed.
-    assert_eq!(internal.len(), 3, "{internal:?}");
-    assert!(internal[1].starts_with(&format!("/internal/scripthash/{sh}?asof=")));
-    assert_eq!(internal[2], PROBE);
-    // A later seed asks the capped route only.
-    let b = address(93);
-    s.node.set(&b, Kind::Refused { ms: 0 });
-    refused_then(&s, &b, "refused").await;
-    assert_eq!(s.node.internal_paths().len(), 3);
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_node_upgraded_under_the_server_is_probed_again_and_adds_up_a_refused_address() {
-    let s = on_socket(false).await;
-    let a = address(96);
-    s.node.set(&a, Kind::Refused { ms: 0 });
-    refused_then(&s, &a, "refused").await;
-    // Restarted with the route: the server reconnects, asks again, and the refusal it remembered
-    // no longer holds the address back.
-    s.node.internal.store(true, Ordering::SeqCst);
-    s.node.restart.notify_waiters();
-    wait_for("the second probe", || async {
-        s.node
-            .internal_paths()
-            .iter()
-            .filter(|p| *p == PROBE)
-            .count()
-            == 2
-    })
-    .await;
-    wait_for("tracked", || async {
-        ledger(&s, 1, &a).await["state"] == "tracked"
-    })
-    .await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_probe_without_an_answer_leaves_the_route_unused() {
-    let s = start_via(true, true, &[], |n| {
-        n.internal.store(true, Ordering::SeqCst);
-        n.probe_fails.store(true, Ordering::SeqCst);
-    })
-    .await;
-    wait_for("the probe", || async {
-        s.node.internal_paths().iter().any(|p| p == PROBE)
-    })
-    .await;
-    let a = address(94);
-    s.node.set(&a, Kind::Refused { ms: 0 });
-    refused_then(&s, &a, "refused").await;
-    assert_eq!(s.node.internal_paths(), vec![PROBE.to_owned()]);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

@@ -90,10 +90,6 @@ async fn mock() -> (String, Seen) {
 /// The server against a fresh mock node, its requests naming their client in `X-Real-IP`.
 async fn start() -> (String, Seen) {
     let (url, seen) = mock().await;
-    // The mock's Electrum never answers, so the server never probes its scripthash order.
-    node::esplora::Esplora::new(&url)
-        .unwrap()
-        .set_scripthash_order(Some(node::esplora::ScriptHashOrder::Digest));
     let app = App::new(&config(&url));
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap().to_string();

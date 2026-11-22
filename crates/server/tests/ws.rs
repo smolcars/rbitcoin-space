@@ -72,14 +72,8 @@ async fn mock_esplora(blocks: Blocks, misses: Misses) -> String {
         "[]"
     }
     // An address's totals, asked before the node is asked to watch it: small, so it may be.
-    async fn totals(
-        Path(hash): Path<String>,
-        State((_, misses)): State<(Blocks, Misses)>,
-    ) -> impl IntoResponse {
-        // The server's scripthash order probe asks this hash first; it is not an address.
-        if hash != "f".repeat(64) {
-            *misses.lock().unwrap().entry("totals".into()).or_default() += 1;
-        }
+    async fn totals(State((_, misses)): State<(Blocks, Misses)>) -> impl IntoResponse {
+        *misses.lock().unwrap().entry("totals".into()).or_default() += 1;
         let zero = r#"{"funded_txo_count":1,"funded_txo_sum":1,"spent_txo_count":0,"spent_txo_sum":0,"tx_count":1}"#;
         format!(r#"{{"chain_stats":{zero},"mempool_stats":{zero}}}"#)
     }
@@ -92,11 +86,6 @@ async fn mock_esplora(blocks: Blocks, misses: Misses) -> String {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
     tokio::spawn(async move { axum::serve(listener, app).await });
-    // The mock reads scripthashes in digest order. It cannot answer the server's probe, which
-    // then leaves this as it is.
-    node::esplora::Esplora::new(&url)
-        .unwrap()
-        .set_scripthash_order(Some(node::esplora::ScriptHashOrder::Digest));
     url
 }
 

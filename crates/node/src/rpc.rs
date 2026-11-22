@@ -1,4 +1,4 @@
-//! JSON-RPC client for rbitcoin v0.9.2: a fixed set of typed, read-only methods.
+//! JSON-RPC client for rbitcoin: a fixed set of typed, read-only methods.
 //!
 //! No caller outside this module can name an RPC method or pass raw parameters: each method
 //! below sends one fixed method name with typed parameters. There are no write methods;

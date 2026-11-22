@@ -36,17 +36,14 @@ use axum::response::{IntoResponse, Response};
 use bitcoin::{BlockHash, Txid};
 use engine::audit::Totals;
 use engine::blocks::Lister;
-use engine::blocks::listing::Event as Listed;
 use logging::events::{
     BlockSummariesRecovered, BlockSummariesRefused, BlockSummaryComputed, BlockSummaryFailed,
-    BlockTxsFellBack, BlockTxsSource,
+    BlockTxsFellBack,
 };
-use node::electrum::Event as ElectrumEvent;
 use node::esplora::Error as EsploraError;
 use node::rpc::Error as RpcError;
 use serde::Serialize;
 use serde_json::json;
-use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, watch};
 
 use crate::esplora::{ApiOutcome, Source};
@@ -449,55 +446,20 @@ async fn compute(
     tx.send_replace(Some(outcome));
 }
 
-/// The network's [`Lister`], reporting as log events.
+/// The network's [`Lister`], logging the blocks the route failed for.
 pub fn lister(network: Network) -> Lister {
     let network = network.name();
     let fell_back = AtomicU64::new(0);
-    Lister::new(move |e| match e {
-        Listed::Source { via, why } => logging::emit(&BlockTxsSource {
-            network,
-            source: via.label(),
-            reason: why.label(),
-        }),
-        Listed::FellBack { reason } => {
-            let total = fell_back.fetch_add(1, Ordering::Relaxed) + 1;
-            if total.is_power_of_two() {
-                logging::emit(&BlockTxsFellBack {
-                    network,
-                    reason,
-                    total,
-                });
-            }
+    Lister::new(move |reason| {
+        let total = fell_back.fetch_add(1, Ordering::Relaxed) + 1;
+        if total.is_power_of_two() {
+            logging::emit(&BlockTxsFellBack {
+                network,
+                reason,
+                total,
+            });
         }
     })
-}
-
-/// Asks the node which routes it serves when the Electrum connection is first ready, then after
-/// every reconnect, since the node may have been upgraded or downgraded meanwhile (a new node
-/// means a restart, so a reconnect): which source lists its blocks, and whether its socket adds
-/// up large addresses' totals above its cap. A reconnect is the client's `Resynced` event, which
-/// unlike the health watch is never merged with the next one.
-pub async fn detect_routes(ctx: Arc<NetworkContext>) {
-    let detect = async || {
-        ctx.lister.detect(&ctx.esplora).await;
-        if let Some(ledger) = &ctx.guard.ledger {
-            ledger.detect().await;
-        }
-    };
-    // Subscribed before the first probe, so a reconnect during it is still heard.
-    let mut events = ctx.electrum.events();
-    if ctx.electrum.health().wait_for(|h| h.ready).await.is_err() {
-        return;
-    }
-    detect().await;
-    loop {
-        match events.recv().await {
-            // A lagged receiver may have missed a reconnect.
-            Ok(ElectrumEvent::Resynced) | Err(RecvError::Lagged(_)) => detect().await,
-            Ok(_) => {}
-            Err(RecvError::Closed) => return,
-        }
-    }
 }
 
 async fn wait(mut flight: Flight) -> Outcome {

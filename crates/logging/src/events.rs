@@ -505,18 +505,6 @@ pub struct BlockSummaryComputed {
 }
 event!(BlockSummaryComputed, "block_summary_computed", Debug);
 
-/// Which source lists a network's blocks for the summaries, the audit and the backfill: at
-/// startup and on every reconnect, and when a block's answer changes it.
-#[derive(Debug, Serialize)]
-pub struct BlockTxsSource {
-    pub network: &'static str,
-    /// `summary_route` or `getblock`.
-    pub source: &'static str,
-    /// `probe`, `answered` or `refused`.
-    pub reason: &'static str,
-}
-event!(BlockTxsSource, "block_txs_source", Info);
-
 /// The summary route failed for a block, which `getblock` listed instead. At a total of 1, 2, 4,
 /// 8… per network.
 #[derive(Debug, Serialize)]
@@ -802,25 +790,6 @@ pub struct LedgerSeeded {
     pub duration_ms: f64,
 }
 event!(LedgerSeeded, "ledger_seeded", Info);
-
-/// Which order the node's Esplora reads `/scripthash/:hash` in: `digest` (rbitcoin after PR
-/// 1671), `reversed` (v0.9.2), or `unknown` (forgotten when the Electrum connection dropped, or no
-/// probe decided it), when that sends scripthash routes `503`. Written when it changes.
-#[derive(Debug, Serialize)]
-pub struct EsploraScripthashOrder {
-    pub network: &'static str,
-    pub order: &'static str,
-}
-event!(EsploraScripthashOrder, "esplora_scripthash_order", Info);
-
-/// Whether the node's Esplora socket adds up totals above its `--max-sh-creates`, so seeds of
-/// addresses above the cap ask it: at startup and on every reconnect, on a socket only.
-#[derive(Debug, Serialize)]
-pub struct LedgerTotalsRoute {
-    pub network: &'static str,
-    pub uncapped: bool,
-}
-event!(LedgerTotalsRoute, "ledger_totals_route", Info);
 
 /// The node refused to add an address up: its `--max-sh-creates` is in force. Said once until a
 /// seed works again.
@@ -2022,11 +1991,6 @@ mod tests {
                 cause: "request",
                 source: "getblock",
             }),
-            both(&BlockTxsSource {
-                network: n,
-                source: "summary_route",
-                reason: "probe",
-            }),
             both(&BlockTxsFellBack {
                 network: n,
                 reason: "not_found",
@@ -2158,14 +2122,6 @@ mod tests {
                 evicted: 0,
                 via: "reader",
                 duration_ms: 8000.0,
-            }),
-            both(&LedgerTotalsRoute {
-                network: n,
-                uncapped: true,
-            }),
-            both(&EsploraScripthashOrder {
-                network: n,
-                order: "digest",
             }),
             both(&LedgerSeedRefused {
                 network: n,

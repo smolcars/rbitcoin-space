@@ -16,7 +16,7 @@ use bitcoin::{Address, BlockHash, Network, Txid};
 use node::esplora::model::ScriptType;
 use node::esplora::{
     BlockTxsStart, ChainTip, Error, Esplora, MAX_BLOCK_TXS, MAX_SUMMARY_BYTES, OutPosition,
-    OutPositions, Route, ScriptHash, ScriptHashOrder, ScriptRef, TipCheck, consistent,
+    OutPositions, Route, ScriptHash, ScriptRef, TipCheck, consistent,
 };
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, UnixListener};
@@ -492,7 +492,7 @@ async fn maps_upstream_errors() {
     ));
 }
 
-/// `/block/:hash/txs/summary`: what rbitcoin after v0.9.2 answers, what v0.9.2 answers, and
+/// `/block/:hash/txs/summary`: what rbitcoin answers, what a node without the route answers, and
 /// every malformed or oversized answer as an error, never a panic.
 #[tokio::test]
 async fn decodes_block_txs_summaries_defensively() {
@@ -759,7 +759,6 @@ async fn retries_when_the_tip_moves() {
 async fn sends_asof_and_cursors() {
     let (url, log) = tcp_mock(|_| Reply::new(200, "[]")).await;
     let c = Esplora::new(&url).unwrap();
-    c.set_scripthash_order(Some(ScriptHashOrder::Digest));
     let h: BlockHash = BLOCK_800K.parse().unwrap();
     let t = txid(TIP_A);
     let sh = ScriptRef::ScriptHash(ScriptHash::from_digest_hex(TIP_A).unwrap());
@@ -773,199 +772,5 @@ async fn sends_asof_and_cursors() {
             format!("/api/scripthash/{TIP_A}/txs/chain/{TIP_A}?asof={BLOCK_800K}"),
             format!("/api/tx/{TIP_A}/outspends?asof={BLOCK_800K}"),
         ]
-    );
-}
-
-/// The regtest harness's miner script and its hash in each order (`route.rs` checks them).
-const MINER_SCRIPT: &str = "00204ae81572f06e1b88fd5ced7a1a000945432e83e1551e6f721ee9c00b8cc33260";
-const MINER_DIGEST: &str = "401a08bd4ceb96daf138cd8767abceb68ce779895897dd32edfedab6ce30445c";
-const MINER_REVERSED: &str = "5c4430ceb6dafeed32dd97588979e78cb6ceab6787cd38f1da96eb4cbd081a40";
-
-fn miner() -> ScriptHash {
-    ScriptHash::from_script(&bitcoin::ScriptBuf::from_hex(MINER_SCRIPT).unwrap())
-}
-
-fn totals(hex: &str, txs: u64) -> String {
-    let stats = |n: u64| {
-        format!(
-            r#"{{"funded_txo_count":{n},"funded_txo_sum":{n},"spent_txo_count":0,"spent_txo_sum":0,"tx_count":{n}}}"#
-        )
-    };
-    format!(
-        r#"{{"scripthash":"{hex}","chain_stats":{},"mempool_stats":{}}}"#,
-        stats(txs),
-        stats(0)
-    )
-}
-
-#[tokio::test]
-async fn scripthash_routes_wait_for_the_nodes_order_and_answer_in_digest_order() {
-    let (url, log) = tcp_mock(|r| {
-        let hex = r.path.trim_start_matches("/api/scripthash/");
-        Reply::new(200, totals(&hex[..64], 3))
-    })
-    .await;
-    let c = Esplora::new(&url).unwrap();
-    let sh = ScriptRef::ScriptHash(miner());
-    // Not known: refused without asking, so no empty answer can be taken for the script's.
-    assert_eq!(
-        c.script_stats(sh.clone(), None).await.unwrap_err(),
-        Error::ScriptHashOrderUnknown
-    );
-    assert_eq!(
-        c.raw(&Route::ScriptTxsMempool(sh.clone()))
-            .await
-            .unwrap_err(),
-        Error::ScriptHashOrderUnknown
-    );
-    assert!(log.paths().is_empty());
-    // A hash that reads the same both ways needs no order.
-    c.script_stats(ScriptRef::ScriptHash(ScriptHash::NONE), None)
-        .await
-        .unwrap();
-
-    // Every client of the endpoint shares what is known; the node echoes the hash it was sent,
-    // which is given back in digest order either way.
-    Esplora::new(&url)
-        .unwrap()
-        .set_scripthash_order(Some(ScriptHashOrder::Reversed));
-    let reversed = c
-        .raw(&Route::ScriptStats {
-            script: sh.clone(),
-            asof: None,
-        })
-        .await
-        .unwrap();
-    assert_eq!(&reversed.body[..], totals(MINER_DIGEST, 3).as_bytes());
-    assert_eq!(
-        c.set_scripthash_order(Some(ScriptHashOrder::Digest)),
-        Some(ScriptHashOrder::Reversed)
-    );
-    let digest = c
-        .raw(&Route::ScriptStats {
-            script: sh.clone(),
-            asof: None,
-        })
-        .await
-        .unwrap();
-    assert_eq!(digest.body, reversed.body);
-    c.script_txs_summary(sh, None, None).await.unwrap_err();
-    assert_eq!(
-        log.paths(),
-        [
-            format!("/api/scripthash/{}", "0".repeat(64)),
-            format!("/api/scripthash/{MINER_REVERSED}"),
-            format!("/api/scripthash/{MINER_DIGEST}"),
-            format!("/api/scripthash/{MINER_DIGEST}/txs/summary"),
-        ]
-    );
-    c.set_scripthash_order(None);
-    assert_eq!(c.scripthash_order(), None);
-}
-
-const PROBE_TIP: &str = "0000000000000000000000000000000000000000000000000000000000000007";
-const PROBE_PARENT: &str = "0000000000000000000000000000000000000000000000000000000000000006";
-const COINBASE_TXID: &str = "00000000000000000000000000000000000000000000000000000000000000c0";
-const COMMITMENT: &str =
-    "6a24aa21a9ed0000000000000000000000000000000000000000000000000000000000000001";
-
-/// A node whose address index stands at height 7 and reads `/scripthash/:hash` in `reads`. Its
-/// block at 7 holds `tx_count` transactions; its coinbase pays the miner script and commits to
-/// a witness root. `reads: None` finds history in no order.
-async fn probe_node(reads: Option<ScriptHashOrder>, tx_count: u32) -> (String, Log) {
-    let commitment = ScriptHash::from_script(&bitcoin::ScriptBuf::from_hex(COMMITMENT).unwrap());
-    tcp_mock(move |r| {
-        let path = r.path.trim_start_matches("/api");
-        let block = |hash: &str, height: u32, parent: &str, txs: u32| {
-            format!(
-                r#"{{"id":"{hash}","height":{height},"version":1,"timestamp":1,"tx_count":{txs},"size":1,"weight":4,"merkle_root":"{hash}","previousblockhash":"{parent}","mediantime":1,"nonce":0,"bits":545259519,"difficulty":1.0}}"#
-            )
-        };
-        let vout = |script: &str, kind: &str, value: u64| {
-            format!(
-                r#"{{"scriptpubkey":"{script}","scriptpubkey_asm":"","scriptpubkey_type":"{kind}","value":{value}}}"#
-            )
-        };
-        if path == format!("/scripthash/{}", "f".repeat(64)) {
-            return Reply::new(200, totals(&"f".repeat(64), 0)).stamped(PROBE_TIP, 7);
-        }
-        if let Some(rest) = path.strip_prefix("/scripthash/") {
-            let (hex, query) = rest.split_once('?').unwrap();
-            assert_eq!(query, format!("asof={PROBE_TIP}"), "pinned to the index's block");
-            let known = reads.is_some_and(|o| {
-                hex == commitment.hex(o) || hex == miner().hex(o)
-            });
-            return Reply::new(200, totals(hex, u64::from(known))).stamped(PROBE_TIP, 7);
-        }
-        match path {
-            p if p == format!("/block/{PROBE_TIP}") => {
-                Reply::new(200, block(PROBE_TIP, 7, PROBE_PARENT, tx_count))
-            }
-            p if p == format!("/block/{PROBE_PARENT}") => Reply::new(
-                200,
-                block(PROBE_PARENT, 0, PROBE_PARENT, 1).replace(
-                    &format!(r#","previousblockhash":"{PROBE_PARENT}""#),
-                    "",
-                ),
-            ),
-            p if p == format!("/block/{PROBE_TIP}/txid/0") => Reply::new(200, COINBASE_TXID),
-            p if p == format!("/tx/{COINBASE_TXID}") => Reply::new(
-                200,
-                format!(
-                    r#"{{"txid":"{COINBASE_TXID}","version":2,"locktime":0,"vin":[],"vout":[{},{}],"status":{{"confirmed":true}}}}"#,
-                    vout(MINER_SCRIPT, "v0_p2wsh", 5_000_000_000),
-                    vout(COMMITMENT, "op_return", 0),
-                ),
-            ),
-            _ => Reply::new(404, "not found"),
-        }
-    })
-    .await
-}
-
-#[tokio::test]
-async fn finds_the_nodes_scripthash_order_from_a_coinbase_commitment() {
-    for order in [ScriptHashOrder::Reversed, ScriptHashOrder::Digest] {
-        let (url, log) = probe_node(Some(order), 2).await;
-        let c = Esplora::new(&url).unwrap();
-        assert_eq!(c.find_scripthash_order().await.unwrap(), Some(order));
-        // Finding it does not record it.
-        assert_eq!(c.scripthash_order(), None);
-        let commitment =
-            ScriptHash::from_script(&bitcoin::ScriptBuf::from_hex(COMMITMENT).unwrap());
-        let asked: Vec<String> = log
-            .paths()
-            .into_iter()
-            .filter(|p| p.contains("/scripthash/") && !p.contains(&"f".repeat(64)))
-            .collect();
-        // Only the commitment, which has one transaction, in both orders: never the payout.
-        assert_eq!(
-            asked,
-            [ScriptHashOrder::Digest, ScriptHashOrder::Reversed]
-                .map(|o| format!("/api/scripthash/{}?asof={PROBE_TIP}", commitment.hex(o)))
-        );
-    }
-}
-
-#[tokio::test]
-async fn an_empty_block_falls_back_to_its_payout_and_nothing_found_decides_nothing() {
-    // A block with only its coinbase, over genesis: its commitment could be any empty block's,
-    // so the payout is asked.
-    let (url, log) = probe_node(Some(ScriptHashOrder::Reversed), 1).await;
-    let c = Esplora::new(&url).unwrap();
-    assert_eq!(
-        c.find_scripthash_order().await.unwrap(),
-        Some(ScriptHashOrder::Reversed)
-    );
-    assert!(log.paths().iter().any(|p| p.contains(MINER_REVERSED)));
-    // A node whose index finds neither form, as one that has only genesis: no answer.
-    let (url, _) = probe_node(None, 2).await;
-    assert_eq!(
-        Esplora::new(&url)
-            .unwrap()
-            .find_scripthash_order()
-            .await
-            .unwrap(),
-        None
     );
 }

@@ -451,10 +451,6 @@ impl History {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         tokio::spawn(async move { axum::serve(listener, app).await });
-        // It reads scripthashes in digest order; nothing probes a mock, so it is told.
-        node::esplora::Esplora::new(&url)
-            .unwrap()
-            .set_scripthash_order(Some(node::esplora::ScriptHashOrder::Digest));
         url
     }
 

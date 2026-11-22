@@ -6,7 +6,7 @@
 //! reads `{NET}_RPC_HOST`, `_RPC_PORT`, `_RPC_USER`, `_RPC_PASSWORD` and `_ESPLORA_URL`.
 //! `TOTALS="top:count,…"` and `RATES="top:count,…"` choose the ranges (`tip` for the zone's
 //! edge); `BUSY_PERCENT` (default 50) paces it as the backfill would. `LISTING=getblock` rates
-//! through `getblock` verbosity 2 even where the node serves `/block/:hash/txs/summary`.
+//! through `getblock` verbosity 2 instead of `/block/:hash/txs/summary`.
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -76,15 +76,11 @@ async fn main() {
     )
     .unwrap();
     let esplora = Esplora::new(&var(&net, "ESPLORA_URL")).unwrap();
-    let lister = match std::env::var("LISTING").as_deref() {
-        Ok("getblock") => Lister::fixed(Via::GetBlock),
-        _ => {
-            let l = Lister::default();
-            l.detect(&esplora).await;
-            l
-        }
+    let via = match std::env::var("LISTING").as_deref() {
+        Ok("getblock") => Via::GetBlock,
+        _ => Via::Route,
     };
-    let via = lister.via();
+    let lister = Lister::fixed(via);
     let source = NodeSource {
         rpc: rpc.clone(),
         esplora: esplora.clone(),

@@ -1,6 +1,5 @@
 //! Listing a block's transactions through `/block/:hash/txs/summary` or `getblock` verbosity 2:
-//! both give the same answers, the source is detected on every Electrum connection, and a route
-//! that fails mid-run falls back. Against a mock node serving a recorded testnet4 block (160,394:
+//! both give the same answers, and a block the route fails on is listed by `getblock`. Against a mock node serving a recorded testnet4 block (160,394:
 //! a coinbase and five segwit spends) and a scripted Electrum server, on port 0.
 
 #![allow(
@@ -14,7 +13,7 @@ use std::collections::HashMap;
 use std::io::{self, Write};
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -25,7 +24,6 @@ use axum::http::{Method, Request, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use bitcoin::BlockHash;
-use bitcoin::consensus::encode::serialize_hex;
 use engine::blocks::listing::Via;
 use engine::blocks::{Lister, NodeSource, Source, stats};
 use logging::{Format, Level, Settings};
@@ -33,10 +31,7 @@ use node::esplora::Esplora;
 use node::rpc::Rpc;
 use rbitcoin_space::{App, Config};
 use serde_json::{Value, json};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
 use tokio::net::TcpListener;
-use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
-use tokio::time::timeout;
 use tower::ServiceExt;
 
 const WAIT: Duration = Duration::from_secs(5);
@@ -49,8 +44,8 @@ const COINBASE: &str = "a332c863b4c1b3a24fbf8b4250ec9e70d21a2269df21505e4e3c6651
 enum Mode {
     /// The recorded rows.
     Route = 0,
-    /// What rbitcoin v0.9.2 answers: the path falls through to `/txs/:start_index`.
-    V092 = 1,
+    /// A refusal of the path itself, as a node without the route gives (rbitcoin v0.9.2's).
+    Refused = 1,
     /// One row short of the header's `tx_count`.
     Short = 2,
     /// 404, as for a block the route cannot list.
@@ -62,12 +57,7 @@ enum Mode {
 struct Node {
     mode: AtomicU8,
     getblock: AtomicUsize,
-    /// Route calls, the genesis probe left out.
     route: AtomicUsize,
-    /// The next genesis listing answers as the node was when asked, 1.5 s later.
-    slow_probe: AtomicBool,
-    /// Set once that slow listing has been asked.
-    probing: AtomicBool,
 }
 
 impl Node {
@@ -98,8 +88,6 @@ fn known(hash: &str) -> bool {
 fn hash(i: u8) -> String {
     format!("{}{i:02x}", "0".repeat(62))
 }
-
-const GENESIS: &str = "00000000000000000000000000000000000000000000000000000000000000ff";
 
 async fn rpc(State(node): N, Json(req): Json<Value>) -> Json<Value> {
     // Other tasks ask too (the health check); only `getblock` concerns these tests.
@@ -132,15 +120,9 @@ async fn summary(State(node): N, Path(h): Path<String>) -> Response {
     if !known(&h) {
         return (StatusCode::NOT_FOUND, "Not Found").into_response();
     }
-    if h != GENESIS {
-        node.route.fetch_add(1, Ordering::SeqCst);
-    }
+    node.route.fetch_add(1, Ordering::SeqCst);
     let rows = fixture("esplora/testnet4/block-160394-txs-summary.json");
     let mode = node.mode.load(Ordering::SeqCst);
-    if h == GENESIS && node.slow_probe.swap(false, Ordering::SeqCst) {
-        node.probing.store(true, Ordering::SeqCst);
-        tokio::time::sleep(Duration::from_millis(1500)).await;
-    }
     match mode {
         0 => rows.into_response(),
         1 => (
@@ -191,7 +173,6 @@ async fn raw_tx(Path(txid): Path<String>) -> Response {
 async fn mock(node: &Arc<Node>) -> SocketAddr {
     let app = axum::Router::new()
         .route("/", post(rpc))
-        .route("/block-height/0", get(|| async { GENESIS }))
         .route("/block/{hash}", get(block))
         .route("/block/{hash}/txs/summary", get(summary))
         .route("/block/{hash}/raw", get(raw_block))
@@ -224,43 +205,6 @@ async fn start(net: &str, node: &Arc<Node>) -> (App, TcpListener) {
     config.limits.client_burst = 10_000;
     config.limits.client_rate_per_sec = 10_000;
     (App::new(&config), electrum)
-}
-
-/// One connection from the server's Electrum client, through its handshake.
-struct Peer {
-    _lines: Lines<BufReader<OwnedReadHalf>>,
-    _wr: OwnedWriteHalf,
-}
-
-impl Peer {
-    async fn connect(listener: &TcpListener) -> Peer {
-        let (stream, _) = timeout(WAIT, listener.accept()).await.unwrap().unwrap();
-        let (rd, mut wr) = stream.into_split();
-        let mut lines = BufReader::new(rd).lines();
-        // A tip the mock does not know, so nothing fetches it.
-        let tip = bitcoin::constants::genesis_block(bitcoin::Network::Regtest).header;
-        for (method, result) in [
-            ("server.version", json!(["rbitcoin-electrs 0.9.2", "1.6"])),
-            (
-                "blockchain.headers.subscribe",
-                json!({"height": 0, "hex": serialize_hex(&tip)}),
-            ),
-        ] {
-            let line = timeout(WAIT, lines.next_line())
-                .await
-                .unwrap()
-                .unwrap()
-                .unwrap();
-            let req: Value = serde_json::from_str(&line).unwrap();
-            assert_eq!(req["method"], method);
-            let reply = json!({"jsonrpc": "2.0", "id": req["id"], "result": result});
-            wr.write_all(format!("{reply}\n").as_bytes()).await.unwrap();
-        }
-        Peer {
-            _lines: lines,
-            _wr: wr,
-        }
-    }
 }
 
 async fn get_raw(app: &App, path: &str) -> (StatusCode, Vec<u8>) {
@@ -402,14 +346,14 @@ async fn both_sources_give_identical_answers() {
     let in_rows: Vec<u64> = rows.iter().map(|r| r["flags"].as_u64().unwrap()).collect();
     assert_eq!(in_rows, want);
     let without = Arc::new(Node::default());
-    without.set(Mode::V092);
+    without.set(Mode::Refused);
     let (app, _electrum) = start("TESTNET4", &without).await;
     for (p, theirs) in paths("/testnet4").iter().zip(&served) {
         let (status, body) = get_raw(&app, p).await;
         assert_eq!(status, StatusCode::OK, "{p}");
         assert_eq!(&body, theirs, "{p}");
     }
-    assert_eq!(without.calls(), (1, 1), "refused once, then getblock");
+    assert_eq!(without.calls(), (1, 1), "refused, then getblock");
     assert_eq!(
         logged("signet", "block_summary_computed", 1).await["source"],
         "summary_route"
@@ -418,24 +362,18 @@ async fn both_sources_give_identical_answers() {
         logged("testnet4", "block_summary_computed", 1).await["source"],
         "getblock"
     );
-    let s = logged("signet", "block_txs_source", 1).await;
     assert_eq!(
-        (&s["source"], &s["reason"]),
-        (&json!("summary_route"), &json!("answered"))
-    );
-    let s = logged("testnet4", "block_txs_source", 1).await;
-    assert_eq!(
-        (&s["source"], &s["reason"]),
-        (&json!("getblock"), &json!("refused"))
+        logged("testnet4", "block_txs_fell_back", 1).await["reason"],
+        "refused"
     );
 }
 
-/// Detection on every Electrum connection, and what a failing route does mid-run.
+/// Every block tries the route; one it fails on is listed by `getblock`, and the next block
+/// tries the route again.
 #[tokio::test]
-async fn detects_on_each_connection_and_falls_back_per_block() {
+async fn a_block_the_route_fails_on_is_listed_by_getblock() {
     let node = Arc::new(Node::default());
-    node.set(Mode::V092);
-    let (app, electrum) = start("MAINNET", &node).await;
+    let (app, _electrum) = start("MAINNET", &node).await;
     let summary = |i: u8| {
         let app = app.clone();
         async move {
@@ -443,86 +381,33 @@ async fn detects_on_each_connection_and_falls_back_per_block() {
             assert_eq!(status, StatusCode::OK);
         }
     };
-
-    // A v0.9.2 node: `getblock`, without trying the route per block.
-    let peer = Peer::connect(&electrum).await;
-    let s = logged("mainnet", "block_txs_source", 1).await;
-    assert_eq!(
-        (&s["source"], &s["reason"]),
-        (&json!("getblock"), &json!("probe"))
-    );
     summary(1).await;
-    assert_eq!(node.calls(), (1, 0));
-
-    // Upgraded under us: the reconnect finds the route, and blocks use it.
-    node.set(Mode::Route);
-    drop(peer);
-    let peer = Peer::connect(&electrum).await;
-    let s = logged("mainnet", "block_txs_source", 2).await;
-    assert_eq!(
-        (&s["source"], &s["reason"]),
-        (&json!("summary_route"), &json!("probe"))
-    );
-    summary(2).await;
-    assert_eq!(node.calls(), (1, 1));
-
-    // A row count that disagrees with the header: that block by `getblock`; the source stays.
+    assert_eq!(node.calls(), (0, 1));
+    // A row count that disagrees with the header.
     node.set(Mode::Short);
-    summary(3).await;
-    assert_eq!(node.calls(), (2, 2));
+    summary(2).await;
+    assert_eq!(node.calls(), (1, 2));
     assert_eq!(
         logged("mainnet", "block_txs_fell_back", 1).await["reason"],
         "mismatch"
     );
     node.set(Mode::Gone);
+    summary(3).await;
+    assert_eq!(node.calls(), (2, 3));
+    assert_eq!(
+        logged("mainnet", "block_txs_fell_back", 2).await["reason"],
+        "not_found"
+    );
+    // A refusal of the route itself is one block's failure too.
+    node.set(Mode::Refused);
     summary(4).await;
-    assert_eq!(node.calls(), (3, 3));
-    node.set(Mode::Route);
     summary(5).await;
-    assert_eq!(node.calls(), (3, 4));
-
-    // Downgraded without a reconnect: refused once, then `getblock` until the next probe.
-    node.set(Mode::V092);
+    assert_eq!(node.calls(), (4, 5));
+    assert_eq!(
+        logged("mainnet", "block_txs_fell_back", 3).await["reason"],
+        "refused"
+    );
+    node.set(Mode::Route);
     summary(6).await;
-    let s = logged("mainnet", "block_txs_source", 3).await;
-    assert_eq!(
-        (&s["source"], &s["reason"]),
-        (&json!("getblock"), &json!("refused"))
-    );
-    summary(7).await;
-    assert_eq!(node.calls(), (5, 5));
-    node.set(Mode::Route);
-    drop(peer);
-    let _peer = Peer::connect(&electrum).await;
-    let s = logged("mainnet", "block_txs_source", 4).await;
-    assert_eq!(s["source"], "summary_route");
-    summary(8).await;
-    assert_eq!(node.calls(), (5, 6));
-}
-
-/// A reconnect while a probe is in flight is probed again: the first probe's answer belongs to
-/// the connection before it.
-#[tokio::test]
-async fn a_reconnect_during_a_probe_is_probed_again() {
-    let node = Arc::new(Node::default());
-    node.set(Mode::V092);
-    node.slow_probe.store(true, Ordering::SeqCst);
-    let (_app, electrum) = start("REGTEST", &node).await;
-    let peer = Peer::connect(&electrum).await;
-    // The node is upgraded and the connection replaced while the probe waits for its answer.
-    let deadline = Instant::now() + WAIT;
-    while !node.probing.load(Ordering::SeqCst) {
-        assert!(Instant::now() < deadline, "no probe");
-        tokio::time::sleep(Duration::from_millis(5)).await;
-    }
-    node.set(Mode::Route);
-    drop(peer);
-    let _peer = Peer::connect(&electrum).await;
-    let s = logged("regtest", "block_txs_source", 1).await;
-    assert_eq!(s["source"], "getblock", "the old connection's answer");
-    let s = logged("regtest", "block_txs_source", 2).await;
-    assert_eq!(
-        (&s["source"], &s["reason"]),
-        (&json!("summary_route"), &json!("probe"))
-    );
+    assert_eq!(node.calls(), (4, 6));
 }

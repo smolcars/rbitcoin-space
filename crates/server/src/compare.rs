@@ -184,7 +184,7 @@ pub async fn route(
 async fn node_tx(ctx: &NetworkContext, txid: &Txid) -> Option<node::esplora::model::Tx> {
     let route = Route::Tx(*txid);
     let mut key = String::with_capacity(80);
-    route.write_key(&mut key);
+    route.write_path(&mut key);
     let (answer, _) = ctx
         .api
         .flights
