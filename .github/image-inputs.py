@@ -20,11 +20,17 @@ def members() -> list[str]:
     every package one of them depends on by path."""
     workspace = tomllib.loads((REPO / "Cargo.toml").read_text())["workspace"]
     shared = workspace.get("dependencies", {})
+    left_out = [REPO / e for e in workspace.get("exclude", [])]
     todo = [
         p.parent
         for pattern in workspace["members"]
         for p in sorted(REPO.glob(f"{pattern}/Cargo.toml"))
+        if p.parent not in left_out
     ]
+    # A patch by path is one more manifest cargo reads.
+    root = tomllib.loads((REPO / "Cargo.toml").read_text())
+    for registry in root.get("patch", {}).values():
+        todo += [(REPO / d["path"]).resolve() for d in registry.values() if "path" in d]
     found: list[Path] = []
     while todo:
         folder = todo.pop(0)
@@ -53,7 +59,9 @@ def pattern(rule: str) -> re.Pattern:
     """A .dockerignore pattern as Docker reads it: from the context's root, `**` across folders."""
     out = ""
     for part in re.split(r"(\*\*/?|\*|\?)", rule.strip("/")):
-        if part in ("**", "**/"):
+        if part == "**/":
+            out += "(?:.*/)?"
+        elif part == "**":
             out += ".*"
         elif part == "*":
             out += "[^/]*"
