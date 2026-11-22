@@ -20,12 +20,17 @@ function only(names: readonly string[]): string[] {
     const name = flag.split("=", 1)[0] ?? "";
     if (!names.includes(name)) continue;
     if (flag.includes("=")) out.push(flag);
-    else out.push(flag, flags[i + 1] ?? "");
+    else {
+      out.push(flag, flags[i + 1] ?? "");
+      i += 1;
+    }
   }
   return out;
 }
 
 vite(flags);
+// Asked only for the usage, Vite printed it and built nothing: neither does the docs build.
+if (flags.some((f) => f === "--help" || f === "-h")) process.exit(0);
 vite([
   "--config",
   "vite.docs.config.ts",
