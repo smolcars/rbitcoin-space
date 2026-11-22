@@ -72,11 +72,17 @@ pub struct Cards {
     slots: Semaphore,
     kept: Mutex<Kept>,
     /// Cards being built now, which identical requests wait for instead of building again.
-    building: Mutex<HashMap<Key, Arc<Flight>>>,
+    building: Mutex<HashMap<Key, Building>>,
 }
 
 /// One build's answer, shared by every request for the same card while it runs.
 type Flight = OnceCell<Option<(Bytes, &'static str)>>;
+
+/// A build in the map, and the requests waiting on it, counted under the map's lock.
+struct Building {
+    flight: Arc<Flight>,
+    waiting: usize,
+}
 
 impl std::fmt::Debug for Cards {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -231,7 +237,7 @@ impl Cards {
         }
     }
 
-    fn building(&self) -> std::sync::MutexGuard<'_, HashMap<Key, Arc<Flight>>> {
+    fn building(&self) -> std::sync::MutexGuard<'_, HashMap<Key, Building>> {
         self.building.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
@@ -263,51 +269,44 @@ impl Cards {
 struct Waiting<'a> {
     cards: &'a Cards,
     key: Key,
-    /// Taken in `drop`, under the map's lock, so every count of it changes under that lock.
-    flight: Option<Arc<Flight>>,
+    flight: Arc<Flight>,
 }
 
 impl<'a> Waiting<'a> {
     fn new(cards: &'a Cards, key: &Key) -> Self {
-        let flight = Arc::clone(
-            cards
-                .building()
-                .entry(key.clone())
-                .or_insert_with(|| Arc::new(OnceCell::new())),
-        );
+        let mut building = cards.building();
+        let build = building.entry(key.clone()).or_insert_with(|| Building {
+            flight: Arc::new(OnceCell::new()),
+            waiting: 0,
+        });
+        build.waiting += 1;
+        let flight = Arc::clone(&build.flight);
+        drop(building);
         Self {
             cards,
             key: key.clone(),
-            flight: Some(flight),
+            flight,
         }
     }
 
     fn cell(&self) -> &Flight {
-        // Only `drop` takes it.
-        self.flight.as_deref().unwrap_or(&EMPTY)
+        &self.flight
     }
 }
-
-/// Never filled: what [`Waiting::cell`] would give after `drop`, which cannot happen.
-static EMPTY: Flight = OnceCell::const_new();
 
 impl Drop for Waiting<'_> {
     fn drop(&mut self) {
         let mut building = self.cards.building();
-        let Some(flight) = self.flight.take() else {
+        let Some(build) = building
+            .get_mut(&self.key)
+            .filter(|b| Arc::ptr_eq(&b.flight, &self.flight))
+        else {
             return;
         };
-        // The map's and ours: no other request holds it.
-        let last = Arc::strong_count(&flight) == 2;
-        if (last || flight.initialized())
-            && building
-                .get(&self.key)
-                .is_some_and(|f| Arc::ptr_eq(f, &flight))
-        {
+        build.waiting = build.waiting.saturating_sub(1);
+        if build.waiting == 0 || self.flight.initialized() {
             building.remove(&self.key);
         }
-        drop(flight);
-        drop(building);
     }
 }
 
@@ -804,6 +803,21 @@ mod tests {
         assert!(cancelled.is_err());
         assert_eq!(answered.status(), axum::http::StatusCode::NOT_FOUND);
         assert!(cards.building().is_empty());
+    }
+
+    /// The order that left a shared `/api` call behind for good (#88): a request's handle on the
+    /// build outlives its hold. Counted in the map, the build still goes with its last waiter.
+    #[test]
+    fn a_build_goes_with_its_last_waiter_though_a_handle_outlives_it() {
+        let cards = Cards::new(None);
+        let key = Key::Block(Network::Mainnet, BlockId::Height(1));
+        let (a, b) = (Waiting::new(&cards, &key), Waiting::new(&cards, &key));
+        let handle = Arc::clone(&a.flight);
+        drop(a);
+        assert_eq!(cards.building().len(), 1, "B still waits on it");
+        drop(b);
+        assert!(cards.building().is_empty());
+        drop(handle);
     }
 
     #[test]

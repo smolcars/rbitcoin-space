@@ -7,9 +7,11 @@
     "TypeOK",
     "AMarkerEndsItsOwnBatch"
   ],
-  "today": {
-    "Variant": "\"fixed\""
-  },
+  "today": [
+    {
+      "Variant": "\"fixed\""
+    }
+  ],
   "mistakes": [
     {
       "was": "#103: a timed-out batch's late end marker ended the next batch",

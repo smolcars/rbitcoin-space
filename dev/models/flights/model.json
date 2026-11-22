@@ -8,13 +8,33 @@
     "NothingLeftBehind",
     "OneCallAtATime"
   ],
-  "today": {
-    "Variant": "\"fixed\""
-  },
+  "today": [
+    {
+      "Policy": "\"api\"",
+      "Variant": "\"fixed\""
+    },
+    {
+      "Policy": "\"kept\"",
+      "Variant": "\"fixed\""
+    },
+    {
+      "Policy": "\"cards\"",
+      "Variant": "\"fixed\""
+    }
+  ],
   "mistakes": [
     {
       "was": "#88: holders counted by the call's handles, which a request lets go of after the lock",
       "constants": {
+        "Policy": "\"api\"",
+        "Variant": "\"handles\""
+      },
+      "breaks": "NothingLeftBehind"
+    },
+    {
+      "was": "the same counting by handles in a card's build, should a handle ever outlive its hold",
+      "constants": {
+        "Policy": "\"cards\"",
         "Variant": "\"handles\""
       },
       "breaks": "NothingLeftBehind"
@@ -22,6 +42,7 @@
     {
       "was": "a request leaving releases whatever call the map holds, not its own",
       "constants": {
+        "Policy": "\"api\"",
         "Variant": "\"anycall\""
       },
       "breaks": "OneCallAtATime"
@@ -33,6 +54,24 @@
       "from": "^/// Upstream calls in flight",
       "to": "^#\\[cfg\\(test\\)\\]",
       "sha256": "63b512565c3581433a0105af27fb57bf1800426f9c8f7661acf936cd334bb9b0"
+    },
+    {
+      "file": "crates/server/src/answers.rs",
+      "from": "^    /// The flight for `key` at its version",
+      "to": "^    /// Computations in flight, for tests",
+      "sha256": "78c7ff15fc5718e5bd2922ace9324fd20c6dbfa876d965fff3e198aae7d5e513"
+    },
+    {
+      "file": "crates/server/src/answers.rs",
+      "from": "^/// Drops a request's hold on its flight",
+      "to": "^/// Middleware on a network's routes",
+      "sha256": "3bf168de62fea0c2542931ec366ba04ff0040bed474b9b67df7665c71d185faf"
+    },
+    {
+      "file": "crates/server/src/cards.rs",
+      "from": "^/// One request's hold on a card being built",
+      "to": "^fn png_response",
+      "sha256": "2a319b109425b1c380a47d283fcf0dc0b091319837ce4ed0670bf1c8d418afcb"
     }
   ]
 }

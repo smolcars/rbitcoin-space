@@ -1,17 +1,21 @@
 ---------------------------- MODULE Flights ----------------------------
-(* Requests for one upstream path sharing one call: `Flights` in
-   crates/server/src/esplora.rs. Each action is one hold of the map's lock
-   there, or one step that needs no lock. README.md beside this file says
-   which lines each action stands for, and what the model leaves out. *)
+(* Requests for one key sharing one call, and the map that holds the call
+   while they do. The server does this in three places (`Policy`). Each action
+   is one hold of the map's lock, or one step that needs no lock. README.md
+   beside this file says which code each action stands for, and what the
+   model leaves out. *)
 EXTENDS Naturals, FiniteSets
 
 CONSTANTS
-    Reqs,     \* the requests, each asking for the same path once
+    Reqs,     \* the requests, each asking for the same key once
+    Policy,   \* whose map: "api" (`Flights`, esplora.rs), "kept" (`Answers`,
+              \* answers.rs) or "cards" (`Cards`, cards.rs)
     Variant   \* "fixed": today's code. The others are past or possible mistakes:
               \* "handles": holders counted by the call's handles (before #88)
               \* "anycall": a request leaving does not check the call is its own
 
 ASSUME Variant \in {"fixed", "handles", "anycall"}
+ASSUME Policy \in {"api", "kept", "cards"}
 
 Calls == 1 .. Cardinality(Reqs)   \* a request starts at most one call
 None == 0
@@ -27,7 +31,7 @@ VARIABLES
 vars == <<hot, entry, holders, answer, pc, call>>
 
 Init ==
-    /\ hot \in BOOLEAN
+    /\ hot \in (IF Policy = "api" THEN BOOLEAN ELSE {FALSE})
     /\ entry = None
     /\ holders = 0
     /\ answer = [c \in Calls |-> "pending"]
@@ -44,12 +48,21 @@ Handles(c) ==
 
 Unused == {c \in Calls : c # entry /\ \A r \in Reqs : call[r] # c}
 
-\* `Flights::join`: join the map's call while it is unanswered or its answer
-\* is fresh; otherwise start a new one in its place.
+\* Whether a new request joins the map's call. `Flights::join` does while it
+\* is unanswered or its answer is fresh, and otherwise starts a new call in
+\* its place. The other two join whatever the map holds.
+Joins == entry # None /\ (Policy # "api" \/ answer[entry] \in {"pending", "fresh"})
+
+\* Whether the map lets go of its call once `left` requests still hold it.
+\* `Flights` keeps a fresh answer; a card's build goes as soon as it is drawn.
+LetsGo(left) ==
+    \/ left = 0 /\ answer[entry] # "fresh"
+    \/ Policy = "cards" /\ answer[entry] # "pending"
+
 Join(r) ==
     /\ pc[r] = "new"
     /\ pc' = [pc EXCEPT ![r] = "joined"]
-    /\ IF entry # None /\ answer[entry] \in {"pending", "fresh"}
+    /\ IF Joins
        THEN /\ call' = [call EXCEPT ![r] = entry]
             /\ holders' = holders + 1
             /\ UNCHANGED entry
@@ -75,14 +88,15 @@ Expire(c) ==
     /\ answer' = [answer EXCEPT ![c] = "stale"]
     /\ UNCHANGED <<hot, entry, holders, pc, call>>
 
-\* `Leave::drop`, when a request ends: answered, or dropped before it was
-\* (its client hung up, or it timed out).
+\* A request ends, answered or dropped before it was (its client hung up, or
+\* it timed out): `Drop` for `Leave` in esplora.rs and answers.rs, and for
+\* `Waiting` in cards.rs.
 LeaveFixed(r) ==
     /\ pc[r] = "joined"
     /\ pc' = [pc EXCEPT ![r] = "gone"]
     /\ IF entry # None /\ (Variant = "anycall" \/ entry = call[r])
        THEN LET left == IF holders > 0 THEN holders - 1 ELSE 0 IN
-            IF left = 0 /\ answer[entry] # "fresh"
+            IF LetsGo(left)
             THEN entry' = None /\ holders' = 0
             ELSE holders' = left /\ UNCHANGED entry
        ELSE UNCHANGED <<entry, holders>>
@@ -133,7 +147,7 @@ TypeOK ==
 NothingLeftBehind ==
     (entry # None /\ ~hot) => Joined(entry) # {}
 
-\* Requests for one path never wait on two node calls at once (docs/SECURITY.md
+\* Requests for one key never wait on two calls at once (docs/SECURITY.md
 \* rule 8: concurrent identical requests share one upstream call).
 OneCallAtATime ==
     \A c, d \in Calls :

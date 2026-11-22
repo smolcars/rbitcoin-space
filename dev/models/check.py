@@ -92,9 +92,10 @@ def check(folder: Path, pin: bool) -> list[str]:
     model = json.loads(path.read_text())
     faults = []
     with tempfile.TemporaryDirectory() as tmp:
-        broke = broken_rule(folder, model, model["today"], Path(tmp))
-        if broke:
-            faults.append(f"{model['spec']}: today's design breaks {broke}")
+        for today in model["today"]:
+            broke = broken_rule(folder, model, today, Path(tmp))
+            if broke:
+                faults.append(f"{model['spec']}: today's design breaks {broke} with {today}")
         for mistake in model["mistakes"]:
             broke = broken_rule(folder, model, mistake["constants"], Path(tmp))
             if broke != mistake["breaks"]:
