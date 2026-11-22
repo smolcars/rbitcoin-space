@@ -18,7 +18,7 @@ Every row here is answered by rbitcoin's own Esplora. We pass the route through 
 | `GET /block/:hash/raw` | Whole block as binary | rbitcoin Esplora | served | M1 | node | 1.6 MB for a full block; cache as immutable once buried |
 | `GET /block/:hash/txids` | Every txid in the block | rbitcoin Esplora | served | M1 | node | 450 KB for a full block |
 | `GET /block/:hash/txid/:index` | One txid by position | rbitcoin Esplora | served | M1 | node | |
-| `GET /block/:hash/txs[/:start_index]` | 25 full transactions per page | rbitcoin Esplora | served | M1 | node | An index past the end is 404 `start index out of range` |
+| `GET /block/:hash/txs[/:start_index]` | 25 full transactions per page | rbitcoin Esplora | served | M1 | node | An index past the end is `404 not found`, our error body in place of the node's text ([`API.md`](../API.md#error-bodies-are-ours)); one that is not a multiple of 25 is `400` |
 | `GET /block-template` | The node's `getblocktemplate` as JSON | rbitcoin Esplora (opt-in flag) | skipped | — | node | Off on a stock node (404), 4.9 MB, and not explorer data. Our engine reads the template over RPC instead |
 
 ## Transactions

@@ -162,9 +162,9 @@ The answer, each list cut to its first node:
 }
 ```
 
-## GET /api/v1/lightning/nodes/rankings/:ranking
+## GET /api/v1/lightning/nodes/rankings/liquidity
 
-The top 100 nodes. `:ranking` is `liquidity` (by capacity), `connectivity` (by open channels) or `age` (oldest first).
+The top 100 nodes by capacity.
 
 ```sh
 curl https://rbitcoin.space/api/v1/lightning/nodes/rankings/liquidity
@@ -189,7 +189,61 @@ The answer, cut to the first of 100:
 ]
 ```
 
-`connectivity` and `age` put `channels` before `capacity`. `firstSeen` is the funding time of the oldest channel this server holds for the node, open or closed, so it is bounded by this server's history. `updatedAt` is `null` for a node that announced nothing.
+`firstSeen` is the funding time of the oldest channel this server holds for the node, open or closed, so it is bounded by this server's history. `updatedAt` is `null` for a node that announced nothing.
+
+## GET /api/v1/lightning/nodes/rankings/connectivity
+
+The top 100 nodes by open channels. The rows are those of `liquidity`, with `channels` before `capacity`.
+
+```sh
+curl https://rbitcoin.space/api/v1/lightning/nodes/rankings/connectivity
+```
+
+The answer, cut to the first of 100:
+
+```json
+[
+  {
+    "publicKey": "03864ef025fde8fb587d989186ce6a4a186895ee44a926bfc370e2c366597a3f8f",
+    "alias": "ACINQ",
+    "channels": 1804,
+    "capacity": 24414418399,
+    "firstSeen": 1551152144,
+    "updatedAt": 1795197712,
+    "city": null,
+    "country": null,
+    "iso_code": null,
+    "subdivision": null
+  }
+]
+```
+
+## GET /api/v1/lightning/nodes/rankings/age
+
+The 100 oldest nodes, by `firstSeen`, oldest first. The rows are those of `connectivity`.
+
+```sh
+curl https://rbitcoin.space/api/v1/lightning/nodes/rankings/age
+```
+
+The answer, cut to the first of 100:
+
+```json
+[
+  {
+    "publicKey": "03bd3466efd4a7306b539e2314e69efc6b1eaee29734fcedd78cf81b1dde9fedf8",
+    "alias": "03bd3466efd4a7306b53",
+    "channels": 3,
+    "capacity": 247200,
+    "firstSeen": 1515732563,
+    "updatedAt": null,
+    "city": null,
+    "country": null,
+    "iso_code": null,
+    "subdivision": null
+  }
+]
+```
 
 ## GET /api/v1/lightning/nodes/:key
 
@@ -487,9 +541,23 @@ curl https://rbitcoin.space/api/v1/lightning/nodes/isp-ranking
 
 The three capacities are sats and add up to the whole network. `ispRanking`, capacity per hosting provider, is always `[]`: this server has no provider database.
 
+## GET /api/v1/lightning/channels-geo[/:key]
+
+Where the ends of every channel, or of one node's channels, are on a map. Always an empty list: this server has no location data. `:key`, when given, is a node's public key, 66 hex digits.
+
+```sh
+curl https://rbitcoin.space/api/v1/lightning/channels-geo
+```
+
+```json
+[]
+```
+
+mempool.space answers the same for a node with no known place, so a client written for it draws an empty map instead of failing.
+
 ## Not served
 
-These mempool.space routes are `404` here: `/nodes/countries`, `/nodes/country/:code`, `/nodes/isp/:asn` and `/nodes/world`, which need location data; `/penalties`; and `/nodes/group/:name`, which is mempool.space's own curation. `/channels-geo` and `/channels-geo/:key` answer `[]` for every node, as mempool.space does for a node with no known place: this server has no location data. A `:key` that is not 66 hex digits is still `400`, and the `503`s below apply.
+These mempool.space routes are `404` here: `/nodes/countries`, `/nodes/country/:code`, `/nodes/isp/:asn` and `/nodes/world`, which need location data; `/penalties`; and `/nodes/group/:name`, which is mempool.space's own curation.
 
 ## Errors
 

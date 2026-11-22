@@ -110,10 +110,18 @@ function themeToggle(): void {
 // The sticky header's height, so a jump to an anchor lands clear of it (global.css).
 function headerHeight(): void {
   const header = document.querySelector<HTMLElement>(".site-header");
-  if (!header || typeof ResizeObserver === "undefined") return;
-  new ResizeObserver(() =>
-    root.style.setProperty("--header-h", `${header.offsetHeight}px`),
-  ).observe(header);
+  if (!header) return;
+  const set = () => root.style.setProperty("--header-h", `${header.offsetHeight}px`);
+  set();
+  // The browser may have scrolled to the URL's #fragment before the height was known.
+  let id = "";
+  try {
+    id = decodeURIComponent(location.hash.slice(1));
+  } catch {
+    // A malformed escape names no heading.
+  }
+  if (id !== "") document.getElementById(id)?.scrollIntoView();
+  if (typeof ResizeObserver !== "undefined") new ResizeObserver(set).observe(header);
 }
 
 /** Examples name rbitcoin.space; on another server they name the one the reader is on. */

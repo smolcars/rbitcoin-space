@@ -25,14 +25,6 @@ const DOCS = import.meta.glob<string>("../../docs/**/*.md", {
 /** A route with its parameters' names left out: `GET /api/tx/:` for `GET /api/tx/:txid`. */
 const key = (method: string, path: string) => `${method} ${path.replaceAll(/:\w+/g, ":")}`;
 
-/**
- * Documented routes whose parameter stands for a few fixed names the inventory lists one by one:
- * the only ones a parameter may match. Anywhere else a route must match exactly.
- */
-const NAMED: Record<string, string[]> = {
-  "GET /api/v1/lightning/nodes/rankings/:": ["liquidity", "connectivity", "age"],
-};
-
 /** Every route the inventory marks `served`, and the BlindBit routes, optional parts expanded. */
 function served(): Set<string> {
   const out = new Set<string>();
@@ -66,11 +58,8 @@ function documented(): Set<string> {
   const out = new Set<string>();
   for (const page of PAGES) {
     const md = DOCS[`../../docs/${page.slug === "" ? "index" : page.slug}.md`] ?? "";
-    const keys = routes(page, md).flatMap((r) => expand(r.path).map((p) => key(r.method, p)));
-    for (const k of keys) {
-      const names = NAMED[k];
-      if (names === undefined) out.add(k);
-      else for (const n of names) out.add(k.replace(/:$/, n));
+    for (const r of routes(page, md)) {
+      for (const p of expand(r.path)) out.add(key(r.method, p));
     }
   }
   return out;

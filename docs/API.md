@@ -442,7 +442,7 @@ Blocks with the reference's `extras`, and every transaction of a block, for tool
 |---|---|---|
 | `GET /api/v1/blocks[/:start_height]` | Up to 15 blocks from `start_height` (the block table's top without it) down, newest first, each as below | a day when settled (below), else `max-age=1` |
 | `GET /api/v1/block/:hash` | One block: `{id, height, version, timestamp, bits, nonce, difficulty, merkle_root, tx_count, size, weight, previousblockhash, mediantime, stale, extras}` | as above |
-| `GET /api/v1/block/:hash/summary` | Every transaction in block order: `[{txid, fee, vsize, value, rate}]` | immutable |
+| `GET /api/v1/block/:hash/summary` | Every transaction in block order: `[{txid, fee, vsize, value, rate, flags}]` | immutable |
 | `GET /api/v1/block/:hash/tx/:txid/summary` | That transaction's row | immutable |
 | `GET /api/v1/blocks/tip/height` | `/api/blocks/tip/height`'s answer, sharing its calls and its one-second cache | as that route |
 
@@ -470,6 +470,7 @@ Blocks with the reference's `extras`, and every transaction of a block, for tool
 The backfill fills the table newest first ([`STORE.md`](STORE.md#backfill)), so on a fresh install older blocks have no row for a while. A client never gets a hole or a block without its extras:
 
 - **A list is the run of stored rows from its start down,** cut at the first height the backfill has not reached. `X-Data-From-Height` and `X-Data-From-Time` name its lowest block and `X-Data-Complete` is `true` when it holds all 15, or every block down to genesis ([Coverage](#coverage)).
+- **A hash no block has** is `404 {"error": "not found"}`, as the node answers it.
 - **A start height or block without a row** is `404 {"error": "block not indexed yet"}`.
 - **A block the table has yet to follow:** a start height between the table's top and the node's tip, or the node's new best block while the table still holds the one it replaced, is `503 not ready yet; retry` with `Retry-After: 1`. The table follows each new tip within about a second.
 - **A block that left the best chain** is `404 {"error": "block is not on the best chain"}`.
@@ -498,7 +499,7 @@ An answer is computed once per write to the table or the audits and kept in memo
 
 Side by side on mainnet (2026-11-12, tip 975,545; the tip list, the list from 974,000, block 975,541's summary and one recent full block, compared field by field): every header field, `reward`, `totalFees`, `avgFee`, the coinbase fields, `header` and `virtualSize` were identical in every block; the differences are the rows above. The summary had the same 2,077 transactions in the same order with the same `fee`, `vsize` and `value`; `rate` differed only for the 145 transactions the reference rated as packages.
 | Summary `time` | Absent | The reference adds when it first saw a transaction, for some; we keep accept times only for an audit's listed transactions |
-| Summary `flags` | Ours, from the raw block | Each transaction's [flags](#transaction-flags), after `rate` as on the reference: the bits we derive, equal to the reference's masked to them except for the two transactions written up there. The bits that need context (CPFP, replacement) are never set here |
+| Summary `flags` | Ours, from the raw block | Each transaction's [flags](#transaction-flags), after `rate` as on the reference: the bits we derive, equal to the reference's masked to them except for the two transactions written up there. Bits 16 to 18 (CPFP, replacement) are set by our own rules ([Set from context](#transaction-flags)), so they differ from the reference's |
 | Summary `rate` | The transaction's own rate | The reference gives a transaction mined with its ancestors or descendants their package's rate (three transactions at 16.861 where their own were 5.34, 6.00 and 33.10). In one mainnet block, 1,931 of 2,076 rates were equal and the other 145 were such packages |
 | `tx/:txid/summary` of a txid not in the block | `404 {"error": "transaction not found in this block"}` | The reference answers `404` too |
 
@@ -531,7 +532,7 @@ Who mined each block, each pool's share, the network's hashrate and difficulty o
 |---|---|---|
 | `GET /api/v1/mining/pools` | `[{name, slug, unique_id}]`, `Unknown` (id 0) first | yes |
 | `GET /api/v1/mining/pools/:interval` | `{pools: [{poolId, name, link, blockCount, rank, emptyBlocks, slug, avgMatchRate, avgFeeDelta, poolUniqueId}], blockCount, lastEstimatedHashrate, lastEstimatedHashrate3d, lastEstimatedHashrate1w}`, most blocks first | yes |
-| `GET /api/v1/mining/pool/:slug` | `{pool: {id, name, link, addresses, regexes, slug, unique_id}, blockCount: {all, 24h, 1w}, blockShare: {…}, estimatedHashrate, reportedHashrate, avgBlockHealth, totalReward}` | yes |
+| `GET /api/v1/mining/pool/:slug` | `{pool: {id, name, link, addresses, regexes, slug, unique_id}, blockCount: {all, 24h, 1w}, blockShare: {…}, estimatedHashrate, reportedHashrate, avgBlockHealth, totalReward}`, `totalReward` in sats as a string | yes |
 | `GET /api/v1/mining/pool/:slug/hashrate` | `[{timestamp, avgHashrate, share, poolName}]`, one a week | yes |
 | `GET /api/v1/mining/pool/:slug/blocks[/:height]` | Up to 100 of the pool's blocks strictly below `:height` (from the tip without it), newest first, with `extras` | no: one indexed read |
 | `GET /api/v1/mining/hashrate[/:interval]` | `{hashrates: [{timestamp, avgHashrate}], difficulty: [{time, height, difficulty, adjustment}], currentHashrate, currentDifficulty}`; no interval is `all` | yes |

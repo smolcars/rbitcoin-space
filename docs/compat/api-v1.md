@@ -47,7 +47,7 @@ rbitcoin serves none of these; this project is that surface ([`RBITCOIN.md`](../
 | Endpoint | Returns | Source | Status | M | Live | Note |
 |---|---|---|---|---|---|---|
 | `GET /v1/blocks[/:start_height]` | 15 blocks with `extras`: pool, reward, fee range, median fee, totals, coinbase, audit scores | Esplora for headers, kept by hash; store for extras | served | M3 | ref | Reference shows `avgFeeRate: 0` and a `feeRange` floor of 0.12: whole-sat rounding. We compute our own. Eleven `extras` fields the store lacks are left out; a list stops at the first block the backfill has not reached, with the coverage headers ([`API.md`](../API.md#blocks)) |
-| `GET /v1/block/:hash` | One block with `extras` | As above | served | M3 | ref | Reference leaves `utxoSetSize`, `totalInputAmt`, `matchRate` null; we leave the first two null and give our audit's score. `404 block not indexed yet` before the backfill reaches it |
+| `GET /v1/block/:hash` | One block with `extras` | As above | served | M3 | ref | Reference leaves `utxoSetSize`, `totalInputAmt`, `matchRate` null; we leave the first two null and give our audit's score. `404 block not indexed yet` before the backfill reaches it, `404 not found` for a hash no block has |
 | `GET /v1/block/:hash/summary` | Every tx in the block: txid, fee, vsize, value, rate, flags | The block listing ([`RBITCOIN.md`](../RBITCOIN.md#listing-a-blocks-transactions)) and the raw block, the block summary cache | served | M2 | ref | Feeds the mined-block view. 1.2 MB for a full block. `getblock` v2 has per-tx fees: 0.8 s and 11 MB per full block over TCP. One listing and one raw block per block, shared with `/app`. `flags` are ours, the bits we derive ([`API.md`](../API.md#transaction-flags)): CPFP by our plain rule, which marks fewer than the reference's, and replacement by our own record; no `time`; `rate` is the tx's own, not its package's |
 | `GET /v1/block/:hash/tx/:txid/summary` | One tx's summary row in a block | As above | served | M2 | ref | The same row; `404` for a txid not in the block |
 | `GET /v1/block/:hash/audit-summary` | Expected template against the mined block: added, missing, fresh, sigop, prioritized txs, match rate | Engine at block time; store | served | M3 | pub | 404 `Audit not available` on the reference. Our categories, no `template`, and only the lists we can detect ([`API.md`](../API.md#block-audits)) |
@@ -107,7 +107,8 @@ The reference backend runs with Lightning off, so shapes here were observed on m
 | `GET /v1/lightning/nodes/isp-ranking`: `ispRanking` | Capacity per hosting provider | — | skipped | — | pub | Needs an ASN database. Always `[]` |
 | `GET /v1/lightning/nodes/isp/:asn` | Nodes at one provider | — | skipped | — | pub | Needs an ASN database |
 | `GET /v1/lightning/nodes/world` | Node coordinates for the world map | — | skipped | — | pub | World map is out of scope. `404` |
-| `GET /v1/lightning/channels-geo[/:pubkey]` | Channel endpoints with coordinates | — | skipped | — | pub | Needs GeoIP. Always `[]`, as the reference answers for a node with no known place, so the frontend's maps say "No data to display yet" and log nothing |
+| `GET /v1/lightning/channels-geo[/:pubkey]`: the route | Channel endpoints with coordinates | — | served | M4 | pub | Always `[]`, as the reference answers for a node with no known place, so the frontend's maps say "No data to display yet" and log nothing. A `:pubkey` that is not 66 hex digits is `400` |
+| `GET /v1/lightning/channels-geo[/:pubkey]`: the coordinates | Where each channel's ends are | — | skipped | — | pub | Needs GeoIP |
 | `GET /v1/lightning/nodes/group/:name` | A curated group of nodes | — | skipped | — | pub | The groups are mempool.space's own curation |
 
 ## Paid services and Liquid
