@@ -6,7 +6,7 @@
 
 <p align="center">
   A fast block explorer for <a href="https://github.com/rbitcoin-org/rbitcoin">rbitcoin</a>: live mempool, blocks, mining and Lightning.<br>
-  <a href="https://rbitcoin.space">rbitcoin.space</a> · <a href="docs/DEPLOY.md">Run your own</a> · <a href="docs/API.md">API</a><br>
+  <a href="https://rbitcoin.space">rbitcoin.space</a> · <a href="docs/DEPLOY.md">Run your own</a> · <a href="https://rbitcoin.space/docs">API docs</a><br>
   Over Tor: <a href="http://7zsiqhi2bnfvwxwpvxu7zfjqra7boz6xahhjaq3nr4dehepfgt2sjtqd.onion"><code>7zsiqhi2bnfvwxwpvxu7zfjqra7boz6xahhjaq3nr4dehepfgt2sjtqd.onion</code></a>
 </p>
 
