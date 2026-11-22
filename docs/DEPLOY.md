@@ -984,7 +984,7 @@ Without the argument it reports `revision` `unknown`, since `.git` is not in the
 | Stage | From | Does |
 |---|---|---|
 | `web` | `oven/bun` | `bun install --frozen-lockfile` and `bun run build`, on the build platform only: the output is the same on every architecture |
-| `server` | `rust` (Debian 13) | `cargo build --release --locked -p rbitcoin-space`, with the registry and `target/` as BuildKit cache mounts. Every source is touched first: cargo trusts cached output newer than its sources, and a context's times can be older (`git archive` gives each file its commit's time), which once left a new migration out of an image silently. The Rust tag must match `rust-toolchain.toml`, which is not copied in |
+| `server` | `rust` (Debian 13) | `cargo build --release --locked -p rbitcoin-space`, with the registry and `target/` as BuildKit cache mounts. Every source is touched first: cargo trusts cached output newer than its sources, and a context's times can be older (`git archive` gives each file its commit's time), which once left a new migration out of an image silently. The Rust tag repeats the version in `rust-toolchain.toml`, which is not copied in; the `image` job fails when they differ ([`CI.md`](CI.md#jobs)) |
 | final | `gcr.io/distroless/cc-debian13:nonroot` | The binary at `/usr/local/bin/rbitcoin-space`, the frontend at `/srv/web`. No shell, no package manager |
 
 - Defaults inside: `LISTEN_ADDR=0.0.0.0:8080` and `WEB_DIR=/srv/web`; `WEB_DIR=` runs it as API only. No `DATA_DIR`: without it the server keeps no store.

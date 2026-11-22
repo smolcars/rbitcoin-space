@@ -2,8 +2,8 @@
 # The rbitcoin.space server and its built frontend in one image. docs/DEPLOY.md explains it.
 # Base images are multi-arch (linux/amd64, linux/arm64) and pinned by digest.
 
-# The Rust tag must match rust-toolchain.toml. That file is not copied in: rustup would
-# download rustfmt and clippy, which a release build does not need.
+# rust-toolchain.toml is not copied in: rustup would download rustfmt and clippy, which a release
+# build does not need. So its version is repeated here, and CI holds the two equal.
 ARG RUST_IMAGE=docker.io/library/rust:1.99.1-slim-trixie@sha256:f6c4a35d21dbb3c89d7a8d056c193e94fc09037f2b58dd858b09c39a47dd02d7
 ARG BUN_IMAGE=docker.io/oven/bun:1.4.4-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3e0b5af1db187d9a4
 # Debian 13 like the Rust image, so the binary finds the glibc it was linked against.

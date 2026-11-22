@@ -83,8 +83,10 @@ jobs:
             image:
               - *web
               - Cargo.toml
+              - rust-toolchain.toml
               - Dockerfile
               - .dockerignore
+              - .github/image-inputs.py
             code:
               - *e2e
               - *models
@@ -241,6 +243,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # The Rust stage is built only after merge: what it needs is checked here instead.
+      - run: python3 -I .github/image-inputs.py
       - run: docker build --target web .
 
   # Each design under dev/models in every order of its steps, and each past mistake shown to

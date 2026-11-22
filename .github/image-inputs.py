@@ -1,0 +1,87 @@
+#!/usr/bin/env python3
+"""Fails when the image's build would miss what the workspace needs (docs/CI.md "Jobs", `image`).
+
+The Rust stage is built only after merge, so these are checked before it: every workspace member
+reaches the build, and the image's Rust and Bun are the versions the repository pins.
+Run: python3 -I .github/image-inputs.py
+"""
+
+import json
+import re
+import sys
+import tomllib
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent.parent
+
+
+def members() -> list[str]:
+    """Each workspace member's folder, globs expanded."""
+    listed = tomllib.loads((REPO / "Cargo.toml").read_text())["workspace"]["members"]
+    found = []
+    for pattern in listed:
+        found += sorted(
+            p.parent.relative_to(REPO).as_posix() for p in REPO.glob(f"{pattern}/Cargo.toml")
+        )
+    return found
+
+
+def under(path: str, folders: list[str]) -> bool:
+    return any(path == f or path.startswith(f + "/") for f in folders)
+
+
+def main() -> None:
+    dockerfile = (REPO / "Dockerfile").read_text()
+    server = dockerfile.split(" AS server\n", 1)[1].split("\nFROM ", 1)[0]
+    copied = [m.rstrip("/") for m in re.findall(r"^COPY (?!--from)(\S+) \S+$", server, re.M)]
+    touched = re.search(r"find (.+?) -exec touch", server)
+    touched = touched.group(1).split() if touched else []
+    allowed = [
+        line[1:].rstrip("/")
+        for line in (REPO / ".dockerignore").read_text().splitlines()
+        if line.startswith("!")
+    ]
+    faults = []
+    if not touched:
+        faults.append(
+            "Dockerfile's server stage no longer touches its sources before `cargo build`: a "
+            "cached build older than them would be kept (the image once shipped without a new "
+            "migration)"
+        )
+    for member in members():
+        fix = f"cargo reads every member's manifest, so the image cannot build without {member}/"
+        if not under(member, allowed):
+            faults.append(f".dockerignore keeps {member}/ out of the build: add `!{member}/` ({fix})")
+        if not under(member, copied):
+            faults.append(
+                f"Dockerfile's server stage does not copy {member}/: "
+                f"add `COPY {member}/ {member}/` ({fix})"
+            )
+        if touched and not under(member, touched):
+            faults.append(
+                f"Dockerfile's `find … -exec touch` skips {member}/: add it, or a cached build "
+                f"older than its sources would be kept"
+            )
+
+    rust = tomllib.loads((REPO / "rust-toolchain.toml").read_text())["toolchain"]["channel"]
+    bun = json.loads((REPO / "web/package.json").read_text())["packageManager"].removeprefix("bun@")
+    for name, image, pinned, owner in [
+        ("RUST_IMAGE", "rust", rust, "rust-toolchain.toml"),
+        ("BUN_IMAGE", "bun", bun, "web/package.json's packageManager"),
+    ]:
+        tag = re.search(rf"^ARG {name}=\S+/{image}:(\d+\.\d+\.\d+)", dockerfile, re.M)
+        if not tag or tag.group(1) != pinned:
+            faults.append(
+                f"Dockerfile's {name} is {tag.group(1) if tag else 'not a version'} and {owner} "
+                f"pins {pinned}: set the image's tag, and its digest, to {pinned}"
+            )
+
+    for fault in faults:
+        print(f"::error::{fault}", file=sys.stderr)
+    if faults:
+        sys.exit(1)
+    print("The image's build has every workspace member, and its Rust and Bun are the pinned ones")
+
+
+if __name__ == "__main__":
+    main()
