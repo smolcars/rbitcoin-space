@@ -30,6 +30,11 @@ const DOCUMENT_START = "e2e: document started";
 // Tests this worker has started, for their client addresses.
 let started = 0;
 
+// A busy refusal of the block summaries, which the server gives when its queue of uncached ones
+// is full (`summary_busy`, as a cold server under load can) and every page asks again as it says
+// (`fetchSummaries`). The browser still logs it, which is no error of the page's.
+const SUMMARY_BUSY = /status of 503\b.* \S*\/app\/blocks\/summary\?/;
+
 // What a handler answers, told from pages and static files as the server's limiter does.
 const HANDLED = /^\/(?:healthz|readyz)(?:\/|$)|^\/(?:[^/]*\/)?(?:api|app)(?:\/|$)/;
 
@@ -229,6 +234,7 @@ export const test = base.extend<{
           playwright -= 1;
           return false;
         }
+        if (SUMMARY_BUSY.test(e)) return false;
         return /Content.Security.Policy/i.test(e) || !consoleErrorsAllowed.some((r) => r.test(e));
       });
       expect(unexpected, "console errors and CSP violations").toEqual([]);

@@ -29,6 +29,35 @@ test("the home page shows the scenario's blocks, live, with the mempool and fees
   ).toContainText(chain.txs.cpfp_child.slice(0, 8));
 });
 
+test("a busy answer for the tiles' summaries is asked again, and the tiles get their miners", async ({
+  page,
+}) => {
+  // The server's own refusal when its queue of uncached summaries is full (crates/server/src/
+  // summary.rs, `summary_busy`): seen once in 300 runs two seconds after start under load.
+  let refused = 0;
+  const answered: number[] = [];
+  page.on("response", (r) => {
+    if (r.url().includes("/regtest/app/blocks/summary?")) answered.push(r.status());
+  });
+  await page.route(
+    (url) => url.pathname === "/regtest/app/blocks/summary",
+    async (route) => {
+      if (refused > 0) return route.continue();
+      refused += 1;
+      return route.fulfill({
+        status: 503,
+        headers: { "retry-after": "1", "content-type": "application/json" },
+        body: JSON.stringify({ error: "server busy" }),
+      });
+    },
+  );
+  await page.goto("/regtest/");
+  const newest = page.getByRole("list", { name: "Mined blocks, newest first" }).getByRole("link");
+  await expect(newest.first()).toHaveAccessibleName(/^Block 110,/);
+  // Asked again after the second the server named, and answered.
+  await expect.poll(() => answered).toStrictEqual([503, 200]);
+});
+
 test("the home page fits a phone without scrolling sideways", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 700 });
   await page.goto("/regtest/");
