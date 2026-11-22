@@ -63,12 +63,22 @@ if (proseFromEnv !== "system" && !(proseFromEnv in PROSE_STAND_INS)) {
   throw new Error(`E2E_PROSE is ${proseFromEnv}: use system, wide or narrow`);
 }
 
+/** How `useProseStandIn`'s console error starts: it runs in the page, so it cannot share this. */
+const NO_STAND_IN = "prose stand-in:";
+
 /**
  * Sets a context's prose font. The `context` fixture has it already; a test that opens a context
  * of its own (`browser.newContext`) calls this, or it measures in the system's font.
  */
 export async function setProse(context: BrowserContext, prose: Prose = proseFromEnv as Prose) {
-  if (prose !== "system") await context.addInitScript(useProseStandIn, PROSE_STAND_INS[prose]);
+  if (prose === "system") return;
+  await context.addInitScript(useProseStandIn, PROSE_STAND_INS[prose]);
+  // Ends the test with the reason, in whichever context drew the page in the wrong font.
+  context.on("console", (m) => {
+    if (m.type() === "error" && m.text().startsWith(NO_STAND_IN)) {
+      void context.close({ reason: m.text() });
+    }
+  });
 }
 
 /** Sets prose in the first of `families` this system has, before the app's own script runs. */
