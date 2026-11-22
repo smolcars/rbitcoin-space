@@ -8,6 +8,7 @@ when it should break, or code that changed since the spec was last read against 
 a model whose rules do not check out.
 """
 
+import functools
 import hashlib
 import json
 import os
@@ -28,6 +29,7 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 
 
+@functools.cache
 def tlc_jar() -> Path:
     """The checker, downloaded once and held to its pinned checksum."""
     cache = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "rbitcoin-space"
@@ -44,6 +46,7 @@ def tlc_jar() -> Path:
     return jar
 
 
+@functools.cache
 def java() -> str:
     home = os.environ.get("JAVA_HOME")
     found = shutil.which("java", path=f"{home}/bin" if home else None) or shutil.which("java")
@@ -132,6 +135,8 @@ def main() -> None:
     if sys.argv[1:] and not pin:
         sys.exit(__doc__)
     folders = sorted(p.parent for p in HERE.glob("*/model.json"))
+    # Once, before the checks run side by side and would each download it.
+    tlc_jar(), java()
     faults = [f for folder in folders for f in check(folder, pin)]
     for fault in faults:
         print(f"::error::{fault}" if os.environ.get("GITHUB_ACTIONS") else fault, file=sys.stderr)
