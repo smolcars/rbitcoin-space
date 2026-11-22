@@ -74,6 +74,14 @@ describe("contrast from the tokens", () => {
   it("keeps the two copies of the dark theme identical", () => {
     const os = block('@media (prefers-color-scheme: dark) {\n  :root:not([data-theme="light"]) {');
     expect(os).toStrictEqual(block(':root[data-theme="dark"] {'));
+    // The tile tint is a number, not a colour, so block() leaves it out.
+    const tint = (opening: string) => {
+      const start = tokens.indexOf(opening);
+      return /--tile-tint: ([\d.]+)/.exec(tokens.slice(start, tokens.indexOf("}", start)))?.[1];
+    };
+    expect(tint('@media (prefers-color-scheme: dark) {\n  :root:not([data-theme="light"]) {')).toBe(
+      tint(':root[data-theme="dark"] {'),
+    );
   });
 
   describe.each([
