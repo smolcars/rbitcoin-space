@@ -1,5 +1,11 @@
 // Every browser test imports `test` and `expect` from here, never from @playwright/test.
-import { type Browser, type Page, test as base, expect } from "@playwright/test";
+import {
+  type Browser,
+  type BrowserContext,
+  type Page,
+  test as base,
+  expect,
+} from "@playwright/test";
 
 export { expect } from "@playwright/test";
 
@@ -57,6 +63,14 @@ if (proseFromEnv !== "system" && !(proseFromEnv in PROSE_STAND_INS)) {
   throw new Error(`E2E_PROSE is ${proseFromEnv}: use system, wide or narrow`);
 }
 
+/**
+ * Sets a context's prose font. The `context` fixture has it already; a test that opens a context
+ * of its own (`browser.newContext`) calls this, or it measures in the system's font.
+ */
+export async function setProse(context: BrowserContext, prose: Prose = proseFromEnv as Prose) {
+  if (prose !== "system") await context.addInitScript(useProseStandIn, PROSE_STAND_INS[prose]);
+}
+
 /** Sets prose in the first of `families` this system has, before the app's own script runs. */
 function useProseStandIn(families: readonly string[]) {
   // Named in the stack, so each is drawn as a system font: a face loaded with `local()` has
@@ -100,7 +114,7 @@ export const test = base.extend<{
   prose: [proseFromEnv as Prose, { option: true }],
   proseStandIn: [
     async ({ context, prose }, use) => {
-      if (prose !== "system") await context.addInitScript(useProseStandIn, PROSE_STAND_INS[prose]);
+      await setProse(context, prose);
       await use(undefined);
     },
     { auto: true },

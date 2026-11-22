@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test";
 import { groupDigits } from "../src/lib/format";
-import { chain, expect, test } from "./fixtures";
+import { chain, expect, setProse, test } from "./fixtures";
 import { layoutFaults } from "./layout";
 import { lightningOn } from "./lightning-answers";
 
@@ -95,8 +95,9 @@ test("digit groups show a visible narrow gap in every engine", async ({ page, br
 });
 
 test.describe("when the web font fails", () => {
-  // Each engine reports the refused font in its own words.
-  test.use({ consoleErrorsAllowed: [/font|Failed to load resource|ERR_FAILED/i] });
+  // Each engine reports the refused font in its own words. The system's own prose font: it is
+  // what draws a reader's digit groups when ours fails, and a stand-in would take its place.
+  test.use({ consoleErrorsAllowed: [/font|Failed to load resource|ERR_FAILED/i], prose: "system" });
   test("digit groups keep a visible gap and figures line up", async ({ page }) => {
     await page.route(/\.woff2$/, (route) => route.abort());
     await page.goto("/regtest/no/such/page");
@@ -261,6 +262,7 @@ test("on a touch screen no field is small enough to zoom into, and a tap leaves 
     isMobile: true,
     viewport: { width: 390, height: 844 },
   });
+  await setProse(touch);
   const page = await touch.newPage();
   for (const path of ["/regtest/", "/regtest/lightning", "/regtest/no/such/page"]) {
     await page.goto(`${baseURL ?? ""}${path}`);

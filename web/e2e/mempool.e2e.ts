@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { expect, test } from "./fixtures";
+import { expect, setProse, test } from "./fixtures";
 
 test("the home page links to the mempool's history, which switches interval in the address", async ({
   page,
@@ -174,6 +174,7 @@ test("a tap anywhere along a phone's plot reads it without moving it", async ({
   baseURL,
 }) => {
   const touch = await browser.newContext({ hasTouch: true, viewport: { width: 390, height: 844 } });
+  await setProse(touch);
   const page = await touch.newPage();
   await page.route(/\/app\/mempool\/history\/2h$/, (r) => r.fulfill({ json: mainnetLike() }));
   await page.goto(`${baseURL ?? ""}/regtest/mempool?interval=2h`);
@@ -432,6 +433,7 @@ test("a band under the pointer, a finger or the keys keeps its colour, and a tap
 
   // A finger: a tap picks a band; a tap anywhere else lets it go.
   const touch = await browser.newContext({ hasTouch: true, viewport: { width: 390, height: 844 } });
+  await setProse(touch);
   const phone = await touch.newPage();
   await phone.goto(`${new URL(page.url()).origin}/regtest/mempool?interval=2h`);
   const phoneChart = phone.getByRole("slider", { name: /The mempool's size by fee rate/ });
