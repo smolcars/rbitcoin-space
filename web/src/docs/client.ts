@@ -217,9 +217,9 @@ function pageMenu(): void {
     else if (action === "mcp-claude-code") {
       void copy(`claude mcp add --transport http rbitcoin ${mcpUrl}`, "Command copied");
     } else if (!(target instanceof HTMLAnchorElement)) return;
-    // Focus goes back to the menu's button, where the reader left off: a link opens a new tab or
-    // another app, and the menu is closed when the reader comes back.
-    close(true);
+    // From an item, focus goes back to the menu's button, where the reader left off (a link opens a
+    // new tab or another app); the page's own Copy button keeps it.
+    close(target?.getAttribute("role") === "menuitem");
   });
 }
 
