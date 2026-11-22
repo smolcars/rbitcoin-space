@@ -162,18 +162,20 @@ pub async fn backfill<S: Source>(
         }
         // rbitcoin may prune more data between the status check and a body read.
         // Retry the same cursor with the narrower range only if the new watermark covers
-        // the failed height. Other errors and unconfirmed prune errors take the normal back-off.
-        let replanned = if let Some((_, Error::Pruned(height))) = &failed
-            && let Ok((_, Some(pruned))) = source.chain_state().await
-            && pruned >= floor
-            && pruned >= *height
-        {
-            floor = pruned.saturating_add(1);
-            failed = None;
-            true
-        } else {
-            false
-        };
+        // the failed height. Other errors and unconfirmed prune errors take the normal back-off,
+        // and a failed check reports its own error.
+        let mut replanned = false;
+        if let Some((_, Error::Pruned(height))) = &failed {
+            match source.chain_state().await {
+                Ok((_, Some(pruned))) if pruned >= floor && pruned >= *height => {
+                    floor = pruned.saturating_add(1);
+                    failed = None;
+                    replanned = true;
+                }
+                Ok(_) => {}
+                Err(e) => failed = Some(("tip", e.into())),
+            }
+        }
         let took = started.elapsed();
         p.busy += took;
         p.bytes = source.bytes().saturating_sub(start_bytes);
@@ -188,7 +190,8 @@ pub async fn backfill<S: Source>(
             tokio::time::sleep(backoff(failures)).await;
             continue;
         }
-        if failures > 0 {
+        // A replan has not read anything yet: the streak ends at the next step that succeeds.
+        if failures > 0 && !replanned {
             (options.observer)(&Event::Recovered { failures });
             failures = 0;
         }

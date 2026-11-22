@@ -184,44 +184,82 @@ async fn mock(node: &Arc<Node>) -> SocketAddr {
     addr
 }
 
-#[tokio::test]
-async fn block_totals_surface_the_height_of_a_pruned_batch_item() {
+/// What the pinned rbitcoin answers, at code -8, for data at or below its prune height.
+const BLOCK_PRUNED: &str = "Block not available (pruned data)";
+const TX_PRUNED: &str = "Transaction not available (pruned data)";
+/// The coinbase Esplora names for `hash(1)`, the block pruned in these tests.
+const PRUNED_COINBASE: &str = "11111111111111111111111111111111111111111111111111111111111111aa";
+
+/// One JSON-RPC answer: the recorded block's data, or the pruned error when `pruned` is the
+/// method and the request is for `hash(1)` or its coinbase.
+fn pruned_answer(req: &Value, pruned: &str) -> Value {
+    let (id, method) = (&req["id"], req["method"].as_str().unwrap());
+    let target = req["params"][0].as_str().unwrap();
+    if method == pruned && (target == hash(1) || target == PRUNED_COINBASE) {
+        let message = if method == "getrawtransaction" {
+            TX_PRUNED
+        } else {
+            BLOCK_PRUNED
+        };
+        return json!({"result": null, "error": {"code": -8, "message": message}, "id": id});
+    }
+    let result = match method {
+        "getblockstats" => json!({"totalfee": 0, "subsidy": 312_500_000, "total_weight": 0}),
+        "getrawtransaction" => json!(bitcoin::consensus::encode::serialize_hex(
+            &transactions()[0]
+        )),
+        method => panic!("unexpected RPC method {method}"),
+    };
+    json!({"result": result, "error": null, "id": id})
+}
+
+/// A node source over a mock that serves the recorded block at every hash, except that it reports
+/// `pruned` (an RPC method) pruned for `hash(1)`, as the pinned rbitcoin does. Esplora lists that
+/// block but has dropped its coinbase (404 `pruned`), so the route falls back to `getblock`.
+async fn pruned_source(pruned: &'static str) -> NodeSource {
     let app = axum::Router::new()
         .route(
             "/",
-            post(|Json(batch): Json<Vec<Value>>| async move {
-                let mut reply = Vec::new();
-                for req in batch {
-                    let id = &req["id"];
-                    let answer = match req["method"].as_str().unwrap() {
-                        "getblockstats" if req["params"][0] == hash(1) => json!({
-                            "id": id,
-                            "error": {"code": -8, "message": "Block not available (pruned data)"}
-                        }),
-                        "getblockstats" => json!({
-                            "id": id,
-                            "result": {"totalfee": 0, "subsidy": 312_500_000, "total_weight": 0}
-                        }),
-                        "getrawtransaction" => json!({
-                            "id": id, "result": bitcoin::consensus::encode::serialize_hex(&transactions()[0])
-                        }),
-                        method => panic!("unexpected RPC method {method}"),
-                    };
-                    reply.push(answer);
-                }
-                reply.reverse();
-                Json(reply)
+            post(move |Json(req): Json<Value>| async move {
+                let Value::Array(batch) = req else {
+                    return Json(pruned_answer(&req, pruned));
+                };
+                // Out of order, as a batch answer may come.
+                let reply = batch.iter().rev().map(|r| pruned_answer(r, pruned));
+                Json(reply.collect())
             }),
         )
-        .route("/block/{hash}/txid/0", get(|| async { COINBASE }));
+        .route(
+            "/block/{hash}/txid/0",
+            get(|Path(h): Path<String>| async move {
+                if h == hash(1) {
+                    PRUNED_COINBASE
+                } else {
+                    COINBASE
+                }
+            }),
+        )
+        .route("/block/{hash}", get(block))
+        .route(
+            "/block/{hash}/txs/summary",
+            get(|| async { fixture("esplora/testnet4/block-160394-txs-summary.json") }),
+        )
+        .route(
+            "/tx/{txid}/raw",
+            get(|| async { (StatusCode::NOT_FOUND, "pruned") }),
+        );
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move { axum::serve(listener, app).await });
-    let source = NodeSource {
+    NodeSource {
         rpc: Rpc::new("127.0.0.1", addr.port(), "u", "p").unwrap(),
         esplora: Esplora::new(&format!("http://{addr}")).unwrap(),
         lister: Arc::new(Lister::default()),
-    };
+    }
+}
+
+/// The recorded block, and `hash(1)` as the one below it.
+fn retained_and_pruned() -> [Header; 2] {
     let newer: Header =
         serde_json::from_slice(&fixture("esplora/testnet4/block-160394.json")).unwrap();
     let older = Header {
@@ -229,7 +267,30 @@ async fn block_totals_surface_the_height_of_a_pruned_batch_item() {
         height: newer.height - 1,
         ..newer.clone()
     };
-    let result = source.rows(&[newer, older]).await;
+    [newer, older]
+}
+
+#[tokio::test]
+async fn block_totals_surface_the_height_of_a_pruned_batch_item() {
+    let source = pruned_source("getblockstats").await;
+    let result = source.rows(&retained_and_pruned()).await;
+    assert!(matches!(result, Err(Error::Pruned(160_393))), "{result:?}");
+}
+
+#[tokio::test]
+async fn coinbase_reads_surface_the_height_of_a_pruned_batch_item() {
+    let source = pruned_source("getrawtransaction").await;
+    let headers = retained_and_pruned();
+    let result = source.rows(&headers).await;
+    assert!(matches!(result, Err(Error::Pruned(160_393))), "{result:?}");
+    let rows = source.rows(&headers[..1]).await.unwrap();
+    assert_eq!(rows[0].height, 160_394);
+}
+
+#[tokio::test]
+async fn a_pruned_block_listing_surfaces_its_height() {
+    let source = pruned_source("getblock").await;
+    let result = source.facts(160_393, hash(1).parse().unwrap()).await;
     assert!(matches!(result, Err(Error::Pruned(160_393))), "{result:?}");
 }
 

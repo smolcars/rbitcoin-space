@@ -5,6 +5,7 @@
     clippy::panic
 )]
 
+use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -131,7 +132,9 @@ struct Mock {
     pruneheight: Mutex<Option<u32>>,
     prune_before_rows: Mutex<Option<u32>>,
     prune_before_facts: Mutex<Option<u32>>,
-    row_failure: Mutex<Option<Error>>,
+    /// One entry per call, oldest first: the error that call fails with, if any.
+    row_failures: Mutex<VecDeque<Option<Error>>>,
+    state_failures: Mutex<VecDeque<Option<SourceError>>>,
 }
 
 impl Mock {
@@ -199,6 +202,9 @@ impl Drop for Guard<'_> {
 impl Source for Arc<Mock> {
     async fn chain_state(&self) -> Result<(u32, Option<u32>), SourceError> {
         let _g = self.enter().await?;
+        if let Some(error) = self.state_failures.lock().unwrap().pop_front().flatten() {
+            return Err(error);
+        }
         let tip = self.chain.lock().unwrap().len() as u32 - 1;
         Ok((tip, *self.pruneheight.lock().unwrap()))
     }
@@ -232,7 +238,7 @@ impl Source for Arc<Mock> {
             .unwrap()
             .extend(headers.iter().map(|h| h.height));
         let pruned = self.prune_before_read(&self.prune_before_rows);
-        if let Some(error) = self.row_failure.lock().unwrap().take() {
+        if let Some(error) = self.row_failures.lock().unwrap().pop_front().flatten() {
             return Err(error);
         }
         if let Some(pruned) = pruned
@@ -891,27 +897,8 @@ async fn pruned_backfill_reports_and_retries_errors_in_the_retained_range() {
         *node.pruneheight.lock().unwrap() = Some(280);
         *node.prune_before_rows.lock().unwrap() = Some(281);
         let message = error.to_string();
-        *node.row_failure.lock().unwrap() = Some(error);
-        let seen = Arc::new(Mutex::new(Vec::new()));
-        let observer: Arc<dyn Fn(&Event) + Send + Sync> = Arc::new({
-            let seen = seen.clone();
-            move |e| match e {
-                Event::Failed {
-                    tier,
-                    error,
-                    failures,
-                } => {
-                    assert_eq!(*failures, 1, "{tier}: {error}");
-                    seen.lock()
-                        .unwrap()
-                        .push((Some(*tier), error.to_string(), *failures));
-                }
-                Event::Recovered { failures } => {
-                    seen.lock().unwrap().push((None, String::new(), *failures));
-                }
-                _ => {}
-            }
-        });
+        *node.row_failures.lock().unwrap() = [Some(error)].into();
+        let (observer, seen) = streak();
         let (task, mut rx) = start(&t.store, &node, options(observer));
         let p = until_done(&mut rx).await;
         task.abort();
@@ -922,6 +909,127 @@ async fn pruned_backfill_reports_and_retries_errors_in_the_retained_range() {
             [(Some("totals"), message, 1), (None, String::new(), 1)]
         );
     }
+}
+
+type Seen = Arc<Mutex<Vec<(Option<&'static str>, String, u32)>>>;
+type Observer = Arc<dyn Fn(&Event) + Send + Sync>;
+
+/// An observer recording each failure (tier, error, streak) and recovery (`None`, "", streak).
+fn streak() -> (Observer, Seen) {
+    let seen = Seen::default();
+    let observer = Arc::new({
+        let seen = seen.clone();
+        move |e: &Event| match e {
+            Event::Failed {
+                tier,
+                error,
+                failures,
+            } => seen
+                .lock()
+                .unwrap()
+                .push((Some(*tier), error.to_string(), *failures)),
+            Event::Recovered { failures } => {
+                seen.lock().unwrap().push((None, String::new(), *failures));
+            }
+            Event::Progress { .. } => {}
+        }
+    });
+    (observer, seen)
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_pruned_replan_keeps_the_failure_streak_until_a_narrowed_step_succeeds() {
+    let t = temp();
+    let node = Mock::new(400);
+    *node.pruneheight.lock().unwrap() = Some(260);
+    *node.prune_before_rows.lock().unwrap() = Some(280);
+    let busy = || Some(Error::from(SourceError::Busy));
+    // Busy, then pruned at 280 (confirmed: a replan), then busy again in the narrowed range.
+    *node.row_failures.lock().unwrap() = [busy(), None, busy()].into();
+    let (observer, seen) = streak();
+    let (task, mut rx) = start(&t.store, &node, options(observer));
+    let p = until_done(&mut rx).await;
+    task.abort();
+
+    assert_eq!((p.totals_written, p.rates_written), (19, 19));
+    let (wide, narrow) = ((261..=299).rev(), (281..=299).rev());
+    let asked = [wide.clone(), wide, narrow.clone(), narrow];
+    let asked = asked.into_iter().flatten().collect::<Vec<_>>();
+    assert_eq!(*node.asked.lock().unwrap(), asked);
+    let busy = Error::from(SourceError::Busy).to_string();
+    assert_eq!(
+        *seen.lock().unwrap(),
+        [
+            (Some("totals"), busy.clone(), 1),
+            (Some("totals"), busy, 2),
+            (None, String::new(), 2),
+        ]
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_failed_prune_check_reports_its_own_error_and_keeps_the_cursor() {
+    let t = temp();
+    let node = Mock::new(400);
+    *node.pruneheight.lock().unwrap() = Some(260);
+    *node.prune_before_rows.lock().unwrap() = Some(280);
+    let down = SourceError::Failed("status unavailable".into());
+    // The start's check succeeds; the one after the pruned read fails.
+    *node.state_failures.lock().unwrap() = [None, Some(down.clone())].into();
+    let (observer, seen) = streak();
+    let (task, mut rx) = start(&t.store, &node, options(observer));
+    let p = until_done(&mut rx).await;
+    task.abort();
+
+    assert_eq!((p.totals_written, p.rates_written), (19, 19));
+    let wide = (261..=299).rev();
+    let asked = [wide.clone(), wide, (281..=299).rev()];
+    let asked = asked.into_iter().flatten().collect::<Vec<_>>();
+    assert_eq!(*node.asked.lock().unwrap(), asked);
+    assert_eq!(
+        *seen.lock().unwrap(),
+        [
+            (Some("tip"), Error::from(down).to_string(), 1),
+            (None, String::new(), 1),
+        ]
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_lower_watermark_at_the_same_tip_reopens_both_tiers() {
+    let t = temp();
+    let node = Mock::new(400);
+    *node.pruneheight.lock().unwrap() = Some(280);
+    let mut rated = mock_row(&node.block(270));
+    rated.rates = Some(Rated::from(&mock_facts(rated.height, rated.hash)));
+    let below = mock_row(&node.block(240));
+    insert(&t.store, vec![below.clone(), rated.clone()]).await;
+
+    let (task, mut rx) = start(&t.store, &node, options(no_backfill_failures()));
+    let p = until_done(&mut rx).await;
+    assert_eq!((p.tip, p.totals_written, p.rates_written), (399, 19, 19));
+    node.asked.lock().unwrap().clear();
+    node.facts_asked.lock().unwrap().clear();
+    *node.pruneheight.lock().unwrap() = Some(250);
+    let p = rx
+        .wait_for(|p| p.totals_written > 19 && p.totals_done && p.rates_done)
+        .await
+        .unwrap()
+        .clone();
+    task.abort();
+
+    assert_eq!((p.tip, p.totals_written, p.rates_written), (399, 48, 48));
+    let reopened = (271..=280)
+        .rev()
+        .chain((251..=269).rev())
+        .collect::<Vec<_>>();
+    assert_eq!(*node.asked.lock().unwrap(), reopened);
+    assert_eq!(*node.facts_asked.lock().unwrap(), reopened);
+    let rows = all(&t.store).await;
+    assert_eq!(rows.len(), 50);
+    assert_eq!(rows[0], below);
+    assert_eq!(rows.iter().find(|r| r.height == 270), Some(&rated));
+    assert!(rows[1..].iter().all(|r| r.rates.is_some()));
 }
 
 #[tokio::test(start_paused = true)]
