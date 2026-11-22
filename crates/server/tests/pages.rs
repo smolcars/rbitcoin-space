@@ -1252,6 +1252,7 @@ async fn the_docs_answer_in_html_or_in_markdown_for_a_client_that_asks() {
         let r = get(&addr, path).await;
         assert_eq!(r.status, 404, "{path}");
         assert_eq!(r.body, "{\"error\":\"not found\"}", "{path}");
+        assert_eq!(r.header("cache-control"), Some("no-store"), "{path}");
     }
 
     let r = get(&addr, "/llms.txt").await;

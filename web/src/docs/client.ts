@@ -1,5 +1,6 @@
 // The docs pages' one script (web/docs.html). The pages read whole without it; it adds the theme
 // switch, copy buttons and the page menu, and shows the MCP actions where the server runs MCP.
+import { copyByCommand, copyText } from "../lib/copy";
 import { SITE } from "./pages";
 
 const root = document.documentElement;
@@ -16,18 +17,10 @@ function say(text: string): void {
   toastTimer = window.setTimeout(() => (status.textContent = ""), 2000);
 }
 
-/** Copies text, or text still on its way: Safari keeps the click's permission only for a promise. */
-async function copy(text: string | Promise<string>, done = "Copied"): Promise<void> {
-  try {
-    if (typeof text === "string") await navigator.clipboard.writeText(text);
-    else {
-      const blob = text.then((t) => new Blob([t], { type: "text/plain" }));
-      await navigator.clipboard.write([new ClipboardItem({ "text/plain": blob })]);
-    }
-    say(done);
-  } catch {
-    say("Could not copy. Your browser blocked it");
-  }
+const FAILED = "Could not copy. Your browser blocked it";
+
+async function copy(text: string, done = "Copied"): Promise<void> {
+  say((await copyText(text)) ? done : FAILED);
 }
 
 function pageMarkdown(): Promise<string> {
@@ -35,6 +28,36 @@ function pageMarkdown(): Promise<string> {
     if (!r.ok) throw new Error(String(r.status));
     return r.text();
   });
+}
+
+/**
+ * The page's Markdown, fetched at load where there is no async clipboard (plain HTTP): the copy
+ * command works only inside the click's own task, with the text already at hand.
+ */
+let prefetched: string | undefined;
+if (!window.isSecureContext) {
+  pageMarkdown().then(
+    (text) => (prefetched = text),
+    () => undefined,
+  );
+}
+
+/** Copies the page as Markdown. The text is still on its way: Safari keeps the click's permission
+ * for a clipboard item given a promise. */
+async function copyPage(done: string): Promise<void> {
+  // Undefined outside a secure context, whatever the types say.
+  const clipboard = navigator.clipboard as Clipboard | undefined;
+  if (clipboard === undefined || typeof ClipboardItem === "undefined") {
+    say(prefetched !== undefined && copyByCommand(prefetched) ? done : FAILED);
+    return;
+  }
+  try {
+    const blob = pageMarkdown().then((t) => new Blob([t], { type: "text/plain" }));
+    await clipboard.write([new ClipboardItem({ "text/plain": blob })]);
+    say(done);
+  } catch {
+    say(FAILED);
+  }
 }
 
 // Theme: the same choice the explorer keeps (src/lib/theme.ts), without its reactive parts.
@@ -168,13 +191,16 @@ function pageMenu(): void {
 
   actions.addEventListener("click", (e) => {
     const target =
-      e.target instanceof Element ? e.target.closest<HTMLElement>("[data-action]") : null;
+      e.target instanceof Element
+        ? e.target.closest<HTMLElement>('[data-action], [role="menuitem"]')
+        : null;
     const action = target?.dataset["action"];
-    if (action === "copy") void copy(pageMarkdown(), "Page copied as Markdown");
+    if (action === "copy") void copyPage("Page copied as Markdown");
     else if (action === "mcp-url") void copy(mcpUrl, "MCP server URL copied");
     else if (action === "mcp-claude-code") {
       void copy(`claude mcp add --transport http rbitcoin ${mcpUrl}`, "Command copied");
-    } else return;
+    } else if (!(target instanceof HTMLAnchorElement)) return;
+    // A link opens in a new tab or another app: the menu is closed when the reader comes back.
     close(false);
   });
 }

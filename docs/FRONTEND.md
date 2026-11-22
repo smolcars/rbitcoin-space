@@ -27,6 +27,7 @@ web/
     docs/               The public docs: Markdown renderer, page list, build, and the pages' script and styles
     lib/                Pure logic and hooks, no markup
       format.ts         Amounts, fee rates and bands, sizes, hashes, times
+      copy.ts           Copying text, with the copy command where plain HTTP has no async clipboard
       network.ts        Networks, prefixes, `paths` for every page
       address.ts        An address's type and networks from its form (the address page and search)
       lookalike.ts      A lookalike address's findings, handed from an address page's row to the transaction page
@@ -627,7 +628,7 @@ A second way in beside the header search, in `palette/`. ⌘K on Apple's keyboar
 - **What it writes.** `docs/<slug>.html` for each page (`docs/index.html` for the overview), a Markdown copy at `docs/<slug>.md` (`docs.md` for the overview) whose links to this site are whole and point at other copies, `llms.txt` (every page with its one line from `pages.ts`, as [llmstxt.org](https://llmstxt.org) lays out) and `llms-full.txt` (every copy, one after another). A page without its Markdown, or Markdown without a title, fails the build.
 - **Markdown.** `src/docs/markdown.ts` reads only what the pages use: headings, paragraphs, lists, tables, block quotes, fenced code, rules, and inline code, links and bold. Everything is escaped, and a link goes only to `http(s)`, a path or an anchor. A heading that is a method and a path (`## GET /api/v1/fees/precise`) is drawn as a route. Write the text by [`DESIGN.md`](DESIGN.md)'s voice; keep it ASCII, since `/llms.txt` is served as `text/plain` without a charset (a test holds it).
 - **Served by the server** (`crates/server/src/docs.rs`): `/docs`, `/docs/<slug>` and their `.md` addresses. An address without `.md` is the HTML, or the Markdown for a client whose `Accept` names `text/markdown` at least as high as HTML (a browser never names it), with `Vary: Accept`; the HTML names its copy in a `Link` header and a `<link rel="alternate">`. An address that is no page is a `404`. `no-cache`, like the app's pages.
-- **The script** adds what needs one: the theme switch, a copy button on each code block, and the page menu (copy the page as Markdown, open it, and ask about it in Claude or ChatGPT, which are given the page's Markdown address on rbitcoin.space). The MCP actions (copy its URL or a Claude Code command, add it to Cursor) show only where `/app/config` says `mcp: true`. On another server, examples that name `https://rbitcoin.space` name the reader's own origin.
+- **The script** adds what needs one (copying through `lib/copy.ts`, so plain HTTP copies too; there it fetches the page's Markdown at load, as the copy command works only inside the click): the theme switch, a copy button on each code block, and the page menu (copy the page as Markdown, open it, and ask about it in Claude or ChatGPT, which are given the page's Markdown address on rbitcoin.space). The MCP actions (copy its URL or a Claude Code command, add it to Cursor) show only where `/app/config` says `mcp: true`. On another server, examples that name `https://rbitcoin.space` name the reader's own origin.
 - **The explorer links to it** from its footer. The header's sections are the network's own pages, fitted to a 320 px phone, so it has no tab for the docs.
 
 ## Shared components

@@ -503,7 +503,12 @@ impl App {
                 });
                 // The public docs (docs/FRONTEND.md, "Public docs"): routed, not nested, so the
                 // handler sees the whole path.
-                let docs = cache("no-cache").layer(axum::handler::Handler::with_state(
+                // `no-cache` for the pages; the handler's own `no-store` stays on a 404.
+                let docs = SetResponseHeaderLayer::if_not_present(
+                    CACHE_CONTROL,
+                    HeaderValue::from_static("no-cache"),
+                )
+                .layer(axum::handler::Handler::with_state(
                     docs::serve,
                     docs::Docs::new(dir),
                 ));

@@ -6,7 +6,7 @@
 use std::path::Path;
 
 use axum::extract::{Request, State};
-use axum::http::header::{ACCEPT, CONTENT_TYPE, LINK, VARY};
+use axum::http::header::{ACCEPT, CACHE_CONTROL, CONTENT_TYPE, LINK, VARY};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use tower::ServiceExt;
@@ -91,10 +91,12 @@ fn quality(accept: &str, media: &str, wildcards: bool) -> f32 {
                 .filter(|q| q.is_finite())
                 .map_or(0.0, |q| q.clamp(0.0, 1.0)),
         };
-        // The most specific range that names the type decides its quality.
-        if best.is_none_or(|(r, _)| rank > r) {
-            best = Some((rank, q));
-        }
+        // The most specific range that names the type decides its quality; named twice as
+        // specifically, the higher wins.
+        best = match best {
+            Some((r, b)) if r > rank || (r == rank && b >= q) => Some((r, b)),
+            _ => Some((rank, q)),
+        };
     }
     best.map_or(0.0, |(_, q)| q)
 }
@@ -112,10 +114,18 @@ fn wants_markdown(headers: &HeaderMap) -> bool {
     md > 0.0 && md >= quality(&accept, "text/html", true)
 }
 
+/// A `404` that no cache keeps, as every error (the route's `no-cache` is only for pages).
+fn not_found() -> Response {
+    let mut res = ApiError::NOT_FOUND.into_response();
+    res.headers_mut()
+        .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    res
+}
+
 /// Routed at `/docs`, `/docs/`, `/docs/{*page}` and `/docs.md`, never nested, so the path is whole.
 pub(crate) async fn serve(State(docs): State<Docs>, req: Request) -> Response {
     let Some((slug, by_address)) = parse(req.uri().path()) else {
-        return ApiError::NOT_FOUND.into_response();
+        return not_found();
     };
     let markdown = by_address || wants_markdown(req.headers());
     let md_path = if slug.is_empty() {
@@ -129,14 +139,14 @@ pub(crate) async fn serve(State(docs): State<Docs>, req: Request) -> Response {
         (false, false) => format!("/docs/{slug}.html"),
     };
     let Ok(file_uri) = Uri::try_from(file) else {
-        return ApiError::NOT_FOUND.into_response();
+        return not_found();
     };
     let (mut parts, body) = req.into_parts();
     parts.uri = file_uri;
     let Ok(res) = docs.files.oneshot(Request::from_parts(parts, body)).await;
     let mut res = res.into_response();
     if res.status() == StatusCode::NOT_FOUND {
-        return ApiError::NOT_FOUND.into_response();
+        return not_found();
     }
     let headers = res.headers_mut();
     if !by_address {
@@ -213,5 +223,8 @@ mod tests {
         assert!(!wants_markdown(&accept("text/markdown;q=nan, text/*")));
         assert!(!wants_markdown(&accept("text/markdown;Q=0, text/html")));
         assert!(wants_markdown(&accept("text/html;Q=0.1, text/markdown")));
+        assert!(!wants_markdown(&accept(
+            "text/html;q=0.5, text/html;q=0.9, text/markdown;q=0.7"
+        )));
     }
 }
