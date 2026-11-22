@@ -653,7 +653,9 @@ mod tests {
     fn config_is_checked_and_debug_hides_credentials() {
         let rpc = Rpc::new("127.0.0.1", 8332, "rpcuser", "hunter2-secret").unwrap();
         let debug = format!("{rpc:?}");
-        assert!(debug.contains("127.0.0.1:8332"), "{debug}");
+        // Exact on purpose (SECURITY.md rule 4): a field added to what `Debug` prints is looked
+        // at here, whatever form it prints the credentials in.
+        assert_eq!(debug, r#"Rpc { authority: "127.0.0.1:8332", .. }"#);
         // Neither credential, nor the header made of them.
         for secret in [
             "rpcuser",

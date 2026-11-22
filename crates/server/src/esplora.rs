@@ -1830,6 +1830,12 @@ mod tests {
                 .await
                 .unwrap();
             let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+            // Nothing beside the message: no field for the node's own words to ride in.
+            assert_eq!(
+                json.as_object().map(serde_json::Map::len),
+                Some(1),
+                "{json}"
+            );
             (code, json["error"].as_str().unwrap().to_owned())
         };
         assert_eq!(s(404, "Not Found", &r).await.0, 404);
