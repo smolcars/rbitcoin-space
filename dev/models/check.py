@@ -69,7 +69,10 @@ def tlc(folder: Path, model: dict, constants: dict, tmp: Path) -> str | None:
         "INVARIANTS " + " ".join(model["rules"]) + "\n"
     )
     run = subprocess.run(
-        [java(), "-XX:+UseParallelGC", "-cp", str(tlc_jar()), "tlc2.TLC", "-workers", "1"]
+        # A temp folder of its own: TLC unpacks its standard modules there, and checks that run
+        # side by side would overwrite each other's.
+        [java(), "-XX:+UseParallelGC", f"-Djava.io.tmpdir={tmp}", "-cp", str(tlc_jar())]
+        + ["tlc2.TLC", "-workers", "1"]
         + ["-metadir", str(tmp / "states"), "-config", str(cfg), model["spec"]],
         cwd=folder,
         capture_output=True,

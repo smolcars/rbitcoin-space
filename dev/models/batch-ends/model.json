@@ -37,8 +37,8 @@
     {
       "file": "crates/ln/src/gossip.rs",
       "from": "^    fn next_batch\\(",
-      "to": "^    fn get_and_clear_pending_msg_events\\(",
-      "sha256": "3a8c04dff3bd7bc65135e91747132b55394eb440c041106bd89b1acafa66f34b"
+      "to": "^    \\}$",
+      "sha256": "9997d1e6d635a5dd3df21669abe7a9e5a269be4d86d06be34cd1f4ad8e872baf"
     }
   ]
 }
