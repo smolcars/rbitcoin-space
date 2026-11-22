@@ -26,6 +26,7 @@ jobs:
       pull-requests: read
     # PRs run only the jobs their paths need. A master push runs every job when it touches code,
     # which verifies the merge and refreshes the caches, and nothing when it touches only docs.
+    # doc-pointers is not here: it runs on every PR and push, since any path can break a pointer.
     outputs:
       rust: ${{ steps.filter.outputs.rust == 'true' || (github.event_name == 'push' && steps.filter.outputs.code == 'true') }}
       web: ${{ steps.filter.outputs.web == 'true' || steps.filter.outputs.docs == 'true' || (github.event_name == 'push' && steps.filter.outputs.code == 'true') }}
@@ -230,6 +231,25 @@ jobs:
         env:
           WARM: ${{ steps.cache.outputs.cache-hit }}
 
+  # Every pull request and push, docs-only ones too: a pointer goes stale from either end, the doc
+  # or the code that names it, so no path filter fits (docs/CI.md "Doc pointers").
+  doc-pointers:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      JOB_LIMIT: 20
+    steps:
+      - run: echo "JOB_STARTED=$(date +%s)" >> "$GITHUB_ENV"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: python3 -I dev/doc-pointers/test_check.py
+      - run: python3 -I dev/doc-pointers/check.py
+      - name: Within the job's limit
+        run: .github/job-limit.sh
+        env:
+          WARM: true
+
   # The image's frontend stage alone: it catches a Dockerfile that no longer builds the frontend,
   # without the Rust stage, which the post-merge Image workflow builds.
   image:
@@ -266,7 +286,7 @@ jobs:
 
   ci-ok:
     if: always()
-    needs: [changes, rust, web, e2e, image, models]
+    needs: [changes, rust, web, e2e, image, models, doc-pointers]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:

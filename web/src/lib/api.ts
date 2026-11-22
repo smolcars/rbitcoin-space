@@ -257,9 +257,9 @@ export function postApp<T>(
 /**
  * A refusal that only says "not now": the server is busy, or this client asked a lot at once.
  * Every 503 carries Retry-After, but some are about the address and the server's setup, which a
- * retry cannot change (docs/API.md, "Error bodies" and "Mining"; the mempool engine switched off
- * and mempool history without a data directory, docs/FRONTEND.md). Whether retries remain is not
- * part of it: one that outlasted them is still busy, not broken.
+ * retry cannot change (docs/API.md, "Error bodies are ours" and "Mining"; the mempool engine
+ * switched off and mempool history without a data directory, docs/FRONTEND.md). Whether retries
+ * remain is not part of it: one that outlasted them is still busy, not broken.
  */
 export const isBusy = (error: unknown): error is ApiError =>
   error instanceof ApiError &&

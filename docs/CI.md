@@ -14,6 +14,7 @@ A PR that adds a slower step must make room for it or move it out of the PR path
 | `e2e`, each of its five shards | 180 s | 62 to 93 s with three; 68 to 106 s with four, on 2026-11-14; 97 to 162 s with five, on 2026-11-21 ([below](#browser-test-shards)) |
 | `web` | 75 s | 30 to 39 s |
 | `models` | 30 s | 16 s on its first run, 2026-11-22 |
+| `doc-pointers` | 20 s | Not yet run; the check takes 0.5 s on a laptop and a checkout 2 to 6 s on a runner, on 2026-11-22 |
 
 The owner raised the budget from 3 to 4 minutes on 2026-11-15, and each limit by about a quarter (from 135, 145 and 60 s), as the project grew: a `rust` job 2 s over its limit had failed a pull request that added one small test. The whole run is `changes`, the slowest job and `ci-ok`, so the 180 s shard limit leaves about a minute of the four.
 
@@ -28,7 +29,7 @@ Make room in the same pull request; never raise a limit to pass. In order: shrin
 ## How it stays fast
 
 1. **One workflow, one required check.** `ci.yml` ends in a `ci-ok` job that depends on every other job. Branch protection requires only `ci-ok`, so skipped jobs never block a merge.
-2. **Run only what changed.** A first `changes` job maps changed paths to jobs. A docs-only PR runs nothing but `ci-ok`. On `master`, a push that touches code runs every job, which verifies the merge and refreshes the caches; a docs-only push runs nothing but `changes` and `ci-ok`.
+2. **Run only what changed.** A first `changes` job maps changed paths to jobs. A docs-only PR runs nothing but [`doc-pointers`](#doc-pointers) and `ci-ok`. On `master`, a push that touches code runs every job, which verifies the merge and refreshes the caches; a docs-only push runs nothing but `changes`, `doc-pointers` and `ci-ok`.
 3. **Jobs run in parallel,** never chained unless one needs another's output.
 4. **Caches are written on `master` and read on PRs.** GitHub scopes caches by branch: a PR can read `master`'s cache but not another PR's. So `master` pushes save caches and PR runs only restore them. The `rust` and `e2e` jobs each cache the cargo registry and `target/`. The `e2e` shards share one key, so only the first saves it: a second save of the same key fails with a warning. `rust-cache`'s key leaves out the `[profile]` sections of `Cargo.toml`, so the workflow puts a checksum of the profiles, as cargo parses them, in its `key` input (`.github/profiles-key.py`). Without that, a changed profile restores the old cache as an exact hit, every run rebuilds what the profile touches and no run saves it. `bun install` from the registry is faster than restoring a cache, and so is downloading Playwright's headless Chromium, which `e2e` does while it compiles.
 5. **Cancel superseded PR runs; queue every `master` run.** A new push to a PR cancels its run in progress. Each push to `master` gets a run that is not cancelled: they wait in one queue (`queue: max`, up to 100 waiting, which a burst of merges never nears) and run one at a time in the order they joined it, so every merge is verified and each run restores the cache the one before it saved. Side by side (a group per commit), two runs that missed the cache would both save the same new key, and the second save is refused with a warning. `cancel-in-progress: false` alone, the earlier setting, protects only the run in progress: GitHub keeps one *pending* run per concurrency group and cancels it when a newer one is queued ([GitHub's docs](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency)). On 2026-11-13 that cancelled the runs of two merges pushed seconds apart while a run was in progress; only the docs-only pushes after them ran, and `master` looked green. The release workflow queues the same way, since each `master` run publishes its commit's image; the audit and the other-browser tests let a newer run cancel an older one, since the newer run checks a tree that holds the older one's changes.
@@ -49,6 +50,7 @@ Make room in the same pull request; never raise a limit to pass. In order: shrin
 | `e2e` | anything `rust` or `web` runs for, or `dev/regtest/` | `bun run e2e` ([`FRONTEND.md`](FRONTEND.md#browser-tests)): the server and frontend built from the PR, a regtest node with the known chain, Playwright in headless Chromium. Five shards, each on a runner of its own |
 | `image` | anything `web` runs for, `Dockerfile` or `.dockerignore`; pull requests only | Builds the Docker image's frontend stage, so a Dockerfile that cannot build the frontend fails before merge. The Rust stage is left to the post-merge build |
 | `models` | Rust (`crates/`), `dev/models/` or workflow changes | The [models](#models) of concurrent code: each checked in every order of its steps, each past mistake shown to break it, and the code each describes compared with what it was last read against |
+| `doc-pointers` | always, without waiting for `changes` | Fails on a link or a doc citation whose file, heading or section does not exist ([below](#doc-pointers)) |
 | `ci-ok` | always | Fails if any job above failed |
 
 Outside the PR path, daily and when a lockfile changes on `master`: the [dependency audit](#dependency-audit) (`audit.yml`). Weekly: the browser tests in [other browsers](#other-browsers) (`browsers.yml`). After merge to `master`, and on a version tag: the [release workflow](#releases) (`release.yml`).
@@ -70,6 +72,19 @@ Each folder under [`dev/models/`](../dev/models) holds one model: a TLA+ spec of
 | [`fee-hold`](../dev/models/fee-hold/README.md) | A `fees` message waiting for its block's announcement (`run` and `serve` in `crates/server/src/ws/fees.rs`) | A message never goes out ahead of its block, never waits longer than the hold, and the hold's deadline ends the hold |
 
 How to read a failure, change a model with its code, or add one: the `verify-models` skill ([`.claude/skills/verify-models/SKILL.md`](../.claude/skills/verify-models/SKILL.md)).
+
+## Doc pointers
+
+[`dev/doc-pointers/check.py`](../dev/doc-pointers/check.py) fails on a pointer whose target is gone, and prints its file and line, the dead target and the nearest heading or file that exists. It reads every file git tracks and checks:
+
+- **Every relative link in a `.md` file,** to a file and to its `#anchor`. An anchor is checked as the page it lands on is rendered: under GitHub's rule for the repository's files, and under the public docs' own rule (`slug` in `web/src/docs/markdown.ts`) for a `/docs/...` link or a `#anchor` in `web/docs/`.
+- **Every citation of a doc elsewhere,** in code, comments, scripts and workflows: `docs/<NAME>.md`, `docs/<NAME>.md#anchor`, and one or more section names quoted after it (`docs/<NAME>.md "Section"`, `docs/<NAME>.md, "Section"`, `docs/<NAME>.md ("One", "Two")`, a name running on to the next comment line). A section is a heading, a heading's words before a colon or a bracket ("Idea" for "Idea: sediment, quietly"), or the bold words a paragraph or list item opens with.
+
+It runs on every pull request and push, docs-only ones too, since a pointer goes stale from either end. It does not read `docs/TODO.md`, which no pull request edits, or the shipped migrations, which `CHECKSUMS` freezes. It does not check external links, a numbered rule (`docs/SECURITY.md rule 14`), a section quoted after other words, or a doc named without `docs/`. Run it, and its tests, from the repository root:
+
+```sh
+python3 -I dev/doc-pointers/check.py && python3 -I dev/doc-pointers/test_check.py
+```
 
 ## Dependency audit
 

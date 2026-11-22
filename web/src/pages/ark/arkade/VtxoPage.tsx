@@ -1,4 +1,4 @@
-// An Arkade VTXO (docs/DESIGN.md "Arkade VTXO"): its status as the Arkade server reports it, its
+// An Arkade VTXO (docs/DESIGN.md "Ark"): its status as the Arkade server reports it, its
 // amount and expiry, the batch tree with this VTXO's way out lit, and the transactions that way
 // takes, each with where our own node has it. Nothing here checks the server's claims.
 import { useParams } from "@solidjs/router";

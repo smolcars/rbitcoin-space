@@ -1,4 +1,5 @@
-// The 100 largest, best-connected or oldest Lightning nodes (docs/API.md "Rankings").
+// The 100 largest, best-connected or oldest Lightning nodes
+// (docs/API.md "Nodes, channels, search and rankings").
 import { useSearchParams } from "@solidjs/router";
 import { createEffect, createMemo, For, Match, Show, Switch } from "solid-js";
 import { formatDay } from "../../components/chart/scale";

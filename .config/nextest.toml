@@ -1,4 +1,4 @@
-# How CI runs the Rust tests (docs/CI.md "The Rust tests"). Locally: `cargo nextest run`.
+# How CI runs the Rust tests (docs/CI.md "How it stays fast"). Locally: `cargo nextest run`.
 [profile.default]
 # Each test is its own process, so the test binaries no longer run one after another. Most slow
 # tests wait on a socket or a timer, not the CPU, so twice as many run as CI has cores. More was
