@@ -342,7 +342,7 @@ async fn a_page_waiting_for_a_slot_is_refused_by_a_verdict_learned_meanwhile() {
             .body(axum::body::Body::empty())
             .unwrap();
         req.extensions_mut()
-            .insert(ConnectInfo(std::net::SocketAddr::from(([127, 0, 0, 1], 9))));
+            .insert(ConnectInfo(std::net::SocketAddr::from(([127, 0, 0, 1], 0))));
         tokio::spawn(router.clone().oneshot(req))
     };
     // Slow pages take all slots but one; the last goes to totals the node refuses after 200 ms.
@@ -402,7 +402,7 @@ async fn a_slow_page_releases_its_client_is_remembered_and_still_holds_its_slot(
         .body(axum::body::Body::empty())
         .unwrap();
     req.extensions_mut()
-        .insert(ConnectInfo(std::net::SocketAddr::from(([127, 0, 0, 1], 9))));
+        .insert(ConnectInfo(std::net::SocketAddr::from(([127, 0, 0, 1], 0))));
     let r = router.oneshot(req).await.unwrap();
     assert_eq!(r.status(), 504);
     assert_eq!(
