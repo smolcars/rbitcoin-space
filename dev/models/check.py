@@ -4,7 +4,8 @@
 Each folder's model.json names a TLA+ spec, the rules that must hold on today's design, the past
 mistakes that must each break a named rule, and the code the spec describes. A rule that holds
 when it should break, or code that changed since the spec was last read against it, fails the run.
-`--pin` records the code as read, after you have compared it with the spec.
+`--pin` records the code as read, after you have compared it with the spec; it records nothing for
+a model whose rules do not check out.
 """
 
 import hashlib
@@ -90,19 +91,6 @@ def check(folder: Path, pin: bool) -> list[str]:
     path = folder / "model.json"
     model = json.loads(path.read_text())
     faults = []
-    for cover in model["covers"]:
-        now = hashlib.sha256(region(cover).encode()).hexdigest()
-        if pin:
-            cover["sha256"] = now
-        elif now != cover["sha256"]:
-            faults.append(
-                f"{cover['file']} changed in the part {model['spec']} describes "
-                f"(from {cover['from']!r}). Read dev/models/{folder.name}/README.md, compare "
-                f"each step with the code, change the spec if what happens under a lock or in "
-                f"what order changed, then record it: python3 -I dev/models/check.py --pin"
-            )
-    if pin:
-        path.write_text(json.dumps(model, indent=2) + "\n")
     with tempfile.TemporaryDirectory() as tmp:
         broke = broken_rule(folder, model, model["today"], Path(tmp))
         if broke:
@@ -115,6 +103,19 @@ def check(folder: Path, pin: bool) -> list[str]:
                     f"{mistake['breaks']} and broke {broke or 'nothing'}: the model no longer "
                     f"catches it"
                 )
+    for cover in model["covers"]:
+        now = hashlib.sha256(region(cover).encode()).hexdigest()
+        if pin and not faults:
+            cover["sha256"] = now
+        elif now != cover["sha256"]:
+            faults.append(
+                f"{cover['file']} changed in the part {model['spec']} describes "
+                f"(from {cover['from']!r}). Read dev/models/{folder.name}/README.md, compare "
+                f"each step with the code, change the spec if what happens under a lock or in "
+                f"what order changed, then record it: python3 -I dev/models/check.py --pin"
+            )
+    if pin and not faults:
+        path.write_text(json.dumps(model, indent=2) + "\n")
     return [f"dev/models/{folder.name}: {f}" for f in faults]
 
 
