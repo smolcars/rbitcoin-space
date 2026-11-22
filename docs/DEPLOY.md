@@ -670,13 +670,13 @@ Every network the server serves has its file; the loop backs up each, and stops 
 **Restore** with the server stopped, removing the old `-wal` and `-shm`:
 
 ```sh
-docker compose stop server
-docker run --rm -v rbitcoin-space_server-data:/data -v "$PWD/backup":/backup:ro alpine:3 \
+docker compose stop server &&
+  docker run --rm -v rbitcoin-space_server-data:/data -v "$PWD/backup":/backup:ro alpine:3 \
   sh -ec 'for f in /backup/*.sqlite; do n=/data/${f##*/}; rm -f "$n-wal" "$n-shm"; cp "$f" "$n"; chown 65532:65532 "$n"; done' &&
   docker compose start server
 ```
 
-The loop stops at the first file that fails, and the server is started only when every file was restored: if it stops, fix the cause (disk space, most often) and run it again before starting anything.
+Nothing is copied unless the server stopped, the loop stops at the first file that fails, and the server is started only when every file was restored: if it stops, fix the cause (disk space, most often) and run it again before starting anything.
 
 **Seed a new instance from one that has caught up,** to skip the backfill (about 18 hours for mainnet's block totals) and keep the audits, mempool history and replacements, which no backfill rebuilds. On the old instance, beside its compose file, copy each network's file and the Lightning graph without its node key:
 
@@ -816,8 +816,8 @@ docker compose logs --no-log-prefix server | grep store_migration_applied
 
 ```sh
 VERSION=0.1.0                               # the release you go back to
-docker compose stop server
-docker run --rm -v rbitcoin-space_server-data:/data -v "$PWD/backup":/backup:ro alpine:3 \
+docker compose stop server &&
+  docker run --rm -v rbitcoin-space_server-data:/data -v "$PWD/backup":/backup:ro alpine:3 \
   sh -ec 'for f in /backup/*.sqlite; do n=/data/${f##*/}; rm -f "$n-wal" "$n-shm"; cp "$f" "$n"; chown 65532:65532 "$n"; done' &&
   git fetch --depth 1 origin tag "v$VERSION" && git checkout "v$VERSION" &&
   sed -i.bak "s|^SERVER_IMAGE=.*|SERVER_IMAGE=ghcr.io/smolcars/rbitcoin-space:$VERSION|" .env && rm .env.bak &&
