@@ -155,7 +155,7 @@ pub async fn follow<S: Source>(
         if rated {
             continue;
         }
-        let Some(facts) = source.facts(h.id).await? else {
+        let Some(facts) = source.facts(h.height, h.id).await? else {
             continue;
         };
         match new {

@@ -252,16 +252,20 @@ struct Live {
 }
 
 impl Source for Live {
+    async fn chain_state(&self) -> Result<(u32, Option<u32>), SourceError> {
+        self.node.chain_state().await
+    }
+
     async fn headers(&self, top: Option<u32>) -> Result<Vec<Header>, SourceError> {
         self.node.headers(top).await
     }
 
-    async fn rows(&self, headers: &[Header]) -> Result<Vec<Row>, SourceError> {
+    async fn rows(&self, headers: &[Header]) -> Result<Vec<Row>, blocks::Error> {
         self.node.rows(headers).await
     }
 
     /// `None` when the summary failed: the backfill rates the block later.
-    async fn facts(&self, hash: BlockHash) -> Result<Option<Facts>, SourceError> {
+    async fn facts(&self, _: u32, hash: BlockHash) -> Result<Option<Facts>, blocks::Error> {
         Ok(summary::new_block_facts(&self.ctx, hash).await)
     }
 }

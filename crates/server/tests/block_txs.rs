@@ -308,8 +308,16 @@ async fn both_sources_give_identical_answers() {
         esplora: esplora.clone(),
         lister: Arc::new(Lister::fixed(via)),
     };
-    let a = source(Via::Route).facts(h).await.unwrap().unwrap();
-    let b = source(Via::GetBlock).facts(h).await.unwrap().unwrap();
+    let a = source(Via::Route)
+        .facts(route.height, h)
+        .await
+        .unwrap()
+        .unwrap();
+    let b = source(Via::GetBlock)
+        .facts(route.height, h)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(a, b);
     assert_eq!(node.calls(), (2, 2));
 

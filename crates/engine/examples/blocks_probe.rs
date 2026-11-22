@@ -143,7 +143,11 @@ async fn main() {
             let page = source.headers(Some(h)).await.unwrap();
             for header in page.into_iter().take((count - n) as usize) {
                 let started = Instant::now();
-                let facts = source.facts(header.id).await.unwrap().unwrap();
+                let facts = source
+                    .facts(header.height, header.id)
+                    .await
+                    .unwrap()
+                    .unwrap();
                 let took = started.elapsed();
                 busy += took;
                 n += 1;

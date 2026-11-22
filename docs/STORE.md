@@ -160,7 +160,7 @@ The coinbase tag and scripts are written by whoever mined the block. They are st
 
 **Size.** About 300 bytes a row with its indexes: 295 MB for a table filled to mainnet's 975,000 blocks.
 
-**Rebuildable.** Everything here is derived from the node. Deleting the file loses nothing the backfill cannot redo.
+**Rebuildable from retained data.** Everything here is derived from the node. On a pruned node, keep the store to preserve rows for blocks whose raw data the node has discarded.
 
 #### Writers
 
@@ -180,7 +180,9 @@ Two tiers, one step of each in turn:
 | Totals | one run of up to 50 consecutive missing heights, highest first, so the row checked below it is the only one beneath it | Esplora `/blocks/:height` (ten blocks each), one batched `getblockstats` asking only `totalfee`, `subsidy` and `total_weight`, Esplora `/block/:hash/txid/0` per block, one batched `getrawtransaction` for the coinbases |
 | Rates | the highest unrated row within `BACKFILL_FEE_RATE_DEPTH` of the tip | One block listing ([`RBITCOIN.md`](RBITCOIN.md#listing-a-blocks-transactions)), through the same statistics code as the block facts route: Esplora's `/block/:hash/txs/summary`, `/block/:hash` and the coinbase's `/tx/:txid/raw` on a node with the route, one `getblock` at verbosity 2 on one without |
 
-**Gentle by construction.** The backfill and `follow` share their own RPC client with one slot, so they never hold one of the four slots the mempool tracker and the summary routes share, and the node sees at most one RPC call from them at a time. Their Esplora requests are small (ten headers, one txid, a block listing of about 0.3 MB) and each task makes one at a time, so at most two are in flight. After each step the backfill waits so that it keeps that call busy for at most `BACKFILL_BUSY_PERCENT` of the time (50 by default). A failure of any kind, the node's 503 (`busy`) included, pauses it for 5 s, doubling up to 5 minutes, and is logged at the 1st, 2nd, 4th, 8th… in a row.
+Both tiers stop at the first retained height. They read the tip and optional `pruneheight` together from the network's `getblockchaininfo`. rbitcoin prunes through that height, so the backfill starts no reads for bodies at or below it. With no watermark, it can work back to genesis. If a read reports pruned data, the backfill checks the watermark again and retries the step with a narrower range if the node now reports that height pruned. Stored rows below the watermark still count toward coverage. The completion flags describe the retained range, while the API reports coverage from the actual rows.
+
+**Gentle by construction.** The backfill and `follow` share their own RPC client with one slot, so they never hold one of the four slots the mempool tracker and the summary routes share, and the node sees at most one RPC call from them at a time. Their Esplora requests are small (ten headers, one txid, a block listing of about 0.3 MB) and each task makes one at a time, so at most two are in flight. After each step the backfill waits so that it keeps that call busy for at most `BACKFILL_BUSY_PERCENT` of the time (50 by default). Other failures, the node's 503 (`busy`) included, pause it for 5 s, doubling up to 5 minutes, and are logged at the 1st, 2nd, 4th, 8th… in a row.
 
 **Resumable.** The table is the progress. Each pass starts at the tip and looks for missing rows: it skips every 1,008-height bucket whose [totals](#totals) count 1,008 rows, and reads the rest 10,000 heights at a time. On a full mainnet table a pass reads about 970 bucket counts, 0.05 to 3 ms (it read every height, 98 ms, before the totals). So a restart or a pause (`BACKFILL_ENABLED=false`, then `true`) costs that and nothing else. The tip is checked every minute, and a new one restarts the pass from the top, so new blocks below the zone are filled first.
 

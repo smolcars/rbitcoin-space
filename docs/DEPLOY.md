@@ -706,7 +706,7 @@ docker compose up -d
 
 ### The first start
 
-With an empty store the server runs the **backfill**: it fills the block table from the node, newest first, with every block's totals and the last year's fee rates, and resumes where it stopped after a restart. The site works meanwhile: blocks, transactions and addresses come from the node, the newest 100 rows follow the tip, and the mining pages cover the rows filled so far. The mempool chart starts empty and fills a minute at a time; audits start with the first block the server watches arrive.
+With an empty store the server runs the **backfill**: it fills the block table from the node, newest first, with block totals and the last year's fee rates within the [node's retained range](STORE.md#backfill), and resumes where it stopped after a restart. The site works meanwhile: blocks, transactions and addresses come from the node, the newest 100 rows follow the tip, and the mining pages cover the rows filled so far. The mempool chart starts empty and fills a minute at a time; audits start with the first block the server watches arrive.
 
 | | |
 |---|---|

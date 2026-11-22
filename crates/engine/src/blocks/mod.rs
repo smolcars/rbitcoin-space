@@ -3,8 +3,8 @@
 //!
 //! - [`follow`] keeps the newest [`ZONE`] rows in line with the node on every new tip, replacing
 //!   rows a reorg made stale, and takes the newest blocks' fee rates from the summary cache.
-//! - [`backfill`] fills every older row, newest first, in two tiers: totals and coinbase for
-//!   every block (cheap, batched), then fee rates for the recent ones (one block listing each,
+//! - [`backfill`] fills older rows the node can still serve, newest first, in two tiers: totals
+//!   and coinbase (cheap, batched), then fee rates for the recent ones (one block listing each,
 //!   through [`Lister`]).
 //! - [`by_hash`], [`by_height`], [`page`], [`periods`] and [`heights_between`] read it; the
 //!   mining routes read it through [`span`], [`pool_counts`], [`pool_page`] and the rest of
@@ -215,6 +215,8 @@ impl Coinbase {
 pub enum Error {
     Source(SourceError),
     Store(store::Error),
+    /// A body read at this height reported pruned data.
+    Pruned(u32),
     /// The tip moved while [`follow`] read the chain; nothing was written. Not a failure: call it
     /// again for the new tip.
     Moved,
@@ -227,6 +229,7 @@ impl std::fmt::Display for Error {
             Self::Source(SourceError::TooBig) => f.write_str("node answer too big"),
             Self::Source(SourceError::Failed(e)) => write!(f, "node: {e}"),
             Self::Store(e) => write!(f, "store: {e}"),
+            Self::Pruned(height) => write!(f, "node: block data pruned at height {height}"),
             Self::Moved => f.write_str("the tip moved while reading the chain"),
         }
     }
@@ -252,7 +255,7 @@ impl Error {
         match self {
             Self::Source(SourceError::Busy) => "busy",
             Self::Source(SourceError::TooBig) => "too_big",
-            Self::Source(SourceError::Failed(_)) => "node",
+            Self::Source(SourceError::Failed(_)) | Self::Pruned(_) => "node",
             Self::Store(_) => "store",
             Self::Moved => "moved",
         }

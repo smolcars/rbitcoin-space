@@ -146,6 +146,25 @@ fn txid(s: &str) -> Txid {
 }
 
 #[tokio::test]
+async fn blockchain_info_reads_the_optional_prune_watermark() {
+    for pruneheight in [None, Some(0), Some(976_759)] {
+        let (port, _) = mock(move |req| {
+            let reply = mainnet(req);
+            let mut answer: Value = serde_json::from_slice(&reply.body).unwrap();
+            answer["result"]["pruned"] = true.into();
+            if let Some(height) = pruneheight {
+                answer["result"]["pruneheight"] = height.into();
+            }
+            Reply::new(200, serde_json::to_vec(&answer).unwrap())
+        })
+        .await;
+        let info = client(port).blockchain_info().await.unwrap();
+        assert!(info.pruned);
+        assert_eq!(info.pruneheight, pruneheight);
+    }
+}
+
+#[tokio::test]
 async fn every_method_decodes_its_fixture_and_sends_fixed_params() {
     let (port, log) = mock(mainnet).await;
     let rpc = client(port);
@@ -153,6 +172,7 @@ async fn every_method_decodes_its_fixture_and_sends_fixed_params() {
     let info = rpc.blockchain_info().await.unwrap();
     assert_eq!(info.chain, "main");
     assert_eq!(info.blocks, info.headers);
+    assert_eq!(info.pruneheight, None);
     let header = rpc.block_header(info.bestblockhash).await.unwrap();
     assert_eq!(header.hash, info.bestblockhash);
     assert_eq!(header.height, info.blocks);

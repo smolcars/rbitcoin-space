@@ -128,6 +128,10 @@ struct Mock {
     headers_calls: AtomicUsize,
     /// Counted as a reorg write in every `rows` call: follow replacing rows meanwhile.
     bump: Mutex<Option<Reorgs>>,
+    pruneheight: Mutex<Option<u32>>,
+    prune_before_rows: Mutex<Option<u32>>,
+    prune_before_facts: Mutex<Option<u32>>,
+    row_failure: Mutex<Option<Error>>,
 }
 
 impl Mock {
@@ -151,6 +155,14 @@ impl Mock {
 
     fn block(&self, height: u32) -> Header {
         self.chain.lock().unwrap()[height as usize].clone()
+    }
+
+    fn prune_before_read(&self, pending: &Mutex<Option<u32>>) -> Option<u32> {
+        let mut pruned = self.pruneheight.lock().unwrap();
+        if let Some(height) = pending.lock().unwrap().take() {
+            *pruned = Some(height);
+        }
+        *pruned
     }
 
     async fn enter(&self) -> Result<Guard<'_>, SourceError> {
@@ -185,6 +197,12 @@ impl Drop for Guard<'_> {
 }
 
 impl Source for Arc<Mock> {
+    async fn chain_state(&self) -> Result<(u32, Option<u32>), SourceError> {
+        let _g = self.enter().await?;
+        let tip = self.chain.lock().unwrap().len() as u32 - 1;
+        Ok((tip, *self.pruneheight.lock().unwrap()))
+    }
+
     async fn headers(&self, top: Option<u32>) -> Result<Vec<Header>, SourceError> {
         let _g = self.enter().await?;
         let n = self.headers_calls.fetch_add(1, Ordering::SeqCst) + 1;
@@ -203,7 +221,7 @@ impl Source for Arc<Mock> {
             .collect())
     }
 
-    async fn rows(&self, headers: &[Header]) -> Result<Vec<Row>, SourceError> {
+    async fn rows(&self, headers: &[Header]) -> Result<Vec<Row>, Error> {
         let _g = self.enter().await?;
         assert!(headers.len() <= backfill::BATCH, "a batch the node refuses");
         if let Some(r) = &*self.bump.lock().unwrap() {
@@ -213,16 +231,32 @@ impl Source for Arc<Mock> {
             .lock()
             .unwrap()
             .extend(headers.iter().map(|h| h.height));
+        let pruned = self.prune_before_read(&self.prune_before_rows);
+        if let Some(error) = self.row_failure.lock().unwrap().take() {
+            return Err(error);
+        }
+        if let Some(pruned) = pruned
+            && let Some(header) = headers.iter().find(|h| h.height <= pruned)
+        {
+            return Err(Error::Pruned(header.height));
+        }
         Ok(headers.iter().map(mock_row).collect())
     }
 
-    async fn facts(&self, hash: BlockHash) -> Result<Option<Facts>, SourceError> {
+    async fn facts(&self, height: u32, hash: BlockHash) -> Result<Option<Facts>, Error> {
         let _g = self.enter().await?;
         let chain = self.chain.lock().unwrap();
         let Some(h) = chain.iter().find(|h| h.id == hash) else {
             return Ok(None);
         };
-        self.facts_asked.lock().unwrap().push(h.height);
+        assert_eq!(height, h.height);
+        self.facts_asked.lock().unwrap().push(height);
+        if self
+            .prune_before_read(&self.prune_before_facts)
+            .is_some_and(|pruned| height <= pruned)
+        {
+            return Err(Error::Pruned(height));
+        }
         Ok(Some(mock_facts(h.height, hash)))
     }
 }
@@ -643,13 +677,13 @@ async fn a_backfill_batch_read_before_a_reorg_write_is_dropped() {
     let node = Mock::new(400);
     let reorgs = Reorgs::default();
     *node.bump.lock().unwrap() = Some(reorgs.clone());
-    let step = backfill::totals_step(&t.store, &node, 299, &reorgs)
+    let step = backfill::totals_step(&t.store, &node, 0, 299, &reorgs)
         .await
         .unwrap();
     assert_eq!(step, (Some(299), 0), "the same heights again next step");
     assert!(all(&t.store).await.is_empty());
     *node.bump.lock().unwrap() = None;
-    let step = backfill::totals_step(&t.store, &node, 299, &reorgs)
+    let step = backfill::totals_step(&t.store, &node, 0, 299, &reorgs)
         .await
         .unwrap();
     assert_eq!(step, (Some(249), 50));
@@ -670,7 +704,7 @@ async fn a_backfill_batch_never_lands_above_stale_rows() {
     let mut cursor = Some(450);
     let mut steps = 0;
     while let Some(c) = cursor {
-        cursor = backfill::totals_step(&t.store, &node, c, &reorgs)
+        cursor = backfill::totals_step(&t.store, &node, 0, c, &reorgs)
             .await
             .unwrap()
             .0;
@@ -700,7 +734,7 @@ async fn a_backfill_batch_never_spans_stale_rows_between_gaps() {
     let mut cursor = Some(550);
     let mut steps = 0;
     while let Some(c) = cursor {
-        cursor = backfill::totals_step(&t.store, &node, c, &reorgs)
+        cursor = backfill::totals_step(&t.store, &node, 0, c, &reorgs)
             .await
             .unwrap()
             .0;
@@ -768,6 +802,126 @@ async fn backfill_fills_every_row_below_the_zone_and_rates_the_recent_ones() {
     // Rated newest first too.
     let facts = node.facts_asked.lock().unwrap().clone();
     assert!(facts.windows(2).all(|w| w[0] > w[1]));
+}
+
+#[tokio::test]
+async fn pruned_backfill_clips_both_tiers_and_keeps_stored_rows() {
+    let t = temp();
+    let node = Mock::new(400);
+    *node.pruneheight.lock().unwrap() = Some(280);
+    let mut rated = mock_row(&node.block(279));
+    rated.rates = Some(Rated::from(&mock_facts(rated.height, rated.hash)));
+    let unrated = mock_row(&node.block(280));
+    insert(&t.store, vec![rated.clone(), unrated.clone()]).await;
+
+    let (task, mut rx) = start(&t.store, &node, options(no_backfill_failures()));
+    let p = tokio::time::timeout(Duration::from_secs(5), until_done(&mut rx))
+        .await
+        .unwrap();
+    task.abort();
+
+    assert_eq!((p.totals_written, p.rates_written), (19, 19));
+    let expected = (281..=299).rev().collect::<Vec<_>>();
+    assert_eq!(*node.asked.lock().unwrap(), expected);
+    assert_eq!(*node.facts_asked.lock().unwrap(), expected);
+    let rows = all(&t.store).await;
+    assert_eq!(rows[..2], [rated, unrated]);
+    assert!(rows[2..].iter().all(|r| r.rates.is_some()));
+}
+
+fn no_backfill_failures() -> Arc<dyn Fn(&Event) + Send + Sync> {
+    Arc::new(|event| {
+        if let Event::Failed { tier, error, .. } = event {
+            panic!("{tier}: {error}");
+        }
+    })
+}
+
+#[tokio::test]
+async fn pruned_backfill_replans_a_totals_batch_after_the_watermark_advances() {
+    let t = temp();
+    let node = Mock::new(400);
+    *node.pruneheight.lock().unwrap() = Some(260);
+    *node.prune_before_rows.lock().unwrap() = Some(280);
+
+    let (task, mut rx) = start(&t.store, &node, options(no_backfill_failures()));
+    let p = tokio::time::timeout(Duration::from_secs(5), until_done(&mut rx))
+        .await
+        .unwrap();
+    task.abort();
+
+    assert_eq!((p.totals_written, p.rates_written), (19, 19));
+    let expected = (261..=299)
+        .rev()
+        .chain((281..=299).rev())
+        .collect::<Vec<_>>();
+    assert_eq!(*node.asked.lock().unwrap(), expected);
+}
+
+#[tokio::test]
+async fn pruned_backfill_replans_rates_after_the_watermark_advances() {
+    let t = temp();
+    let node = Mock::new(400);
+    *node.pruneheight.lock().unwrap() = Some(299);
+    *node.prune_before_facts.lock().unwrap() = Some(302);
+    let original = (300..=302)
+        .map(|h| mock_row(&node.block(h)))
+        .collect::<Vec<_>>();
+    insert(&t.store, original.clone()).await;
+
+    let (task, mut rx) = start(&t.store, &node, options(no_backfill_failures()));
+    let p = tokio::time::timeout(Duration::from_secs(5), until_done(&mut rx))
+        .await
+        .unwrap();
+    task.abort();
+
+    assert_eq!((p.totals_written, p.rates_written), (0, 0));
+    assert_eq!(*node.facts_asked.lock().unwrap(), [302]);
+    assert_eq!(all(&t.store).await, original);
+}
+
+#[tokio::test(start_paused = true)]
+async fn pruned_backfill_reports_and_retries_errors_in_the_retained_range() {
+    for error in [
+        Error::from(SourceError::Failed("upstream request failed".into())),
+        Error::Pruned(299),
+    ] {
+        let t = temp();
+        let node = Mock::new(400);
+        *node.pruneheight.lock().unwrap() = Some(280);
+        *node.prune_before_rows.lock().unwrap() = Some(281);
+        let message = error.to_string();
+        *node.row_failure.lock().unwrap() = Some(error);
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let observer: Arc<dyn Fn(&Event) + Send + Sync> = Arc::new({
+            let seen = seen.clone();
+            move |e| match e {
+                Event::Failed {
+                    tier,
+                    error,
+                    failures,
+                } => {
+                    assert_eq!(*failures, 1, "{tier}: {error}");
+                    seen.lock()
+                        .unwrap()
+                        .push((Some(*tier), error.to_string(), *failures));
+                }
+                Event::Recovered { failures } => {
+                    seen.lock().unwrap().push((None, String::new(), *failures));
+                }
+                _ => {}
+            }
+        });
+        let (task, mut rx) = start(&t.store, &node, options(observer));
+        let p = until_done(&mut rx).await;
+        task.abort();
+
+        assert_eq!((p.totals_written, p.rates_written), (18, 18));
+        assert_eq!(
+            *seen.lock().unwrap(),
+            [(Some("totals"), message, 1), (None, String::new(), 1)]
+        );
+    }
 }
 
 #[tokio::test(start_paused = true)]
@@ -1514,7 +1668,7 @@ async fn table_reads_benchmark() {
     time!("row_counts", row_counts(&store).await.unwrap());
     time!(
         "backfill pass on a new tip",
-        backfill::totals_step(&store, &node, tip - ZONE, &Reorgs::default())
+        backfill::totals_step(&store, &node, 0, tip - ZONE, &Reorgs::default())
             .await
             .unwrap()
     );

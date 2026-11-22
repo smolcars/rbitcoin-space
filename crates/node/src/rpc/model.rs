@@ -28,6 +28,8 @@ pub struct BlockchainInfo {
     pub chainwork: String,
     pub size_on_disk: u64,
     pub pruned: bool,
+    /// The last height rbitcoin has pruned, absent until it drops data.
+    pub pruneheight: Option<u32>,
 }
 
 /// `getblockheader` with `verbose = true`.
