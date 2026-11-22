@@ -1,8 +1,8 @@
 # Addresses
 
-What an address, a public key or a script has received and spent: its totals, its unspent outputs and its transactions, newest first. These are rbitcoin's Esplora routes, with the node's own status codes and bodies.
+What an address, a public key or a script has received and spent: its totals, its unspent outputs and its transactions, newest first. These are rbitcoin's Esplora routes. A successful answer is the node's own body. Parameters are checked here first, and an error is this server's own JSON, for example `400` `{"error": "invalid address"}` for a malformed address.
 
-Every route here is under the REST base: `/api` on mainnet, `/signet/api`, `/testnet4/api` and `/testnet5/api` on the others. They need the node's address index; where it is off, every one answers `503` `address index is disabled on this server`.
+Every route here is under the REST base: `/api` on mainnet, `/signet/api`, `/testnet4/api` and `/testnet5/api` on the others. They need the node's address index; where it is off, every one answers `503` `address index is disabled on this server`, except `/txs/mempool`, which reads only the mempool and is served without it.
 
 ## What can name a script
 
@@ -145,7 +145,7 @@ The answer lists 136 outputs. The first:
 
 ## GET /api/address/:address/txs
 
-The address's unconfirmed transactions, then its 25 newest confirmed ones, each in the shape of [`/api/tx/:txid`](/docs/api/transactions). Takes `?asof=` and `?after_txid=`.
+The address's unconfirmed transactions, at most 50, then its 25 newest confirmed ones, each in the shape of [`/api/tx/:txid`](/docs/api/transactions). Takes `?asof=` and `?after_txid=`. With `?asof=` the unconfirmed part is left out.
 
 ```sh
 curl https://rbitcoin.space/api/address/12cbQLTFMXRnSzktFkuoG3eHoMeFtpTu3S/txs
@@ -251,9 +251,11 @@ curl https://rbitcoin.space/api/address/12cbQLTFMXRnSzktFkuoG3eHoMeFtpTu3S/txs/s
 
 ## Paging through a history
 
-1. Ask `/txs/chain` (or `/txs/summary`) for the newest 25.
-2. Ask again with the last txid of that page as the cursor: `/txs/chain/:last_seen_txid`, or `?after_txid=` on `/txs` and `/txs/summary`.
-3. Stop when a page holds fewer than 25.
+1. Ask `/txs/chain` for the newest 25 confirmed transactions.
+2. Ask `/txs/chain/:last_seen_txid`, with the last txid of that page as the cursor.
+3. Repeat with the last txid of each new page. Stop when a page holds fewer than 25.
+
+`/txs/summary` pages the same way, with `/txs/summary/:last_seen_txid` or `?after_txid=`. The 25-row rule counts confirmed rows: the first `/txs` page also starts with up to 50 unconfirmed transactions, so page through `/txs/chain` rather than `/txs`.
 
 Pass the same `?asof=<blockhash>` on every page, for example the `X-Bitcoin-Chain-Tip` of the first answer, and a new block cannot shift the pages under you. A block not on the best chain is `404` `not found`.
 
@@ -262,7 +264,7 @@ Pass the same `?asof=<blockhash>` on every page, for example the `X-Bitcoin-Chai
 | `last_seen_txid`, `after_txid` | A txid in this history: exactly 64 hex digits |
 | `asof`                         | A block hash on the best chain                |
 
-`422` `after_txid not found` when the cursor is a txid but not one in this address's history. `400` `invalid after_txid` when it is not a txid.
+`422` `after_txid not found` when the cursor is a txid but not one in this address's history. When it is not a txid, a path cursor is `400` `invalid txid` and `?after_txid=` is `400` `invalid after_txid`.
 
 The chain-tip headers on these routes name the height the node's address index has reached, which can be a moment behind the tip.
 
@@ -275,7 +277,7 @@ Some addresses have been paid by millions of transactions. Adding one up can tak
 | `503` `address history too large for this server`                                | The node refuses to add up an address this large, for its totals, unspent outputs or a history page                                                            | Ask again in a few minutes, or use `/txs/mempool`, which is never refused for size |
 | `504` `request timed out`                                                        | The node took over 5 s on a page of history or on totals. The same page asked again within 5 minutes gets this at once                                         | Wait a few minutes before asking that page again                                   |
 | `503` `node busy; retry` with `Retry-After: 1`                                   | The totals or unspent outputs of an address not yet known to be small wait their turn behind one such call at a time for the whole server; this one waited 5 s | Retry after a second                                                               |
-| `503` `unspent outputs and older history are not kept for an address this large` | `/utxo`, or totals with `?asof=`, of a very large address whose totals the server keeps itself                                                                 | Not served for that address                                                        |
+| `503` `unspent outputs and older history are not kept for an address this large` | `/utxo`, totals with `?asof=`, or a history page with `?asof=` older than the last 100 blocks, of a very large address whose totals the server keeps itself    | Not served for that address                                                        |
 
 rbitcoin.space keeps its own running totals for many very large addresses. For those, `/api/address/:address` answers in the usual shape without asking the node: `chain_stats` is exact at the block named by `X-Bitcoin-Chain-Tip`, `mempool_stats` is counted from at most 50 unconfirmed transactions (with 50, `X-Mempool-Stats-Partial: true` says there may be more), and the answer is `Cache-Control: no-store`. Where the server also holds the address's whole history, its history pages answer from it in the node's shapes and order, with `tx_position` left out of summary rows, and take `?asof=` for any of the last 100 blocks.
 
@@ -289,7 +291,7 @@ These routes can cost the node far more than a lookup, so each client has a smal
 | 4 running or waiting at once                               | `429` with `Retry-After: 1`                    |
 | 4 running and 8 waiting per network, for everyone together | `503` `node busy; retry` with `Retry-After: 1` |
 
-`/api/txs/outspends` and `POST /api/block-heights/txs/outs` ([Transactions](/docs/api/transactions)) share the allowance.
+`/api/txs/outspends` and `POST /api/block-heights/txs/outs` ([Transactions](/docs/api/transactions)), and [`POST /api/v1/prevouts`](/docs/api/v1/transactions), share the allowance.
 
 ## Not served
 
@@ -300,7 +302,7 @@ These routes can cost the node far more than a lookup, so each client has a smal
 | Status | Message                                                                   | When                                                     |
 | ------ | ------------------------------------------------------------------------- | -------------------------------------------------------- |
 | `400`  | `invalid address`, `address is for another network`, `invalid scripthash` | The address, key or hash does not parse for this network |
-| `400`  | `invalid after_txid`, `invalid asof`                                      | A cursor or pin that is not a hash                       |
+| `400`  | `invalid txid`, `invalid after_txid`, `invalid asof`                      | A path cursor, `?after_txid=` or pin that is not a hash  |
 | `422`  | `after_txid not found`                                                    | The cursor is not in this history                        |
 | `503`  | `address index is disabled on this server`                                | The node has no address index                            |
 | `503`  | `chain tip moved during the request; retry`                               | The chain moved under a pinned read. Ask again           |

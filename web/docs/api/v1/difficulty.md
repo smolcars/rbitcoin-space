@@ -6,7 +6,7 @@ Every route here is under the explorer routes' base: `/api/v1` on mainnet, `/sig
 
 ## GET /api/v1/difficulty-adjustment
 
-Progress through the current 2016-block period and the expected change at the next adjustment. Worked out once per new block, from block timestamps.
+Progress through the current 2016-block period and the expected change at the next adjustment. The period's blocks are read once per new block, and the fields that depend on the time, such as `estimatedRetargetDate` and `expectedBlocks`, are worked out again on each request.
 
 ```sh
 curl https://rbitcoin.space/api/v1/difficulty-adjustment
@@ -33,7 +33,7 @@ curl https://rbitcoin.space/api/v1/difficulty-adjustment
 | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `progressPercent`       | Blocks mined after the period's first block, out of 2016, in percent                                                                                             |
 | `difficultyChange`      | The expected change at the next adjustment, in percent, if the rest of the period goes at its average pace so far. Exact once the tip is the period's last block |
-| `estimatedRetargetDate` | When the next period's first block is expected, Unix milliseconds                                                                                                |
+| `estimatedRetargetDate` | When the next period's first block is expected, Unix milliseconds: the wall clock now plus `remainingTime`                                                       |
 | `remainingBlocks`       | Blocks still to mine, up to and including the next period's first block                                                                                          |
 | `remainingTime`         | `remainingBlocks` times `timeAvg`, milliseconds                                                                                                                  |
 | `previousRetarget`      | The change at the adjustment that started this period, in percent                                                                                                |
@@ -44,7 +44,7 @@ curl https://rbitcoin.space/api/v1/difficulty-adjustment
 | `timeOffset`            | Always `0`                                                                                                                                                       |
 | `expectedBlocks`        | The blocks the period would have by now at one every 10 minutes                                                                                                  |
 
-The projection follows the consensus rule: the adjustment measures the time from the period's first block to its last, clamps it to between a quarter of and four times two weeks, and stops at the network's minimum difficulty. Because it measures block timestamps, the remaining time is counted from now, or from the tip's timestamp when that is later.
+The projection follows the consensus rule: the adjustment measures the time from the period's first block to its last, clamps it to between a quarter of and four times two weeks, and stops at the network's minimum difficulty. Because it measures block timestamps, the projected next difficulty counts the rest of the period from now, or from the tip's timestamp when that is later. `estimatedRetargetDate` is always counted from the wall clock now.
 
 | Network         | What differs                                                                                                                                                                                                                                                                                                           |
 | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

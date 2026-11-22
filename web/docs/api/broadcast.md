@@ -1,6 +1,6 @@
 # Broadcast
 
-Send a signed transaction to the network through the server's node. It is the only write the API serves. This is rbitcoin's Esplora route, with the node's own answer.
+Send a signed transaction to the network through the server's node. It is the only write the API serves. This is rbitcoin's Esplora route. A success is the node's own answer; an error is this server's own JSON, below.
 
 The route is under the REST base: `/api` on mainnet, `/signet/api`, `/testnet4/api` and `/testnet5/api` on the others. Try a transaction on signet or a testnet before mainnet.
 

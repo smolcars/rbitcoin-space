@@ -98,8 +98,8 @@ The server sends the characters of `coinbaseSignatureAscii` as UTF-8; the exampl
 | `avgFee`, `avgFeeRate`                                        | Fees over the transactions that pay one, in sats; fees over their weight / 4, in sat/vB with three decimals                                                                                                                                      |
 | `virtualSize`                                                 | Weight / 4                                                                                                                                                                                                                                       |
 | `coinbaseRaw`, `coinbaseSignatureAscii`                       | The coinbase input's script as hex, and as one Latin-1 character per byte. Written by the miner: treat it as untrusted text                                                                                                                      |
-| `coinbaseAddresses`, `coinbaseAddress`                        | The addresses the coinbase pays, at most the first 8, and the first of them. `null` and `[]` when it pays none                                                                                                                                   |
-| `coinbaseSignature`                                           | The first coinbase output's script, as assembly                                                                                                                                                                                                  |
+| `coinbaseAddresses`, `coinbaseAddress`                        | The addresses the coinbase pays, at most the first 8, and the first of them. `[]` and `null` when it pays none                                                                                                                                   |
+| `coinbaseSignature`                                           | The script of the first coinbase output that pays more than zero, as assembly. `null` when none does                                                                                                                                             |
 | `header`                                                      | The 80-byte header as hex                                                                                                                                                                                                                        |
 | `pool`                                                        | Who mined it: `{id, name, slug, minerNames}`, `minerNames` always `null`. See [Mining](/docs/api/v1/mining) for how a miner is named                                                                                                             |
 | `matchRate`, `expectedFees`, `expectedWeight`                 | The block's audit (below). `null` when the server did not watch the block arrive                                                                                                                                                                 |
@@ -183,6 +183,17 @@ curl https://rbitcoin.space/api/v1/block/0000000000000000000169e2a41d88fc4452e44
 
 A txid that is not in the block is `404` `transaction not found in this block`. Cached as the summary, `immutable`.
 
+### Limits on summaries
+
+A summary the server does not hold yet is worked out from the node, so the two summary routes have limits of their own, on top of the general one. Asking for a summary already held, or one being worked out for someone else, costs nothing against them.
+
+| Allowance                                                          | Past it                                         |
+| ------------------------------------------------------------------ | ----------------------------------------------- |
+| Per client: 10 summaries started at once, then one every 2 seconds | `429` `too many requests` with `Retry-After: 2` |
+| Per network, for everyone: 6 summaries running or waiting          | `503` `server busy` with `Retry-After: 1`       |
+
+`503` `node busy` when the node's own queue is full. Ask again a moment later.
+
 ## GET /api/v1/blocks/tip/height
 
 The height of the newest block, as plain text. The same answer as `GET /api/blocks/tip/height` ([Blocks](/docs/api/blocks)), sharing its one-second cache.
@@ -211,7 +222,7 @@ When a block arrives, the server compares it with the block it expected on that 
 
 `matchRate` is the share of the expected virtual size that was matched or displaced, leaving out fresh and conflicted transactions, in percent, two decimals, rounded down. 100 means nothing was missing. `expectedFees` and `expectedWeight` are the expected block's total fees in sats and its weight.
 
-A block has an audit only if this server watched it arrive with a current projection. Blocks from before the server ran, from a restart or a gap have none, and an audit cannot be made later. Every route here answers such a block with `404` `audit not available`, which never turns into an audit later. An audit that exists never changes, so it is cached with `public, max-age=31536000, immutable`; a `404` is not cached.
+A block has an audit only if this server watched it arrive with a current projection. Blocks from before the server ran, from a restart or a gap have none, and an audit cannot be made later. The lookups of one block's audit (`/audit/score/:hash`, `/audit-summary`, `/mining/blocks/audit/:hash` and `/tx/:txid/audit`) answer such a block with `404` `audit not available`, which never turns into an audit later. An audit that exists never changes, so those lookups are cached with `public, max-age=31536000, immutable`; a `404` is not cached. The score lists and predictions instead leave unaudited heights out, can be `200` `[]`, and are `public, max-age=1`.
 
 ## GET /api/v1/mining/blocks/audit/score/:hash
 
@@ -373,5 +384,7 @@ curl https://rbitcoin.space/api/v1/block/0000000000000000000169e2a41d88fc4452e44
 - `404` `audit not available`: the block has no audit.
 - `503` `not ready yet; retry` with `Retry-After: 1`: the server has not caught up with the newest block yet, or the chain moved while the answer was read. It follows a new block within about a second.
 - `400` `invalid interval` on `predictions`.
+- `503` `block extras need a block table on this server`: a server run without a block table, on the routes that carry `extras`.
+- `503` `block audits need a block table on this server`: the same, on the audit routes.
 
 The other errors are in [Limits and errors](/docs/limits).

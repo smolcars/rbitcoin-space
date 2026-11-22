@@ -29,6 +29,8 @@ The server fills its block history newest first, so a server that has just start
 | `X-Data-From-Height`, `X-Data-From-Time` | The earliest block the answer includes, and its timestamp in Unix seconds. Absent when it includes none                                  |
 | `X-Data-Complete`                        | `true` when the answer covers the whole period asked for (from genesis for `all`, a pool's statistics and its blocks); `false` otherwise |
 
+Every route below carries them except `GET /api/v1/mining/pools`, the fixed list of pools, which sends none. On a pool's blocks (`/mining/pool/:slug/blocks` and `/blocks/:height`) and on `/mining/blocks/timestamp/:timestamp`, they describe the span of block history the server holds, not the rows returned: `X-Data-From-Height` is the lowest block held, which can be below every row in the answer, and `X-Data-Complete` is `true` when that history reaches genesis.
+
 When `X-Data-Complete` is `false`, say "data from ... onward" rather than drawing zeros. Fee rates are kept for about the last year of blocks: a fee-rate point appears only when every block in it has its fee rates, and a period reaching further back is `false`.
 
 ## GET /api/v1/mining/pools

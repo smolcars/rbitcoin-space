@@ -74,7 +74,7 @@ Points are aligned to multiples of the step in UTC, and the newest point is the 
 | 5 to 10                     | `[5, 6)`, index 5   |
 | 10 and up                   | `[10, 12)`, index 8 |
 
-Every other range reads `0`. So the virtual size at or above 1, 2, 3, 5 and 10 sat/vB is exact and the ranges sum to the whole mempool, but what pays 3 to 5, 5 to 10 or over 10 sat/vB shows in the lowest range of its band. A rate counts as it prints at two decimals, so 0.996 sat/vB is in `[1, 2)`, and a transaction counts at the rate of the package it would be mined in.
+Every other range reads `0`. So the virtual size at or above 1, 2, 3, 5 and 10 sat/vB is exact and the ranges sum to the whole mempool, but what pays 3 to 5, 5 to 10 or over 10 sat/vB shows in the lowest range of its band. A point that averages several samples rounds each range on its own, so its ranges can sum to a few vbytes more or less than the mean mempool size. A rate counts as it prints at two decimals, so 0.996 sat/vB is in `[1, 2)`, and a transaction counts at the rate of the package it would be mined in.
 
 ## Coverage
 

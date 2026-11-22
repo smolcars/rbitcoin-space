@@ -1,6 +1,6 @@
 # Transactions
 
-One transaction by its txid: its fields, raw bytes, confirmation, merkle proofs and what spent its outputs. Also outputs looked up by their place in a block, which needs no address index. These are rbitcoin's Esplora routes, with the node's own status codes and bodies.
+One transaction by its txid: its fields, raw bytes, confirmation, merkle proofs and what spent its outputs. Also outputs looked up by their place in a block, which needs no address index. These are rbitcoin's Esplora routes. A successful answer is the node's own body. Parameters are checked here first, and an error is this server's own JSON, for example `400` `{"error": "invalid txid"}` for a malformed txid.
 
 Every route here is under the REST base: `/api` on mainnet, `/signet/api`, `/testnet4/api` and `/testnet5/api` on the others. To send a transaction, see [Broadcast](/docs/api/broadcast).
 
@@ -162,6 +162,8 @@ curl https://rbitcoin.space/api/tx/f4184fc596403b9d638783cf57adfe4c75c605f6356fb
 | --------- | -------------------------------------------- |
 | `vout`    | Decimal digits, the output's position from 0 |
 
+An output index the transaction does not have is not an error: it answers `200` `{"spent":false}` too. To know an output exists, read the transaction or [`/tx/:txid/out/:vout`](#get-api-tx-txid-out-vout).
+
 ## GET /api/tx/:txid/outspends
 
 The same for every output of the transaction, in output order. Takes `?asof=`.
@@ -260,7 +262,7 @@ curl https://rbitcoin.space/api/tx/f4184fc596403b9d638783cf57adfe4c75c605f6356fb
 }
 ```
 
-When you need one output, this is cheaper than `/outspend` and `/tx` together.
+When you need one output, this is cheaper than `/outspend` and `/tx` together. An output that does not exist is `404` `not found`, and so is the genesis block's coinbase output, which was never spendable and is not indexed.
 
 ## GET /api/block-height/:height/tx/:index
 
@@ -336,11 +338,11 @@ curl "https://rbitcoin.space/api/tx/f4184fc596403b9d638783cf57adfe4c75c605f6356f
 
 ## Errors
 
-| Status | Message                                                  | When                                                          |
-| ------ | -------------------------------------------------------- | ------------------------------------------------------------- |
-| `400`  | `invalid txid`                                           | Not exactly 64 hex digits                                     |
-| `400`  | `invalid vout`, `invalid height`, `invalid index`        | Not decimal digits, or too large                              |
-| `400`  | `unexpected query parameter`, `repeated query parameter` | A query parameter the route does not take, or one given twice |
-| `404`  | `not found`                                              | No such transaction or output                                 |
+| Status | Message                                                  | When                                                                                                                    |
+| ------ | -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `400`  | `invalid txid`                                           | Not exactly 64 hex digits                                                                                               |
+| `400`  | `invalid vout`, `invalid height`, `invalid index`        | Not decimal digits, or too large                                                                                        |
+| `400`  | `unexpected query parameter`, `repeated query parameter` | A query parameter the route does not take, or one given twice                                                           |
+| `404`  | `not found`                                              | No such transaction, or no such output on the `/out` routes. `/outspend` answers `{"spent":false}` for a missing output |
 
 The rest, and how to retry, are in [Limits and errors](/docs/limits).

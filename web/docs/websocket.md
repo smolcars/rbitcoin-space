@@ -6,7 +6,7 @@ The socket is `wss://rbitcoin.space/api/v1/ws` on mainnet, and `wss://rbitcoin.s
 
 ## Messages
 
-A client sends text frames, each one JSON object. An object may hold several of the keys below; each is handled. The server answers with text frames, each one JSON object with one key, named below.
+A client sends text frames, each one JSON object. An object may hold several of the keys below; each is handled. The server answers with text frames, each one JSON object, named below by its key. Most have one key; the answer to `init` and each `stats` message carry several.
 
 | Send                                             | Does                                                                                   |
 | ------------------------------------------------ | -------------------------------------------------------------------------------------- |
@@ -114,11 +114,11 @@ The backend's details, as `GET /api/v1/backend-info` gives them, and the difficu
 { "action": "want", "data": ["blocks", "stats", "mempool-blocks", "live-2h-chart"] }
 ```
 
-Replaces the set of parts this socket receives; other names are ignored, and `"data":[]` stops them all. Each newly wanted part sends its current state at once, then every change. `live-2h-chart` sends nothing until its next sample.
+Replaces the set of parts this socket receives; other names are ignored, and `"data":[]` stops them all. Each newly wanted part sends its current state at once, then every change. A part already wanted sends nothing again. `live-2h-chart` sends nothing until its next sample.
 
 ### blocks
 
-`{"blocks":[...]}` at once: the last 8 blocks, oldest first, each as `GET /api/v1/blocks` lists it ([Blocks](/docs/api/v1/blocks)). Then `{"block":{...}}` for each new block, in the same shape. One block, with `extras` cut to four of its fields:
+`{"blocks":[...]}` at once: the last 8 blocks, oldest first, each as `GET /api/v1/blocks` lists it ([Blocks](/docs/api/v1/blocks)). Then `{"block":{...}}` for each new block, in the same shape. On a server without a block table (one run without a data directory), both carry the node's Esplora block JSON instead, as [`GET /api/block/:hash`](/docs/api/blocks) serves it, with no `extras` or `stale`. One block, with `extras` cut to four of its fields:
 
 ```json
 {
@@ -145,7 +145,7 @@ Replaces the set of parts this socket receives; other names are ignored, and `"d
 }
 ```
 
-A `block` is sent once the server has worked out its extras, a few seconds after the block arrives, and never without them. Several new blocks at once come as one `block` each, oldest first. A reorg, or 8 or more new blocks at once, sends one `blocks` with the new list instead. Only best-chain blocks are sent, and none twice. The `extras` lack some of mempool.space's fields (`orphans`, `utxoSetChange`, `avgTxSize`, `totalInputs`, `totalOutputs`, `totalOutputAmt`, `segwitTotalTxs`, `segwitTotalSize`, `segwitTotalWeight`, `coinbaseBip54`, `similarity`).
+Where the server has a block table, a `block` is sent once the server has worked out its extras, a few seconds after the block arrives, and never without them. Several new blocks at once come as one `block` each, oldest first. A reorg, or 8 or more new blocks at once, sends one `blocks` with the new list instead. Only best-chain blocks are sent, and none twice. The `extras` lack some of mempool.space's fields (`orphans`, `utxoSetChange`, `avgTxSize`, `totalInputs`, `totalOutputs`, `totalOutputAmt`, `segwitTotalTxs`, `segwitTotalSize`, `segwitTotalWeight`, `coinbaseBip54`, `similarity`).
 
 The coinbase fields in `extras` are text a miner chose. Never put them into a page as HTML.
 
@@ -234,7 +234,7 @@ A key the server has nothing for yet is left out.
 }
 ```
 
-After a `block`, the next `mempool-blocks` is the projection on top of that block.
+After a `block`, the next `mempool-blocks` is normally the projection on top of that block. A projection on another block than the last `block` sent waits for that block's message at most 3 seconds, then goes out anyway, so a `mempool-blocks` cannot always be paired with the last `block`.
 
 ### live-2h-chart
 
@@ -304,7 +304,7 @@ Follows one address of this network, bech32 in either case. A new one replaces t
 { "track-addresses": ["bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq"] }
 ```
 
-Follows a set, replacing the last set; `[]` stops it. Duplicates count once. Each change comes as one message per address:
+Follows a set, replacing the last set; `[]` stops it. Duplicates count once, but a list of more than 2 entries is refused before duplicates are removed. Each change comes as one message per address:
 
 ```json
 {"multi-address-transactions":{"<address>":{"mempool":[...],"confirmed":[...],"removed":[]}}}
@@ -315,7 +315,7 @@ The address is written in lower case for bech32, and `removed` is always empty.
 What a client should know:
 
 - A socket follows at most 2 addresses, `track-address` and `track-addresses` together; mempool.space allows 10. Over it, `track-addresses` is answered `{"track-addresses-error":"..."}` and changes nothing, and `track-address` is answered `{"track-address-error":"..."}`.
-- Starting to follow addresses is limited per client address, both kinds together: 30 at once, then 2 a second. Over it the error says `too many new addresses from this client; retry in a moment`, and the socket stays open.
+- Starting to follow addresses is limited per client address, both kinds together: 30 tokens at once, then 2 a second. Following an address no socket follows yet takes two tokens, so fresh addresses go 15 at once, then 1 a second. Over it the error says `too many new addresses from this client; retry in a moment`, and the socket stays open.
 - Between two changes at most 50 mempool and 25 confirmed transactions are read, so a burst larger than that is not all sent.
 - A transaction that leaves the mempool without confirming is not reported.
 - An address whose history is too large for the node to watch gets no messages.
@@ -337,6 +337,8 @@ Then at most one change every 2 seconds, at once on a new block, and none when n
 ```json
 {"projected-block-transactions":{"index":0,"sequence":2,"delta":{"added":[["<txid>",fee,vsize,value,rate,flags,firstSeen]],"removed":["<txid>"],"changed":[["<txid>",rate,flags,0]]}}}
 ```
+
+A later message can also carry the whole list again, `blockTransactions` in place of `delta`, for example when a new block changes most of the projected block. Handle both: on `blockTransactions`, replace the list you hold.
 
 Each transaction is its fee in sats, its sigop-adjusted vsize, its total output value in sats, its effective rate in sat/vB, its [flags](/docs/api/v1/transactions) as a number, and when it was first seen in Unix seconds. `sequence` rises by one with each message for that block; when one does not follow, ask for the block again. Block 7 holds the rest of the mempool with no bound and is answered `{"track-mempool-block-error":"projected blocks 0 to 6 are served"}`, as is any number above it.
 
@@ -390,23 +392,24 @@ Where the server does not track the mempool, neither feed sends anything.
 | Text that is not JSON                                                                                                                      | Close `4000`                                                                                                                            |
 | JSON it does not understand: an unknown key or `action`, a value of the wrong type, a txid or address that does not parse for this network | Nothing; the socket stays open                                                                                                          |
 | `track-mempool`, `track-mempool-txids`, `track-txs`, `track-scripthashes`, `track-accelerations`                                           | `{"<key>-error":"not served by this server"}`, for example `{"track-mempool-error":"not served by this server"}`; the socket stays open |
-| `refresh-blocks` and mempool.space's other keys                                                                                            | Nothing. To get the block list again, send `want` with `blocks`                                                                         |
+| `refresh-blocks` and mempool.space's other keys                                                                                            | Nothing. To get the block list again, send `want` without `blocks`, then with it, or reconnect. The same `want` again sends nothing     |
 
 After a reconnect, send everything again: the server keeps nothing for a socket that closed.
 
 ## Limits
 
-| Rule                                              | Limit                                             | Past it                                          |
-| ------------------------------------------------- | ------------------------------------------------- | ------------------------------------------------ |
-| Sockets per client address                        | 4                                                 | The upgrade is refused with `429`                |
-| Sockets on the server, every network together     | 256                                               | The upgrade is refused with `503`                |
-| A message from the client                         | 1,024 bytes, about twenty addresses               | Close `1009`                                     |
-| Messages from the client                          | 10 a second, with a burst of 10                   | Close `4002`                                     |
-| Transactions followed                             | 1; a new `track-tx` replaces the last             |                                                  |
-| Addresses followed                                | 2, `track-address` and `track-addresses` together | `track-address-error` or `track-addresses-error` |
-| New addresses followed, per client address        | 30 at once, then 2 a second                       | `track-address-error` or `track-addresses-error` |
-| Messages waiting for a client that is not reading | 64                                                | Close `4003`                                     |
-| Silence                                           | 60 seconds                                        | Close `4004`                                     |
+| Rule                                              | Limit                                                                                                                        | Past it                                                                                                     |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Sockets per client address                        | 4                                                                                                                            | The upgrade is refused with `429`                                                                           |
+| Sockets on the server, every network together     | 256                                                                                                                          | The upgrade is refused with `503`                                                                           |
+| A message from the client                         | 1,024 bytes, about twenty addresses                                                                                          | Close `1009`                                                                                                |
+| Messages from the client                          | 10 a second, with a burst of 10. Every frame counts, pings and pongs included                                                | Close `4002`                                                                                                |
+| Subscriptions per socket                          | 8 in all: the parts wanted, the followed transaction, the followed addresses, the projected block, the two replacement feeds | Close `4001` from `want`; `{"<key>-error":"too many subscriptions on this connection"}` from a `track-` key |
+| Transactions followed                             | 1; a new `track-tx` replaces the last                                                                                        |                                                                                                             |
+| Addresses followed                                | 2, `track-address` and `track-addresses` together. A `track-addresses` list is counted before duplicates are removed         | `track-address-error` or `track-addresses-error`                                                            |
+| New addresses followed, per client address        | 30 tokens at once, then 2 a second. An address no socket follows yet takes two: 15 at once, then 1 a second                  | `track-address-error` or `track-addresses-error`                                                            |
+| Messages waiting for a client that is not reading | 64                                                                                                                           | Close `4003`                                                                                                |
+| Silence                                           | 60 seconds                                                                                                                   | Close `4004`                                                                                                |
 
 Clients are counted by IPv4 address or IPv6 /64. When the server is following as many transactions or addresses as it can for a network, the same error keys say it is full. The `-error` messages leave the socket open, and what the message asked to stop is still stopped.
 
@@ -430,7 +433,7 @@ Clients are counted by IPv4 address or IPv6 /64. When the server is following as
 
 | What                                           | Here                                                                                                                                                                                                        |
 | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Frames                                         | One part per message, never several in one frame                                                                                                                                                            |
+| Frames                                         | One part per message, never several in one frame. Only `init` and `stats` carry several keys                                                                                                                |
 | `init`                                         | Only `loadingIndicators`, `backend`, `backendInfo` and `da`; the rest comes with `want`, and the replacements with `track-rbf-summary`                                                                      |
 | `stats`                                        | Every 2 seconds, not every second                                                                                                                                                                           |
 | `vBytesPerSecond`                              | The last whole minute's inflow, changing once a minute                                                                                                                                                      |

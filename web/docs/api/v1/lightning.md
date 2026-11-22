@@ -2,7 +2,7 @@
 
 The public Lightning network as this server's own gossip peer sees it: network totals, nodes, channels, search and rankings. Nothing here asks the node.
 
-Every route here is under the explorer routes' base: `/api/v1/lightning` on mainnet, `/signet/api/v1/lightning`, `/testnet4/api/v1/lightning` and `/testnet5/api/v1/lightning` on the others. The shapes match mempool.space's, so a client written for it reads them unchanged. The values are this server's, and differ from mempool.space's where this page says.
+Every route here is under the explorer routes' base: `/api/v1/lightning` on mainnet, `/signet/api/v1/lightning` and `/testnet4/api/v1/lightning` on the others. There is no Lightning on Testnet 5. Where Lightning is off, on Testnet 5 or on a server that does not run it, every route answers `503` `lightning is off on this network`; `lightning` in [`GET /api/v1/backend-info`](/docs/api/v1/difficulty#get-api-v1-backend-info) says whether it is on. The shapes match mempool.space's, so a client written for it reads them unchanged. The values are this server's, and differ from mempool.space's where this page says.
 
 ## What the data covers
 
@@ -13,7 +13,7 @@ Every route here is under the explorer routes' base: `/api/v1/lightning` on main
 
 > Aliases are text that strangers wrote. Any node can announce any name, another node's included, and search returns the impostor too. Identify a node by its public key, show the key beside the alias, and never put an alias into a page as HTML.
 
-Answers are cached for 10 seconds (`Cache-Control: public, max-age=10`).
+Answers are cached for 10 seconds (`Cache-Control: public, max-age=10`), except `/statistics/latest`, which is `Cache-Control: no-cache`.
 
 ## GET /api/v1/lightning/statistics/latest
 
@@ -56,6 +56,8 @@ curl https://rbitcoin.space/api/v1/lightning/statistics/latest
 | `avg_base_fee_mtokens`, `med_base_fee_mtokens`                           | Base fee, millisatoshis                                                    |
 
 The averages leave out policies above 1,000,000 ppm or 1,000,000 msat, which refuse to route; the medians count every policy. Every value is a whole number.
+
+`404` `no lightning statistics yet` until there are any: until the graph first syncs or a snapshot is stored.
 
 ## GET /api/v1/lightning/statistics/:interval
 
@@ -322,7 +324,7 @@ The answer, cut to the first of 10:
 ]
 ```
 
-Open channels come largest first, closed ones newest close first. `node` is the peer at the other end, and `fee_rate` is what the asked node charges on the channel, in ppm; it is `null` on a closed channel. `X-Total-Count` gives the node's total channels of that status, whatever the page. A page past the end is `[]`.
+Open channels come largest first, closed ones newest close first. `node` is the peer at the other end, and `fee_rate` is what the asked node charges on the channel, in ppm; it is `null` on a closed channel. `X-Total-Count` gives the node's total channels of that status, whatever the page. A script on another website cannot read it: the server does not expose it to cross-origin requests. A page past the end is `[]`.
 
 With `index=-1` each item is `{capacity, short_id, id, node: {alias, public_key}}`.
 
@@ -383,18 +385,18 @@ curl https://rbitcoin.space/api/v1/lightning/channels/811984x2037x0
 }
 ```
 
-| Field                                                   | Means                                                                                                                                |
-| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `id`, `short_id`                                        | The channel id in decimal, as a string, and as `<height>x<index>x<output>`                                                           |
-| `capacity`                                              | Sats                                                                                                                                 |
-| `transaction_id`, `transaction_vout`                    | The funding output. `transaction_id` is `null` until the server has read the funding transaction                                     |
-| `closing_transaction_id`, `closing_fee`, `closing_date` | The close, when there is one. `closing_date` is the closing block's time; `closing_fee` is `null` when not known                     |
-| `closing_reason`                                        | 1 cooperative, 2 force, 3 a breach, `null` for a close that is none of those or for an open channel                                  |
-| `status`                                                | 1 when some direction has an enabled policy, 0 when none does, 2 closed                                                              |
-| `created`                                               | The funding block's time                                                                                                             |
-| `updated_at`                                            | The newer of the two policies                                                                                                        |
-| `funding_ratio`, `closed_by`                            | Always `null`: not known here                                                                                                        |
-| `node_left`, `node_right`                               | Each end with its own policy: fees (`base_fee_mtokens` in msat, `fee_rate` in ppm), `cltv_delta`, HTLC limits in msat, `is_disabled` |
+| Field                                                   | Means                                                                                                                                                                     |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`, `short_id`                                        | The channel id in decimal, as a string, and as `<height>x<index>x<output>`                                                                                                |
+| `capacity`                                              | Sats                                                                                                                                                                      |
+| `transaction_id`, `transaction_vout`                    | The funding output. `transaction_id` is `null` until the server has read the funding transaction                                                                          |
+| `closing_transaction_id`, `closing_fee`, `closing_date` | The close, when there is one. `closing_date` is the closing block's time, an ISO 8601 string here but Unix seconds on `/channels`; `closing_fee` is `null` when not known |
+| `closing_reason`                                        | 1 cooperative, 2 force, 3 a breach, `null` for a close that is none of those or for an open channel                                                                       |
+| `status`                                                | 1 when some direction has an enabled policy, 0 when none does, 2 closed                                                                                                   |
+| `created`                                               | The funding block's time                                                                                                                                                  |
+| `updated_at`                                            | The newer of the two policies                                                                                                                                             |
+| `funding_ratio`, `closed_by`                            | Always `null`: not known here                                                                                                                                             |
+| `node_left`, `node_right`                               | Each end with its own policy: fees (`base_fee_mtokens` in msat, `fee_rate` in ppm), `cltv_delta`, HTLC limits in msat, `is_disabled`                                      |
 
 `node_left` is always the lower public key, the channel's first node in BOLT 7's order; mempool.space's left end is not always that one. A closed channel's policies are `null`, since gossip forgets them. `single_funded` and each end's `funding_balance` and `closing_balance` are left out: they cannot be known from the chain and gossip. Status 0 includes channels whose policies went unrefreshed for two weeks and were dropped.
 
@@ -479,7 +481,7 @@ The three capacities are sats and add up to the whole network. `ispRanking`, cap
 
 ## GET /api/v1/lightning/channels-geo
 
-Always `[]`, and so is `/api/v1/lightning/channels-geo/:key`: this server has no location data. mempool.space answers the same for a node with no known place.
+`[]`, and so is `/api/v1/lightning/channels-geo/:key`: this server has no location data. mempool.space answers the same for a node with no known place. A `:key` that is not 66 hex digits is still `400`, and the `503`s below apply as on every route here.
 
 ```sh
 curl https://rbitcoin.space/api/v1/lightning/channels-geo
@@ -495,20 +497,22 @@ These mempool.space routes are `404` here: `/nodes/countries`, `/nodes/country/:
 
 ## Errors
 
-Parameters are checked before anything is read. Unknown query parameters are ignored, so cache-busting works; a parameter given twice is `400`.
+Parameters are checked before anything is read. Unknown query parameters are ignored, so cache-busting works. A parameter given twice is `400` `query parameter given twice`, except `txId[]` on `/channels/txids`, which takes up to 100 values and answers one slot for each.
 
-| Status | Body                                                           | When                                                                                                        |
-| ------ | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `400`  | `invalid public key: 66 hex digits`                            | `:key` or `public_key` is not 66 hex digits                                                                 |
-| `400`  | `invalid channel id: ...`                                      | `:id` is not a channel id in either form, or a part is out of range or has a leading zero                   |
-| `400`  | `invalid txId`                                                 | A `txId[]` is not 64 hex digits                                                                             |
-| `400`  | `at most 100 txids`                                            | More than 100 `txId[]`                                                                                      |
-| `400`  | `invalid interval`                                             | `:interval` is not one of those listed                                                                      |
-| `400`  |                                                                | A bad `status` or `index`                                                                                   |
-| `404`  | `node not found`                                               | A node with no verified open channel here                                                                   |
-| `404`  | `channel not found`                                            | A channel this server does not hold                                                                         |
-| `503`  | `lightning graph is still syncing; retry`                      | Before the first full view of the graph, a few minutes after the server starts. Comes with `Retry-After: 1` |
-| `503`  | `lightning graph is synced but cannot be indexed; retry later` | The server cannot answer from the graph for now                                                             |
-| `503`  | `lightning is off on this network`                             | The server does not run Lightning for this network                                                          |
+| Status | Body                                                                                  | When                                                                                                        |
+| ------ | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `400`  | `invalid public key: 66 hex digits`                                                   | `:key` or `public_key` is not 66 hex digits                                                                 |
+| `400`  | `invalid channel id: ...`                                                             | `:id` is not a channel id in either form, or a part is out of range or has a leading zero                   |
+| `400`  | `invalid txId`                                                                        | A `txId[]` is not 64 hex digits                                                                             |
+| `400`  | `at most 100 txids`                                                                   | More than 100 `txId[]`                                                                                      |
+| `400`  | `invalid interval`                                                                    | `:interval` is not one of those listed                                                                      |
+| `400`  | `public_key is required`, `status is open, active or closed`, `index is -1 to 100000` | On `/channels`: no `public_key`, or a bad `status` or `index`                                               |
+| `404`  | `not found`                                                                           | A `:ranking` that is not `liquidity`, `connectivity` or `age`                                               |
+| `404`  | `no lightning statistics yet`                                                         | `/statistics/latest` before there are any                                                                   |
+| `404`  | `node not found`                                                                      | A node with no verified open channel here                                                                   |
+| `404`  | `channel not found`                                                                   | A channel this server does not hold                                                                         |
+| `503`  | `lightning graph is still syncing; retry`                                             | Before the first full view of the graph, a few minutes after the server starts. Comes with `Retry-After: 1` |
+| `503`  | `lightning graph is synced but cannot be indexed; retry later`                        | The server cannot answer from the graph for now                                                             |
+| `503`  | `lightning is off on this network`                                                    | The server does not run Lightning for this network                                                          |
 
 The other errors are in [Limits and errors](/docs/limits). mempool.space answers some of these in plain text (`Channel not found`); this server always answers with its JSON error body.

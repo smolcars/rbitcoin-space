@@ -1,6 +1,6 @@
 # Mempool
 
-The node's unconfirmed transactions: their count and fee spread, their txids, the newest arrivals, and the fee rates the node estimates. These are rbitcoin's Esplora routes, with the node's own status codes and bodies.
+The node's unconfirmed transactions: their count and fee spread, their txids, the newest arrivals, and the fee rates the node estimates. These are rbitcoin's Esplora routes. A successful answer is the node's own body. Parameters are checked here first, and an error is this server's own JSON, for example `400` `{"error": "invalid txid"}` for a malformed txid.
 
 Every route here is under the REST base: `/api` on mainnet, `/signet/api`, `/testnet4/api` and `/testnet5/api` on the others. Answers here change every moment, so each is cached for one second.
 
@@ -160,7 +160,7 @@ curl https://rbitcoin.space/api/fee-estimates
 
 The keys are the ones mempool.space serves, but the values are rbitcoin's own estimates, so they differ from its numbers. For five ready-made levels worked out from the projected next blocks, use [`/api/v1/fees/precise`](/docs/api/v1/fees).
 
-`503` `node unavailable` while the node has no estimates yet, for example just after it starts. Retry after the seconds in `Retry-After`. The answer carries no chain-tip headers.
+When the node has no estimates yet, for example just after it starts, mainnet answers `503` `node unavailable`; retry after the seconds in `Retry-After`. On signet and the testnets the answer is then `200` `{}` instead. The answer carries no chain-tip headers.
 
 ## Errors
 

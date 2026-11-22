@@ -68,6 +68,8 @@ The answer, cut to the first of 25 trees:
 
 A tree also lists the descendants a replacement removed: a child leaves with its parent and is recorded as replaced by the same transaction.
 
+A tree holds at most 100 transactions, the root included. A longer history is cut, newest first, and nothing in the answer marks the cut.
+
 The root's `fee`, `vsize`, `value`, `rate` and `rbf` are `null` when the server never held it in its mempool, and `time` is then when the replacement was seen. That happens when the replacement was mined in the block that removed the original. When a miner confirms the transaction the server had seen replaced, the mined one becomes the root, as the transaction that pushed out the other, with `null` figures.
 
 The server keeps the newest 10,000 replacements, so a tree older than that is gone.
@@ -127,10 +129,10 @@ curl https://rbitcoin.space/api/v1/tx/76c3cac6a48279004df0b56e46df63003751dfbcb3
 }
 ```
 
-| Field          | Means                                                                                                         |
-| -------------- | ------------------------------------------------------------------------------------------------------------- |
-| `replacements` | The whole tree that holds `txid`, from its newest root, in the shape above. `null` when `txid` is in none     |
-| `replaces`     | The txids `txid` itself replaced directly, its victims' descendants included. `null` when it replaced nothing |
+| Field          | Means                                                                                                                           |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `replacements` | The tree that holds `txid`, from its newest root, in the shape above and cut at 100 transactions. `null` when `txid` is in none |
+| `replaces`     | The txids `txid` itself replaced directly, its victims' descendants included. `null` when it replaced nothing                   |
 
 Asked about the replaced transaction instead (`e09fb8a0...`), the answer has the same tree and `"replaces":null`. A transaction never replaced and never replacing is `{"replacements":null,"replaces":null}`.
 
@@ -245,7 +247,7 @@ curl https://rbitcoin.space/api/v1/validate-address/tb1qw508d6qejxtdg4y5r3zarvar
 { "isvalid": false }
 ```
 
-An address is at most 128 characters. A path that is not UTF-8 once percent-decoded is `400`.
+Anything that is not an address of this network answers `200` `{"isvalid": false}`, a string over 128 characters included. A path that is not UTF-8 once percent-decoded is `400`.
 
 ## POST /api/v1/prevouts
 
@@ -352,4 +354,4 @@ Bits 5 to 7, 15, 27 and 32 (coinjoin) are never set here.
 
 ## Errors
 
-`503` `not ready yet; retry` with `Retry-After: 1` in the first moments after the server starts, before it has read the mempool. Ask again after the second it names. `503` `the mempool engine is off on this server` where the server does not track the mempool. The other errors are in [Limits and errors](/docs/limits).
+`503` `not ready yet; retry` with `Retry-After: 1` on `transaction-times` and `cpfp` in the first moments after the server starts, before it has read the mempool. Ask again after the second it names. `503` `the mempool engine is off on this server` where the server does not track the mempool. The other errors are in [Limits and errors](/docs/limits).

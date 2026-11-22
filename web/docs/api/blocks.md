@@ -1,6 +1,6 @@
 # Blocks
 
-The chain tip, lists of recent blocks, and one block by its hash or height: its fields, header, raw bytes and transactions. These are rbitcoin's Esplora routes, so the routes, status codes and bodies are the node's own, and any Esplora client reads them unchanged.
+The chain tip, lists of recent blocks, and one block by its hash or height: its fields, header, raw bytes and transactions. These are rbitcoin's Esplora routes, and any Esplora client reads them unchanged. A successful answer is the node's own body. Parameters are checked here first, and an error is this server's own JSON, for example `400` `{"error": "invalid block hash"}` for a malformed hash.
 
 Every route here is under the REST base: `/api` on mainnet, `/signet/api`, `/testnet4/api` and `/testnet5/api` on the others.
 
@@ -38,7 +38,7 @@ curl https://rbitcoin.space/api/blocks
 
 ## GET /api/blocks/:start_height
 
-Ten blocks, newest first, starting at `:start_height` and going down. Page backwards by asking again from the lowest height you got, minus one.
+Up to ten blocks, newest first, starting at `:start_height` and going down. Near the start of the chain there are fewer: `/api/blocks/2` gives heights 2, 1 and 0. A start above the tip is read as the tip. Page backwards by asking again from the lowest height you got, minus one, and stop once you have block 0.
 
 ```sh
 curl https://rbitcoin.space/api/blocks/170

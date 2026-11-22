@@ -6,13 +6,13 @@ Every client gets the same allowance, counted by IPv4 address or IPv6 /64. Past 
 
 These are the server's defaults.
 
-| What                                                                            | Allowance                                                 | Past it                                                                    |
-| ------------------------------------------------------------------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------- |
-| Any `/api` or `/app` request                                                    | 20 a second, after a burst of 120; 48 in flight at once   | `429` with `Retry-After: 1`                                                |
-| Address and scripthash routes, `/txs/outspends`, `POST /block-heights/txs/outs` | 30 at once, then 2 a second; 4 running or waiting at once | `429`, or `503` `node busy; retry`, with `Retry-After: 1`                  |
-| Broadcast, `POST /api/tx`                                                       | 5 at once, then one every 10 seconds                      | `429` with `Retry-After: 10`                                               |
-| Following new addresses on the WebSocket                                        | 30 at once, then 2 a second                               | A `track-address-error` saying it is going too fast; the socket stays open |
-| The whole server                                                                | 256 requests in flight                                    | `503`                                                                      |
+| What                                                                                                     | Allowance                                                                      | Past it                                                                    |
+| -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------- |
+| Any `/api` or `/app` request                                                                             | 20 a second, after a burst of 120; 48 in flight at once                        | `429` with `Retry-After: 1`                                                |
+| Address and scripthash routes, `/txs/outspends`, `POST /block-heights/txs/outs`, `POST /api/v1/prevouts` | 30 at once, then 2 a second; 4 running or waiting at once                      | `429`, or `503` `node busy; retry`, with `Retry-After: 1`                  |
+| Broadcast, `POST /api/tx`                                                                                | 5 at once, then one every 10 seconds                                           | `429` with `Retry-After: 10`                                               |
+| Following new addresses on the WebSocket                                                                 | 30 tokens at once, then 2 a second; an address no socket follows yet takes two | A `track-address-error` saying it is going too fast; the socket stays open |
+| The whole server                                                                                         | 256 requests in flight                                                         | `503`                                                                      |
 
 A request may take at most 10 seconds; past that it is `504`. A request body may be at most 16 KiB, except a broadcast, which may carry a transaction of up to 400,000 bytes.
 

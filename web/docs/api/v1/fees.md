@@ -65,14 +65,14 @@ curl https://rbitcoin.space/api/v1/fees/mempool-blocks
 ]
 ```
 
-| Field        | Means                                                                                      |
-| ------------ | ------------------------------------------------------------------------------------------ |
-| `blockSize`  | Bytes                                                                                      |
-| `blockVSize` | Virtual bytes, at most 1,000,000                                                           |
-| `nTx`        | Transactions                                                                               |
-| `totalFees`  | Satoshis                                                                                   |
-| `medianFee`  | sat/vB                                                                                     |
-| `feeRange`   | sat/vB: the lowest, then the 10th, 25th, 50th, 75th and 90th percentiles, then the highest |
+| Field        | Means                                                                                             |
+| ------------ | ------------------------------------------------------------------------------------------------- |
+| `blockSize`  | Bytes                                                                                             |
+| `blockVSize` | Virtual bytes, at most 1,000,000 in every block but the last, which holds the rest of the mempool |
+| `nTx`        | Transactions                                                                                      |
+| `totalFees`  | Satoshis                                                                                          |
+| `medianFee`  | sat/vB                                                                                            |
+| `feeRange`   | sat/vB: the lowest, then the 10th, 25th, 50th, 75th and 90th percentiles, then the highest        |
 
 `503` `the mempool engine is off on this server` where the server does not track the mempool.
 
