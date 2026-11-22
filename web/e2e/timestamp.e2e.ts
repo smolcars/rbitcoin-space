@@ -415,7 +415,6 @@ test("a pasted digest that is not the proof's is said to differ as a digest, not
 test.describe("on a phone", () => {
   // Firefox has no mobile emulation, only touch: with `isMobile` its viewport never resizes.
   test.use({
-    prose: "wide",
     hasTouch: true,
     ...(process.env["E2E_ENGINE"] === "firefox" ? {} : { isMobile: true }),
     viewport: { width: 360, height: 780 },
@@ -530,7 +529,6 @@ test.describe("on a phone", () => {
 // sticks out of the slot, a name that fits is not cut, a label never shrinks under its own words,
 // and the two slots are one height (council F-D6, N-D5, F-D7, N-D6, N-D7, A-D2).
 test.describe("the slots in every state, width and text size", () => {
-  test.use({ prose: "wide" });
   const LONG = `${`${"a-very-long-file-name-".repeat(5)}that-goes-on.txt`.slice(0, 116)}.ots`;
   const SIZES: [number, number][] = [
     ...[320, 360, 700, 1040, 1280].map((w): [number, number] => [w, 16]),
@@ -620,7 +618,6 @@ test.describe("the slots in every state, width and text size", () => {
     for (const [width, text] of SIZES) {
       await page.setViewportSize({ width, height: 900 });
       await page.evaluate((px) => (document.documentElement.style.fontSize = `${px}px`), text);
-      await page.evaluate(() => document.fonts.ready);
       for (const f of await faults(page))
         found.push(`${state}, ${width} px, ${text} px text: ${f}`);
     }

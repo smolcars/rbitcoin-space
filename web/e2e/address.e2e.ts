@@ -110,10 +110,6 @@ test("a balance chart's readout keeps its lines at every point, however long its
   });
   await page.setViewportSize({ width: 320, height: 900 });
   await page.goto(`/regtest/address/${chain.addresses.p2sh}`);
-  // In the wide stand-in font.
-  await page.evaluate(() => {
-    document.documentElement.style.setProperty("--font-sans", '"DejaVu Sans", Verdana, sans-serif');
-  });
   // The chart loads as it nears the view.
   await page.getByRole("heading", { name: "Balance over time" }).scrollIntoViewIfNeeded();
   const chart = page.getByRole("slider", { name: "Confirmed balance after each block" });

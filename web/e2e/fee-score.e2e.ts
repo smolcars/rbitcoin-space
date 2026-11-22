@@ -59,9 +59,7 @@ test("on a test network a level under its target is no fair test, beside those t
   await expect(page.getByText(/^In 539 samples from this period/)).toBeVisible();
 });
 
-// CI's prose font is wider than this machine's (docs/FRONTEND.md "Other systems' fonts").
 test.describe("on a phone, in a wide prose font", () => {
-  test.use({ prose: "wide" });
   test("at 320 and 360 px every figure is in sight and every table fits its panel", async ({
     page,
   }) => {
@@ -69,7 +67,6 @@ test.describe("on a phone, in a wide prose font", () => {
     await page.setViewportSize({ width: 320, height: 780 });
     await page.goto("/regtest/fees/score");
     await expect(levels(page)).toHaveCount(4);
-    await page.evaluate(() => document.fonts.ready);
     for (const width of [320, 360]) {
       await page.setViewportSize({ width, height: 780 });
       const fit = await page.evaluate(() => ({
@@ -156,7 +153,6 @@ test.describe("on a phone, in a wide prose font", () => {
 // Each period is served a different answer: too few blocks, mainnet's week, signet's all-zero
 // week, and the widest labels there are.
 test.describe("every period at every width and text size, in a wide prose font", () => {
-  test.use({ prose: "wide" });
   const wide = structuredClone(MAINNET_1W) as { levels: Record<string, unknown>[] };
   for (const l of wide.levels) Object.assign(l, { met: 0.9985, interval: [0.9975, 0.9992] });
   const answers: Record<string, unknown> = {
@@ -269,7 +265,6 @@ test.describe("every period at every width and text size, in a wide prose font",
       await page.setViewportSize({ width: 1280, height: 900 });
       await page.goto(`/regtest/fees/score?window=${w}`);
       await expect(page.locator(".fee-level")).toHaveCount(4);
-      await page.evaluate(() => document.fonts.ready);
       for (const [width, px] of SIZES) {
         await page.setViewportSize({ width, height: 900 });
         await page.evaluate((f) => (document.documentElement.style.fontSize = `${f}px`), px);

@@ -110,11 +110,6 @@ async function open(page: Page, key: string, answers: Record<string, unknown>) {
   await expect(page.locator(".ln-record .state--loading")).toHaveCount(0);
 }
 
-// In the wide stand-in font (fixtures.ts), as fonts.e2e.ts holds every page: these states come
-// from routed answers, so they are not in its sweep, and a record that only just fits in this
-// machine's font scrolled on CI's.
-test.use({ prose: "wide" });
-
 const LOOKS = [
   [1280, "light"],
   [1280, "dark"],

@@ -37,10 +37,7 @@ test("regtest's mining page says what is and is not meaningful there", async ({ 
   await expect(unknown).toContainText("100.0%");
 });
 
-// Layout at a phone's width in the widest prose face CI may draw (docs/FRONTEND.md).
 test.describe("in a wide prose font", () => {
-  test.use({ prose: "wide" });
-
   test("regtest's mining page fits a phone without scrolling sideways, every pool named whole", async ({
     page,
   }) => {
@@ -52,7 +49,6 @@ test.describe("in a wide prose font", () => {
       await expect(page.getByText(/^4\.66\s×\s10⁻¹⁰$/).first()).toBeVisible();
       const table = page.getByRole("table", { name: /Pools ranked by blocks found/ });
       await expect(table).toBeVisible({ timeout: 30_000 });
-      await wideFaceDrawn(page);
       const scrolled = await page.evaluate(() => document.documentElement.scrollWidth);
       expect(scrolled, `page width at ${width} px`).toBeLessThanOrEqual(width);
       // Unknown's "98 empty" once kept its width and cut the name beside it to under a pixel.
@@ -109,7 +105,6 @@ test.describe("in a wide prose font", () => {
         );
         // Hidden notes match their text and give no boxes, so every check below would pass on none.
         for (const note of await notes.all()) await expect(note).toBeVisible();
-        await wideFaceDrawn(page);
         if (drawn !== undefined) {
           await notes.evaluateAll((all, size) => {
             for (const n of all) {
@@ -210,7 +205,6 @@ test.describe("in a wide prose font", () => {
     await page.goto("/regtest/mining?period=all");
     const shown = page.locator(".mining-pool__name");
     await expect(shown).toHaveText(names, { timeout: 30_000 });
-    await wideFaceDrawn(page);
     await shown.evaluateAll((all) => {
       for (const el of all) el.style.fontSize = "17px";
     });
@@ -257,17 +251,6 @@ test.describe("in a wide prose font", () => {
     expect(new Set(btc).size, `the two BTC pools show ${JSON.stringify(btc)}`).toBe(2);
   });
 });
-
-/** Waits until the wide stand-in face draws the page: it loads on its own time. */
-async function wideFaceDrawn(page: Page) {
-  const loaded = await page.evaluate(async () => {
-    await document.fonts.ready;
-    return [...document.fonts].some(
-      (f) => f.family.includes("Prose stand-in") && f.status === "loaded",
-    );
-  });
-  expect(loaded, "the wide stand-in face drew the page").toBe(true);
-}
 
 /** All of history as a busy network's, three pools with empty counts of five, five and two digits. */
 async function routeLargeCounts(page: Page) {

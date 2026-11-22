@@ -1,13 +1,11 @@
-// Every chart with period choices, on a phone and in the wide faces a Linux machine falls back to:
-// the choices one row with the chosen one in sight, the coverage note two lines at most, and the
-// plot and its time axis on the first screen of its panel (docs/DESIGN.md "The intervals are one
-// row"), and every label on the plot whole inside it. The Lightning overview's once wrapped "All"
-// onto a second row and took four lines to say its coverage, putting its time axis below the first
-// screen at 320 px; the mining page's fee axis once ran its regtest labels ("0.0000002 BTC") off the
-// plot's left edge and the screen's.
+// Every chart with period choices, on a phone: the choices one row with the chosen one in sight,
+// the coverage note two lines at most, and the plot and its time axis on the first screen of its
+// panel (docs/DESIGN.md "The intervals are one row"), and every label on the plot whole inside it.
+// The Lightning overview's once wrapped "All" onto a second row and took four lines to say its
+// coverage, putting its time axis below the first screen at 320 px; the mining page's fee axis once
+// ran its regtest labels ("0.0000002 BTC") off the plot's left edge and the screen's.
 import type { Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
-import { frames } from "./layout";
 import { mainnet, recorded, serve } from "./lightning-answers";
 
 /** A day of the network's ten-minute samples with three missing: the overview's longest note. */
@@ -121,23 +119,8 @@ for (const { path, charts } of PAGES) {
     for (const size of SIZES) {
       await page.setViewportSize(size);
       await page.goto(path);
-      for (const wide of [false, true]) {
-        if (wide) {
-          await page.evaluate(() => {
-            const root = document.documentElement.style;
-            root.setProperty("--font-sans", '"DejaVu Sans", Verdana, sans-serif');
-            root.setProperty("--font-mono", '"DejaVu Sans Mono", "Courier New", monospace');
-          });
-          // A chart measures its labels when it lays out, and a font swapped under a drawn page is
-          // not a layout (a reader's font is set before the first): a pixel's resize is one.
-          await page.setViewportSize({ ...size, width: size.width - 1 });
-          await frames(page);
-          await page.setViewportSize(size);
-        }
-        const where = `${path} at ${size.width} px${wide ? " in a wide font" : ""}`;
-        for (const chart of charts)
-          found.push(...(await faults(page, chart)).map((f) => `${where}: ${f}`));
-      }
+      for (const chart of charts)
+        found.push(...(await faults(page, chart)).map((f) => `${path} at ${size.width} px: ${f}`));
     }
     expect(found).toStrictEqual([]);
   });

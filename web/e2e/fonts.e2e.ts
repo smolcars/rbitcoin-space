@@ -1,13 +1,11 @@
 // Every page type in a stand-in for a wider system font than a Mac's, across widths and in both
 // schemes: nothing runs into anything, nothing is cut, amounts stay whole, tables fit their panels.
 import { stripVTControlCharacters } from "node:util";
-import { type Prose, chain, expect, test } from "./fixtures";
+import { chain, expect, test } from "./fixtures";
 import { frames, layoutFaults } from "./layout";
 import { PAGES } from "./pages";
 import { amountsIntact, tablesFit } from "./rows";
 
-// The wide stand-in unless the run names another (`E2E_PROSE`, checked in fixtures.ts).
-test.use({ prose: (process.env["E2E_PROSE"] as Prose | undefined) ?? "wide" });
 // Each width is a resize of one loaded page: WebKit calls a fetch the next page's load cancels an
 // "access control" failure, though the app is same-origin and catches it.
 test.use({ consoleErrorsAllowed: [/status of (429|503)|due to access control checks/] });

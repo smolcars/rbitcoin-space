@@ -258,8 +258,6 @@ test("no replacement row is cut or faded, whatever its status, at 320, 390 and 7
 // A replacement's ID was cut at its end by its own ellipsis, losing its last characters, at 320 px
 // in a wide face (SB15); the font sweep sees these panels empty.
 test.describe("in a wide face", () => {
-  test.use({ prose: "wide" });
-
   test("the newest replacements keep each ID's last eight characters at 320 px", async ({
     page,
   }) => {

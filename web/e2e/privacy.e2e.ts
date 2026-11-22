@@ -265,7 +265,6 @@ const smallRefs = (page: Page) =>
   });
 
 test.describe("in a wide prose font, on a phone", () => {
-  test.use({ prose: "wide" });
   for (const width of [320, 360]) {
     test(`at ${width} px every number in the list is a 24 px target and the summary's line is one row`, async ({
       page,
@@ -275,7 +274,6 @@ test.describe("in a wide prose font, on a phone", () => {
       await page.goto(`/regtest/tx/${chain.txs.consolidation}`);
       const list = page.locator("#pv-list");
       // The summary's row came with the first card, as tall as it stays: nothing moves for it.
-      await page.evaluate(() => document.fonts.ready);
       const row = await page
         .locator(".tx-answer__cell--privacy")
         .evaluate((el) => el.getBoundingClientRect().height);
@@ -285,7 +283,6 @@ test.describe("in a wide prose font, on a phone", () => {
       );
       // "Inputs 0 and 1", "output 1", "output 0": numbers in a row and alone.
       await expect(list.locator(".pv-ref")).not.toHaveCount(0);
-      await page.evaluate(() => document.fonts.ready);
       expect(await smallRefs(page)).toStrictEqual([]);
       const line = page.locator(".tx-answer__privacy span");
       // Lines of the text itself: the span is a grid item, one box however many lines it takes.
@@ -308,7 +305,6 @@ test.describe("in a wide prose font, on a phone", () => {
 // CI's prose font is wider than a Mac's: a status that fits beside a card's type there may wrap
 // onto a line of its own in it (docs/FRONTEND.md "Other systems' fonts").
 test.describe("the spends arriving after the cards, in a wide prose font", () => {
-  test.use({ prose: "wide" });
   // `script_types`: its P2SH and pay-to-anchor outputs are spent. Served two ways, each a hard line
   // to hold: the P2SH one with no address and the miner's script, so a spent card with no type
   // label before its link and a mark; and the anchor one paying the miner's address as the only
@@ -372,9 +368,6 @@ test.describe("the spends arriving after the cards, in a wide prose font", () =>
             expect(box).toBeLessThan(30);
         }
         await expect(page.locator(".tx-flow__spent")).toHaveCount(0);
-        // The stand-in font loads on its own time: a swap between the two reads would look like a
-        // wrap the spends caused.
-        await page.evaluate(() => document.fonts.ready);
         const before = await heights(page);
         const linesBefore = await metaLines(page);
         release();

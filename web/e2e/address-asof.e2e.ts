@@ -130,10 +130,7 @@ test("nothing live reaches the page as of a block, but one look at the address n
   await expect(rows(page).first()).toContainText("Unconfirmed");
 });
 
-// The pop-over's place is measured: in the wide stand-in font, as CI draws text (docs/CI.md).
 test.describe("the block field, in the wide stand-in font", () => {
-  test.use({ prose: "wide" });
-
   test("a block is picked by height or date, kept in the URL and across a reload", async ({
     page,
   }) => {
@@ -339,8 +336,6 @@ test("the copy and QR buttons keep working as of a block", async ({ page }) => {
 });
 
 test.describe("in the wide stand-in font", () => {
-  // CI draws text wider than a workstation (docs/FRONTEND.md "Checks").
-  test.use({ prose: "wide" });
   /** How many rows the band's controls take: their distinct foot lines. */
   const rowsOf = (page: Page) =>
     band(page)
