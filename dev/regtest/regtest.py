@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Private rbitcoin v0.9.2 regtest node in Docker. Needs only docker and python3.
+"""Private rbitcoin regtest node in Docker. Needs only docker and python3.
 
 rbitcoin has no wallet, so every coin here sits in an anyone-can-spend script
 and transactions are built and serialized by hand: no keys, no signatures.

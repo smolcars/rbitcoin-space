@@ -3,7 +3,7 @@
 rbitcoin.space is a sidecar: one Rust server beside a stock rbitcoin node, a static frontend, and a SQLite file per network. It does not embed or patch the node.
 
 ```text
- browser ──HTTP/WS──► rbitcoin-space ─Esplora REST──► rbitcoin v0.9.2
+ browser ──HTTP/WS──► rbitcoin-space ─Esplora REST──► rbitcoin nightly-20261122
                         │   │   │  ──Electrum TCP──►   (unmodified)
                         │   │   └──JSON-RPC────────►
                         │   └── SQLite (derived data only)

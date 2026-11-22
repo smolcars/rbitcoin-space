@@ -1,6 +1,6 @@
 # Mempool tracking
 
-rbitcoin v0.9.2 has no mempool push, so `engine::mempool` polls the node, keeps its own copy of the mempool in memory and publishes the changes. Projected blocks, the live feed, fee recommendations, transaction tracking and the mempool charts are built on what it emits.
+rbitcoin has no mempool push, so `engine::mempool` polls the node, keeps its own copy of the mempool in memory and publishes the changes. Projected blocks, the live feed, fee recommendations, transaction tracking and the mempool charts are built on what it emits.
 
 Measurements below are from a synced mainnet node on a private network, 2026-11-12, with about 55,000 transactions in its mempool. RPC and Esplora costs that other parts of the project rely on are in [`RBITCOIN.md`](RBITCOIN.md).
 
@@ -765,7 +765,7 @@ Every block we watch arrive is compared with the block we expected on its parent
 ### What is compared
 
 - **Expected:** our first projected block as it stood on the parent, the last projection published before the projector moved onto this block (`Projector::expected`).
-- **Mined:** the block's transactions, coinbase left out, with fees and sizes from the block listing the summary reads for every new block anyway: `/block/:hash/txs/summary` where the node serves it, else `getblock` at verbosity 2. Both give the same transactions, fees and sizes ([`RBITCOIN.md`](RBITCOIN.md#listing-a-blocks-transactions)).
+- **Mined:** the block's transactions, coinbase left out, with fees and sizes from the block listing the summary reads for every new block anyway: `/block/:hash/txs/summary`, or `getblock` at verbosity 2 for a block it fails on. Both give the same transactions, fees and sizes ([`RBITCOIN.md`](RBITCOIN.md#listing-a-blocks-transactions)).
 - **What left with the block:** every transaction in that last projection, in any block, that the first projection on this block no longer holds, with the rate we had placed it at (`Expected::left`). A mined transaction in it was in our mempool; an expected one in it that is not in the block was knocked out by the block.
 - **When the block came:** the moment the projector learnt of it, before it asked the node anything for the projection on it (`Expected::at`), the same for whoever computes the summary first. On mainnet that is about 0.7 s after Electrum's announcement ([When a block is found](#when-a-block-is-found)).
 - **When each was seen, and its weight:** the node's accept time and the raw weight from the tracker's records, read right after the block was applied.

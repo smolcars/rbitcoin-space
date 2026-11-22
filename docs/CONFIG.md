@@ -14,7 +14,7 @@ The server reads its configuration from the environment once, at startup. Invali
 
 ## Networks
 
-A network is enabled when all six of its variables are set, and disabled when none are. Setting only some is an error. `{NET}` is one of `MAINNET`, `SIGNET`, `TESTNET4`, `TESTNET5`, `REGTEST`. Mainnet is served at `/`, the others under `/signet`, `/testnet4`, `/testnet5` and `/regtest`; a disabled network's paths are a 404. Testnet 5 needs a node newer than rbitcoin v0.9.2, given a peer ([`DEPLOY.md`](DEPLOY.md#testnet-5)).
+A network is enabled when all six of its variables are set, and disabled when none are. Setting only some is an error. `{NET}` is one of `MAINNET`, `SIGNET`, `TESTNET4`, `TESTNET5`, `REGTEST`. Mainnet is served at `/`, the others under `/signet`, `/testnet4`, `/testnet5` and `/regtest`; a disabled network's paths are a 404. Testnet 5 needs a peer for its node ([`DEPLOY.md`](DEPLOY.md#testnet-5)).
 
 | Variable | Format |
 |---|---|

@@ -32,7 +32,7 @@ After that, [the reference](#reference): health, the data directory, the first s
 
 ### The node
 
-rbitcoin at **v0.9.2**, the version this release was built and tested against. The compose file runs one for you; if you bring your own, it needs these switched on:
+rbitcoin **`nightly-20261122`** (commit `e0b2c68`) or later, the build this release is tested against; the compose file pins it by digest. A v0.9.2 node is not supported: it answers the explorer's scripthash questions with empty histories ([`RBITCOIN.md`](RBITCOIN.md)). Coming from explorer 0.5.0, [upgrade in order](#upgrading-from-050). The compose file runs a node for you; if you bring your own, it needs these switched on:
 
 | Flag | The explorer uses it for | Without it |
 |---|---|---|
@@ -43,11 +43,11 @@ rbitcoin at **v0.9.2**, the version this release was built and tested against. T
 
 Esplora and Electrum have no authentication: never let anything but the server reach them. What the explorer relies on from each interface is in [`RBITCOIN.md`](RBITCOIN.md).
 
-**Large addresses.** Keep `--max-sh-creates` at rbitcoin's default (10,000 paying transactions) on a node that serves anyone but the server: raising it lets anyone start joins of millions of transactions. With the server on the node's Esplora unix socket and a node that has rbitcoin PR 1628 (nightly images from `nightly-20261114` on; no release yet), the server adds up an address above the cap through the socket, and logs `ledger_totals_route` `uncapped: true` ([`RBITCOIN.md`](RBITCOIN.md#totals-of-large-addresses)); such an address shows its totals and newest 200 transactions, and older pages are refused. On v0.9.2, or over TCP, it is shown as too large for this server ([`API.md`](API.md#very-large-addresses)).
+**Large addresses.** Keep `--max-sh-creates` at rbitcoin's default (10,000 paying transactions) on a node that serves anyone but the server: raising it lets anyone start joins of millions of transactions. With the server on the node's Esplora unix socket, the server adds up an address above the cap through the socket ([`RBITCOIN.md`](RBITCOIN.md#totals-of-large-addresses)); such an address shows its totals and the transactions of the blocks since, and its history pages are refused. Over TCP it is shown as too large for this server ([`API.md`](API.md#very-large-addresses)).
 
 #### Testnet 5
 
-Testnet 5 (BIP 95) needs an rbitcoin newer than v0.9.2: the nightly of 2026-11-14 (master `94dce31b`) or later, which knows `--network testnet5`. Set `RBITCOIN_IMAGE` to such a build. It has no DNS seeds yet, so add `--connect=<host>:18353` to the node's `command`, naming a Testnet 5 node you trust. There is no Lightning on it ([`CONFIG.md`](CONFIG.md#lightning)).
+The required node knows `--network testnet5` (BIP 95). It has no DNS seeds yet, so add `--connect=<host>:18353` to the node's `command`, naming a Testnet 5 node you trust. There is no Lightning on it ([`CONFIG.md`](CONFIG.md#lightning)).
 
 ### The host
 
@@ -64,7 +64,7 @@ More than 1,024 open pages at once: see [many WebSockets](#many-websockets).
 
 ## Same host, with the compose file
 
-[`deploy/compose.yml`](../deploy/compose.yml) runs rbitcoin v0.9.2 and the server side by side:
+[`deploy/compose.yml`](../deploy/compose.yml) runs rbitcoin `nightly-20261122` and the server side by side:
 
 ```text
  internet ── reverse proxy (TLS) ──► server :8080 ─┬─ unix socket ──► node  Esplora
@@ -706,8 +706,8 @@ With an empty store the server runs the **backfill**: it fills the block table f
 
 | | |
 |---|---|
-| How long | On mainnet about 19 hours, [measured](#one-day-on-mainnet), on a node with the block listing route; through `getblock` on v0.9.2, which lacks it, about a day more for the fee rates, estimated ([`STORE.md`](STORE.md#backfill)) |
-| What the node reads | About 18 GB with the listing route; about 550 GB through `getblock`, estimated. A node on the same host matters here |
+| How long | On mainnet about 19 hours, [measured](#one-day-on-mainnet) ([`STORE.md`](STORE.md#backfill)) |
+| What the node reads | About 18 GB. A node on the same host matters here |
 | Gentler | `BACKFILL_BUSY_PERCENT` (default 50), the share of time it keeps the node busy. `BACKFILL_FEE_RATE_DEPTH` (default 52560, a year); `0` skips fee rates, computed on demand instead ([`CONFIG.md`](CONFIG.md#block-table)) |
 | Pause | `BACKFILL_ENABLED=false` and `docker compose up -d`; set it back to resume |
 | Progress | `block_backfill_progress` every minute while it writes: `rows` and `rated` against `tip`. A line without them means the count timed out |
@@ -821,6 +821,17 @@ docker compose up -d
 ```
 
 What was observed between the backup and the rollback is lost. Without a backup, delete `mainnet.sqlite`: the old release starts empty and backfills. Without a migration, only the image changes.
+
+#### Upgrading from 0.5.0
+
+Explorer 0.5.0 ran beside rbitcoin v0.9.2 or a nightly before `nightly-20261122`, and asked Esplora for scripthashes byte-reversed; this release asks in digest order, which only `nightly-20261122` and later read ([`RBITCOIN.md`](RBITCOIN.md#scripthash-order)). An explorer and a node that disagree get `200` with empty totals and histories for every script asked by hash, and the explorer **writes some of that into its store**: an address above the node's `--max-sh-creates` that a reader opens is added up from those empty totals, and its newest transactions are taken from an empty page and marked done. The ledger then serves that address with wrong totals (the empty seed plus the blocks after it) and without its newest transactions, until the address is dropped, and its whole history is refused as not matching its totals. Answers in memory right themselves on a restart; these do not. So the explorer must not run while it and the node disagree, in either direction:
+
+1. Back up the store ([the data directory](#the-data-directory)).
+2. Stop the explorer: `docker compose stop server`.
+3. Upgrade the node: set `RBITCOIN_IMAGE` (or take this release's compose file), and start it. Its first start rewrites its store from schema 28 (or 27) to 30, one way: an older node will not open it afterwards, and going back means a re-sync. Wait until it is synced and its Esplora answers.
+4. Then upgrade and start the explorer, as [above](#upgrading).
+
+With several networks, every node the explorer uses comes before step 4. If the explorer did run against a node of the other kind, restore the backup from step 1 with the explorer stopped.
 
 #### Images of `master`
 
@@ -947,7 +958,7 @@ Read [the log](#watching-it) and `/readyz`.
 | The disk filled: no new rows, audits or mempool chart; `/readyz` `store` `failing` | `store_write_failed` with `disk_full`; `block_rows_failed` with `store` | Free space. No restart needed: the next write logs `store_write_recovered`. Block rows are filled in; missed mempool minutes are a gap |
 | `/readyz` `store` `failing`, other reasons | `store_write_failed` with `read_only` (a read-only mount, or not owned by uid 65532), `corrupt`, `busy` (another process holds the lock, such as a long backup) or `io` | `read_only`: fix the mount or ownership, then `docker compose restart server`. `corrupt`: [restore a backup](#the-data-directory) or delete the file. `busy`: let the other process finish |
 | `docker compose up` or a pull hangs on a host nobody is logged in to | | A Docker credential helper (`credsStore` in `~/.docker/config.json`) waits for an unlock prompt. The release image needs no login: pull with `DOCKER_CONFIG` pointing at a directory whose `config.json` sets no `credsStore` |
-| `docker pull` from ghcr.io does not work at all | | Load the rbitcoin image another way and set `RBITCOIN_IMAGE=ghcr.io/rbitcoin-org/rbitcoin:0.9.2`: a loaded image has no digest to match the compose file's pin |
+| `docker pull` from ghcr.io does not work at all | | Load the rbitcoin image another way and set `RBITCOIN_IMAGE=ghcr.io/rbitcoin-org/rbitcoin:nightly-20261122`: a loaded image has no digest to match the compose file's pin |
 | `failed to bind host port 127.0.0.1:8080/tcp: address already in use` | Nothing: the server never started | Set `HTTP_PUBLISH` to a free port, and point the proxy at it |
 | The disk fills with logs | | The compose file's `local` driver rotates (100 MB a container). A container started another way uses `json-file`, which does not: add `--log-driver local` |
 

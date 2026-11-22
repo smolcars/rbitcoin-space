@@ -1,4 +1,4 @@
-# rbitcoin.space beside rbitcoin v0.9.2, for one network. docs/DEPLOY.md explains every choice.
+# rbitcoin.space beside rbitcoin nightly-20261122, for one network. docs/DEPLOY.md explains every choice.
 # From this directory, with .env filled in from .env.example: docker compose up -d
 name: rbitcoin-space
 
@@ -15,8 +15,9 @@ x-hardened: &hardened
 services:
   node:
     <<: *hardened
-    # Multi-arch release image, pinned by digest. It runs as uid and gid 10001.
-    image: ${RBITCOIN_IMAGE:-ghcr.io/rbitcoin-org/rbitcoin:0.9.2@sha256:aeaaf8bf0f5b048c3645a3bc7e8c06d5de32ffeef0ff67f02ddcf8607bfaed42}
+    # The multi-arch nightly image of commit e0b2c68, the build the explorer requires (docs/RBITCOIN.md),
+    # pinned by digest. It runs as uid and gid 10001.
+    image: ${RBITCOIN_IMAGE:-ghcr.io/rbitcoin-org/rbitcoin:nightly-20261122@sha256:1a7208ea757c7b2b605f5cfda7a0b483f75fba9bd54de9639e955859c5d34d7a}
     command:
       - --network=${NETWORK:?set NETWORK in .env}
       - --sh-index
