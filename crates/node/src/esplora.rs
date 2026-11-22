@@ -14,8 +14,11 @@ mod error;
 pub mod model;
 mod route;
 
+use std::collections::HashMap;
 use std::future::Future;
 use std::str::FromStr;
+use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
 use bitcoin::consensus::Decodable;
@@ -28,7 +31,8 @@ use serde::de::DeserializeOwned;
 pub use crate::http::Endpoint;
 pub use error::{Error, ScriptSize};
 pub use route::{
-    BlockTxsStart, MAX_OUT_POSITIONS, OutPosition, OutPositions, Route, ScriptHash, ScriptRef,
+    BlockTxsStart, MAX_OUT_POSITIONS, OutPosition, OutPositions, Route, ScriptHash,
+    ScriptHashOrder, ScriptRef,
 };
 
 use crate::http::Transport;
@@ -133,11 +137,65 @@ where
     read().await
 }
 
+/// A totals answer echoes the path's hash as `"scripthash"`. Asked in `sent` order, the hash is
+/// given back in digest order, the public form, so the answer is the same whatever the node's
+/// build. Anything but exactly one such field is left as it is.
+fn echo_in_digest_order(body: Bytes, sh: ScriptHash, sent: ScriptHashOrder) -> Bytes {
+    if sent == ScriptHashOrder::Digest {
+        return body;
+    }
+    let field = format!("\"scripthash\":\"{}\"", sh.hex(sent));
+    let field = field.as_bytes();
+    let mut at = body
+        .windows(field.len())
+        .enumerate()
+        .filter(|(_, w)| *w == field);
+    let (Some((i, _)), None) = (at.next(), at.next()) else {
+        return body;
+    };
+    let (Some(head), Some(tail)) = (body.get(..i), body.get(i + field.len()..)) else {
+        return body;
+    };
+    let mut out = Vec::with_capacity(body.len());
+    out.extend_from_slice(head);
+    out.extend_from_slice(format!("\"scripthash\":\"{}\"", sh.digest_hex()).as_bytes());
+    out.extend_from_slice(tail);
+    Bytes::from(out)
+}
+
 /// A client for one node's Esplora listener. Cheap to clone; clones share the connection pool.
+///
+/// Every client of one endpoint, clones or not, shares what is known of that node's
+/// [`ScriptHashOrder`]: it is a fact about the node, found by [`Esplora::find_scripthash_order`]
+/// and set with [`Esplora::set_scripthash_order`]. Until it is known, a route that names a script
+/// by its hash fails with [`Error::ScriptHashOrderUnknown`] without asking the node.
 #[derive(Clone)]
 pub struct Esplora {
     transport: Transport,
+    order: Arc<OrderCell>,
 }
+
+/// What is known of one node's [`ScriptHashOrder`]: 0 not known, 1 reversed, 2 digest.
+#[derive(Debug, Default)]
+struct OrderCell(AtomicU8);
+
+/// The cell for `endpoint`, shared by every client made for it in this process.
+fn order_cell(endpoint: &Endpoint) -> Arc<OrderCell> {
+    static CELLS: OnceLock<Mutex<HashMap<Endpoint, Arc<OrderCell>>>> = OnceLock::new();
+    let mut cells = CELLS
+        .get_or_init(Mutex::default)
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    Arc::clone(cells.entry(endpoint.clone()).or_default())
+}
+
+/// Blocks [`Esplora::find_scripthash_order`] looks back through, from the address index's
+/// position, for a block with transactions besides its coinbase.
+const ORDER_PROBE_BLOCKS: usize = 10;
+/// Scripts it asks about at most, each in both orders.
+const ORDER_PROBE_SCRIPTS: usize = 3;
+/// A BIP141 witness commitment: `OP_RETURN`, a 36-byte push, then this tag.
+const WITNESS_COMMITMENT: [u8; 6] = [0x6a, 0x24, 0xaa, 0x21, 0xa9, 0xed];
 
 /// More transactions than a block can hold: the smallest transaction is 60 bytes, 240 weight
 /// units, so 4,000,000 weight holds at most 16,666.
@@ -168,6 +226,135 @@ impl Esplora {
         let endpoint = Endpoint::parse(url).map_err(Error::Config)?;
         Ok(Self {
             transport: Transport::new(&endpoint, timeout, max_response_bytes),
+            order: order_cell(&endpoint),
+        })
+    }
+
+    /// The order the node reads `/scripthash/:hash` in, if known.
+    pub fn scripthash_order(&self) -> Option<ScriptHashOrder> {
+        match self.order.0.load(Ordering::Relaxed) {
+            1 => Some(ScriptHashOrder::Reversed),
+            2 => Some(ScriptHashOrder::Digest),
+            _ => None,
+        }
+    }
+
+    /// Records the node's order for every client of this endpoint; `None` makes scripthash
+    /// routes fail again until it is set. Returns what was known before.
+    pub fn set_scripthash_order(&self, order: Option<ScriptHashOrder>) -> Option<ScriptHashOrder> {
+        let v = match order {
+            None => 0,
+            Some(ScriptHashOrder::Reversed) => 1,
+            Some(ScriptHashOrder::Digest) => 2,
+        };
+        match self.order.0.swap(v, Ordering::Relaxed) {
+            1 => Some(ScriptHashOrder::Reversed),
+            2 => Some(ScriptHashOrder::Digest),
+            _ => None,
+        }
+    }
+
+    /// Asks the node which order it reads `/scripthash/:hash` in, by asking for a script that
+    /// certainly has history in both orders: the order whose answer has transactions is the
+    /// node's, and the other answers an empty history. Does not record the answer.
+    ///
+    /// The script is the witness commitment of a recent block's coinbase, which is unique to its
+    /// block when the block holds other transactions, so its history is that one transaction:
+    /// one index lookup in either order. The block is the address index's own position (the stamp
+    /// on a question about [`ScriptHash::NONE_PROBE`]) or up to [`ORDER_PROBE_BLOCKS`] below it, and the
+    /// questions are pinned there with `?asof=`, so an index that trails the tip still has it.
+    /// Where none of those blocks has one (an empty stretch of a test chain), the newest block's
+    /// coinbase output of the largest value is asked instead. A refusal for size counts as
+    /// history. `Ok(None)` when nothing decides it: no indexed block but genesis (whose coinbase
+    /// is not indexed), or every script answered the same in both orders. When both orders have
+    /// history the node reads either, and the digest is chosen. Errors are the node's.
+    pub async fn find_scripthash_order(&self) -> Result<Option<ScriptHashOrder>, Error> {
+        let none = ScriptRef::ScriptHash(ScriptHash::NONE_PROBE);
+        let Some(at) = self.script_stats(none, None).await?.tip else {
+            return Ok(None);
+        };
+        let mut hash = at.hash;
+        let mut fallback: Option<bitcoin::ScriptBuf> = None;
+        let mut asked = 0;
+        for _ in 0..ORDER_PROBE_BLOCKS {
+            let block = self.block(hash).await?.value;
+            if block.height == 0 {
+                break;
+            }
+            let coinbase = self.tx(self.block_txid(hash, 0).await?.value).await?.value;
+            let scripts: Vec<bitcoin::ScriptBuf> = coinbase
+                .vout
+                .iter()
+                .filter_map(|o| bitcoin::ScriptBuf::from_hex(&o.scriptpubkey).ok())
+                .collect();
+            if fallback.is_none() {
+                fallback = coinbase
+                    .vout
+                    .iter()
+                    .zip(&scripts)
+                    .max_by_key(|(o, _)| o.value)
+                    .map(|(_, s)| s.clone());
+            }
+            let commitment = scripts
+                .iter()
+                .find(|s| s.as_bytes().starts_with(&WITNESS_COMMITMENT))
+                .or_else(|| scripts.iter().find(|s| s.is_op_return()));
+            if block.tx_count > 1
+                && let Some(script) = commitment
+            {
+                asked += 1;
+                if let Some(order) = self.order_of(script, at.hash).await? {
+                    return Ok(Some(order));
+                }
+                if asked >= ORDER_PROBE_SCRIPTS {
+                    return Ok(None);
+                }
+            }
+            match block.previousblockhash {
+                Some(parent) => hash = parent,
+                None => break,
+            }
+        }
+        match fallback {
+            Some(script) => self.order_of(&script, at.hash).await,
+            None => Ok(None),
+        }
+    }
+
+    /// Which order finds history for `script` at `at`, asking in both.
+    async fn order_of(
+        &self,
+        script: &bitcoin::Script,
+        at: BlockHash,
+    ) -> Result<Option<ScriptHashOrder>, Error> {
+        let route = Route::ScriptStats {
+            script: ScriptRef::ScriptHash(ScriptHash::from_script(script)),
+            asof: Some(at),
+        };
+        let mut found = [false; 2];
+        for (i, order) in [ScriptHashOrder::Digest, ScriptHashOrder::Reversed]
+            .into_iter()
+            .enumerate()
+        {
+            let raw = self.raw_in(&route, order).await?;
+            let has = if raw.status == StatusCode::OK {
+                let info: ScriptInfo =
+                    serde_json::from_slice(&raw.body).map_err(|e| Error::Decode(e.to_string()))?;
+                info.chain_stats.tx_count + info.mempool_stats.tx_count > 0
+            } else {
+                match Error::from_status(raw.status, &raw.body) {
+                    Error::TooLarge => true,
+                    e => return Err(e),
+                }
+            };
+            if let Some(slot) = found.get_mut(i) {
+                *slot = has;
+            }
+        }
+        Ok(match found {
+            [true, _] => Some(ScriptHashOrder::Digest),
+            [false, true] => Some(ScriptHashOrder::Reversed),
+            [false, false] => None,
         })
     }
 
@@ -182,13 +369,24 @@ impl Esplora {
     }
 
     /// Calls `route` and returns the answer undecoded, whatever its status.
-    /// Errors only on transport failure, timeout or the size cap.
+    /// Errors only on transport failure, timeout or the size cap, and with
+    /// [`Error::ScriptHashOrderUnknown`] before the node's scripthash order is known.
     pub async fn raw(&self, route: &Route) -> Result<RawResponse, Error> {
+        let order = match self.scripthash_order() {
+            Some(order) => order,
+            None if route.needs_order() => return Err(Error::ScriptHashOrderUnknown),
+            // The path is the same in either.
+            None => ScriptHashOrder::Digest,
+        };
+        self.raw_in(route, order).await
+    }
+
+    async fn raw_in(&self, route: &Route, order: ScriptHashOrder) -> Result<RawResponse, Error> {
         if route.is_internal() && !self.has_internal() {
             return Err(Error::InternalUnavailable);
         }
         let mut path = String::with_capacity(160);
-        route.write_path(&mut path);
+        route.write_path(order, &mut path);
         // These routes have a bound of their own, enforced while reading.
         let cap = match route {
             Route::BlockTxsSummary(_) => MAX_SUMMARY_BYTES,
@@ -199,11 +397,17 @@ impl Esplora {
             .transport
             .send_limited(route.method(), &path, route.body(), cap)
             .await?;
+        let mut body = res.body;
+        if let Route::ScriptStats { .. } | Route::InternalScriptStats { .. } = route
+            && let Some(sh) = route.path_script_hash()
+        {
+            body = echo_in_digest_order(body, sh, order);
+        }
         Ok(RawResponse {
             status: res.status,
             content_type: res.headers.get(CONTENT_TYPE).cloned(),
             tip: ChainTip::from_headers(&res.headers),
-            body: res.body,
+            body,
         })
     }
 

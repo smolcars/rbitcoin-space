@@ -60,6 +60,9 @@ async fn main() {
     );
     for (hex, (blocks, paid)) in &found {
         let script = bitcoin::ScriptBuf::from_hex(hex).unwrap();
-        println!("{} {blocks} {paid} {hex}", ScriptHash::from_script(&script));
+        println!(
+            "{} {blocks} {paid} {hex}",
+            ScriptHash::from_script(&script).digest_hex()
+        );
     }
 }

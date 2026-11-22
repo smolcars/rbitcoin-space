@@ -53,9 +53,10 @@ struct Node {
     seen: Mutex<Vec<String>>,
     /// Scripts the tip block pays twice: discovery's candidates.
     paid: Mutex<Vec<ScriptBuf>>,
-    /// Each address's script hex, by address and by scripthash.
+    /// Each address's script hex, by address and by scripthash: in digest order, as the mock's
+    /// Esplora reads it, and in Electrum's.
     scripts: Mutex<HashMap<String, String>>,
-    /// Scripts whose whole history the mock's Electrum lists, by scripthash, with its length;
+    /// Scripts whose whole history the mock's Electrum lists, by Electrum scripthash, with its length;
     /// every other list is refused for size. And how many lists were asked.
     lists: Mutex<HashMap<String, u64>>,
     list_calls: AtomicUsize,
@@ -82,15 +83,16 @@ impl Node {
         let sh = ScriptHash::from_script(&address.script_pubkey());
         let mut k = self.kinds.lock().unwrap();
         k.insert(address.to_string(), kind);
-        k.insert(sh.to_string(), kind);
+        k.insert(sh.digest_hex(), kind);
         let hex = address.script_pubkey().to_hex_string();
         let mut sc = self.scripts.lock().unwrap();
         sc.insert(address.to_string(), hex.clone());
-        sc.insert(sh.to_string(), hex);
+        sc.insert(sh.digest_hex(), hex.clone());
+        sc.insert(sh.electrum().to_string(), hex);
     }
 
     fn totals_calls(&self, address: &Address) -> usize {
-        let sh = ScriptHash::from_script(&address.script_pubkey()).to_string();
+        let sh = ScriptHash::from_script(&address.script_pubkey()).digest_hex();
         let a = address.to_string();
         self.seen
             .lock()
@@ -256,7 +258,9 @@ async fn esplora(node: Arc<Node>, pq: String) -> Response {
                     let mut chain = stats(50_000);
                     // As many transactions as its list holds, when it has one.
                     let sh = node.scripts.lock().unwrap().get(*id).map(|hex| {
-                        ScriptHash::from_script(&ScriptBuf::from_hex(hex).unwrap()).to_string()
+                        ScriptHash::from_script(&ScriptBuf::from_hex(hex).unwrap())
+                            .electrum()
+                            .to_string()
                     });
                     if let Some(n) = sh.and_then(|sh| node.lists.lock().unwrap().get(&sh).copied())
                     {
@@ -298,6 +302,31 @@ async fn esplora(node: Arc<Node>, pq: String) -> Response {
             (StatusCode::INTERNAL_SERVER_ERROR, "no").into_response()
         }
         [_, _, "txs", "summary", ..] | [_, _, "utxo"] => stamped(StatusCode::OK, "[]".into()),
+        // Enough of a block and its coinbase for the server's scripthash order probe, which then
+        // finds the coinbase's script has history in both orders, as every unknown script has
+        // here, and takes the digest order.
+        ["block", h] => match height_of(h) {
+            Some(height) => stamped(
+                StatusCode::OK,
+                json!({"id": h, "height": height, "version": 1, "timestamp": 1, "tx_count": 1,
+                    "size": 1, "weight": 4, "merkle_root": h, "mediantime": 1, "nonce": 0,
+                    "bits": 545_259_519, "difficulty": 1.0,
+                    "previousblockhash": (height > 0).then(|| hash(height - 1).to_string())})
+                .to_string(),
+            ),
+            None => (StatusCode::NOT_FOUND, "Block not found").into_response(),
+        },
+        ["block", h, "txid", "0"] => match height_of(h) {
+            Some(height) => stamped(StatusCode::OK, format!("{height:062x}cb")),
+            None => (StatusCode::NOT_FOUND, "Block not found").into_response(),
+        },
+        ["tx", id] if id.ends_with("cb") => stamped(
+            StatusCode::OK,
+            json!({"txid": id, "version": 2, "locktime": 0, "vin": [],
+                "vout": [{"scriptpubkey": "51", "scriptpubkey_asm": "", "scriptpubkey_type":
+                "unknown", "value": 5_000_000_000_u64}], "status": {"confirmed": true}})
+            .to_string(),
+        ),
         ["block", h, "status"] => match height_of(h) {
             Some(height) => {
                 let best = !node.orphaned.lock().unwrap().iter().any(|o| o == h);
@@ -511,6 +540,11 @@ async fn start_via(
     let electrum_addr = electrum(Arc::clone(&node)).await;
     let (host, port) = mock.split_once(':').unwrap();
     let url = sock_path.map_or_else(|| format!("http://{mock}"), |p| p.display().to_string());
+    // The mock reads scripthashes in digest order. Without an Electrum handshake the server never
+    // probes it, so it is told; with one, its probe finds it.
+    node::esplora::Esplora::new(&url)
+        .unwrap()
+        .set_scripthash_order(Some(node::esplora::ScriptHashOrder::Digest));
     let mut vars: HashMap<String, String> = [
         ("REGTEST_RPC_HOST", host),
         ("REGTEST_RPC_PORT", port),
@@ -721,9 +755,14 @@ async fn a_large_address_is_added_up_from_its_answer_and_then_served_from_the_le
     assert_eq!(r.body["mempool_stats"]["funded_txo_sum"], 70_000);
     // The scripthash form counts the same unconfirmed rows.
     let sh = ScriptHash::from_script(&a.script_pubkey());
-    let r = get(&s.addr, 2, &format!("/regtest/api/scripthash/{sh}")).await;
+    let r = get(
+        &s.addr,
+        2,
+        &format!("/regtest/api/scripthash/{}", sh.digest_hex()),
+    )
+    .await;
     assert_eq!(r.status, 200);
-    assert_eq!(r.body["scripthash"], sh.to_string());
+    assert_eq!(r.body["scripthash"], sh.digest_hex());
     assert_eq!(r.body["mempool_stats"]["funded_txo_sum"], 70_000);
     assert_eq!(r.body["mempool_stats"]["tx_count"], 1);
     assert_eq!(s.node.totals_calls(&a), 1);
@@ -747,7 +786,9 @@ async fn a_kept_address_takes_its_whole_history_once_and_a_refused_one_takes_the
     let (whole, refused) = (address(40), address(41));
     s.node.set(&whole, Kind::Large { ms: 0 });
     s.node.set(&refused, Kind::Large { ms: 0 });
-    let sh = ScriptHash::from_script(&whole.script_pubkey()).to_string();
+    let sh = ScriptHash::from_script(&whole.script_pubkey())
+        .electrum()
+        .to_string();
     // As many rows as the totals count: 50,000.
     s.node.lists.lock().unwrap().insert(sh, 50_000);
     for a in [&whole, &refused] {
@@ -773,7 +814,7 @@ async fn a_kept_address_takes_its_whole_history_once_and_a_refused_one_takes_the
     })
     .await;
     assert_eq!(ledger(&s, 1, &whole).await["filling"], false);
-    let refused_sh = ScriptHash::from_script(&refused.script_pubkey()).to_string();
+    let refused_sh = ScriptHash::from_script(&refused.script_pubkey()).digest_hex();
     assert!(
         s.node.pages().iter().any(|p| p.contains(&refused_sh)),
         "{:?}",
@@ -852,7 +893,7 @@ async fn an_address_above_the_cap_is_added_up_through_the_socket_and_its_list_st
     let s = on_socket(true).await;
     let a = address(90);
     s.node.set(&a, Kind::Refused { ms: 0 });
-    let sh = ScriptHash::from_script(&a.script_pubkey()).to_string();
+    let sh = ScriptHash::from_script(&a.script_pubkey()).digest_hex();
     let v = refused_then(&s, &a, "tracked").await;
     assert_eq!(v["chain_stats"]["funded_txo_count"], 50_000);
     // Added up once, through the uncapped route, pinned to a block the ledger holds.
@@ -898,7 +939,7 @@ async fn a_node_that_loses_the_route_is_probed_again_and_asked_the_capped_route(
     let a = address(92);
     s.node.set(&a, Kind::Refused { ms: 0 });
     refused_then(&s, &a, "refused").await;
-    let sh = ScriptHash::from_script(&a.script_pubkey()).to_string();
+    let sh = ScriptHash::from_script(&a.script_pubkey()).digest_hex();
     let internal = s.node.internal_paths();
     // The probe, the seed's 404, the probe again; then the capped route refused the seed.
     assert_eq!(internal.len(), 3, "{internal:?}");
@@ -1174,7 +1215,11 @@ async fn a_whole_history_is_paged_from_the_store_as_the_node_pages() {
     let a = address(42);
     s.node.set(&a, Kind::Large { ms: 0 });
     let sh = ScriptHash::from_script(&a.script_pubkey());
-    s.node.lists.lock().unwrap().insert(sh.to_string(), 60);
+    s.node
+        .lists
+        .lock()
+        .unwrap()
+        .insert(sh.electrum().to_string(), 60);
     // Until the list is in, pages are refused as before.
     assert_eq!(
         get(&s.addr, 1, &format!("/regtest/api/address/{a}"))
@@ -1202,7 +1247,10 @@ async fn a_whole_history_is_paged_from_the_store_as_the_node_pages() {
         .collect();
     assert_eq!(want.len(), 60);
     let before = s.node.seen.lock().unwrap().len();
-    for form in [format!("address/{a}"), format!("scripthash/{sh}")] {
+    for form in [
+        format!("address/{a}"),
+        format!("scripthash/{}", sh.digest_hex()),
+    ] {
         let chain = walk(&s, &format!("/regtest/api/{form}/txs/chain")).await;
         let got: Vec<&str> = chain.iter().map(|t| t["txid"].as_str().unwrap()).collect();
         assert_eq!(got, want, "{form}");
@@ -1352,7 +1400,9 @@ async fn followers_hear_when_a_whole_history_is_dropped_for_anothers() {
     let (a, b) = (address(50), address(51));
     for x in [&a, &b] {
         s.node.set(x, Kind::Large { ms: 0 });
-        let sh = ScriptHash::from_script(&x.script_pubkey()).to_string();
+        let sh = ScriptHash::from_script(&x.script_pubkey())
+            .electrum()
+            .to_string();
         s.node.lists.lock().unwrap().insert(sh, 50);
     }
     get(&s.addr, 1, &format!("/regtest/api/address/{a}")).await;
@@ -1408,7 +1458,9 @@ async fn followers_hear_when_an_address_with_a_whole_history_is_dropped_for_anot
     let (a, b) = (address(52), address(53));
     for x in [&a, &b] {
         s.node.set(x, Kind::Large { ms: 0 });
-        let sh = ScriptHash::from_script(&x.script_pubkey()).to_string();
+        let sh = ScriptHash::from_script(&x.script_pubkey())
+            .electrum()
+            .to_string();
         s.node.lists.lock().unwrap().insert(sh, 50);
     }
     get(&s.addr, 1, &format!("/regtest/api/address/{a}")).await;
@@ -1458,8 +1510,13 @@ async fn a_kept_address_nobody_views_takes_no_list_until_one_does() {
     let s = start(true, &[]).await;
     let a = address(54);
     s.node.set(&a, Kind::Large { ms: 0 });
-    let sh = ScriptHash::from_script(&a.script_pubkey()).to_string();
-    s.node.lists.lock().unwrap().insert(sh.clone(), 50);
+    let sh = ScriptHash::from_script(&a.script_pubkey());
+    s.node
+        .lists
+        .lock()
+        .unwrap()
+        .insert(sh.electrum().to_string(), 50);
+    let sh = sh.digest_hex();
     // Kept from an answer, as discovery's are, with nobody on its page: its newest page is taken
     // as before, its whole list is not.
     assert_eq!(
@@ -1489,7 +1546,9 @@ async fn a_history_a_reader_is_viewing_is_not_dropped_for_another() {
     let (a, b) = (address(55), address(56));
     for x in [&a, &b] {
         s.node.set(x, Kind::Large { ms: 0 });
-        let sh = ScriptHash::from_script(&x.script_pubkey()).to_string();
+        let sh = ScriptHash::from_script(&x.script_pubkey())
+            .electrum()
+            .to_string();
         s.node.lists.lock().unwrap().insert(sh, 50);
     }
     get(&s.addr, 1, &format!("/regtest/api/address/{a}")).await;

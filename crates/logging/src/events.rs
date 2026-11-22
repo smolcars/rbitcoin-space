@@ -803,6 +803,16 @@ pub struct LedgerSeeded {
 }
 event!(LedgerSeeded, "ledger_seeded", Info);
 
+/// Which order the node's Esplora reads `/scripthash/:hash` in: `digest` (rbitcoin after PR
+/// 1671), `reversed` (v0.9.2), or `unknown` (forgotten when the Electrum connection dropped, or no
+/// probe decided it), when that sends scripthash routes `503`. Written when it changes.
+#[derive(Debug, Serialize)]
+pub struct EsploraScripthashOrder {
+    pub network: &'static str,
+    pub order: &'static str,
+}
+event!(EsploraScripthashOrder, "esplora_scripthash_order", Info);
+
 /// Whether the node's Esplora socket adds up totals above its `--max-sh-creates`, so seeds of
 /// addresses above the cap ask it: at startup and on every reconnect, on a socket only.
 #[derive(Debug, Serialize)]
@@ -2152,6 +2162,10 @@ mod tests {
             both(&LedgerTotalsRoute {
                 network: n,
                 uncapped: true,
+            }),
+            both(&EsploraScripthashOrder {
+                network: n,
+                order: "digest",
             }),
             both(&LedgerSeedRefused {
                 network: n,

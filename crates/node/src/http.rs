@@ -32,7 +32,7 @@ pub(crate) enum Error {
 const POOL_IDLE: Duration = Duration::from_secs(30);
 
 /// Where the node listens.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Endpoint {
     /// `http://host:port` and an optional base path such as `/api`.
     Tcp { origin: String, base_path: String },

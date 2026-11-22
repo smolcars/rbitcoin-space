@@ -375,7 +375,11 @@ async fn cache_headers_per_route_class() {
 
 #[tokio::test]
 async fn upstream_errors_become_our_fixed_messages() {
-    let (addr, _) = start(Duration::ZERO, true).await;
+    let (url, seen) = mock(Duration::ZERO).await;
+    let app = App::new(&config(&url, true));
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap().to_string();
+    tokio::spawn(app.serve(listener, std::future::pending()));
     let r = get(&addr, &format!("/api/block/{H}")).await;
     assert_eq!((r.status, r.error()), (404, "not found".into()));
     let r = get(
@@ -385,8 +389,20 @@ async fn upstream_errors_become_our_fixed_messages() {
     .await;
     assert_eq!(r.status, 503);
     assert_eq!(r.error(), "address index is disabled on this server");
+    // Before the node's scripthash order is known, a scripthash is not sent at all: asked in
+    // the wrong order the node would answer an empty history.
+    let r = get(&addr, &format!("/api/scripthash/{H}/utxo")).await;
+    assert_eq!((r.status, r.error()), (503, "not ready yet; retry".into()));
+    assert_eq!(r.header("retry-after"), Some("1"));
+    assert!(!hits(&seen).iter().any(|p| p.starts_with("/scripthash/")));
+    node::esplora::Esplora::new(&url)
+        .unwrap()
+        .set_scripthash_order(Some(node::esplora::ScriptHashOrder::Reversed));
     let r = get(&addr, &format!("/api/scripthash/{H}/utxo")).await;
     assert_eq!((r.status, r.error()), (502, "upstream unavailable".into()));
+    // The client's digest is sent in the order the node reads.
+    let reversed: String = (0..32).rev().map(|i| &H[2 * i..2 * i + 2]).collect();
+    assert!(hits(&seen).contains(&format!("/scripthash/{reversed}/utxo")));
     assert!(!r.text().contains("/var"));
     let r = post(&addr, "/api/tx", b"01000000000000000000").await;
     assert_eq!(r.status, 400);

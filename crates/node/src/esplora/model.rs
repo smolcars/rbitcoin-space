@@ -8,8 +8,6 @@ use std::collections::BTreeMap;
 use bitcoin::{Amount, BlockHash, TxMerkleNode, Txid};
 use serde::Deserialize;
 
-use super::route::ScriptHash;
-
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct Block {
     pub id: BlockHash,
@@ -160,7 +158,8 @@ pub struct ScriptStats {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct ScriptInfo {
     pub address: Option<String>,
-    pub scripthash: Option<ScriptHash>,
+    /// The hash as the node echoed it from the path, in the order the node reads. Unused.
+    pub scripthash: Option<String>,
     pub chain_stats: ScriptStats,
     pub mempool_stats: ScriptStats,
 }

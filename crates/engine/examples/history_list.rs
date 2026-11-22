@@ -117,7 +117,8 @@ async fn main() {
         let started = Instant::now();
         let r = ledger::history(&store, &node, sh, i64::MAX as u64, i64::MAX as u64, 0).await;
         println!(
-            "{sh}: counted and seeded ({seeded:?}) in {seed_s:.1} s; history {r:?} in {:.1} s",
+            "{}: counted and seeded ({seeded:?}) in {seed_s:.1} s; history {r:?} in {:.1} s",
+            sh.digest_hex(),
             started.elapsed().as_secs_f64()
         );
     }

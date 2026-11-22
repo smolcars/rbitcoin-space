@@ -374,6 +374,7 @@ impl App {
                     peers.extend(ctx.lightning.clone());
                     tokio::spawn(summary::detect_routes(Arc::clone(&ctx)));
                     tokio::spawn(health::watch_address_index(Arc::clone(&ctx)));
+                    tokio::spawn(health::watch_scripthash_order(Arc::clone(&ctx)));
                     routes
                         .clone()
                         .route_layer(middleware::from_fn_with_state(

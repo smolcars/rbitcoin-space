@@ -1277,7 +1277,7 @@ async fn history(
     esplora: &Esplora,
     sh: ScriptHash,
 ) -> Option<Vec<(Txid, bool, Value)>> {
-    let script = sh.to_string().parse().ok()?;
+    let script = node::esplora::ScriptHash::from_electrum(sh);
     let first = Some((None, None));
     let verdicts = &ctx.api.verdicts;
     if verdicts

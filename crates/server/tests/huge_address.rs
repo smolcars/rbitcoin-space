@@ -90,6 +90,10 @@ async fn mock() -> (String, Seen) {
 /// The server against a fresh mock node, its requests naming their client in `X-Real-IP`.
 async fn start() -> (String, Seen) {
     let (url, seen) = mock().await;
+    // The mock's Electrum never answers, so the server never probes its scripthash order.
+    node::esplora::Esplora::new(&url)
+        .unwrap()
+        .set_scripthash_order(Some(node::esplora::ScriptHashOrder::Digest));
     let app = App::new(&config(&url));
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap().to_string();
@@ -187,8 +191,8 @@ async fn once_the_node_refuses_the_totals_for_size_the_history_never_reaches_it(
         format!("/api/address/{BIG}/txs/chain/{TXID}"),
         format!("/api/address/{BIG}/txs/summary"),
         format!("/api/address/{BIG}/txs/summary/{TXID}?asof={asof}"),
-        format!("/api/scripthash/{sh}/txs"),
-        format!("/api/scripthash/{sh}/txs/summary"),
+        format!("/api/scripthash/{}/txs", sh.digest_hex()),
+        format!("/api/scripthash/{}/txs/summary", sh.digest_hex()),
     ] {
         let r = get(&addr, &path).await;
         assert_eq!((r.status, r.error.as_str()), TOO_LARGE, "{path}");
@@ -199,7 +203,7 @@ async fn once_the_node_refuses_the_totals_for_size_the_history_never_reaches_it(
         );
     }
     assert_eq!(calls(&seen, BIG), 1, "no history request reached the node");
-    assert_eq!(calls(&seen, &sh.to_string()), 0);
+    assert_eq!(calls(&seen, &sh.digest_hex()), 0);
 
     // Its mempool rows are not history: still served.
     assert_eq!(

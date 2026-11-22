@@ -17,11 +17,11 @@ use bitcoin::BlockHash;
 use bitcoin::hashes::Hash;
 use engine::store::{Gate, OptionalExtension, Read, Store, params};
 use logging::events::{
-    AddressIndexOff, AddressIndexOn, RpcAuthFailed, RpcReachable, RpcUnreachable, RpcWrongNetwork,
-    StoreChainUnverified, StoreWrongChain,
+    AddressIndexOff, AddressIndexOn, EsploraScripthashOrder, RpcAuthFailed, RpcReachable,
+    RpcUnreachable, RpcWrongNetwork, StoreChainUnverified, StoreWrongChain,
 };
 use node::electrum::Event as ElectrumEvent;
-use node::esplora::{Error as EsploraError, ScriptHash, ScriptRef};
+use node::esplora::{Error as EsploraError, ScriptHash, ScriptHashOrder, ScriptRef};
 use node::rpc::Error as RpcError;
 use serde_json::{Map, json};
 use tokio::sync::broadcast::error::RecvError;
@@ -273,17 +273,13 @@ impl AddressIndex {
     }
 }
 
-/// A scripthash no script hashes to, so asking for its stats is one index lookup that finds
-/// nothing: the cheapest question the address routes answer.
-const NO_SCRIPT: &str = "0000000000000000000000000000000000000000000000000000000000000000";
-
 /// Asks the node whether it has its address index (`--sh-index`) once Electrum is first ready,
 /// then after every reconnect, since the node may have been restarted with other flags, and every
 /// [`CHECK_EVERY`] while the question has no answer. Logs the first answer and each change.
 pub async fn watch_address_index(ctx: Arc<NetworkContext>) {
-    let Ok(probe) = NO_SCRIPT.parse::<ScriptHash>() else {
-        return;
-    };
+    // No script hashes to it, so asking for its stats is one index lookup that finds nothing:
+    // the cheapest question the address routes answer, and the same in either scripthash order.
+    let probe = ScriptHash::NONE;
     // Subscribed before the first question, so a reconnect during it is still heard.
     let mut events = ctx.electrum.events();
     if ctx.electrum.health().wait_for(|h| h.ready).await.is_err() {
@@ -395,6 +391,74 @@ pub fn readyz(networks: &[Arc<NetworkContext>]) -> Response {
         "networks": out,
     });
     (status, Json(body)).into_response()
+}
+
+/// How long a probe of the node's scripthash order may take.
+const ORDER_PROBE_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Finds which order the node's Esplora reads `/scripthash/:hash` in (docs/RBITCOIN.md,
+/// "Scripthash order") once Electrum is first ready, again after every reconnect, and on each new
+/// block and every [`CHECK_EVERY`] while it is not known. Forgets it as soon as the connection
+/// drops, since the node that comes back may be another build: until a probe finds it again,
+/// every route that names a script by hash answers `503 not ready yet; retry` rather than ask
+/// in an order that would give an empty history.
+pub async fn watch_scripthash_order(ctx: Arc<NetworkContext>) {
+    let network = ctx.config.network.name();
+    let set = |order: Option<ScriptHashOrder>| {
+        if ctx.esplora.set_scripthash_order(order) != order {
+            logging::emit(&EsploraScripthashOrder {
+                network,
+                order: order.map_or("unknown", ScriptHashOrder::label),
+            });
+        }
+    };
+    let probe = async || {
+        let found = tokio::time::timeout(ORDER_PROBE_TIMEOUT, ctx.esplora.find_scripthash_order())
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .flatten();
+        // An answer that decides nothing leaves what is known: nothing after a drop or at start.
+        if found.is_some() {
+            set(found);
+        }
+        found.is_some()
+    };
+    // Subscribed before the first probe, so a reconnect or a drop during it is still seen.
+    let mut events = ctx.electrum.events();
+    let mut health = ctx.electrum.health();
+    loop {
+        if health.wait_for(|h| h.ready).await.is_err() {
+            return;
+        }
+        let mut known = probe().await;
+        loop {
+            let retry = tokio::time::sleep(if known { Duration::MAX } else { CHECK_EVERY });
+            tokio::pin!(retry);
+            tokio::select! {
+                changed = health.changed() => {
+                    if changed.is_err() {
+                        return;
+                    }
+                    if !health.borrow_and_update().ready {
+                        set(None);
+                        break;
+                    }
+                }
+                e = events.recv() => match e {
+                    // A lagged receiver may have missed a reconnect.
+                    Ok(ElectrumEvent::Resynced) | Err(RecvError::Lagged(_)) => {
+                        set(None);
+                        known = probe().await;
+                    }
+                    Ok(ElectrumEvent::Block(_)) if !known => known = probe().await,
+                    Ok(_) => {}
+                    Err(RecvError::Closed) => return,
+                },
+                () = &mut retry, if !known => known = probe().await,
+            }
+        }
+    }
 }
 
 #[cfg(test)]

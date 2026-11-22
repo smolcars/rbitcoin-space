@@ -212,8 +212,7 @@ impl Source for NodeSource {
         rows: mpsc::Sender<Vec<Row>>,
     ) -> Result<Result<(), Option<ScriptSize>>, SourceError> {
         let addr = self.electrum.clone();
-        let sh =
-            node::electrum::ScriptHash(esplora::ScriptHash::from_script(script).to_byte_array());
+        let sh = esplora::ScriptHash::from_script(script).electrum();
         let read = tokio::task::spawn_blocking(move || {
             list::list(
                 &addr,

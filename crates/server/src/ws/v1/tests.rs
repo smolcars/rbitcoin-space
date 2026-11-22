@@ -451,14 +451,18 @@ impl History {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         tokio::spawn(async move { axum::serve(listener, app).await });
+        // It reads scripthashes in digest order; nothing probes a mock, so it is told.
+        node::esplora::Esplora::new(&url)
+            .unwrap()
+            .set_scripthash_order(Some(node::esplora::ScriptHashOrder::Digest));
         url
     }
 
     fn set(&self, sh: ScriptHash, txs: &[Value]) {
-        self.pages
-            .lock()
-            .unwrap()
-            .insert(sh.to_string(), json!(txs));
+        self.pages.lock().unwrap().insert(
+            node::esplora::ScriptHash::from_electrum(sh).digest_hex(),
+            json!(txs),
+        );
     }
 
     async fn reads_reach(&self, n: usize) {
@@ -1070,7 +1074,7 @@ async fn an_address_history_the_node_will_not_finish_is_not_read_again() {
     // Followed again, by this socket or another: the node is not asked again.
     send(&mut s, &json!({"track-address": address(1)}));
     // An address the HTTP routes learned is too large is never asked at all.
-    let sh = script_of(&address(2)).to_string().parse().unwrap();
+    let sh = node::esplora::ScriptHash::from_electrum(script_of(&address(2)));
     ctx.api
         .verdicts
         .learn(sh, None, Verdict::TooLarge(None), std::time::Instant::now());
