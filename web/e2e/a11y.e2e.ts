@@ -3,7 +3,8 @@
 import type { Page } from "@playwright/test";
 import { axe } from "./axe";
 import { chain, expect, test } from "./fixtures";
-import { open, PAGES } from "./pages";
+import { expectFaults, open, PAGES } from "./pages";
+import { tablesSettled } from "./rows";
 
 interface Stop {
   /** The element's own number, so a second control of the same name is not the first again. */
@@ -119,9 +120,9 @@ async function press(page: Page, browserName: string, back: boolean, n: number) 
 /**
  * Tabs through the whole page from the top, then back up with Shift+Tab: the skip link comes
  * first, every stop shows its focus ring and is never under the sticky header, and every control
- * in sight is reached in the order the page reads, header, main, then footer.
+ * in sight is reached in the order the page reads, header, main, then footer. Returns what fails.
  */
-async function walk(page: Page, browserName: string) {
+async function walk(page: Page, browserName: string): Promise<string[]> {
   await record(page);
   const controls = await page.evaluate(() => {
     (document.activeElement as HTMLElement | null)?.blur();
@@ -148,19 +149,14 @@ async function walk(page: Page, browserName: string) {
       if (e instanceof HTMLElement || e instanceof SVGElement) e.dataset["walked"] = "";
     }
   }, stops.length);
-  expect.soft(stops[0]?.name, "the first stop").toBe('a "Skip to content"');
-  expect
-    .soft(
-      stops.filter((s) => !s.ring).map((s) => s.name),
-      "stops without a focus ring",
-    )
-    .toEqual([]);
-  expect
-    .soft(
-      stops.filter((s) => s.covered).map((s) => s.name),
-      "stops under the header, tabbing down",
-    )
-    .toEqual([]);
+  const found: string[] = [];
+  if (stops[0]?.name !== 'a "Skip to content"') {
+    found.push(`the first stop is ${stops[0]?.name ?? "nothing"}, not a "Skip to content"`);
+  }
+  for (const s of stops) {
+    if (!s.ring) found.push(`no focus ring: ${s.name}`);
+    if (s.covered) found.push(`under the header, tabbing down: ${s.name}`);
+  }
   const order = await page.evaluate(() => {
     const parts = [".site-header", "#main", ".site-footer"];
     const tabbable = [
@@ -186,14 +182,13 @@ async function walk(page: Page, browserName: string) {
         .filter((p) => p >= 0),
     };
   });
-  expect.soft(order.positive, "a positive tabindex, which reorders the page").toBe(0);
-  expect.soft(order.missed, "controls Tab never reached").toEqual([]);
-  expect
-    .soft(
-      order.parts.every((p, i) => p >= (order.parts[i - 1] ?? 0)),
-      "header, then main, then footer",
-    )
-    .toBe(true);
+  if (order.positive > 0) {
+    found.push(`a positive tabindex on ${order.positive}, which reorders the page`);
+  }
+  for (const m of order.missed) found.push(`Tab never reaches ${m}`);
+  if (!order.parts.every((p, i) => p >= (order.parts[i - 1] ?? 0))) {
+    found.push("the stops are not header, then main, then footer");
+  }
   // Back up the page from the last stop: focus scrolled into view from below must clear the
   // sticky header.
   // at[0] is focus before the first press, so the last stop's element is at[stops.length].
@@ -204,8 +199,10 @@ async function walk(page: Page, browserName: string) {
   await press(page, browserName, true, stops.length - 1);
   // The first noted is the last stop itself, focused from a script rather than by a key.
   const { seen, now } = await noted(page);
-  const back = [...seen.slice(1), now].filter((s) => s?.covered).map((s) => s?.name);
-  expect.soft(back, "stops under the header, tabbing up").toEqual([]);
+  for (const s of [...seen.slice(1), now]) {
+    if (s?.covered) found.push(`under the header, tabbing up: ${s.name}`);
+  }
+  return found;
 }
 
 /** Records every animation that moves something, from the first paint on. */
@@ -231,24 +228,102 @@ const watchMotion = (page: Page) =>
 const moved = (page: Page) =>
   page.evaluate(() => [...(window as unknown as { moved: Set<string> }).moved]);
 
+/** Content wider than the screen outside anything that scrolls, with every disclosure open. */
+const overflow = (page: Page) =>
+  page.evaluate(() => {
+    for (const d of document.querySelectorAll("details")) d.open = true;
+    const width = document.documentElement.clientWidth;
+    const out: string[] = [];
+    for (const e of document.querySelectorAll("body *")) {
+      const box = e.getBoundingClientRect();
+      if (box.width === 0 || (box.right <= width + 1 && box.left >= -1)) continue;
+      let clipped = false;
+      for (let p = e.parentElement; p && !clipped; p = p.parentElement) {
+        clipped = getComputedStyle(p).overflowX !== "visible";
+      }
+      if (!clipped) out.push(`${e.tagName.toLowerCase()}.${e.getAttribute("class") ?? ""}`);
+    }
+    return { scroll: document.documentElement.scrollWidth - width, out: out.slice(0, 5) };
+  });
+
+/**
+ * WCAG's reflow at 320 px, and a large text size: a phone's at 320 px and 200% on a desktop, on
+ * the page as loaded, resized and its text set larger, as a reader does. A browser's text size is
+ * its default font size, which Chromium alone lets a test set. Returns what fails.
+ */
+async function largeText(page: Page, browserName: string): Promise<string[]> {
+  const chromium = browserName === "chromium";
+  const sizes = [
+    { width: 320, height: 640, text: 16 },
+    ...(chromium
+      ? [
+          { width: 320, height: 640, text: 24 },
+          { width: 1280, height: 800, text: 32 },
+        ]
+      : []),
+  ];
+  const cdp = chromium ? await page.context().newCDPSession(page) : undefined;
+  // The walk leaves focus on the skip link, which shows while focused.
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  const found: string[] = [];
+  for (const size of sizes) {
+    const at = `${size.width} px at ${size.text} px text`;
+    await page.setViewportSize(size);
+    await cdp?.send("Page.setFontSizes", {
+      fontSizes: { standard: size.text, fixed: Math.round((size.text * 13) / 16) },
+    });
+    // At rest, as a page loaded at this size is: anything the change set moving has finished.
+    await page.evaluate(() =>
+      Promise.all(
+        document
+          .getAnimations()
+          .filter((a) => a.effect?.getComputedTiming().endTime !== Infinity)
+          .map((a) => a.finished.catch(() => undefined)),
+      ),
+    );
+    await tablesSettled(page);
+    const { scroll, out } = await overflow(page);
+    if (scroll > 0) found.push(`${at}: the page scrolls ${scroll} px sideways`);
+    for (const e of out) found.push(`${at}: ${e} reaches past the window`);
+    const links = await page
+      .getByRole("navigation", { name: "Main" })
+      .getByRole("link")
+      .evaluateAll((all) => all.map((a) => a.getBoundingClientRect()));
+    const apart = links.every((a, i) =>
+      links.slice(i + 1).every((b) => a.right <= b.left + 1 || a.bottom <= b.top + 1),
+    );
+    if (!apart) found.push(`${at}: the sections run into each other`);
+    // A short screen keeps the whole of it for the page: the header scrolls away.
+    const sticky = await page
+      .getByRole("banner")
+      .evaluate((h) => getComputedStyle(h).position === "sticky");
+    if (sticky !== size.height / size.text >= 30) {
+      found.push(`${at}: the header ${sticky ? "sticks on a short screen" : "scrolls away"}`);
+    }
+  }
+  return found;
+}
+
 test.describe("every page", () => {
   // The address above the cap is refused its totals (a stand-in 503), as the node does.
   test.use({ reducedMotion: "reduce", consoleErrorsAllowed: [/status of 503/] });
   for (const swept of PAGES) {
-    test(`${swept.path}: no checker finding in either theme, a keyboard walk, and no movement under reduced motion`, async ({
+    test(`${swept.path}: no checker finding in either theme, a keyboard walk, no movement under reduced motion, and reflow at large text sizes`, async ({
       page,
       browserName,
     }) => {
-      test.fail(swept.faults?.a11y !== undefined, swept.faults?.a11y);
       await watchMotion(page);
       await open(page, swept);
-      expect.soft(await axe(page), "axe-core, light").toEqual([]);
+      const found = (await axe(page)).map((f) => `axe-core, light: ${f}`);
       await page.emulateMedia({ colorScheme: "dark" });
-      expect.soft(await axe(page, ["color-contrast"]), "contrast, dark").toEqual([]);
+      found.push(...(await axe(page, ["color-contrast"])).map((f) => `contrast, dark: ${f}`));
       await page.emulateMedia({ colorScheme: "light" });
       // A keyboard is a desktop's; a phone's run checks the rest.
-      if ((page.viewportSize()?.width ?? 0) > 640) await walk(page, browserName);
-      expect.soft(await moved(page), "movement under reduced motion").toEqual([]);
+      if ((page.viewportSize()?.width ?? 0) > 640) found.push(...(await walk(page, browserName)));
+      found.push(...(await moved(page)).map((m) => `moves under reduced motion: ${m}`));
+      expectFaults(found, swept, "a11y");
+      // Last: it opens every disclosure and changes the window and the text size.
+      expectFaults(await largeText(page, browserName), swept, "largeText");
     });
   }
 });
@@ -386,74 +461,4 @@ test("the block field has no checker finding, open and refusing what was typed, 
   await expect(page.getByRole("heading", { name: "“x” is not a block height" })).toBeVisible();
   await page.getByRole("button", { name: "Another block" }).click();
   expect.soft(await axe(page), "axe-core, a parameter that is no height, dark").toEqual([]);
-});
-
-/** Content wider than the screen outside anything that scrolls, with every disclosure open. */
-const overflow = (page: Page) =>
-  page.evaluate(() => {
-    for (const d of document.querySelectorAll("details")) d.open = true;
-    const width = document.documentElement.clientWidth;
-    const out: string[] = [];
-    for (const e of document.querySelectorAll("body *")) {
-      const box = e.getBoundingClientRect();
-      if (box.width === 0 || (box.right <= width + 1 && box.left >= -1)) continue;
-      let clipped = false;
-      for (let p = e.parentElement; p && !clipped; p = p.parentElement) {
-        clipped = getComputedStyle(p).overflowX !== "visible";
-      }
-      if (!clipped) out.push(`${e.tagName.toLowerCase()}.${e.getAttribute("class") ?? ""}`);
-    }
-    return { scroll: document.documentElement.scrollWidth - width, out: out.slice(0, 5) };
-  });
-
-/**
- * WCAG's reflow at 320 px, and a large text size: a phone's at 320 px and 200% on a desktop. A
- * browser's text size is its default font size, which Chromium alone lets a test set.
- */
-test.describe("every page at a large text size", () => {
-  test.use({ consoleErrorsAllowed: [/status of 503/] });
-  for (const swept of PAGES) {
-    test(`${swept.path} reflows at 320 px and at a large text size, nothing cut or overlapping`, async ({
-      page,
-      browserName,
-    }) => {
-      test.fail(swept.faults?.largeText !== undefined, swept.faults?.largeText);
-      const sizes = [
-        { width: 320, height: 640, text: 16 },
-        ...(browserName === "chromium"
-          ? [
-              { width: 320, height: 640, text: 24 },
-              { width: 1280, height: 800, text: 32 },
-            ]
-          : []),
-      ];
-      for (const size of sizes) {
-        const label = `${size.width} px at ${size.text} px text`;
-        await page.setViewportSize(size);
-        if (browserName === "chromium") {
-          const cdp = await page.context().newCDPSession(page);
-          await cdp.send("Page.setFontSizes", {
-            fontSizes: { standard: size.text, fixed: Math.round((size.text * 13) / 16) },
-          });
-        }
-        await open(page, swept);
-        expect.soft(await overflow(page), label).toEqual({ scroll: 0, out: [] });
-        const links = await page
-          .getByRole("navigation", { name: "Main" })
-          .getByRole("link")
-          .evaluateAll((all) => all.map((a) => a.getBoundingClientRect()));
-        const apart = links.every((a, i) =>
-          links.slice(i + 1).every((b) => a.right <= b.left + 1 || a.bottom <= b.top + 1),
-        );
-        expect.soft(apart, `${label}: the sections apart`).toBe(true);
-        // A short screen keeps the whole of it for the page: the header scrolls away.
-        const sticky = await page
-          .getByRole("banner")
-          .evaluate((h) => getComputedStyle(h).position === "sticky");
-        expect
-          .soft(sticky, `${label}: the header sticks only on a screen tall enough`)
-          .toBe(size.height / size.text >= 30);
-      }
-    });
-  }
 });

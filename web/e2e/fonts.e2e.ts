@@ -3,7 +3,7 @@
 import { stripVTControlCharacters } from "node:util";
 import { chain, expect, test } from "./fixtures";
 import { frames, layoutFaults } from "./layout";
-import { open, PAGES } from "./pages";
+import { expectFaults, open, PAGES } from "./pages";
 import { amountsIntact, tablesFit } from "./rows";
 
 // Each width is a resize of one loaded page: WebKit calls a fetch the next page's load cancels an
@@ -32,7 +32,6 @@ const WIDTHS = SWEEP
 for (const swept of PAGES) {
   test(`${swept.path} holds in a stand-in font at every width`, async ({ page }) => {
     test.setTimeout(SWEEP ? 240_000 : 30_000);
-    test.fail(swept.faults?.fonts !== undefined, swept.faults?.fonts);
     await page.setViewportSize({ width: 1440, height: 900 });
     await open(page, swept);
     // Every fault at every width, so one run lists them all.
@@ -56,7 +55,7 @@ for (const swept of PAGES) {
         }
       }
     }
-    expect(faults).toStrictEqual([]);
+    expectFaults(faults, swept, "fonts");
   });
 }
 

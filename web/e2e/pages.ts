@@ -66,8 +66,28 @@ export interface SweptPage {
   stub?: (page: Page) => Promise<void>;
   /** What the page shows once it has its data, where its heading comes first. */
   ready?: (page: Page) => Locator;
-  /** What a sweep finds here and is not fixed yet: that sweep is expected to fail on this page. */
-  faults?: Partial<Record<Sweep, string>>;
+  /** Faults a sweep finds here and nobody has fixed yet: each in words, as a pattern of its report. */
+  faults?: Partial<Record<Sweep, Readonly<Record<string, RegExp>>>>;
+}
+
+/**
+ * Holds what a sweep found on a page to the faults its entry names: each is still found, so a
+ * fixed one is taken out, and nothing else is.
+ */
+export function expectFaults(found: readonly string[], { faults }: SweptPage, sweep: Sweep) {
+  const known = Object.entries(faults?.[sweep] ?? {});
+  expect
+    .soft(
+      found.filter((f) => !known.some(([, k]) => k.test(f))),
+      `${sweep}: what it found`,
+    )
+    .toStrictEqual([]);
+  expect
+    .soft(
+      known.filter(([, k]) => !found.some((f) => k.test(f))).map(([what]) => what),
+      `${sweep}: faults in e2e/pages.ts it no longer finds, to take out`,
+    )
+    .toStrictEqual([]);
 }
 
 /** Every page, each with what it needs stubbed. */
@@ -89,8 +109,9 @@ export const PAGES: SweptPage[] = [
   { path: `/regtest/tx/${chain.txs.cpfp_child}`, ready: outputs },
   // Waiting for a transaction: the decoder hands one over in the history entry, never the URL.
   { path: "/regtest/tx/push" },
-  { path: `/regtest/address/${chain.addresses.p2tr}`, ready: balance },
-  // As of a block, with its band (docs/FRONTEND.md "An address as of a block").
+  // Two payments pending, one of them a CPFP child.
+  { path: `/regtest/address/${chain.addresses.p2wpkh}`, ready: balance },
+  // As of a block, with its band (docs/FRONTEND.md "An address as of a block"), in the longest form.
   { path: `/regtest/address/${chain.addresses.p2tr}?at=106`, ready: balance },
   // Above the node's cap, refused its totals (a stand-in 503), as the node does.
   {
@@ -198,10 +219,21 @@ export const PAGES: SweptPage[] = [
   {
     path: "/docs",
     faults: {
-      fonts: "a code block's text runs into its Copy button, from 320 to 1100 px",
-      targets:
-        "the brand, Copy page and each code block's Copy are under 44 px; the table's links lie under their cell",
-      a11y: 'no scrolling code block is focusable (axe: scrollable-region-focusable); the skip link reads "Skip to the page"',
+      fonts: {
+        "a code block's text runs into its Copy button, from 320 to 1100 px":
+          /^\d+ px, \w+: "[^"]*" \(code\) runs into "Copy" \(button\.code__copy\)$/,
+      },
+      targets: {
+        "the brand is under 44 px wide": /^\d+ px: a\.brand "rbitcoin\.space" is \d+ × \d+ px/,
+        "Copy page and its menu are under 44 px tall": /^\d+ px: button\.split__\w+ "[^"]*" is /,
+        "each code block's Copy is under 44 px tall": /^\d+ px: button\.code__copy "Copy" is /,
+        "the table's links lie under their cell": /^\d+ px: a "[^"]*" is (under td |.* by td )/,
+      },
+      a11y: {
+        "a code block that scrolls cannot take focus":
+          /^axe-core, light: scrollable-region-focusable at \.code-block/,
+        'the skip link reads "Skip to the page"': /^the first stop is a "Skip to the page"/,
+      },
     },
   },
   {
