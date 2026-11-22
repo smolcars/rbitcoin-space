@@ -234,7 +234,7 @@ A key the server has nothing for yet is left out.
 }
 ```
 
-After a `block`, the next `mempool-blocks` is normally the projection on top of that block. A projection on another block than the last `block` sent waits for that block's message at most 3 seconds, then goes out anyway, so a `mempool-blocks` cannot always be paired with the last `block`.
+After a `block`, the next `mempool-blocks` is normally the projection on top of that block. A projection on another block than the last `block` sent waits for that block's message about 3 seconds (up to about 5, as the server checks every 2), then goes out anyway, so a `mempool-blocks` cannot always be paired with the last `block`.
 
 ### live-2h-chart
 
@@ -340,7 +340,7 @@ Then at most one change every 2 seconds, at once on a new block, and none when n
 
 A later message can also carry the whole list again, `blockTransactions` in place of `delta`, for example when a new block changes most of the projected block. Handle both: on `blockTransactions`, replace the list you hold.
 
-Each transaction is its fee in sats, its sigop-adjusted vsize, its total output value in sats, its effective rate in sat/vB, its [flags](/docs/api/v1/transactions) as a number, and when it was first seen in Unix seconds. `sequence` rises by one with each message for that block; when one does not follow, ask for the block again. Block 7 holds the rest of the mempool with no bound and is answered `{"track-mempool-block-error":"projected blocks 0 to 6 are served"}`, as is any number above it.
+Each transaction is its fee in sats, its sigop-adjusted vsize, its total output value in sats, its effective rate in sat/vB, its [flags](/docs/api/v1/transactions) as a number, and when it was first seen in Unix seconds. `sequence` rises by one with each message for that block; when one does not follow, ask for the block again. A message with `blockTransactions` is the whole block: take its `sequence` as the new start, as asking again replays the last whole block and the deltas after it with their own numbers. Block 7 holds the rest of the mempool with no bound and is answered `{"track-mempool-block-error":"projected blocks 0 to 6 are served"}`, as is any number above it.
 
 ## Replacements
 

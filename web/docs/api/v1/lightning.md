@@ -2,7 +2,7 @@
 
 The public Lightning network as this server's own gossip peer sees it: network totals, nodes, channels, search and rankings. Nothing here asks the node.
 
-Every route here is under the explorer routes' base: `/api/v1/lightning` on mainnet, `/signet/api/v1/lightning` and `/testnet4/api/v1/lightning` on the others. There is no Lightning on Testnet 5. Where Lightning is off, on Testnet 5 or on a server that does not run it, every route answers `503` `lightning is off on this network`; `lightning` in [`GET /api/v1/backend-info`](/docs/api/v1/difficulty#get-api-v1-backend-info) says whether it is on. The shapes match mempool.space's, so a client written for it reads them unchanged. The values are this server's, and differ from mempool.space's where this page says.
+Every route here is under the explorer routes' base: `/api/v1/lightning` on mainnet, `/signet/api/v1/lightning` and `/testnet4/api/v1/lightning` on the others. There is no Lightning on Testnet 5. Where Lightning is off, on Testnet 5 or on a server that does not run it, a valid request answers `503` `lightning is off on this network` (parameters are checked first, so a malformed one is still `400`); `lightning` in [`GET /api/v1/backend-info`](/docs/api/v1/difficulty#get-api-v1-backend-info) says whether it is on. The shapes match mempool.space's, so a client written for it reads them unchanged. The values are this server's, and differ from mempool.space's where this page says.
 
 ## What the data covers
 

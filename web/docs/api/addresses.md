@@ -1,6 +1,6 @@
 # Addresses
 
-What an address, a public key or a script has received and spent: its totals, its unspent outputs and its transactions, newest first. These are rbitcoin's Esplora routes. A successful answer is the node's own body. Parameters are checked here first, and an error is this server's own JSON, for example `400` `{"error": "invalid address"}` for a malformed address.
+What an address, a public key or a script has received and spent: its totals, its unspent outputs and its transactions, newest first. These are rbitcoin's Esplora routes. A successful answer is the node's own body, except for an address so large that this server keeps its history itself ([Very large addresses](#very-large-addresses)). Parameters are checked here first, and an error is this server's own JSON, for example `400` `{"error": "invalid address"}` for a malformed address.
 
 Every route here is under the REST base: `/api` on mainnet, `/signet/api`, `/testnet4/api` and `/testnet5/api` on the others. They need the node's address index; where it is off, every one answers `503` `address index is disabled on this server`, except `/txs/mempool`, which reads only the mempool and is served without it.
 
@@ -257,7 +257,7 @@ curl https://rbitcoin.space/api/address/12cbQLTFMXRnSzktFkuoG3eHoMeFtpTu3S/txs/s
 
 `/txs/summary` pages the same way, with `/txs/summary/:last_seen_txid` or `?after_txid=`. The 25-row rule counts confirmed rows: the first `/txs` page also starts with up to 50 unconfirmed transactions, so page through `/txs/chain` rather than `/txs`.
 
-Pass the same `?asof=<blockhash>` on every page, for example the `X-Bitcoin-Chain-Tip` of the first answer, and a new block cannot shift the pages under you. A block not on the best chain is `404` `not found`.
+Pass the same `?asof=<blockhash>` on every page, for example the `X-Bitcoin-Chain-Tip` of the first answer, and a new block cannot shift the pages under you. A block not on the best chain is `404` `not found`. For an address this server keeps, a block it does not hold (one more than 100 blocks below its newest, one it never saw, or one a reorg removed) is `503` `unspent outputs and older history are not kept for an address this large`.
 
 | Parameter                      | Format                                        |
 | ------------------------------ | --------------------------------------------- |

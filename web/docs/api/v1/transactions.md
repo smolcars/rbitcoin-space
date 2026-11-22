@@ -68,7 +68,7 @@ The answer, cut to the first of 25 trees:
 
 A tree also lists the descendants a replacement removed: a child leaves with its parent and is recorded as replaced by the same transaction.
 
-A tree holds at most 100 transactions, the root included. A longer history is cut, newest first, and nothing in the answer marks the cut.
+A tree holds at most 100 transactions, the root included. It is filled from the root down, one branch at a time, oldest replacement first; past 100 the rest is left out, and nothing in the answer marks the cut.
 
 The root's `fee`, `vsize`, `value`, `rate` and `rbf` are `null` when the server never held it in its mempool, and `time` is then when the replacement was seen. That happens when the replacement was mined in the block that removed the original. When a miner confirms the transaction the server had seen replaced, the mined one becomes the root, as the transaction that pushed out the other, with `null` figures.
 
@@ -237,7 +237,7 @@ curl https://rbitcoin.space/api/v1/validate-address/bc1qar0srrr7xfkvy5l643lydnw9
 | `scriptPubKey`                       | The output script it pays, in hex                          |
 | `witness_version`, `witness_program` | Only for a witness address. Pay-to-anchor names no program |
 
-The fields and their order are those of rbitcoin's `validateaddress`. Anything that is not an address of this network, including a valid address of another network, answers `{"isvalid":false}` with status `200`:
+The fields and their order are those of rbitcoin's `validateaddress`. Anything that is not an address of this network answers `200` `{"isvalid":false}`, a valid address of another network and a string over 128 characters included:
 
 ```sh
 curl https://rbitcoin.space/api/v1/validate-address/tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx
@@ -247,7 +247,7 @@ curl https://rbitcoin.space/api/v1/validate-address/tb1qw508d6qejxtdg4y5r3zarvar
 { "isvalid": false }
 ```
 
-Anything that is not an address of this network answers `200` `{"isvalid": false}`, a string over 128 characters included. A path that is not UTF-8 once percent-decoded is `400`.
+A path that is not UTF-8 once percent-decoded is `400`.
 
 ## POST /api/v1/prevouts
 
