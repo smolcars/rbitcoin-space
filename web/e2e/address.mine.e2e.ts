@@ -96,12 +96,14 @@ test("the balance chart steps with each block and follows a new payment", async 
   await page.route(summary, (route) =>
     route.fulfill({ contentType: "application/json", body: stale }),
   );
-  // A body the browser dropped (an answer a newer request replaced) is not the one awaited.
+  // A body the browser dropped (an answer a newer request replaced), a refusal or an error body
+  // without totals is not the one awaited: the wait passes over it rather than throwing.
   const newTotals = page.waitForResponse(
     async (r) =>
       new URL(r.url()).pathname === totals &&
+      r.ok() &&
       (await r.json().then(
-        (b: Stats) => b.chain_stats.tx_count > counted.chain_stats.tx_count,
+        (b: Partial<Stats>) => (b.chain_stats?.tx_count ?? 0) > counted.chain_stats.tx_count,
         () => false,
       )),
   );
