@@ -243,7 +243,7 @@ A block's time to mine (the Blocks page) is its time less its parent's, to the s
 
 Rules:
 
-1. **Move with `transform`, fade with `opacity`.** Never animate width, height, top or left. Bars that change size are positioned with `translateX` and sized with `scaleX` (see the difficulty bar).
+1. **Move with `transform`, fade with `opacity`.** Never animate width, height, top or left. Bars that change size are positioned with `translateX` and sized with `scaleX` (see the difficulty bar and the tile gauge).
 2. **Read durations from the tokens** in JavaScript too (`getComputedStyle(...).getPropertyValue("--dur-slow")`), so reduced motion applies everywhere. The build's minifier rewrites them in seconds (`520ms` becomes `.52s`), so read both units (`toMs` in `pages/home/motion.ts`).
 3. **Leaders move first.** When a row of things shifts, stagger from the one at the front of the movement so nothing overlaps.
 4. **One moment per event.** A new block is one sequence. Live rows get a background flash, not a slide.

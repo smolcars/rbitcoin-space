@@ -270,6 +270,8 @@
     display: flex;
     align-items: flex-end;
     pointer-events: none;
+    /* Its own stack, so the mark can rise over the gauge without rising over the figures. */
+    isolation: isolate;
   }
   .home-tile__body > :not(.home-tile__strata) {
     position: relative;
@@ -284,6 +286,7 @@
     width: var(--space-3);
     height: 2px;
     background: var(--mark-c, transparent);
+    z-index: 1;
   }
   .home-tile__strata:has(.strata--settle)::before {
     animation: home-mark-in var(--dur-slow) var(--ease-out) calc(11 * var(--stagger)) backwards;
@@ -318,12 +321,13 @@
     overflow: hidden;
   }
   /* How full the block is, in a neutral tone: fee colors are only for fee data. */
-  /* Sized by height, not a transform, so it stays under the fill mark; it never animates its size. */
   .home-tile__fill {
     width: 100%;
-    height: calc(var(--fill) * 100%);
+    height: 100%;
     border-radius: 1px;
     background: var(--color-line);
+    transform: scaleY(var(--fill));
+    transform-origin: bottom;
     transition: opacity var(--dur-slow) var(--ease-out);
   }
   /* The layers have arrived: the gauge they settle over clears away. */
@@ -386,6 +390,7 @@
     min-height: 0;
     border-top: 2px dashed var(--color-line-strong);
     background: none;
+    transform: none;
   }
   /* "Nothing waiting" takes the two lines the median and the range would. */
   .home-tile--empty .home-tile__fee {

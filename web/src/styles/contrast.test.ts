@@ -93,7 +93,8 @@ describe("contrast from the tokens", () => {
     it(`keeps a block tile's figures readable over its tinted layers, ${name}`, () => {
       const scope = name === "light" ? ":root {" : ':root[data-theme="dark"] {';
       const start = tokens.indexOf(scope);
-      const tint = Number(/--tile-tint: ([\d.]+)/.exec(tokens.slice(start))?.[1]);
+      const body = tokens.slice(start, tokens.indexOf("}", start));
+      const tint = Number(/--tile-tint: ([\d.]+)/.exec(body)?.[1]);
       expect(tint).toBeGreaterThan(0);
       const hex = (n: string) => rgb(theme.get(n) ?? "");
       // Mined tiles are the surface, projected ones the strip's sunken band; the neutral gauge is
