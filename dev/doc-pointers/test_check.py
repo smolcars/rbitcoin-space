@@ -63,11 +63,28 @@ class Links(unittest.TestCase):
             ["docs/A.md:1: B.md#rules-3 does not exist; nearest: docs/B.md#rules"],
         )
 
+    def test_a_fence_with_words_or_a_code_span_does_not_close_one(self):
+        md = "```md\n```sh\n[a](gone.md)\n```\n\n```code``` is a span, and [b](gone.md) is read.\n"
+        self.assertEqual(
+            run({"docs/A.md": md}),
+            ["docs/A.md:6: gone.md does not exist; nearest: docs/A.md"],
+        )
+
+    def test_a_heading_keeps_what_its_code_spans_say(self):
+        target = "# T\n\n## `GET /api/v1/<id>`\n\n## `_foo_` and `__bar__`\n"
+        md = "[a](B.md#get-apiv1id)\n"
+        code = '// See docs/B.md "`_foo_` and `__bar__`".\n'
+        self.assertEqual(run({"docs/A.md": md, "docs/B.md": target, "src/a.rs": code}), [])
+
     def test_the_task_list_is_not_read(self):
         self.assertEqual(run({"docs/TODO.md": "[a](GONE.md)\n"}), [])
 
 
 class Citations(unittest.TestCase):
+    def test_a_name_does_not_run_on_into_code(self):
+        code = '// Routes follow docs/STORE.md\n("GET /api/blocks", 200),\n'
+        self.assertEqual(run({"src/a.rs": code}), [])
+
     def test_live_citations_pass(self):
         code = (
             '// (docs/STORE.md "Tables"), docs/STORE.md, "Versions" and "Idea"\n'

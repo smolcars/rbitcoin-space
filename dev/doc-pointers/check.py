@@ -18,7 +18,8 @@ from urllib.parse import unquote
 SKIP = re.compile(r"^(docs/TODO\.md|crates/engine/src/store/migrations/.*|dev/doc-pointers/test_)")
 PUBLIC_DOCS = "web/docs/"
 
-FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+# A fence opens a block; one of backticks has no backtick after it, or it is a code span.
+FENCE = re.compile(r"^ {0,3}(`{3,}(?!.*`)|~{3,})(.*)$")
 ATX = re.compile(r"^ {0,3}(#{1,6})[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$")
 SETEXT = re.compile(r"^ {0,3}(=+|-+)[ \t]*$")
 CODE_SPAN = re.compile(r"(`+)(.+?)\1")
@@ -35,7 +36,7 @@ AFTER = re.compile(
 # A paragraph or list item that opens in bold names a section too: "**Versions.** Two ...".
 BOLD_LEAD = re.compile(r"^\s*(?:[-*+] |\d+\. )?\*\*(.+?)\*\*")
 # A comment's leader, dropped when a quoted name runs on to the next line.
-LEADER = re.compile(r"^\s*(?://[/!]?|#|\*|--|<!--)?\s*")
+LEADER = re.compile(r"^\s*(//[/!]?|#|\*|--|<!--)?\s*")
 
 
 def github_slug(text):
@@ -51,14 +52,18 @@ def site_slug(text):
 def github_text(src):
     """A heading's text as GitHub renders it: code spans' contents, links' words, no markup."""
     src = re.sub(r"!?\[((?:`[^`]*`|[^\]])*)\]\([^)]*\)", r"\1", src)
-    src = re.sub(r"<[^>]+>", "", src)
+
+    def plain(text):
+        return re.sub(r"&\w+;", "", unemphasise(re.sub(r"<[^>]+>", "", text)))
+
+    # A code span's text is kept as written: `<id>` and `a_b` in one are not markup.
     out, last = [], 0
     for m in CODE_SPAN.finditer(src):
-        out.append(unemphasise(src[last : m.start()]))
+        out.append(plain(src[last : m.start()]))
         out.append(m.group(2).strip())
         last = m.end()
-    out.append(unemphasise(src[last:]))
-    return re.sub(r"&\w+;", "", "".join(out))
+    out.append(plain(src[last:]))
+    return "".join(out)
 
 
 def unemphasise(src):
@@ -80,8 +85,9 @@ def outside_code(lines):
         if m:
             if fence is None:
                 fence = m.group(1)
-            # A longer block holds shorter fences as text: only one as long closes it.
-            elif m.group(1).startswith(fence):
+            # A longer block holds shorter fences as text, and so is a fence with words after it:
+            # only a bare one as long closes it.
+            elif m.group(1).startswith(fence) and not m.group(2).strip():
                 fence = None
             continue
         if fence is None:
@@ -98,7 +104,7 @@ class Doc:
         for _, line in outside_code(text.split("\n")):
             bold = BOLD_LEAD.match(line)
             if bold:
-                names.append(bold.group(1).rstrip(".:"))
+                names.append(github_text(bold.group(1).rstrip(".:")))
             atx = ATX.match(line)
             if atx:
                 self.headings.append((len(atx.group(1)), atx.group(2)))
@@ -116,7 +122,7 @@ class Doc:
         self.sections = [github_text(t) for _, t in self.headings]
         for t in self.sections:
             names += [t, re.split(r":| \(", t)[0]]
-        self.names = {github_slug(github_text(n)): github_text(n) for n in names}
+        self.names = {github_slug(n): n for n in names}
 
 
 def anchors(bases, first):
@@ -230,7 +236,13 @@ def check_citations(repo, path, text, report):
             if not repo.exists(doc):
                 report(path, i + 1, doc, nearest_file(repo, doc))
                 continue
-            rest = line[m.end() :] + "".join(" " + LEADER.sub("", n) for n in lines[i + 1 : i + 3])
+            # A name may run on to the next lines of the same comment, never into code.
+            more = []
+            for n in lines[i + 1 : i + 3]:
+                if not path.endswith(".md") and not LEADER.match(n).group(1):
+                    break
+                more.append(" " + LEADER.sub("", n))
+            rest = line[m.end() :] + "".join(more)
             after = AFTER.match(rest)
             if not after:
                 continue
