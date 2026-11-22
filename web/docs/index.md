@@ -1,6 +1,6 @@
 # rbitcoin.space API
 
-rbitcoin.space is a block explorer for [rbitcoin](https://github.com/rbitcoin-org/rbitcoin), and everything it shows comes from a public API you can call too. There is no key and no account. Every answer is JSON or plain text over HTTPS.
+rbitcoin.space is a block explorer for [rbitcoin](https://github.com/rbitcoin-org/rbitcoin), and everything it shows comes from a public API you can call too. There is no key and no account. Answers are JSON, plain text, or raw bytes for the routes that end in `/raw`, over HTTPS.
 
 ## Base URLs
 
@@ -46,7 +46,7 @@ curl https://rbitcoin.space/api/v1/fees/precise
 A transaction, on signet:
 
 ```sh
-curl https://rbitcoin.space/signet/api/tx/<txid>
+curl https://rbitcoin.space/signet/api/tx/8bfc5a82630f9fea0808f9a83a07f0a394e497a009bec9780bde4bf92cdc1f5c
 ```
 
 ## Which part to use

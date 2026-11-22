@@ -6,7 +6,7 @@ import { docs } from "./scripts/docs";
 import { precompress } from "./scripts/precompress";
 
 export default defineConfig({
-  plugins: [docs(), precompress()],
+  plugins: [docs(), precompress({ own: true })],
   // public/ is the explorer build's to copy.
   publicDir: false,
   build: {

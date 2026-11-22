@@ -6,13 +6,13 @@ Every client gets the same allowance, counted by IPv4 address or IPv6 /64. Past 
 
 These are the server's defaults.
 
-| What                                                                            | Allowance                                                 | Past it                                                   |
-| ------------------------------------------------------------------------------- | --------------------------------------------------------- | --------------------------------------------------------- |
-| Any `/api` or `/app` request                                                    | 20 a second, after a burst of 120; 48 in flight at once   | `429` with `Retry-After: 1`                               |
-| Address and scripthash routes, `/txs/outspends`, `POST /block-heights/txs/outs` | 30 at once, then 2 a second; 4 running or waiting at once | `429`, or `503` `node busy; retry`, with `Retry-After: 1` |
-| Broadcast, `POST /api/tx`                                                       | 5 at once, then one every 10 seconds                      | `429` with `Retry-After: 10`                              |
-| Following addresses on the WebSocket                                            | 30 at once, then 2 a second                               | A `refused` message; the socket stays open                |
-| The whole server                                                                | 256 requests in flight                                    | `503`                                                     |
+| What                                                                            | Allowance                                                 | Past it                                                                    |
+| ------------------------------------------------------------------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------- |
+| Any `/api` or `/app` request                                                    | 20 a second, after a burst of 120; 48 in flight at once   | `429` with `Retry-After: 1`                                                |
+| Address and scripthash routes, `/txs/outspends`, `POST /block-heights/txs/outs` | 30 at once, then 2 a second; 4 running or waiting at once | `429`, or `503` `node busy; retry`, with `Retry-After: 1`                  |
+| Broadcast, `POST /api/tx`                                                       | 5 at once, then one every 10 seconds                      | `429` with `Retry-After: 10`                                               |
+| Following new addresses on the WebSocket                                        | 30 at once, then 2 a second                               | A `track-address-error` saying it is going too fast; the socket stays open |
+| The whole server                                                                | 256 requests in flight                                    | `503`                                                                      |
 
 A request may take at most 10 seconds; past that it is `504`. A request body may be at most 16 KiB, except a broadcast, which may carry a transaction of up to 400,000 bytes.
 
@@ -20,7 +20,7 @@ Many callers behind one address share its allowance. That includes every user of
 
 ## Retrying
 
-- On `429` or `503`, wait the seconds in `Retry-After`, then ask again.
+- On `429` or `503`, wait the seconds in `Retry-After`, then ask again. A web page calling from another site cannot read that header, as browsers hide it across origins: wait one second, or ten after a broadcast.
 - On `504`, ask again once. An address with a very long history may be refused for a few minutes; its error says so.
 - Poll no faster than a new answer can come. Most answers are cached for one second, and a new block arrives about every ten minutes. For live data, use the WebSocket.
 
@@ -51,8 +51,10 @@ Every error is JSON with one field, and the message is fixed text:
 | -------------------------------------------------------------------- | ------------------------------------- |
 | A block by its hash: `/block/:hash`, its header, raw bytes and txids | `public, max-age=31536000, immutable` |
 | The hex or raw bytes of a transaction without witness data           | `public, max-age=31536000, immutable` |
-| Every other successful read                                          | `public, max-age=1`                   |
+| Every other successful read under `/api`                             | `public, max-age=1`                   |
 | Broadcast, and every error                                           | `no-store`                            |
+
+Routes under `/api/v1` set their own, from `max-age=1` for live answers to a day for a settled block: read the header each answer carries.
 
 ## From a browser
 

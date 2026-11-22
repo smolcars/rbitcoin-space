@@ -136,7 +136,10 @@ function pageMenu(): void {
     more.setAttribute("aria-expanded", "false");
     if (refocus) more.focus();
   };
-  more.addEventListener("click", () => (menu.hidden === true ? open(false) : close(false)));
+  // A click from the keyboard (Enter, Space) has no pointer, `detail` 0: focus goes into the menu.
+  more.addEventListener("click", (e) =>
+    menu.hidden === true ? open(e.detail === 0) : close(false),
+  );
   more.addEventListener("keydown", (e) => {
     if (e.key === "ArrowDown") {
       e.preventDefault();

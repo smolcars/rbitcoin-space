@@ -40,7 +40,7 @@ Add it to `.vscode/mcp.json` in your project:
 
 ### The tools
 
-Each chain tool takes `network` (`mainnet`, `signet`, `testnet4` or `testnet5`) and defaults to mainnet. Amounts are in satoshis, fee rates in sat/vB.
+Each chain tool takes `network` (`mainnet`, `signet`, `testnet4` or `testnet5`). Without it, a tool asks the first network the server has on: mainnet on rbitcoin.space, but on a server without mainnet another one, so name the network when it matters. Each answer says which network it came from. Amounts are in satoshis, fee rates in sat/vB.
 
 | Tool                        | Answers                                                                       |
 | --------------------------- | ----------------------------------------------------------------------------- |

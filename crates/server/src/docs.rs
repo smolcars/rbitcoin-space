@@ -14,8 +14,10 @@ use tower_http::services::ServeDir;
 
 use crate::ApiError;
 
-/// The longest path segment a page has; anything longer names no page.
+/// The longest path segment a page has, and the longest path; anything longer names no page, and
+/// never reaches the file system, which would answer a very long name with an error (a 500).
 const MAX_SEGMENT: usize = 64;
+const MAX_PATH: usize = 256;
 
 #[derive(Clone)]
 pub(crate) struct Docs {
@@ -35,6 +37,9 @@ impl Docs {
 /// A docs address: the page's slug (`""` for the overview) and whether the address itself asks
 /// for Markdown. `None` names no page: only lower-case letters, digits and hyphens, in segments.
 fn parse(path: &str) -> Option<(&str, bool)> {
+    if path.len() > MAX_PATH {
+        return None;
+    }
     if path == "/docs.md" {
         return Some(("", true));
     }
@@ -72,7 +77,12 @@ fn quality(accept: &str, media: &str, wildcards: bool) -> f32 {
             continue;
         };
         // No `q` is 1; one that is not a number counts the range out.
-        let q = match parts.find_map(|p| p.trim().strip_prefix("q=")) {
+        let q = match parts.find_map(|p| {
+            let p = p.trim();
+            p.get(..2)
+                .filter(|k| k.eq_ignore_ascii_case("q="))
+                .and_then(|_| p.get(2..))
+        }) {
             None => 1.0,
             Some(v) => v
                 .trim()
@@ -174,6 +184,8 @@ mod tests {
             assert_eq!(parse(bad), None, "{bad}");
         }
         assert_eq!(parse(&format!("/docs/{}", "a".repeat(65))), None);
+        // Valid segments, too many of them: no page, and no file system error.
+        assert_eq!(parse(&format!("/docs{}", "/a".repeat(200))), None);
     }
 
     fn accept(v: &str) -> HeaderMap {
@@ -199,5 +211,7 @@ mod tests {
         assert!(!wants_markdown(&accept("text/html, text/markdown;q=0.5")));
         assert!(!wants_markdown(&accept("text/markdown;q=0")));
         assert!(!wants_markdown(&accept("text/markdown;q=nan, text/*")));
+        assert!(!wants_markdown(&accept("text/markdown;Q=0, text/html")));
+        assert!(wants_markdown(&accept("text/html;Q=0.1, text/markdown")));
     }
 }
