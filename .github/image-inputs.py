@@ -49,17 +49,61 @@ def under(path: str, folders: list[str]) -> bool:
     return any(path == f or path.startswith(f + "/") for f in folders)
 
 
+def pattern(rule: str) -> re.Pattern:
+    """A .dockerignore pattern as Docker reads it: from the context's root, `**` across folders."""
+    out = ""
+    for part in re.split(r"(\*\*/?|\*|\?)", rule.strip("/")):
+        if part in ("**", "**/"):
+            out += ".*"
+        elif part == "*":
+            out += "[^/]*"
+        elif part == "?":
+            out += "[^/]"
+        else:
+            out += re.escape(part)
+    return re.compile(f"{out}(/.*)?")
+
+
+def ignored(path: str, rules: list[str]) -> bool:
+    """Whether .dockerignore keeps `path` out of the build: the last rule that matches decides."""
+    out = False
+    for rule in rules:
+        keep = rule.startswith("!")
+        if pattern(rule.removeprefix("!")).fullmatch(path):
+            out = not keep
+    return out
+
+
+def copies(stage: str) -> list[str]:
+    """What the stage's `COPY` lines put where the build looks for it: a file into the working
+    directory, or a folder to its own path."""
+    found = []
+    for line in re.findall(r"^COPY (.+)$", stage, re.M):
+        if "--from" in line:
+            continue
+        *sources, to = [word for word in line.split() if not word.startswith("--")]
+        for source in sources:
+            here = source.removeprefix("./").rstrip("/")
+            if (REPO / here).is_dir():
+                if to.removeprefix("./").rstrip("/") == here:
+                    found.append(here)
+            elif to in (".", "./") or to.removeprefix("./") == here:
+                found.append(here)
+    return found
+
+
 def main() -> None:
     dockerfile = (REPO / "Dockerfile").read_text()
     server = dockerfile.split(" AS server\n", 1)[1].split("\nFROM ", 1)[0]
     server = "\n".join(l for l in server.splitlines() if not l.lstrip().startswith("#"))
-    copied = [m.rstrip("/") for m in re.findall(r"^COPY (?!--from)(\S+) \S+$", server, re.M)]
+    server = server.replace("\\\n", " ")
+    copied = copies(server)
     touched = re.search(r"find (.+?) -exec touch", server)
-    touched = touched.group(1).split() if touched else []
-    allowed = [
-        line[1:].rstrip("/")
+    touched = [t.rstrip("/") for t in touched.group(1).split()] if touched else []
+    rules = [
+        line.strip()
         for line in (REPO / ".dockerignore").read_text().splitlines()
-        if line.startswith("!")
+        if line.strip() and not line.startswith("#")
     ]
     faults = []
     if not touched:
@@ -68,10 +112,18 @@ def main() -> None:
             "cached build older than them would be kept (the image once shipped without a new "
             "migration)"
         )
+    for file in ("Cargo.toml", "Cargo.lock"):
+        if ignored(file, rules):
+            faults.append(f".dockerignore keeps {file} out of the build: add `!{file}`")
+        if file not in copied:
+            faults.append(f"Dockerfile's server stage does not copy {file}: `cargo build --locked` needs it")
     for member in members():
         fix = f"cargo reads every member's manifest, so the image cannot build without {member}/"
-        if not under(member, allowed):
-            faults.append(f".dockerignore keeps {member}/ out of the build: add `!{member}/` ({fix})")
+        if ignored(f"{member}/Cargo.toml", rules):
+            faults.append(
+                f".dockerignore keeps {member}/ out of the build: add `!{member}/` after the rule "
+                f"that leaves it out ({fix})"
+            )
         if not under(member, copied):
             faults.append(
                 f"Dockerfile's server stage does not copy {member}/: "
