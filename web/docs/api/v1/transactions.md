@@ -190,6 +190,10 @@ A transaction not in the mempool (confirmed, replaced or never seen), or one tha
 
 When each transaction was first seen, in Unix seconds, in the order asked. Pass up to 100 txids as `txId[]`. Use `-g` so curl leaves the brackets alone, or write them `txId%5B%5D`.
 
+| Parameter | Format                                          |
+| --------- | ----------------------------------------------- |
+| `txId[]`  | Required. A txid; repeat it for each, up to 100 |
+
 ```sh
 curl -g 'https://rbitcoin.space/api/v1/transaction-times?txId[]=e63bd3aa96235798810d3e532191d331bf0bca211bb91fd0b03466c45d05d9f0&txId[]=e09fb8a04f20fd476235f1c8b4d154be9554c09362f0b894d30b5dceccd0bcd4&txId[]=4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b'
 ```

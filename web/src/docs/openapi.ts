@@ -1,22 +1,30 @@
-// /openapi.json, made from the docs' own Markdown: every `## METHOD /path` heading is an
-// operation, its first paragraph the summary, the example under it the example answer. One source,
-// so the description cannot drift from the pages (docs/FRONTEND.md "Public docs").
+// /openapi.json, made from the docs' own Markdown as the renderer reads it (markdown.ts): every
+// `## GET|POST /api/...` heading is an operation, its first paragraph the summary, the first answer
+// shown under it the example, its parameter tables its inputs. One source, so the description
+// cannot drift from the pages (docs/FRONTEND.md "Public docs").
 
-import { plain, slug } from "./markdown";
+import { type Block, plain, render, ROUTE } from "./markdown";
 import { type DocPage, href, PAGES, SITE } from "./pages";
 
-/** A route heading: `## GET /api/tx/:txid`, an optional part in brackets (`/blocks[/:height]`). */
-const ROUTE = /^(#{2,4}) (GET|POST) (\/api\/\S*)$/;
+export interface Param {
+  name: string;
+  in: "path" | "query";
+  required: boolean;
+  description: string;
+}
 
 export interface Route {
   method: "GET" | "POST";
   /** As written, `:name` for a parameter and `[...]` round an optional part. */
   path: string;
   page: DocPage;
-  /** The heading's anchor on its page. */
+  /** The heading's anchor on its page, as the renderer gives it. */
   id: string;
   summary: string;
   example?: { lang: string; text: string };
+  params: Param[];
+  /** A POST's body: its media type, from the request shown. */
+  body?: string;
 }
 
 /** Both forms of a path with an optional part: `/a[/:b]` is `/a` and `/a/:b`. */
@@ -29,72 +37,83 @@ export function expand(path: string): string[] {
   return [...expand(before + after), ...expand(before + path.slice(open + 1, close) + after)];
 }
 
+const isRoute = (b: Block | undefined): boolean => b?.kind === "heading" && ROUTE.test(b.text);
+
+/**
+ * A route's parameters: its parameter tables (`| Parameter | ... |`, a name in backticks, "Required"
+ * in its description when it must be given), the names in its path, and the query names in the
+ * request shown, which are optional unless a table says otherwise.
+ */
+function params(path: string, section: Block[]): Param[] {
+  const named = new Map<string, string>();
+  for (const b of section) {
+    if (b.kind !== "table" || plain(b.rows[0]?.[0] ?? "") !== "Parameter") continue;
+    for (const row of b.rows.slice(1)) {
+      for (const m of (row[0] ?? "").matchAll(/`([^`]+)`/g)) {
+        named.set(m[1] ?? "", plain(row[1] ?? ""));
+      }
+    }
+  }
+  const inPath = [...path.matchAll(/:(\w+)/g)].map((m) => m[1] ?? "");
+  const out: Param[] = inPath.map((name) => ({
+    name,
+    in: "path",
+    required: true,
+    description: named.get(name) ?? "",
+  }));
+  const query = new Set([...named.keys()].filter((n) => !inPath.includes(n)));
+  for (const b of section) {
+    if (b.kind !== "code" || b.lang !== "sh") continue;
+    for (const m of b.text.matchAll(/[?&]([\w[\]]+)=/g)) query.add(m[1] ?? "");
+  }
+  for (const name of query) {
+    const description = named.get(name) ?? "";
+    out.push({ name, in: "query", required: /\bRequired\b/.test(description), description });
+  }
+  return out;
+}
+
 /** The routes a page documents, in its order. */
 export function routes(page: DocPage, md: string): Route[] {
-  const lines = md.split("\n");
+  const { blocks } = render(md);
   const found: Route[] = [];
-  const ids = new Map<string, number>();
-  let fenced = false;
-  for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i] ?? "";
-    if (line.startsWith("```")) fenced = !fenced;
-    const heading = fenced ? null : /^(#{2,4}) (.+)$/.exec(line);
-    if (!heading) continue;
-    // The same anchor the page gives the heading (markdown.ts numbers repeats).
-    const base = slug(plain(heading[2] ?? ""));
-    const n = (ids.get(base) ?? 0) + 1;
-    ids.set(base, n);
-    const route = ROUTE.exec(line);
-    if (!route) continue;
-    const depth = (route[1] ?? "").length;
-    const section: string[] = [];
-    let inner = false;
-    for (let j = i + 1; j < lines.length; j += 1) {
-      const l = lines[j] ?? "";
-      if (l.startsWith("```")) inner = !inner;
-      const h = inner ? null : /^(#{1,4}) /.exec(l);
-      if (h && (h[1] ?? "").length <= depth) break;
-      section.push(l);
+  blocks.forEach((b, i) => {
+    if (b.kind !== "heading") return;
+    const m = ROUTE.exec(b.text);
+    const method = m?.[1];
+    const path = m?.[2] ?? "";
+    if ((method !== "GET" && method !== "POST") || !path.startsWith("/api/")) return;
+    // Everything under the heading, to the next heading as high or the next route; its own part,
+    // where the summary and the example are, ends at the first heading of any depth.
+    const section: Block[] = [];
+    for (const n of blocks.slice(i + 1)) {
+      if (n.kind === "heading" && (n.depth <= b.depth || isRoute(n))) break;
+      section.push(n);
     }
+    const end = section.findIndex((n) => n.kind === "heading");
+    const own = end === -1 ? section : section.slice(0, end);
+    const para = own.find((n) => n.kind === "paragraph");
+    const answer = own.find((n) => n.kind === "code" && (n.lang === "json" || n.lang === "text"));
+    const request = own.find((n) => n.kind === "code" && n.lang === "sh");
     found.push({
-      method: route[2] === "POST" ? "POST" : "GET",
-      path: route[3] ?? "",
+      method,
+      path,
       page,
-      id: n === 1 ? base : `${base}-${n}`,
-      summary: firstParagraph(section),
-      ...example(section),
+      id: b.id,
+      summary: para?.kind === "paragraph" ? plain(para.text) : "",
+      ...(answer?.kind === "code" ? { example: { lang: answer.lang, text: answer.text } } : {}),
+      params: params(path, section),
+      ...(method === "POST"
+        ? {
+            body:
+              request?.kind === "code" && request.text.includes("application/json")
+                ? "application/json"
+                : "text/plain",
+          }
+        : {}),
     });
-  }
+  });
   return found;
-}
-
-function firstParagraph(section: string[]): string {
-  const para: string[] = [];
-  let fenced = false;
-  for (const l of section) {
-    if (l.startsWith("```")) fenced = !fenced;
-    else if (!fenced && l.trim() === "" && para.length > 0) break;
-    else if (!fenced && l.trim() !== "" && !/^(\||>|- |\d+\. |#)/.test(l)) para.push(l.trim());
-    else if (para.length > 0) break;
-  }
-  return plain(para.join(" "));
-}
-
-/** The first answer shown under a route: the first fenced block that is not the request. */
-function example(section: string[]): { example?: { lang: string; text: string } } {
-  for (let i = 0; i < section.length; i += 1) {
-    const open = /^```(\w*)\s*$/.exec(section[i] ?? "");
-    if (!open) continue;
-    const body: string[] = [];
-    let j = i + 1;
-    for (; j < section.length && !(section[j] ?? "").startsWith("```"); j += 1) {
-      body.push(section[j] ?? "");
-    }
-    const lang = open[1] ?? "";
-    if (lang === "json" || lang === "text") return { example: { lang, text: body.join("\n") } };
-    i = j;
-  }
-  return {};
 }
 
 function operationId(method: string, path: string): string {
@@ -107,9 +126,11 @@ function operationId(method: string, path: string): string {
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 
-function content(ex: Route["example"]): Json {
-  if (ex === undefined) return null;
-  if (ex.lang === "text") return { "text/plain": { example: ex.text } };
+/** The answer's media type and example: as shown, else raw bytes for `/raw`, else JSON. */
+function content(path: string, ex: Route["example"]): Json {
+  if (ex?.lang === "text") return { "text/plain": { example: ex.text } };
+  if (ex === undefined && path.endsWith("/raw")) return { "application/octet-stream": {} };
+  if (ex === undefined) return { "application/json": {} };
   try {
     return { "application/json": { example: JSON.parse(ex.text) as Json } };
   } catch {
@@ -118,16 +139,21 @@ function content(ex: Route["example"]): Json {
   }
 }
 
+/** A page's tag: its label, with its group where two pages share one. */
+function tag(page: DocPage): string {
+  const shared = PAGES.filter((p) => p.label === page.label).length > 1;
+  return shared ? `${page.label}, ${page.group}` : page.label;
+}
+
 /** The OpenAPI 3.1 document for every route the pages document. */
 export function openapi(sources: ReadonlyMap<string, string>, version: string): Json {
   const paths: Record<string, Record<string, Json>> = {};
   const tags: Json[] = [];
   for (const page of PAGES) {
-    const md = sources.get(page.slug) ?? "";
-    const found = routes(page, md);
+    const found = routes(page, sources.get(page.slug) ?? "");
     if (found.length === 0) continue;
     tags.push({
-      name: page.label,
+      name: tag(page),
       description: page.summary,
       externalDocs: { url: `${SITE}${href(page.slug)}` },
     });
@@ -138,24 +164,37 @@ export function openapi(sources: ReadonlyMap<string, string>, version: string): 
         const entry = paths[path] ?? {};
         paths[path] = entry;
         if (entry[op] !== undefined) continue;
-        const params = [...path.matchAll(/\{(\w+)\}/g)].map((m) => ({
-          name: m[1] ?? "",
-          in: "path",
-          required: true,
-          schema: { type: "string" },
-        }));
-        const answer = content(r.example);
+        // A path parameter the optional part left out is not this variant's.
+        const parameters = r.params
+          .filter((p) => p.in === "query" || path.includes(`{${p.name}}`))
+          .map((p) => {
+            const out: Record<string, Json> = { name: p.name, in: p.in, required: p.required };
+            if (p.description !== "") out["description"] = p.description;
+            out["schema"] = { type: "string" };
+            return out;
+          });
         entry[op] = {
           operationId: operationId(r.method, path),
-          tags: [page.label],
+          tags: [tag(page)],
           summary: r.summary.split(/(?<=\.) /)[0] ?? r.summary,
           description: r.summary,
           externalDocs: { url: `${SITE}${href(page.slug)}#${r.id}` },
-          ...(params.length > 0 ? { parameters: params } : {}),
+          ...(parameters.length > 0 ? { parameters } : {}),
+          ...(r.body === undefined
+            ? {}
+            : {
+                requestBody: {
+                  required: true,
+                  description: "As the page describes",
+                  content: {
+                    [r.body]: { schema: r.body === "text/plain" ? { type: "string" } : {} },
+                  },
+                },
+              }),
           responses: {
             "200": {
               description: "The answer, as the page shows it",
-              ...(answer === null ? {} : { content: answer }),
+              content: content(path, r.example),
             },
             "4XX": { $ref: "#/components/responses/Error" },
             "5XX": { $ref: "#/components/responses/Error" },

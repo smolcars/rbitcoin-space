@@ -228,9 +228,9 @@ The second transaction, block 170's coinbase, has one output and it is unspent. 
 ]
 ```
 
-| Parameter | Format                                                   |
-| --------- | -------------------------------------------------------- |
-| `txids`   | 1 to 50 txids, comma-separated. `%2C` is read as a comma |
+| Parameter | Format                                                             |
+| --------- | ------------------------------------------------------------------ |
+| `txids`   | Required. 1 to 50 txids, comma-separated. `%2C` is read as a comma |
 
 `400` `txids is required` without it, `400` `at most 50 txids` past 50, and `400` `invalid txid` when any one is not a txid. This route can cost the node far more than a single lookup, so it shares the address routes' per-client limit: 30 at once, then 2 a second, and 4 running or waiting at once. Past it, `429`, or `503` `node busy; retry`, with `Retry-After: 1`.
 

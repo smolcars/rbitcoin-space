@@ -9,17 +9,27 @@ export interface Heading {
   id: string;
 }
 
+/** The page's blocks as the renderer read them, in order: what /openapi.json is made from. */
+export type Block =
+  | ({ kind: "heading" } & Heading)
+  | { kind: "paragraph"; text: string }
+  | { kind: "code"; lang: string; text: string }
+  /** Its rows as cells of Markdown, the header row first. */
+  | { kind: "table"; rows: string[][] }
+  | { kind: "other" };
+
 export interface Rendered {
   /** The first `#` heading's text: the page's title. */
   title: string;
   /** The body, the title's heading left out: the template sets the title itself. */
   html: string;
-  /** Every `##` and `###`, for the page's contents. */
+  /** Every heading but the title, with the anchor the page gives it. */
   headings: Heading[];
+  blocks: Block[];
 }
 
 /** A heading that names a route: its method, then its path. */
-const ROUTE = /^(GET|POST|HEAD|PUT|DELETE|WS) (\/\S*)$/;
+export const ROUTE = /^(GET|POST|HEAD|PUT|DELETE|WS) (\/\S*)$/;
 
 export function escape(text: string): string {
   return text
@@ -134,6 +144,7 @@ export function render(md: string): Rendered {
   const lines = md.replaceAll("\r\n", "\n").split("\n");
   const html: string[] = [];
   const headings: Heading[] = [];
+  const blocks: Block[] = [];
   const ids = new Map<string, number>();
   let title = "";
   let i = 0;
@@ -160,7 +171,8 @@ export function render(md: string): Rendered {
       if (depth === 1 && title === "") title = plain(text);
       else {
         const id = uniqueId(text);
-        if (depth <= 3) headings.push({ depth, text: plain(text), id });
+        headings.push({ depth, text: plain(text), id });
+        blocks.push({ kind: "heading", depth, text: plain(text), id });
         html.push(headingHtml(depth, text, id));
       }
       i += 1;
@@ -176,11 +188,13 @@ export function render(md: string): Rendered {
         i += 1;
       }
       i += 1;
+      blocks.push({ kind: "code", lang, text: body.join("\n") });
       const attr = lang ? ` data-lang="${escape(lang)}"` : "";
       html.push(`<pre class="code"${attr}><code>${escape(body.join("\n"))}</code></pre>`);
       continue;
     }
     if (/^---+$/.test(line.trim())) {
+      blocks.push({ kind: "other" });
       html.push("<hr>");
       i += 1;
       continue;
@@ -192,6 +206,7 @@ export function render(md: string): Rendered {
         i += 1;
       }
       const [head = "", rule = "", ...body] = rows;
+      blocks.push({ kind: "table", rows: [head, ...body].map((r) => cells(r)) });
       const aligns = cells(rule).map((c) =>
         /^:?-+:$/.test(c) ? (c.startsWith(":") ? "center" : "right") : "",
       );
@@ -222,6 +237,7 @@ export function render(md: string): Rendered {
         i += 1;
       }
       // A note holds paragraphs and lists, never a heading.
+      blocks.push({ kind: "other" });
       html.push(`<blockquote>${render(body.join("\n")).html}</blockquote>`);
       continue;
     }
@@ -238,6 +254,7 @@ export function render(md: string): Rendered {
         } else break;
         i += 1;
       }
+      blocks.push({ kind: "other" });
       const tag = ordered ? "ol" : "ul";
       html.push(`<${tag}>${items.map((t) => `<li>${inline(t)}</li>`).join("")}</${tag}>`);
       continue;
@@ -249,7 +266,8 @@ export function render(md: string): Rendered {
       para.push(l.trim());
       i += 1;
     }
+    blocks.push({ kind: "paragraph", text: para.join(" ") });
     html.push(`<p>${inline(para.join(" "))}</p>`);
   }
-  return { title, html: html.join("\n"), headings };
+  return { title, html: html.join("\n"), headings, blocks };
 }

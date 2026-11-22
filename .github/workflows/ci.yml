@@ -28,7 +28,7 @@ jobs:
     # which verifies the merge and refreshes the caches, and nothing when it touches only docs.
     outputs:
       rust: ${{ steps.filter.outputs.rust == 'true' || (github.event_name == 'push' && steps.filter.outputs.code == 'true') }}
-      web: ${{ steps.filter.outputs.web == 'true' || (github.event_name == 'push' && steps.filter.outputs.code == 'true') }}
+      web: ${{ steps.filter.outputs.web == 'true' || steps.filter.outputs.docs == 'true' || (github.event_name == 'push' && steps.filter.outputs.code == 'true') }}
       e2e: ${{ steps.filter.outputs.e2e == 'true' || (github.event_name == 'push' && steps.filter.outputs.code == 'true') }}
       # The post-merge Image workflow builds the whole image, so master skips this.
       image: ${{ github.event_name == 'pull_request' && steps.filter.outputs.image == 'true' }}
@@ -61,12 +61,20 @@ jobs:
               - design/fonts/**
               - .github/workflows/ci.yml
               - .github/job-limit.sh
+            # What the public docs' tests read outside web/ (web/src/docs/coverage.test.ts) and the
+            # version the docs build reads: they run the web job alone, not the browser tests.
+            docs:
+              - docs/API.md
+              - docs/compat/esplora.md
+              - docs/compat/api-v1.md
+              - Cargo.toml
             e2e: &e2e
               - *rust
               - *web
               - dev/regtest/**
             image:
               - *web
+              - Cargo.toml
               - Dockerfile
               - .dockerignore
             code:

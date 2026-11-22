@@ -91,6 +91,10 @@ The answer, cut to the first of 144 points:
 
 Nodes and channels matching `searchText`: public keys by prefix, then aliases by substring, most capacity first, at most 10 nodes. A `searchText` that reads as a channel id also returns that channel, open or closed.
 
+| Parameter    | Format                       |
+| ------------ | ---------------------------- |
+| `searchText` | Required. 3 to 66 characters |
+
 ```sh
 curl 'https://rbitcoin.space/api/v1/lightning/search?searchText=acinq'
 ```
@@ -405,6 +409,10 @@ curl https://rbitcoin.space/api/v1/lightning/channels/811984x2037x0
 ## GET /api/v1/lightning/channels/txids
 
 The channels that transactions opened or closed. Pass up to 100 txids as `txId[]`. Also served at `/api/v1/lightning/channels/txids/`, with a trailing slash.
+
+| Parameter | Format                                          |
+| --------- | ----------------------------------------------- |
+| `txId[]`  | Required. A txid; repeat it for each, up to 100 |
 
 ```sh
 curl -g 'https://rbitcoin.space/api/v1/lightning/channels/txids?txId[]=a7f10c2595c8ea0cc85c3183709d10aada60c7b87fe0c405f3f5b8a44150d4f5'

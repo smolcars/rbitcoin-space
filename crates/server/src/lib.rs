@@ -651,8 +651,10 @@ async fn cors(req: Request, next: Next) -> Response {
     // on another site may load it.
     if req.uri().path() == "/openapi.json" {
         let mut res = next.run(req).await;
-        res.headers_mut()
-            .insert(ACCESS_CONTROL_ALLOW_ORIGIN, HeaderValue::from_static("*"));
+        if res.status().is_success() {
+            res.headers_mut()
+                .insert(ACCESS_CONTROL_ALLOW_ORIGIN, HeaderValue::from_static("*"));
+        }
         return res;
     }
     if !is_api(req.uri().path()) {

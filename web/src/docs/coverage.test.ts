@@ -22,31 +22,34 @@ const DOCS = import.meta.glob<string>("../../docs/**/*.md", {
   eager: true,
 });
 
-/** A route as method and path segments; a parameter's name is left out (`:`). */
+/** A route with its parameters' names left out: `GET /api/tx/:` for `GET /api/tx/:txid`. */
 const key = (method: string, path: string) => `${method} ${path.replaceAll(/:\w+/g, ":")}`;
 
-/** Whether a documented route stands for a served one: a parameter stands for any segment. */
-function covers(doc: string, route: string): boolean {
-  const [dm, ...dp] = doc.split(/[ /]/);
-  const [sm, ...sp] = route.split(/[ /]/);
-  return dm === sm && dp.length === sp.length && dp.every((d, i) => d === sp[i] || d === ":");
-}
+/**
+ * Documented routes whose parameter stands for a few fixed names the inventory lists one by one:
+ * the only ones a parameter may match. Anywhere else a route must match exactly.
+ */
+const NAMED: Record<string, string[]> = {
+  "GET /api/v1/lightning/nodes/rankings/:": ["liquidity", "connectivity", "age"],
+};
 
 /** Every route the inventory marks `served`, and the BlindBit routes, optional parts expanded. */
-function served(): string[] {
+function served(): Set<string> {
   const out = new Set<string>();
   for (const md of Object.values(COMPAT)) {
     for (const line of md.split("\n")) {
       const cells = line.split("|").map((c) => c.trim());
       if (cells[4] !== "served") continue;
-      const route = /^`(GET|POST) (\/[^`?\s]*)/.exec(cells[1] ?? "");
-      if (!route) continue;
-      for (const path of expand(route[2] ?? "")) out.add(key(route[1] ?? "", `/api${path}`));
+      for (const route of (cells[1] ?? "").matchAll(/`(GET|POST) (\/[^`?\s]*)/g)) {
+        for (const path of expand(route[2] ?? "")) out.add(key(route[1] ?? "", `/api${path}`));
+      }
     }
   }
   const api = Object.values(API)[0] ?? "";
-  const blindbit = api.slice(api.indexOf("### BlindBit v1"), api.indexOf("### Not served"));
-  for (const line of blindbit.split("\n")) {
+  const start = api.indexOf("### BlindBit v1");
+  const end = api.indexOf("### Not served", start);
+  if (start === -1 || end === -1) throw new Error("docs/API.md: no BlindBit table found");
+  for (const line of api.slice(start, end).split("\n")) {
     const cells = line.split("|").map((c) => c.trim());
     const method = /^(GET|POST)\b/.exec(cells[1] ?? "")?.[1];
     if (method === undefined) continue;
@@ -54,32 +57,35 @@ function served(): string[] {
       out.add(key(method, `/api/blindbit/v1${m[1] ?? ""}`));
     }
   }
-  return [...out];
+  return out;
 }
 
-function documented(): string[] {
+function documented(): Set<string> {
   const out = new Set<string>();
   for (const page of PAGES) {
     const md = DOCS[`../../docs/${page.slug === "" ? "index" : page.slug}.md`] ?? "";
-    for (const r of routes(page, md)) {
-      for (const path of expand(r.path)) out.add(key(r.method, path));
+    const keys = routes(page, md).flatMap((r) => expand(r.path).map((p) => key(r.method, p)));
+    for (const k of keys) {
+      const names = NAMED[k];
+      if (names === undefined) out.add(k);
+      else for (const n of names) out.add(k.replace(/:$/, n));
     }
   }
-  return [...out];
+  return out;
 }
 
 describe("the docs' routes", () => {
   it("read the inventory", () => {
-    expect(served().length).toBeGreaterThan(90);
+    expect(served().size).toBeGreaterThan(90);
   });
 
   it("cover every route the server serves", () => {
     const docs = documented();
-    expect(served().filter((s) => !docs.some((d) => covers(d, s)))).toStrictEqual([]);
+    expect([...served()].filter((r) => !docs.has(r))).toStrictEqual([]);
   });
 
   it("are all served", () => {
     const serving = served();
-    expect(documented().filter((d) => !serving.some((s) => covers(d, s)))).toStrictEqual([]);
+    expect([...documented()].filter((r) => !serving.has(r))).toStrictEqual([]);
   });
 });

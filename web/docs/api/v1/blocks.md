@@ -14,7 +14,7 @@ curl https://rbitcoin.space/api/v1/blocks/976000
 
 The answer is an array of 15 blocks, 976000 first and 975986 last. These headers came with it:
 
-```text
+```http
 cache-control: public, max-age=86400
 x-bitcoin-chain-tip: 000000000000000000018d6041be5052b4646a3e6490fca8d500e748b8181ce4
 x-bitcoin-chain-tip-height: 977073

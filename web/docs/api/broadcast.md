@@ -12,6 +12,12 @@ The body is the raw transaction as hex, optionally with whitespace around it. On
 curl -X POST --data-binary @tx.hex https://rbitcoin.space/api/tx
 ```
 
+The answer is the txid, for example:
+
+```text
+f4184fc596403b9d638783cf57adfe4c75c605f6356fbc91338530e9831e9e16
+```
+
 Here `tx.hex` is a file holding the signed transaction's hex.
 
 | Body            | Format                                                                                                             |
