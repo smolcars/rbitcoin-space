@@ -34,6 +34,14 @@ function pageMarkdown(): Promise<string> {
  * The page's Markdown, fetched at load where there is no async clipboard (plain HTTP): the copy
  * command works only inside the click's own task, with the text already at hand.
  */
+/**
+ * Whether the page can hand the clipboard text still on its way. Undefined parts outside a secure
+ * context, and in some browsers on HTTPS too, whatever the types say.
+ */
+const asyncWrite =
+  typeof ClipboardItem !== "undefined" &&
+  typeof (navigator.clipboard as Clipboard | undefined)?.write === "function";
+
 let prefetched: string | undefined;
 let prefetching = false;
 function prefetch(): void {
@@ -47,14 +55,12 @@ function prefetch(): void {
     () => (prefetching = false),
   );
 }
-if (!window.isSecureContext) prefetch();
+if (!asyncWrite) prefetch();
 
 /** Copies the page as Markdown. The text is still on its way: Safari keeps the click's permission
  * for a clipboard item given a promise. */
 async function copyPage(done: string): Promise<void> {
-  // Undefined outside a secure context, whatever the types say.
-  const clipboard = navigator.clipboard as Clipboard | undefined;
-  if (clipboard === undefined || typeof ClipboardItem === "undefined") {
+  if (!asyncWrite) {
     if (prefetched === undefined) {
       // Still on its way, or it failed: ask again, and the next click copies.
       prefetch();
@@ -64,7 +70,7 @@ async function copyPage(done: string): Promise<void> {
   }
   try {
     const blob = pageMarkdown().then((t) => new Blob([t], { type: "text/plain" }));
-    await clipboard.write([new ClipboardItem({ "text/plain": blob })]);
+    await navigator.clipboard.write([new ClipboardItem({ "text/plain": blob })]);
     say(done);
   } catch {
     say(FAILED);

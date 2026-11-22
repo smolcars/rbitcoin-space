@@ -22,9 +22,11 @@ function sources(): Map<string, string> {
 describe("the Markdown copies", () => {
   it("link to each other's Markdown, and to this site in full", () => {
     expect(
-      absoluteLinks("[a](/docs) [b](/docs/limits#retrying) [c](/llms.txt) [d](https://x.org/y)"),
+      absoluteLinks(
+        "[a](/docs) [b](/docs/limits#retrying) [c](/llms.txt) [d](https://x.org/y) [e](//x.org) [f](/)",
+      ),
     ).toBe(
-      `[a](${SITE}/docs.md) [b](${SITE}/docs/limits.md#retrying) [c](${SITE}/llms.txt) [d](https://x.org/y)`,
+      `[a](${SITE}/docs.md) [b](${SITE}/docs/limits.md#retrying) [c](${SITE}/llms.txt) [d](https://x.org/y) [e](//x.org) [f](${SITE}/)`,
     );
   });
 
