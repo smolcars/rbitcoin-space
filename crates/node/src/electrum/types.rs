@@ -1,5 +1,3 @@
-//! Typed values the Electrum client returns, and their parsing from node replies.
-
 use std::fmt;
 use std::str::FromStr;
 
@@ -11,20 +9,20 @@ use bitcoin::{BlockHash, OutPoint, Script, Txid};
 use serde::Deserialize;
 use serde_json::Value;
 
-/// Everything that can go wrong with a request or subscription.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Error {
     /// There is no connection to the node, or it dropped before the reply came.
     Disconnected,
-    /// The node did not answer within the request timeout.
     Timeout,
     /// The outgoing queue is full: the node is not reading what we send.
     Overloaded,
-    /// The global cap on upstream subscriptions is reached.
-    SubscriptionLimit { max: usize },
-    /// The node answered with a JSON-RPC error.
-    Server { code: i64, message: String },
-    /// The node's reply did not have the shape we expect.
+    SubscriptionLimit {
+        max: usize,
+    },
+    Server {
+        code: i64,
+        message: String,
+    },
     Protocol(String),
 }
 
@@ -81,7 +79,6 @@ impl FromStr for ScriptHash {
     }
 }
 
-/// What a subscription watches.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Topic {
     ScriptHash(ScriptHash),
@@ -115,7 +112,6 @@ impl Topic {
     }
 }
 
-/// The latest state of a subscribed topic.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Status {
     /// Electrum status hash of the script's history, or `None` if it has none.
@@ -157,7 +153,6 @@ impl OutpointStatus {
     }
 }
 
-/// A block on the best chain.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Tip {
     pub height: u32,
@@ -165,7 +160,6 @@ pub struct Tip {
     pub header: Header,
 }
 
-/// What the client pushes to consumers.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Event {
     /// A block joined the best chain, in height order. The first is the tip

@@ -31,7 +31,6 @@ pub fn order(r: &Row) -> (u32, [u8; 32]) {
     (r.height, r.txid.to_byte_array())
 }
 
-/// What a whole read moved.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Listed {
     pub rows: u64,
@@ -144,7 +143,6 @@ fn io(e: std::io::Error) -> Error {
     }
 }
 
-/// The stream, each read bounded by what is left of the deadline, counting bytes.
 struct Timed {
     stream: TcpStream,
     end: Instant,
@@ -187,7 +185,6 @@ struct State<'a> {
     stopped: bool,
 }
 
-/// The reply object: `result` streamed row by row, the rest kept or skipped.
 struct Reply<'s, 'a>(&'s mut State<'a>);
 
 impl<'de> DeserializeSeed<'de> for Reply<'_, '_> {
@@ -217,7 +214,6 @@ impl<'de> Visitor<'de> for Reply<'_, '_> {
     }
 }
 
-/// The `result` array, handed to the sink in batches.
 struct Rows<'s, 'a>(&'s mut State<'a>);
 
 #[derive(Deserialize)]

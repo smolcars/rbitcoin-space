@@ -1,6 +1,3 @@
-//! HTTP/1.1 to the node over TCP or a unix socket, with pooled keep-alive connections.
-//! Shared by the Esplora and JSON-RPC clients.
-
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
@@ -18,20 +15,16 @@ use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::rt::{TokioExecutor, TokioIo, TokioTimer};
 use tokio::net::UnixStream;
 
-/// A transport failure. Each client maps it into its own error type.
 #[derive(Debug)]
 pub(crate) enum Error {
-    /// The request could not be formed from the endpoint and path.
     Config(&'static str),
     Unavailable(String),
     Timeout,
     ResponseTooBig,
 }
 
-/// Idle keep-alive connections are closed after this long.
 const POOL_IDLE: Duration = Duration::from_secs(30);
 
-/// Where the node listens.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Endpoint {
     /// `http://host:port` and an optional base path such as `/api`.
@@ -66,7 +59,6 @@ impl Endpoint {
     }
 }
 
-/// An upstream answer, read in full.
 pub(crate) struct Response {
     pub status: hyper::StatusCode,
     pub headers: HeaderMap,
@@ -82,13 +74,10 @@ enum Pool {
 #[derive(Clone)]
 pub(crate) struct Transport {
     pool: Pool,
-    /// `http://authority` plus base path, prepended to each route path.
     prefix: Arc<str>,
     timeout: Duration,
     max_body: usize,
-    /// Sent on every request. Marked sensitive so `Debug` never prints it.
     authorization: Option<HeaderValue>,
-    /// Response body bytes read so far, shared by clones.
     received: Arc<AtomicU64>,
 }
 
@@ -126,14 +115,12 @@ impl Transport {
         }
     }
 
-    /// Sends `value` as the `Authorization` header on every request.
     pub fn with_authorization(mut self, mut value: HeaderValue) -> Self {
         value.set_sensitive(true);
         self.authorization = Some(value);
         self
     }
 
-    /// Response body bytes this transport and its clones have read.
     pub fn bytes_received(&self) -> u64 {
         self.received.load(Ordering::Relaxed)
     }
@@ -142,7 +129,6 @@ impl Transport {
         matches!(self.pool, Pool::Unix(_))
     }
 
-    /// Sends one request and reads the whole body, within the timeout and the size cap.
     pub async fn send(
         &self,
         method: hyper::Method,
@@ -152,7 +138,6 @@ impl Transport {
         self.send_limited(method, path, body, self.max_body).await
     }
 
-    /// [`Transport::send`] with a cap of `max_body` bytes, if that is below the transport's own.
     pub async fn send_limited(
         &self,
         method: hyper::Method,
@@ -201,7 +186,6 @@ impl Transport {
             .await
             .map_err(|e| Error::Unavailable(error_chain(&e)))?;
         let (parts, body) = res.into_parts();
-        // Refuse early when the node announces a body over the cap.
         let announced = parts
             .headers
             .get(CONTENT_LENGTH)
@@ -227,7 +211,7 @@ impl Transport {
     }
 }
 
-/// The error and its causes on one line. hyper's errors name no address or path.
+/// hyper's errors name no address or path.
 fn error_chain(e: &(dyn std::error::Error + 'static)) -> String {
     let mut out = e.to_string();
     let mut cause = e.source();
@@ -239,7 +223,6 @@ fn error_chain(e: &(dyn std::error::Error + 'static)) -> String {
     out
 }
 
-/// Connects every request to one unix socket, whatever the URI says.
 #[derive(Clone)]
 struct UnixConnector(Arc<Path>);
 

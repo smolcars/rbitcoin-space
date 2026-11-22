@@ -1,5 +1,3 @@
-//! JSON-RPC client for rbitcoin: a fixed set of typed, read-only methods.
-//!
 //! No caller outside this module can name an RPC method or pass raw parameters: each method
 //! below sends one fixed method name with typed parameters. There are no write methods;
 //! broadcast goes through Esplora (`SECURITY.md` rule 4).
@@ -7,9 +5,6 @@
 //! Every call is bounded by [`Limits`]: a timeout, a response-size cap, and a cap on our own
 //! in-flight calls, kept well under the node's 16-slot work queue. If the queue is full anyway
 //! the node answers 503 and the call fails with [`Error::Busy`]: back off and retry later.
-//!
-//! The password is turned into the `Authorization` header once, in [`Rpc::new`], and that
-//! header is marked sensitive. No field, `Debug` output or error holds it.
 
 pub mod model;
 
@@ -31,7 +26,6 @@ use model::{
     PrevoutSpend, RawMempool, SmartFee,
 };
 
-/// Longest node error message we keep.
 const MAX_MESSAGE: usize = 512;
 
 /// Most outpoints [`Rpc::tx_spending_prevout`] takes in one call: about 85 KB of request.
@@ -41,16 +35,17 @@ pub const MAX_PREVOUTS: usize = 1000;
 /// A mainnet batch of 1,000 raw transactions measured 5 MB and 305 ms.
 pub const MAX_BATCH: usize = 1000;
 
-/// What went wrong with an RPC call, in terms a caller can act on.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
-    /// The host or port given to [`Rpc::new`] is not usable.
     Config(&'static str),
     /// 401 or 403: the node refused the user and password.
     Auth,
     /// The node answered with a JSON-RPC error, for example `-5` for a transaction that is
     /// not in the mempool, or `-8` for a height past the tip.
-    Rpc { code: i64, message: String },
+    Rpc {
+        code: i64,
+        message: String,
+    },
     /// 503: the node's RPC work queue is full. Back off.
     Busy,
     /// Connection failure, or an HTTP status that carried no JSON-RPC error.
@@ -58,11 +53,9 @@ pub enum Error {
     /// The call did not complete within the configured timeout, waiting for a local slot
     /// included.
     Timeout,
-    /// The response body exceeded the configured size cap.
     ResponseTooBig,
     /// More inputs than one call takes, such as over [`MAX_PREVOUTS`] outpoints. Nothing was sent.
     RequestTooBig,
-    /// The response did not decode into the expected type.
     Decode(String),
 }
 
@@ -95,7 +88,6 @@ impl From<http::Error> for Error {
     }
 }
 
-/// Bounds on every call.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Limits {
     /// Covers waiting for a local slot, then connecting, the request and reading the body.
@@ -116,7 +108,6 @@ impl Default for Limits {
     }
 }
 
-/// Which block [`Rpc::block_stats`] reads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(untagged)]
 pub enum BlockRef {
@@ -131,7 +122,6 @@ pub struct Rpc {
     transport: Transport,
     slots: Arc<Semaphore>,
     timeout: Duration,
-    /// `host:port`, for `Debug`.
     authority: Arc<str>,
 }
 
@@ -190,7 +180,6 @@ impl Rpc {
         })
     }
 
-    /// Response body bytes this client and its clones have read, for cost accounting.
     pub fn bytes_received(&self) -> u64 {
         self.transport.bytes_received()
     }
@@ -211,8 +200,7 @@ impl Rpc {
         decode(status, &body)
     }
 
-    /// One JSON-RPC array of `method` calls, one per item of `params`: one HTTP request and one
-    /// node work-queue slot. Each answer is the call's own result or error, in input order.
+    /// One HTTP request and one node work-queue slot, however many calls.
     async fn batch<T: DeserializeOwned, P: Serialize>(
         &self,
         method: &'static str,
@@ -275,14 +263,12 @@ impl Rpc {
             .collect()
     }
 
-    /// Sends one JSON-RPC body within the slot limit and the timeout.
     async fn post(&self, body: Vec<u8>) -> Result<(StatusCode, bytes::Bytes), Error> {
         let started = tokio::time::Instant::now();
         let _slot = tokio::time::timeout(self.timeout, self.slots.acquire())
             .await
             .map_err(|_| Error::Timeout)?
             .map_err(|_| Error::Unavailable("client closed".into()))?;
-        // The slot wait counts against the same timeout.
         let left = self.timeout.saturating_sub(started.elapsed());
         let res = tokio::time::timeout(
             left,
@@ -294,9 +280,6 @@ impl Rpc {
         Ok((res.status, res.body))
     }
 
-    // Chain.
-
-    /// `getblockchaininfo`.
     pub async fn blockchain_info(&self) -> Result<BlockchainInfo, Error> {
         self.call("getblockchaininfo", NO_PARAMS).await
     }
@@ -336,17 +319,14 @@ impl Rpc {
         &self,
         hashes: &[BlockHash],
     ) -> Result<Vec<Result<BlockTotals, Error>>, Error> {
-        const STATS: [&str; 3] = ["totalfee", "subsidy", "total_weight"];
-        self.batch("getblockstats", hashes.iter().map(|h| (h, STATS)))
+        self.batch("getblockstats", hashes.iter().map(|h| (h, TOTALS)))
             .await
     }
 
-    /// `getchaintips`.
     pub async fn chain_tips(&self) -> Result<Vec<ChainTip>, Error> {
         self.call("getchaintips", NO_PARAMS).await
     }
 
-    /// `getdifficulty`.
     pub async fn difficulty(&self) -> Result<f64, Error> {
         self.call("getdifficulty", NO_PARAMS).await
     }
@@ -358,14 +338,10 @@ impl Rpc {
         self.call("getnetworkhashps", (blocks, height)).await
     }
 
-    /// `getmininginfo`.
     pub async fn mining_info(&self) -> Result<MiningInfo, Error> {
         self.call("getmininginfo", NO_PARAMS).await
     }
 
-    // Mempool.
-
-    /// `getmempoolinfo`.
     pub async fn mempool_info(&self) -> Result<MempoolInfo, Error> {
         self.call("getmempoolinfo", NO_PARAMS).await
     }
@@ -467,8 +443,6 @@ impl Rpc {
         self.call("gettxspendingprevout", [prevouts]).await
     }
 
-    // Template and fees.
-
     /// `getblocktemplate` in template mode. Asks for the `segwit` and `signet` rules: signet
     /// requires the second and the other networks ignore it.
     pub async fn block_template(&self) -> Result<BlockTemplate, Error> {
@@ -484,21 +458,20 @@ impl Rpc {
         self.call("getblocktemplate", [req]).await
     }
 
-    /// `estimatesmartfee` for a confirmation target in blocks.
     pub async fn estimate_smart_fee(&self, target: u16) -> Result<SmartFee, Error> {
         self.call("estimatesmartfee", [target]).await
     }
 
-    // Node.
-
-    /// `getnetworkinfo`.
     pub async fn network_info(&self) -> Result<NetworkInfo, Error> {
         self.call("getnetworkinfo", NO_PARAMS).await
     }
 }
 
-/// Serializes as `[]`.
 const NO_PARAMS: [u8; 0] = [];
+
+/// The stats [`Rpc::block_totals`] asks for: only ones that need no UTXO work. The full set took
+/// about a second per recent mainnet block, these about 25 ms.
+const TOTALS: [&str; 3] = ["totalfee", "subsidy", "total_weight"];
 
 #[derive(Serialize)]
 struct Request<P> {
@@ -508,7 +481,6 @@ struct Request<P> {
     params: P,
 }
 
-/// One answer of a batch.
 #[derive(Deserialize)]
 struct Answer<T> {
     id: usize,
@@ -516,7 +488,6 @@ struct Answer<T> {
     error: Option<RpcError>,
 }
 
-/// One JSON-RPC response. `result` is decoded straight into `T`; nothing else is buffered.
 #[derive(Deserialize)]
 struct Envelope<T> {
     result: Option<T>,
@@ -561,7 +532,6 @@ fn truncate(mut s: String) -> String {
     s
 }
 
-/// Standard base64 with padding, for the Basic credentials.
 fn base64(input: &[u8], out: &mut String) {
     const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let sym = |n: u32| char::from(ALPHABET.get((n & 63) as usize).copied().unwrap_or(b'='));
@@ -579,6 +549,12 @@ fn base64(input: &[u8], out: &mut String) {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn block_totals_reads_exactly_the_stats_it_asks_for() {
+        let asked: serde_json::Map<_, _> = TOTALS.iter().map(|s| ((*s).into(), 0.into())).collect();
+        serde_json::from_value::<BlockTotals>(asked.into()).unwrap();
+    }
 
     #[test]
     fn base64_matches_rfc4648() {

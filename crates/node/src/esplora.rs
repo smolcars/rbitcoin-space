@@ -21,8 +21,8 @@ use std::time::Duration;
 use bitcoin::consensus::Decodable;
 use bitcoin::{BlockHash, OutPoint, Transaction, Txid};
 use bytes::Bytes;
-use hyper::StatusCode;
 use hyper::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
+use hyper::{Method, StatusCode};
 use serde::de::DeserializeOwned;
 
 pub use crate::http::Endpoint;
@@ -59,14 +59,12 @@ impl ChainTip {
     }
 }
 
-/// A decoded value and the chain view it belongs to.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Stamped<T> {
     pub value: T,
     pub tip: Option<ChainTip>,
 }
 
-/// An upstream answer as received, for forwarding without a decode and re-encode.
 #[derive(Debug, Clone)]
 pub struct RawResponse {
     pub status: StatusCode,
@@ -101,7 +99,6 @@ impl TipCheck {
     }
 }
 
-/// How many times [`consistent`] runs a read before giving up.
 pub const CONSISTENT_ATTEMPTS: usize = 3;
 
 /// Runs `read` until it does not fail with [`Error::ChainViewMoved`], at most
@@ -139,19 +136,22 @@ pub struct Esplora {
     transport: Transport,
 }
 
-/// More transactions than a block can hold: the smallest transaction is 60 bytes, 240 weight
-/// units, so 4,000,000 weight holds at most 16,666.
+const MAX_BLOCK_WEIGHT: usize = 4_000_000;
+/// The smallest transaction is 60 bytes, 240 weight units.
+const MIN_TX_WEIGHT: usize = 240;
+/// A `/block/:hash/txs/summary` row is at most about 125 bytes: a quoted txid, two `u64` and a `u32`.
+const MAX_SUMMARY_ROW_BYTES: usize = 125;
+
 pub const MAX_BLOCK_TXS: usize = 20_000;
-/// Largest `/block/:hash/txs/summary` answer read: [`MAX_BLOCK_TXS`] rows of at most about 125
-/// bytes (a quoted txid, two `u64` and a `u32`). A full mainnet block is about 0.2 MB.
+const _: () = assert!(MAX_BLOCK_TXS > MAX_BLOCK_WEIGHT / MIN_TX_WEIGHT);
+/// A full mainnet block's summary is about 0.2 MB.
 pub const MAX_SUMMARY_BYTES: usize = 4 << 20;
-/// Largest `/block/:hash/raw` answer read: a block's serialized size is at most its weight,
-/// 4,000,000.
-pub const MAX_BLOCK_BYTES: usize = 4_000_000;
+const _: () = assert!(MAX_SUMMARY_BYTES >= MAX_BLOCK_TXS * MAX_SUMMARY_ROW_BYTES);
+/// A block's serialized size is at most its weight.
+pub const MAX_BLOCK_BYTES: usize = MAX_BLOCK_WEIGHT;
 
 impl Esplora {
     pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
-    /// Fits a full block's raw bytes and a large mempool's txid list.
     pub const DEFAULT_MAX_RESPONSE: usize = 64 << 20;
 
     /// `url` is `{NET}_ESPLORA_URL`: `http://host:port[/base]` or a unix-socket path.
@@ -171,7 +171,6 @@ impl Esplora {
         })
     }
 
-    /// Response body bytes this client and its clones have read, for cost accounting.
     pub fn bytes_received(&self) -> u64 {
         self.transport.bytes_received()
     }
@@ -184,20 +183,25 @@ impl Esplora {
     /// Calls `route` and returns the answer undecoded, whatever its status.
     /// Errors only on transport failure, timeout or the size cap.
     pub async fn raw(&self, route: &Route) -> Result<RawResponse, Error> {
-        if route.is_internal() && !self.has_internal() {
-            return Err(Error::InternalUnavailable);
-        }
         let mut path = String::with_capacity(160);
         route.write_path(&mut path);
-        // These routes have a bound of their own, enforced while reading.
+        if path.starts_with("/internal/") && !self.has_internal() {
+            return Err(Error::InternalUnavailable);
+        }
         let cap = match route {
             Route::BlockTxsSummary(_) => MAX_SUMMARY_BYTES,
             Route::BlockRaw(_) => MAX_BLOCK_BYTES,
             _ => usize::MAX,
         };
+        let body = route.body();
+        let method = if body.is_some() {
+            Method::POST
+        } else {
+            Method::GET
+        };
         let res = self
             .transport
-            .send_limited(route.method(), &path, route.body(), cap)
+            .send_limited(method, &path, body, cap)
             .await?;
         Ok(RawResponse {
             status: res.status,
@@ -228,8 +232,6 @@ impl Esplora {
         })
         .await
     }
-
-    // Tip and blocks.
 
     pub async fn tip_height(&self) -> Result<Stamped<u32>, Error> {
         self.typed(Route::TipHeight, parse_text).await
@@ -263,7 +265,6 @@ impl Esplora {
         self.json(Route::BlockStatus(hash)).await
     }
 
-    /// The txid at `index` in the block; index 0 is the coinbase.
     pub async fn block_txid(&self, hash: BlockHash, index: u32) -> Result<Stamped<Txid>, Error> {
         self.typed(Route::BlockTxid { hash, index }, parse_text)
             .await
@@ -307,8 +308,6 @@ impl Esplora {
         self.typed(Route::BlockRaw(hash), consensus).await
     }
 
-    // Transactions.
-
     pub async fn tx(&self, txid: Txid) -> Result<Stamped<Tx>, Error> {
         self.json(Route::Tx(txid)).await
     }
@@ -350,7 +349,7 @@ impl Esplora {
         self.json(Route::TxOutspends { txid, asof }).await
     }
 
-    // Addresses and scripthashes. All need the node's `--sh-index`.
+    // The address and scripthash routes below need the node's `--sh-index`.
 
     pub async fn script_stats(
         &self,
@@ -415,8 +414,6 @@ impl Esplora {
         .await
     }
 
-    // Mempool, fees and broadcast. Unstamped.
-
     pub async fn mempool(&self) -> Result<Stamped<MempoolInfo>, Error> {
         self.json(Route::Mempool).await
     }
@@ -438,8 +435,6 @@ impl Esplora {
         self.typed(Route::Broadcast(tx), parse_text).await
     }
 
-    // Outputs by position. No address index needed.
-
     pub async fn output_at(
         &self,
         position: OutPosition,
@@ -456,8 +451,6 @@ impl Esplora {
     ) -> Result<Stamped<Vec<Option<PositionedOutput>>>, Error> {
         self.json(Route::OutputsAt { positions, asof }).await
     }
-
-    // Bulk `/internal/*` routes: unix socket only, see [`Esplora::has_internal`].
 
     /// Unknown txids are left out.
     pub async fn internal_txs(&self, txids: Vec<Txid>) -> Result<Stamped<Vec<Tx>>, Error> {

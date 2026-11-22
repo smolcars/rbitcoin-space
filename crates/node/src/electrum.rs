@@ -38,7 +38,6 @@ use tokio::time::{sleep, timeout};
 use types::{parse, parse_header, parse_headers, parse_tip, parse_version, protocol};
 
 const CLIENT_NAME: &str = "rbitcoin.space";
-/// Lines waiting for the socket. Requests are also capped by `max_in_flight`.
 const WRITE_QUEUE: usize = 4096;
 const FIRST_RETRY: Duration = Duration::from_millis(100);
 /// Recent blocks remembered to find a fork point, and the most re-read after a gap.
@@ -187,7 +186,6 @@ impl Client {
         self.shared.health.subscribe()
     }
 
-    /// The best block as last reported by the node.
     pub fn tip(&self) -> Option<Tip> {
         self.shared.state().tip.clone()
     }
@@ -511,7 +509,6 @@ impl Shared {
         Ok(())
     }
 
-    /// Records a status for a topic we still hold and emits it if it changed.
     fn set_status(&self, state: &mut State, topic: &Topic, status: Status) {
         let Some(sub) = state.subs.get_mut(topic) else {
             return;
@@ -529,7 +526,6 @@ impl Shared {
     }
 }
 
-/// Removes a request's pending entry when its caller stops waiting.
 struct ForgetOnDrop<'a> {
     shared: &'a Shared,
     id: u64,
@@ -541,7 +537,6 @@ impl Drop for ForgetOnDrop<'_> {
     }
 }
 
-/// Keeps one connection up for the life of the process.
 async fn supervise(shared: Arc<Shared>) {
     let mut delay = FIRST_RETRY;
     let mut resync = false;
@@ -597,7 +592,6 @@ async fn session(shared: &Arc<Shared>, resync: bool) -> Option<bool> {
     Some(ready)
 }
 
-/// Handshake, restore subscriptions, then ping until something fails.
 async fn drive(shared: &Arc<Shared>, resync: bool, ready: &mut bool) {
     let hello = json!([CLIENT_NAME, ["1.4", "1.6"]]);
     let Ok(reply) = shared.call("server.version", hello, Kind::Plain).await else {
@@ -664,7 +658,6 @@ async fn drive(shared: &Arc<Shared>, resync: bool, ready: &mut bool) {
 }
 
 impl Subscription {
-    /// A new reference to a topic that is already subscribed.
     fn claim(shared: &Arc<Shared>, topic: &Topic) -> Option<Subscription> {
         let mut state = shared.state();
         state.subs.get_mut(topic)?.refs += 1;

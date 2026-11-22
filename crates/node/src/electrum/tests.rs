@@ -17,7 +17,6 @@ use tokio::sync::broadcast::error::RecvError;
 
 const WAIT: Duration = Duration::from_secs(5);
 
-/// A scripted Electrum server on port 0.
 struct Mock {
     listener: TcpListener,
 }

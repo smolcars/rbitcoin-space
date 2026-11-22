@@ -1,14 +1,11 @@
-//! Typed results of the RPC methods, decoded straight from the response bytes.
-//!
 //! Field names follow the RPC keys so they can be checked against rbitcoin's `docs/rpc.md`.
-//! Keys we do not use are skipped while decoding. 8-decimal BTC values become [`Amount`] or
-//! [`SignedAmount`]; a fee rate in BTC/kvB becomes the [`Amount`] paid per 1,000 vbytes.
+//! 8-decimal BTC values become [`Amount`] or [`SignedAmount`]; a fee rate in BTC/kvB becomes the
+//! [`Amount`] paid per 1,000 vbytes.
 
 use bitcoin::{Amount, BlockHash, ScriptBuf, SignedAmount, TxMerkleNode, TxOut, Txid, Wtxid};
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer};
 
-/// `getblockchaininfo`.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct BlockchainInfo {
     /// `main`, `test`, `testnet4`, `testnet5`, `signet` or `regtest`.
@@ -58,8 +55,6 @@ pub struct BlockHeader {
 
 /// `getblock` with verbosity 2, reduced to what fee and size views need. Inputs, outputs
 /// and scripts are skipped while decoding, except the first transaction's ([`Block::coinbase`]).
-/// The engine builds the same value from Esplora's block summary route where the node has it,
-/// so every field here must be one that route and its companions can give.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(from = "RawBlock")]
 pub struct Block {
@@ -82,11 +77,9 @@ pub struct Block {
 pub struct Coinbase {
     /// `vin[0].coinbase`; empty when the first transaction has none.
     pub script: ScriptBuf,
-    /// Every output, in order.
     pub outputs: Vec<TxOut>,
 }
 
-/// [`Block`] as sent, its transactions read by [`Txs`].
 #[derive(Deserialize)]
 struct RawBlock {
     hash: BlockHash,
@@ -115,10 +108,8 @@ impl From<RawBlock> for Block {
     }
 }
 
-/// Every transaction as a [`BlockTx`], and the first one's [`Coinbase`] too.
 struct Txs(Vec<BlockTx>, Coinbase);
 
-/// The first transaction: a [`BlockTx`] with its input script and output scripts kept.
 #[derive(Deserialize)]
 struct FirstTx {
     txid: Txid,
@@ -203,7 +194,6 @@ impl<'de> Deserialize<'de> for Txs {
     }
 }
 
-/// One transaction of [`Block`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 pub struct BlockTx {
     pub txid: Txid,
@@ -213,7 +203,6 @@ pub struct BlockTx {
     /// `ceil(weight / 4)`, not sigop-adjusted.
     pub vsize: u32,
     pub weight: u32,
-    /// Sum of the output values, from `vout`.
     #[serde(rename = "vout", deserialize_with = "output_total")]
     pub value: Amount,
 }
@@ -246,7 +235,6 @@ pub struct PrevoutIn {
     pub prevout: Option<PrevoutOut>,
 }
 
-/// An output: its value and its script as the node wrote it in hex.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct PrevoutOut {
     #[serde(deserialize_with = "btc")]
@@ -300,9 +288,9 @@ pub struct BlockStats {
     pub utxo_size_inc_actual: i64,
 }
 
-/// `getblockstats` asked for `totalfee`, `subsidy` and `total_weight` only: the stats that need
-/// no UTXO work. The full set took about a second per recent mainnet block, this about 25 ms.
+/// `getblockstats` asked for these stats only.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[cfg_attr(test, serde(deny_unknown_fields))]
 pub struct BlockTotals {
     pub totalfee: Amount,
     pub subsidy: Amount,
@@ -310,7 +298,6 @@ pub struct BlockTotals {
     pub total_weight: u64,
 }
 
-/// One entry of `getchaintips`.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct ChainTip {
     pub height: u32,
@@ -321,7 +308,6 @@ pub struct ChainTip {
     pub status: String,
 }
 
-/// `getmininginfo`.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct MiningInfo {
     pub chain: String,
@@ -341,7 +327,7 @@ pub struct MiningInfo {
     pub next: NextBlock,
 }
 
-/// `getmininginfo.next`: the block being mined.
+/// `getmininginfo.next`.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct NextBlock {
     pub height: u32,
@@ -379,7 +365,6 @@ pub struct RawMempool {
     pub txids: Vec<Txid>,
 }
 
-/// `getmempoolentry`.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct MempoolEntry {
     pub wtxid: Wtxid,
@@ -387,7 +372,6 @@ pub struct MempoolEntry {
     pub vsize: u64,
     /// `ceil(weight / 4)`.
     pub vsize_bip141: u64,
-    /// Raw weight.
     pub weight: u64,
     /// Unix time it entered the mempool.
     pub time: u64,
@@ -424,7 +408,7 @@ pub struct EntryFees {
     pub chunk: SignedAmount,
 }
 
-/// `getmempoolcluster`: the cluster a transaction belongs to, as mining chunks.
+/// `getmempoolcluster`.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct Cluster {
     /// Sigop-adjusted.
@@ -510,7 +494,6 @@ pub struct SmartFee {
     pub errors: Vec<String>,
 }
 
-/// `getnetworkinfo`.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct NetworkInfo {
     /// Always 190000 on rbitcoin, an RPC shape floor; `subversion` names the software.
@@ -528,8 +511,8 @@ pub struct NetworkInfo {
     pub warnings: Vec<String>,
 }
 
-/// An 8-decimal BTC number to satoshis. Exact for every value up to 21 million BTC:
-/// the f64 error there is under 0.25 sat, so rounding recovers the decimal.
+/// Exact for every value up to 21 million BTC: the f64 error there is under 0.25 sat, so
+/// rounding recovers the decimal.
 fn btc_sats<'de, D: Deserializer<'de>>(d: D) -> Result<i64, D::Error> {
     const MAX: f64 = 21e14;
     let sats = (f64::deserialize(d)? * 1e8).round();
@@ -548,7 +531,6 @@ fn signed_btc<'de, D: Deserializer<'de>>(d: D) -> Result<SignedAmount, D::Error>
     Ok(SignedAmount::from_sat(btc_sats(d)?))
 }
 
-/// Sums `vout[].value` without keeping the outputs.
 fn output_total<'de, D: Deserializer<'de>>(d: D) -> Result<Amount, D::Error> {
     #[derive(Deserialize)]
     struct Output {
@@ -608,7 +590,6 @@ mod tests {
         assert_eq!(a("0.1").unwrap(), 10_000_000);
         assert_eq!(a("20999999.97690000").unwrap(), 2_099_999_997_690_000);
         assert_eq!(a("0").unwrap(), 0);
-        // Every satoshi value near the top of the range survives the f64 round trip.
         for sats in (2_099_999_999_000_000u64..2_100_000_000_000_000).step_by(7_919) {
             let s = format!("{}.{:08}", sats / 100_000_000, sats % 100_000_000);
             assert_eq!(a(&s).unwrap(), sats, "{s}");

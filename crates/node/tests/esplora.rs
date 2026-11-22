@@ -1,4 +1,3 @@
-//! Esplora client against a local mock server: fixture decoding and transport behaviour.
 //! Nothing here reaches a node.
 #![allow(
     clippy::unwrap_used,
@@ -142,7 +141,7 @@ where
     }
 }
 
-/// A TCP mock on port 0. Returns the base URL (with an `/api` base path) and its request log.
+/// Returns the base URL (with an `/api` base path) and its request log.
 async fn tcp_mock(handler: impl Fn(&Req) -> Reply + Send + Sync + 'static) -> (String, Log) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}/api", listener.local_addr().unwrap());

@@ -2,13 +2,11 @@ use std::fmt;
 
 use hyper::StatusCode;
 
-/// Longest upstream error text we keep. The node's messages are one line.
+/// The node's messages are one line.
 const MAX_MESSAGE: usize = 512;
 
-/// What went wrong with an Esplora call, in terms a caller can act on.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
-    /// The URL given to [`Esplora::new`](super::Esplora::new) is not usable.
     Config(&'static str),
     /// 404: no such object, or a bad `?asof=` block.
     NotFound,
@@ -20,14 +18,14 @@ pub enum Error {
     ChainViewMoved,
     /// Another 4xx: the node refused the request. `message` is the node's text,
     /// for example a broadcast reject reason. It is chain-adjacent, untrusted text.
-    Rejected { status: StatusCode, message: String },
+    Rejected {
+        status: StatusCode,
+        message: String,
+    },
     /// Connection failure, or a 5xx not covered above.
     Unavailable(String),
-    /// The request did not complete within the configured timeout.
     Timeout,
-    /// The response body exceeded the configured size cap.
     ResponseTooBig,
-    /// The response did not decode into the expected type.
     Decode(String),
     /// An `/internal/*` route was called on a TCP endpoint; they exist only on a unix socket.
     InternalUnavailable,
@@ -48,7 +46,6 @@ impl Error {
         }
     }
 
-    /// Maps a non-200 upstream answer to an error.
     pub fn from_status(status: StatusCode, body: &[u8]) -> Self {
         let message = message(body);
         match status {
@@ -149,7 +146,6 @@ mod tests {
                 cap: 10_000
             })
         );
-        // Surrounding whitespace is the transport's, not the message's.
         assert!(
             size("  scripthash join exceeds --max-sh-creates (10001 creates, cap 10000)\n")
                 .is_some()
@@ -174,7 +170,6 @@ mod tests {
         ] {
             assert_eq!(size(changed), None, "{changed:?}");
         }
-        // Hostile bytes: invalid UTF-8, a NUL, a body far past the length kept.
         assert_eq!(ScriptSize::from_refusal(&[0xff, 0xfe, b'(']), None);
         assert_eq!(
             size("scripthash join exceeds --max-sh-creates (\x002 creates, cap 1)"),

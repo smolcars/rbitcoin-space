@@ -1,4 +1,3 @@
-//! JSON-RPC client against a local mock server: fixture decoding and transport behaviour.
 //! Nothing here reaches a node.
 #![allow(
     clippy::unwrap_used,
@@ -99,7 +98,6 @@ async fn serve(stream: tokio::net::TcpStream, handler: Handler, log: Log) {
     }
 }
 
-/// A mock node on port 0.
 async fn mock(handler: impl Fn(&Req) -> Reply + Send + Sync + 'static) -> (u16, Log) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();

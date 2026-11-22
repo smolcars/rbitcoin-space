@@ -1,5 +1,3 @@
-//! Typed clients for rbitcoin. Each protocol lives in its own module.
-
 pub mod electrum;
 pub mod esplora;
 mod http;

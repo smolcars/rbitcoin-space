@@ -1,5 +1,3 @@
-//! Every Esplora route we call, as a value built only from parsed types.
-//!
 //! An upstream path is written by [`Route::write_path`] and nowhere else, from
 //! hashes, integers and checked addresses. There is no variant that carries a
 //! raw string, so a client string cannot reach the node (SECURITY.md rules 2–3).
@@ -10,7 +8,6 @@ use bitcoin::hashes::{Hash as _, sha256};
 use bitcoin::hex::{DisplayHex as _, FromHex as _};
 use bitcoin::{Address, BlockHash, OutPoint, PublicKey, ScriptBuf, Transaction, Txid};
 use bytes::Bytes;
-use hyper::Method;
 
 /// Largest batch `POST /block-heights/txs/outs` accepts.
 pub const MAX_OUT_POSITIONS: usize = 300;
@@ -43,7 +40,6 @@ impl ScriptHash {
         Self(bytes)
     }
 
-    /// Electrum's form of the same hash.
     pub fn electrum(self) -> crate::electrum::ScriptHash {
         crate::electrum::ScriptHash(self.0)
     }
@@ -67,7 +63,6 @@ impl ScriptHash {
     }
 }
 
-/// The script an address or scripthash route is about.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ScriptRef {
     /// Checked for the node's network by the caller (`Address::require_network`).
@@ -79,7 +74,6 @@ pub enum ScriptRef {
 }
 
 impl ScriptRef {
-    /// The script itself, which a hash alone does not give.
     pub fn script_pubkey(&self) -> Option<ScriptBuf> {
         match self {
             Self::Address(a) => Some(a.script_pubkey()),
@@ -88,7 +82,6 @@ impl ScriptRef {
         }
     }
 
-    /// The hash the node's index and Electrum key the script by.
     pub fn script_hash(&self) -> ScriptHash {
         match self {
             Self::Address(a) => ScriptHash::from_script(&a.script_pubkey()),
@@ -98,7 +91,6 @@ impl ScriptRef {
     }
 }
 
-/// `start_index` of `/block/:hash/txs/:start_index`: a multiple of 25.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BlockTxsStart(u32);
 
@@ -116,7 +108,6 @@ impl BlockTxsStart {
     }
 }
 
-/// One output addressed by its block height, its transaction's index in the block and its vout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
 #[serde(into = "[u32; 3]")]
 pub struct OutPosition {
@@ -131,12 +122,10 @@ impl From<OutPosition> for [u32; 3] {
     }
 }
 
-/// A batch for `POST /block-heights/txs/outs`: at most [`MAX_OUT_POSITIONS`] positions.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OutPositions(Vec<OutPosition>);
 
 impl OutPositions {
-    /// `None` when the batch is longer than the node accepts.
     pub fn new(positions: Vec<OutPosition>) -> Option<Self> {
         (positions.len() <= MAX_OUT_POSITIONS).then_some(Self(positions))
     }
@@ -173,7 +162,6 @@ pub enum Route {
     Blocks {
         start_height: Option<u32>,
     },
-    /// Best-chain block hash at a height.
     BlockHash(u32),
     Block(BlockHash),
     BlockHeader(BlockHash),
@@ -186,7 +174,6 @@ pub enum Route {
     BlockRaw(BlockHash),
     /// `[txid, fee, weight, value]` per transaction.
     BlockTxsSummary(BlockHash),
-    /// The txid at `index` in the block.
     BlockTxid {
         hash: BlockHash,
         index: u32,
@@ -271,15 +258,15 @@ pub enum Route {
         position: OutPosition,
         asof: Option<BlockHash>,
     },
-    /// Up to 300 outputs by position; a missing one is `null` in its slot.
+    /// A missing output is `null` in its slot.
     OutputsAt {
         positions: OutPositions,
         asof: Option<BlockHash>,
     },
 
-    /// Bulk tx JSON by txid; unknown ids are left out. Unix socket only, as are all below.
+    /// Unknown ids are left out.
     InternalTxs(Vec<Txid>),
-    /// Mempool tx JSON in txid order, after `after`, at most `max_txs` (node default 10,000).
+    /// In txid order, after `after`, at most `max_txs` (node default 10,000).
     InternalMempoolTxs {
         after: Option<Txid>,
         max_txs: Option<u32>,
@@ -298,34 +285,6 @@ pub enum Route {
 }
 
 impl Route {
-    pub fn method(&self) -> Method {
-        match self {
-            Self::Broadcast(_)
-            | Self::BlindbitForwardTx(_)
-            | Self::OutputsAt { .. }
-            | Self::InternalTxs(_)
-            | Self::InternalMempoolTxsByTxid(_)
-            | Self::InternalOutspendsByTxid(_)
-            | Self::InternalOutspendsByOutpoint(_) => Method::POST,
-            _ => Method::GET,
-        }
-    }
-
-    /// Served only on a unix-socket listener.
-    pub fn is_internal(&self) -> bool {
-        matches!(
-            self,
-            Self::InternalTxs(_)
-                | Self::InternalMempoolTxs { .. }
-                | Self::InternalMempoolTxsAll
-                | Self::InternalMempoolTxsByTxid(_)
-                | Self::InternalBlockTxs(_)
-                | Self::InternalOutspendsByTxid(_)
-                | Self::InternalOutspendsByOutpoint(_)
-                | Self::InternalScriptStats { .. }
-        )
-    }
-
     /// Appends the path and query, relative to the Esplora base.
     pub fn write_path(&self, out: &mut String) {
         // Writing to a String cannot fail.
@@ -523,14 +482,12 @@ impl Route {
             }
         }
         if let Some(h) = asof {
-            // Only ScriptTxs can already have a query (`after_txid`).
             let sep = if o.contains('?') { '&' } else { '?' };
             write!(o, "{sep}asof={h}")?;
         }
         Ok(())
     }
 
-    /// The request body and its content type, for POST routes.
     pub fn body(&self) -> Option<(Bytes, &'static str)> {
         let json =
             |v: serde_json::Result<Vec<u8>>| v.ok().map(|b| (Bytes::from(b), "application/json"));
@@ -620,7 +577,6 @@ mod tests {
             path(&uncapped),
             format!("/internal/scripthash/{H}?asof={H}")
         );
-        assert!(uncapped.is_internal());
         assert_eq!(
             path(&Route::InternalMempoolTxs {
                 after: Some(t),
@@ -680,7 +636,6 @@ mod tests {
             path(&Route::BlockTxsSummary(h)),
             format!("/block/{H}/txs/summary")
         );
-        assert_eq!(batch.method(), Method::POST);
     }
 
     /// The regtest harness's miner script, P2WSH of `OP_TRUE`, its SHA-256, and Electrum's form
@@ -699,7 +654,6 @@ mod tests {
         assert_eq!(sh.electrum().to_string(), MINER_REVERSED);
         assert_eq!(ScriptHash::from_electrum(sh.electrum()), sh);
 
-        // Every route that names a script by hash, the uncapped socket one included.
         let script = ScriptRef::ScriptHash(sh);
         for (route, tail) in [
             (
@@ -749,7 +703,6 @@ mod tests {
             format!("/internal/scripthash/{MINER_DIGEST}")
         );
 
-        // A key is asked by its pay-to-pubkey script's hash.
         let key = PublicKey::from_str(
             "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
         )
