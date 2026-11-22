@@ -1,7 +1,7 @@
 import { type Accessor, createMemo, createSignal, onCleanup, Show, untrack } from "solid-js";
 import { Amount } from "../../components/Amount";
 import { FeeRate } from "../../components/FeeRate";
-import { type Layer, Strata, strataLayers, strataSide } from "../../components/Strata";
+import { type Layer, Strata, strataLayers, strataMark, strataSide } from "../../components/Strata";
 import "../../components/BlockBox.css";
 import { formatFeeRate, groupDigits } from "../../lib/format";
 import { Link } from "../../components/Link";
@@ -9,8 +9,8 @@ import { type Network, paths } from "../../lib/network";
 import type { ProjectedTile as Tile } from "./projection";
 
 const MAX_WEIGHT = 4_000_000;
-/** The thinnest layer, as a share of a tile's strata box (about 45 px): 2 px, so one transaction shows. */
-export const TILE_LAYER_MIN = 0.045;
+/** The thinnest layer, as a share of a tile's box (about 160 px): 2 px, so one transaction shows. */
+export const TILE_LAYER_MIN = 0.0125;
 const ORDINALS = ["Next block", "Second block", "Third block", "Fourth block"];
 
 /** A tile's heading: when its block is expected. Regtest has no block interval to count in. */
@@ -77,6 +77,20 @@ export function ProjectedTile(props: {
             href={paths.projected(tile().slot + 1)}
             aria-label={projectedLabel(tile(), props.network)}
           >
+            {/* First, so the figures paint over the layers it fills the box with. */}
+            <span
+              class="home-tile__strata block-box__core"
+              style={{ "--core-side": strataSide(layers()), ...strataMark(layers()) }}
+            >
+              <Show
+                when={layers().length > 0}
+                fallback={<span class="home-tile__fill home-tile__fill--floor" />}
+              >
+                <span class="home-tile__layers">
+                  <Strata layers={layers()} settle={settling()} />
+                </span>
+              </Show>
+            </span>
             <span class="home-tile__title">{projectedTitle(tile(), props.network)}</span>
             <span class="home-tile__fee num">
               <Show when={tile().txs > 0} fallback="Nothing waiting">
@@ -91,19 +105,6 @@ export function ProjectedTile(props: {
                 <Amount sats={tile().fees} short approx />
               </span>
             </Show>
-            <span
-              class="home-tile__strata block-box__core"
-              style={{ "--core-side": strataSide(layers()) }}
-            >
-              <Show
-                when={layers().length > 0}
-                fallback={<span class="home-tile__fill home-tile__fill--floor" />}
-              >
-                <span class="home-tile__layers">
-                  <Strata layers={layers()} settle={settling()} />
-                </span>
-              </Show>
-            </span>
             <span class="home-tile__foot">
               <span class="num">{groupDigits(tile().txs)} tx</span>
               <span>{tile().slot === 0 && props.network !== "regtest" ? "~10 min" : ""}</span>

@@ -260,40 +260,61 @@
   .home-tile__fee .unit {
     font-size: var(--text-xs);
   }
-  /* The block's capacity as a box: the gauge fills it from the floor, so the empty part above reads
-     as room left, never as missing data. It runs the tile's full width, a core through the box, so
-     its layers carry on round the corner onto the right face (BlockBox.css). */
+  /* The whole box is the block's capacity: the gauge fills it from the floor as far as the block
+     is full, so the empty part above reads as room left, never as missing data. It sits behind the
+     figures, first in the box, and its layers carry on round the corner onto the right face
+     (BlockBox.css). */
   .home-tile__strata {
-    --strata-seam: var(--color-surface-sunken);
-    position: relative;
-    flex: 1;
+    position: absolute;
+    inset: 0;
     display: flex;
     align-items: flex-end;
-    min-height: 0;
-    margin: var(--space-1) calc(-1 * var(--space-3));
-    background: var(--color-surface-sunken);
-    box-shadow:
-      inset 0 1px var(--color-line),
-      inset 0 -1px var(--color-line);
+    pointer-events: none;
   }
-  .home-tile--projected .home-tile__strata {
-    --strata-seam: var(--color-surface-sunken);
-    box-shadow:
-      inset 0 1px var(--color-line-strong),
-      inset 0 -1px var(--color-line-strong);
+  .home-tile__body > :not(.home-tile__strata) {
+    position: relative;
   }
-  /* Clipped here, not on the gauge, whose right face reaches outside it. */
+  /* Where the fill reaches, at full strength, in the right padding beside the face, so it never
+     crosses a figure. */
+  .home-tile__strata::before {
+    content: "";
+    position: absolute;
+    right: 0;
+    bottom: calc(var(--mark-y, 0) * (100% - 2px));
+    width: var(--space-3);
+    height: 2px;
+    background: var(--mark-c, transparent);
+  }
+  .home-tile__strata:has(.strata--settle)::before {
+    animation: home-mark-in var(--dur-slow) var(--ease-out) calc(11 * var(--stagger)) backwards;
+  }
+  .home-tile__strata:has(.strata--morph)::before {
+    animation: home-mark-in var(--dur-slow) var(--ease-out) var(--dur-slow) backwards;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .home-tile__strata:has(.strata--settle, .strata--morph)::before {
+      animation-delay: 0s;
+      animation-duration: var(--dur-fade);
+    }
+  }
+  @keyframes home-mark-in {
+    from {
+      opacity: 0;
+    }
+  }
+  /* Clipped here, not on the gauge, whose right face reaches outside it. Tinted under the figures,
+     with no seams to run through them; the mark and the right face carry the full colour. */
   .home-tile__layers {
+    --strata-seam: transparent;
     position: absolute;
     inset: 0;
     overflow: hidden;
+    opacity: var(--tile-tint);
   }
   /* How full the block is, in a neutral tone: fee colors are only for fee data. */
   .home-tile__fill {
     width: 100%;
     height: 100%;
-    min-height: 2px;
-    border-top: 2px solid var(--color-line-strong);
     border-radius: 1px;
     background: var(--color-line);
     transform: scaleY(var(--fill));
@@ -325,6 +346,7 @@
      and age stay inside; not up and down, where the note's focus ring reaches. */
   .home-tile__foot {
     display: flex;
+    margin-top: auto;
     justify-content: space-between;
     gap: var(--space-1);
     margin-inline: calc(-1 * var(--space-3));
@@ -345,11 +367,9 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  /* Projected tiles hold layers on the sunken band, seamed in its color. A projected box is open,
-     and so is a block still crossing the line, until it sets. */
+  /* A projected box is open, and so is a block still crossing the line, until it sets. */
   .home-tile--projected .home-tile__body,
   .home-tile--crossing .home-tile__body {
-    --strata-seam: var(--color-surface-sunken);
     --box-top: transparent;
     --box-side: transparent;
     --core-opacity: 0.55;

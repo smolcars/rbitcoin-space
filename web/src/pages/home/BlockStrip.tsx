@@ -15,7 +15,7 @@ import { Amount } from "../../components/Amount";
 import { FeeRate } from "../../components/FeeRate";
 import { Link } from "../../components/Link";
 import { Note } from "../../components/Note";
-import { type Layer, Strata, strataLayers, strataSide } from "../../components/Strata";
+import { type Layer, Strata, strataLayers, strataMark, strataSide } from "../../components/Strata";
 import "../../components/BlockBox.css";
 import { ErrorState } from "../../components/States";
 import { useNow } from "../../lib/clock";
@@ -440,17 +440,19 @@ export function BlockStrip(props: {
       if (first.has(idOf(el))) continue;
       if (crossing.length > 0 && !m.reduced) {
         const layers = el.querySelectorAll(".strata__layer");
-        // The box's right face shows them as the last one drops (BlockBox.css).
+        // The box's right face and its fill mark show them as the last one drops (BlockBox.css,
+        // HomePage.css).
         const core = el.querySelector(".block-box__core");
         if (core)
-          // Offset 0: a lone keyframe is otherwise the end, not the start.
-          play(core, [{ opacity: 0, offset: 0 }], {
-            pseudoElement: "::after",
-            duration: m.slow,
-            easing: m.easeOut,
-            delay: m.block * 0.4 + Math.max(0, layers.length - 1) * m.stagger,
-            fill: "backwards",
-          });
+          for (const pseudoElement of ["::after", "::before"])
+            // Offset 0: a lone keyframe is otherwise the end, not the start.
+            play(core, [{ opacity: 0, offset: 0 }], {
+              pseudoElement,
+              duration: m.slow,
+              easing: m.easeOut,
+              delay: m.block * 0.4 + Math.max(0, layers.length - 1) * m.stagger,
+              fill: "backwards",
+            });
         layers.forEach((layer, i) =>
           play(
             layer,
@@ -909,9 +911,10 @@ function MinedTile(props: {
     },
     { equals: sameLayers },
   );
-  /** The layers on the box's right face: its own, what it was projected to be, or how full it is. */
-  const side = () =>
-    strataSide(layers().length > 0 ? layers() : guessing() ? (guess ?? []) : [], full());
+  /** The layers it shows: its own, or what it was projected to be. */
+  const shown = () => (layers().length > 0 ? layers() : guessing() ? (guess ?? []) : []);
+  /** The layers on the box's right face, or how full it is. */
+  const side = () => strataSide(shown(), full());
   const miner = () => summary()?.miner?.name;
   /** Seconds from its parent's time to its own, when it is timed before its parent. */
   const early = () => {
@@ -948,6 +951,39 @@ function MinedTile(props: {
         aria-label={label()}
         tabindex={props.stop ? 0 : -1}
       >
+        {/* First, so the figures paint over the layers it fills the box with. */}
+        <span
+          class="home-tile__strata block-box__core"
+          style={{ "--core-side": side(), ...strataMark(shown(), full()) }}
+          aria-hidden="true"
+        >
+          {/* The neutral gauge: how full the block is, until its layers arrive and settle over it. */}
+          <Show when={(layers().length === 0 && !guessing()) || settle}>
+            <span
+              class={["home-tile__fill", { "home-tile__fill--gone": layers().length > 0 }]}
+
+              style={{ "--fill": String(full()) }}
+            />
+          </Show>
+          {/* What it was projected to be, fading as the real layers grow out of it. */}
+          <Show when={guess}>
+            {(g) => (
+              <span
+                class={[
+                  "home-tile__layers home-tile__guess",
+                  { "home-tile__guess--gone": !guessing() },
+                ]}
+              >
+                <Strata layers={g()} />
+              </span>
+            )}
+          </Show>
+          <Show when={layers().length > 0}>
+            <span class="home-tile__layers">
+              <Strata layers={layers()} settle={settle} from={guess} />
+            </span>
+          </Show>
+        </span>
         <span class="home-tile__title num">{groupDigits(b().height)}</span>
         <span class="home-tile__fee num">
           <Switch fallback={<span class="home-tile__bone home-tile__bone--line" />}>
@@ -980,38 +1016,6 @@ function MinedTile(props: {
               {(p) => <Amount sats={p().fees} short approx />}
             </Match>
           </Switch>
-        </span>
-        <span
-          class="home-tile__strata block-box__core"
-          style={{ "--core-side": side() }}
-          aria-hidden="true"
-        >
-          {/* The neutral gauge: how full the block is, until its layers arrive and settle over it. */}
-          <Show when={(layers().length === 0 && !guessing()) || settle}>
-            <span
-              class={["home-tile__fill", { "home-tile__fill--gone": layers().length > 0 }]}
-
-              style={{ "--fill": String(full()) }}
-            />
-          </Show>
-          {/* What it was projected to be, fading as the real layers grow out of it. */}
-          <Show when={guess}>
-            {(g) => (
-              <span
-                class={[
-                  "home-tile__layers home-tile__guess",
-                  { "home-tile__guess--gone": !guessing() },
-                ]}
-              >
-                <Strata layers={g()} />
-              </span>
-            )}
-          </Show>
-          <Show when={layers().length > 0}>
-            <span class="home-tile__layers">
-              <Strata layers={layers()} settle={settle} from={guess} />
-            </span>
-          </Show>
         </span>
         <span class="home-tile__foot">
           <span class="num">

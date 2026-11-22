@@ -178,6 +178,7 @@
   --tile-face-top: #dce2e6;
   --tile-face-side: #d2d9de;
   --tile-side-shade: 0.82; /* the fee layers on a tile's right face, in shadow */
+  --tile-tint: 0.19; /* the fee layers on a tile's front, under its figures: the most that keeps them at 4.5:1 */
 
   /* ---- Motion ---- */
   --dur-instant: 90ms; /* press, toggle */
@@ -224,6 +225,7 @@
     --tile-face-top: #262b30;
     --tile-face-side: #131619;
     --tile-side-shade: 0.62;
+    --tile-tint: 0.25;
     --series-1: #6cb0dc;
     --series-2: #d9a24c;
     --series-3: #9aa4ab;
@@ -283,6 +285,7 @@
   --tile-face-top: #262b30;
   --tile-face-side: #131619;
   --tile-side-shade: 0.62;
+  --tile-tint: 0.25;
   --series-1: #6cb0dc;
   --series-2: #d9a24c;
   --series-3: #9aa4ab;

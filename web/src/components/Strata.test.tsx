@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { feeBand } from "../lib/format";
-import { bandRange, describeBands, Strata, strataLayers, strataSide, strataTop } from "./Strata";
+import {
+  bandRange,
+  describeBands,
+  Strata,
+  strataLayers,
+  strataMark,
+  strataSide,
+  strataTop,
+} from "./Strata";
 import { mount } from "./test-utils";
 
 const zeros = () => Array.from({ length: 12 }, () => 0);
@@ -152,5 +160,29 @@ describe("strataSide", () => {
   it("draws nothing for nothing", () => {
     expect(strataSide([], 0)).toBe("none");
     expect(strataSide([], Number.NaN)).toBe("none");
+  });
+});
+
+describe("strataMark", () => {
+  it("marks the top of the layers in the top band's colour", () => {
+    const bands = zeros();
+    bands[0] = 300_000;
+    bands[11] = 100_000;
+    expect(strataMark(strataLayers(bands, 0.4, 0.05), 0.4)).toStrictEqual({
+      "--mark-y": "0.4000",
+      "--mark-c": "var(--fee-12)",
+    });
+  });
+
+  it("marks how full the block is in the neutral tone when it has no layers yet", () => {
+    expect(strataMark([], 0.5)).toStrictEqual({
+      "--mark-y": "0.5000",
+      "--mark-c": "var(--color-line-strong)",
+    });
+  });
+
+  it("marks nothing for nothing", () => {
+    expect(strataMark([], 0)).toStrictEqual({});
+    expect(strataMark([], Number.NaN)).toStrictEqual({});
   });
 });

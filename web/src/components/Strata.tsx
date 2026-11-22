@@ -81,6 +81,19 @@ export function strataSide(layers: readonly Layer[], fill = 0): string {
   return `linear-gradient(to top, ${stops.join(", ")}, transparent ${pct(strataTop(layers))})`;
 }
 
+/**
+ * Where a stack of layers tops out, and in its top band's colour, for a tile's fill mark
+ * (`HomePage.css`). With no layers, how full the block is in the neutral gauge's tone; nothing
+ * when there is nothing to mark.
+ */
+export function strataMark(layers: readonly Layer[], fill = 0): Record<string, string> {
+  const top = layers.at(-1);
+  if (top)
+    return { "--mark-y": strataTop(layers).toFixed(4), "--mark-c": `var(--fee-${top.band})` };
+  if (!(fill > 0)) return {};
+  return { "--mark-y": Math.min(1, fill).toFixed(4), "--mark-c": "var(--color-line-strong)" };
+}
+
 /** A band's range in words: `under 0.20 sat/vB`, `0.50 to 1.00 sat/vB`, `10.0 sat/vB and up`. */
 export function bandRange(band: number, unsplit = false): string {
   if (unsplit && band === 1) return "under 0.20 sat/vB";
