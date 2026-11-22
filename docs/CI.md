@@ -13,7 +13,7 @@ A PR that adds a slower step must make room for it or move it out of the PR path
 | `rust` | 170 s | 92 to 121 s |
 | `e2e`, each of its five shards | 180 s | 62 to 93 s with three; 68 to 106 s with four, on 2026-11-14; 97 to 162 s with five, on 2026-11-21 ([below](#browser-test-shards)) |
 | `web` | 75 s | 30 to 39 s |
-| `models` | 45 s | MEASURED |
+| `models` | 30 s | 16 s on its first run, 2026-11-22 |
 
 The owner raised the budget from 3 to 4 minutes on 2026-11-15, and each limit by about a quarter (from 135, 145 and 60 s), as the project grew: a `rust` job 2 s over its limit had failed a pull request that added one small test. The whole run is `changes`, the slowest job and `ci-ok`, so the 180 s shard limit leaves about a minute of the four.
 
