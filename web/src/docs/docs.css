@@ -27,6 +27,13 @@
     padding-block: var(--space-6) var(--space-8);
     align-items: start;
   }
+  /* Both side columns stay in sight and scroll on their own when longer than the screen. */
+  .docs-nav--side,
+  .docs-rail {
+    max-height: calc(100dvh - var(--header-h, 4rem) - var(--space-6));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
   .docs-nav--side {
     grid-area: nav;
     position: sticky;
@@ -405,10 +412,6 @@
   }
   .table tr:last-child td {
     border-bottom: 0;
-  }
-  /* Code in a cell wraps (a hash, a long path) so the words beside it keep their room. */
-  .table td {
-    min-width: 5rem;
   }
   .table .right {
     text-align: right;
