@@ -662,19 +662,21 @@ Deleting it costs the backfill's time and loses the audits, the mempool chart's 
 ```sh
 mkdir -p backup
 docker run --rm -v rbitcoin-space_server-data:/data -v "$PWD/backup":/backup alpine:3 \
-  sh -c 'apk add --no-cache sqlite >/dev/null && for f in /data/*.sqlite; do sqlite3 -readonly "$f" ".backup /backup/${f##*/}"; done'
+  sh -ec 'apk add --no-cache sqlite >/dev/null; for f in /data/*.sqlite; do sqlite3 -readonly "$f" ".backup /backup/${f##*/}"; done'
 ```
 
-Every network the server serves has its file; the loop backs up each.
+Every network the server serves has its file; the loop backs up each, and stops at the first that fails (`sh -e`), so the command exits non-zero unless every file was copied.
 
 **Restore** with the server stopped, removing the old `-wal` and `-shm`:
 
 ```sh
 docker compose stop server
 docker run --rm -v rbitcoin-space_server-data:/data -v "$PWD/backup":/backup:ro alpine:3 \
-  sh -c 'for f in /backup/*.sqlite; do n=/data/${f##*/}; rm -f "$n-wal" "$n-shm" && cp "$f" "$n" && chown 65532:65532 "$n"; done'
-docker compose start server
+  sh -ec 'for f in /backup/*.sqlite; do n=/data/${f##*/}; rm -f "$n-wal" "$n-shm"; cp "$f" "$n"; chown 65532:65532 "$n"; done' &&
+  docker compose start server
 ```
+
+The loop stops at the first file that fails, and the server is started only when every file was restored: if it stops, fix the cause (disk space, most often) and run it again before starting anything.
 
 **Seed a new instance from one that has caught up,** to skip the backfill (about 18 hours for mainnet's block totals) and keep the audits, mempool history and replacements, which no backfill rebuilds. On the old instance, beside its compose file, copy each network's file and the Lightning graph without its node key:
 
@@ -816,11 +818,13 @@ docker compose logs --no-log-prefix server | grep store_migration_applied
 VERSION=0.1.0                               # the release you go back to
 docker compose stop server
 docker run --rm -v rbitcoin-space_server-data:/data -v "$PWD/backup":/backup:ro alpine:3 \
-  sh -c 'for f in /backup/*.sqlite; do n=/data/${f##*/}; rm -f "$n-wal" "$n-shm" && cp "$f" "$n" && chown 65532:65532 "$n"; done'
-git fetch --depth 1 origin tag "v$VERSION" && git checkout "v$VERSION"
-sed -i.bak "s|^SERVER_IMAGE=.*|SERVER_IMAGE=ghcr.io/smolcars/rbitcoin-space:$VERSION|" .env && rm .env.bak
-docker compose up -d
+  sh -ec 'for f in /backup/*.sqlite; do n=/data/${f##*/}; rm -f "$n-wal" "$n-shm"; cp "$f" "$n"; chown 65532:65532 "$n"; done' &&
+  git fetch --depth 1 origin tag "v$VERSION" && git checkout "v$VERSION" &&
+  sed -i.bak "s|^SERVER_IMAGE=.*|SERVER_IMAGE=ghcr.io/smolcars/rbitcoin-space:$VERSION|" .env && rm .env.bak &&
+  docker compose up -d
 ```
+
+Each step runs only when the one before it succeeded, the restore of every file included.
 
 What was observed between the backup and the rollback is lost. Without a backup, delete each network's `.sqlite` file: the old release starts empty and backfills. Going back to 0.5.0 from a later release also needs nodes it agrees with ([below](#upgrading-from-050)). Without a migration, only the image changes.
 
@@ -838,7 +842,7 @@ Discovery checks sizes by hash, sees every script as small and keeps nothing; th
 3. Upgrade the node to `nightly-20261122` or later and start it alone. With the compose file, check out the release after 0.5.0 (`git fetch --depth 1 origin tag "v$VERSION" && git checkout "v$VERSION"`), keep `RBITCOIN_IMAGE` unset in `.env` (or set it to such a build), check that `docker compose config --images` lists `ghcr.io/rbitcoin-org/rbitcoin:nightly-20261122@sha256:1a7208ea757c7b2b605f5cfda7a0b483f75fba9bd54de9639e955859c5d34d7a` or a later build, then run `docker compose up -d node`. A node [on another host](#the-node-on-another-host) or [in another compose project](#the-node-in-another-compose-project) is upgraded where it runs. Its first start moves its store from schema 28 (or 27) to 30, one way: an older node will not open it afterwards. Wait until it is synced and `docker compose logs node` shows its Esplora listening.
 4. With every network's node upgraded, set `SERVER_IMAGE` to the release after 0.5.0 (or later, never 0.5.0; or a [`master` image](#images-of-master) from the same commit on) and start it alone: `docker compose up -d server`. Check `curl -s http://127.0.0.1:8080/healthz`: a release's `version` is above `0.5.0`; a `master` image keeps `0.5.0` until that release, so check its `revision` instead, which is the commit its image was built from and must be the one whose compose file pins `nightly-20261122`.
 
-**Going back to 0.5.0** needs a node that reads reversed scripthashes on every network, and a node store already at schema 30 cannot be opened by one: that means re-syncing each node from an empty directory on the older build, which takes hours to days. Keep the explorer stopped until every network has a node that matches it, then [roll back](#upgrading) with the backup from step 1. If either explorer ran against a node it disagrees with, restore that backup too, with the explorer stopped.
+**Going back to 0.5.0** needs a node that reads reversed scripthashes on every network, and a node store already at schema 30 cannot be opened by one: that means re-syncing each node from an empty directory on the older build, which takes hours to days. Keep the explorer stopped until every network has a node that matches it, and take the newer build out of `.env` first (`RBITCOIN_IMAGE`, if step 3 set it there), or compose puts the newer node back. Then [roll back](#upgrading) with the backup from step 1, with one change: end with `docker compose up -d --no-deps server` instead of `docker compose up -d`, so the command starts the explorer alone and cannot replace a node you have just synced. If either explorer ran against a node it disagrees with, restore that backup too, with the explorer stopped.
 
 #### Images of `master`
 

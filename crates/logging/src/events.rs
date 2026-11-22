@@ -781,7 +781,8 @@ pub struct LedgerSeeded {
     pub scripthash: String,
     /// The block its totals are exact at.
     pub height: u32,
-    /// Whether the node's newest history page was kept too.
+    /// Whether the node's newest history page was settled with the seed: kept too, or refused by
+    /// the node for size (nothing kept).
     pub page: bool,
     /// Addresses dropped to make room.
     pub evicted: usize,
@@ -820,8 +821,8 @@ pub struct LedgerFilled {
     pub scripthash: String,
     /// The seed block the page was pinned to.
     pub height: u32,
-    /// `joined`, `full` (the window holds rows since the seed only) or `gap` (rows since the seed
-    /// may be missing).
+    /// `joined`, `refused` (the node refused the page for size), `full` (the window holds rows
+    /// since the seed only) or `gap` (rows since the seed may be missing).
     pub outcome: &'static str,
     /// Rows the page added to the window.
     pub rows: usize,
