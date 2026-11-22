@@ -53,6 +53,7 @@ jobs:
               - .github/workflows/ci.yml
               - .github/job-limit.sh
               - .github/slowest.py
+              - .github/profiles-key.py
             web: &web
               - web/**
               # What the frontend imports from design/; the prototype is not built.
@@ -104,7 +105,7 @@ jobs:
       - run: rustup toolchain install
       # rust-cache's key leaves out Cargo.toml's [profile] sections, so they are added to it here.
       - id: profiles
-        run: echo "hash=$(awk '/^\[/{p=/^\[profile/} p && !/^#/ && NF' Cargo.toml | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
+        run: echo "hash=$(python3 -I .github/profiles-key.py)" >> "$GITHUB_OUTPUT"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         id: cache
         with:
@@ -193,7 +194,7 @@ jobs:
           persist-credentials: false
       - run: rustup toolchain install
       - id: profiles
-        run: echo "hash=$(awk '/^\[/{p=/^\[profile/} p && !/^#/ && NF' Cargo.toml | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
+        run: echo "hash=$(python3 -I .github/profiles-key.py)" >> "$GITHUB_OUTPUT"
       # Only the server binary's build, so this cache is smaller than the rust job's. Every shard
       # has the same key; one saves it, since a second save of a key fails with a warning.
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
