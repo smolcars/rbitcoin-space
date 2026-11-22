@@ -15,6 +15,8 @@ function only(names: readonly string[]): string[] {
   const out: string[] = [];
   for (let i = 0; i < flags.length; i += 1) {
     const flag = flags[i] ?? "";
+    // After `--` nothing is a flag to Vite.
+    if (flag === "--") break;
     const name = flag.split("=", 1)[0] ?? "";
     if (!names.includes(name)) continue;
     if (flag.includes("=")) out.push(flag);
