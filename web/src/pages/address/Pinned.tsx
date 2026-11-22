@@ -30,6 +30,7 @@ import {
 import type { AddressStats, Transaction } from "../../lib/esplora";
 import { groupDigits } from "../../lib/format";
 import { NETWORK_NAMES, type Network, paths } from "../../lib/network";
+import { intend } from "../../lib/intent";
 import { useNetwork } from "../../lib/page";
 import { blockAt } from "../../palette/block-at";
 import { refusal } from "./address";
@@ -133,7 +134,8 @@ export function AsOfForm(props: {
     go(String(height));
   };
   // The reader's later move wins: any navigation begun while a date is looked up drops the lookup,
-  // so its block cannot overtake a link followed since. Nothing is kept: the field submits again.
+  // so its block cannot overtake a link followed since; and a later choice still waiting on its
+  // own answer (a search, the palette) makes it stale (`intend`). The field submits again.
   useBeforeLeave(() => ask?.abort());
   const noteId = `${props.id}-note`;
   const submit = async (e: SubmitEvent) => {
@@ -153,6 +155,8 @@ export function AsOfForm(props: {
       setNote("That is neither a block height nor a date. Try 840000 or 2024-04-20.");
       return;
     }
+    // A choice of block: any older choice still waiting on its answer is stale.
+    const latest = intend();
     if (typed.kind === "height") {
       setNote(undefined);
       show(typed.height);
@@ -179,7 +183,7 @@ export function AsOfForm(props: {
         return;
       }
       const answer = await blockAt(typed.moment, net, controller.signal);
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted || !latest()) return;
       if (answer.kind === "found") show(answer.found.height);
       else if (answer.kind === "none") {
         setNote(

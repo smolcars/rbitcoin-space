@@ -853,10 +853,18 @@ test("a block chosen while a move elsewhere is under way lands on this address, 
   await field.press("Enter");
   await expect(page).toHaveURL(`/regtest/address/${address}?at=105`);
   await expect(band(page).getByRole("heading")).toHaveText("As of block 105");
-  // The held code arrives in full before the last look, so a late commit to the block would show.
+  // The held code arrives and runs before the last look, and the router has had its turn after
+  // it: a late commit to the block would show by then.
   const arrived = page.waitForResponse(/\/assets\/BlockPage-[\w-]+\.js$/);
   chunk.open();
-  await (await arrived).finished();
+  const code = await arrived;
+  await code.finished();
+  await page.evaluate(async (url) => {
+    await import(url);
+    await new Promise((resolve) => {
+      requestAnimationFrame(() => setTimeout(resolve, 50));
+    });
+  }, code.url());
   await expect(page).toHaveURL(`/regtest/address/${address}?at=105`);
   expect(lookups).toHaveLength(1);
   // Built from this address's own path: no page of another kind ever carried `at`.
@@ -902,6 +910,91 @@ test("a link followed while a date is looked up is where the reader lands, not t
   chunk.open();
   await expect(page).toHaveURL(/\/regtest\/block\/[0-9a-f]{64}$/);
   expect(visited.filter((u) => u.includes("at=105"))).toStrictEqual([]);
+});
+
+/**
+ * A date looked up on the address page and a transaction searched in the header, both held, the
+ * answer of the choice made `first` let through first: the page must land where the later choice
+ * leads, whichever answers first.
+ */
+async function dateAndSearch(page: Page, first: "date" | "search") {
+  const address = chain.addresses.p2tr;
+  const tx = chain.txs.payment;
+  const lookup = gate();
+  const probe = gate();
+  const stamp = (url: URL) => url.pathname.startsWith("/regtest/api/v1/mining/blocks/timestamp/");
+  const probing = (url: URL) => url.pathname === `/regtest/api/tx/${tx}/status`;
+  const visited: string[] = [];
+  page.on("framenavigated", (f) => {
+    if (f === page.mainFrame()) visited.push(f.url());
+  });
+  await page.goto(`/regtest/address/${address}`);
+  await expect(stat(page, "Balance")).toBeVisible();
+  await page.route(stamp, async (route) => {
+    await lookup.shut;
+    await route.continue().catch(() => undefined);
+  });
+  await page.route(probing, async (route) => {
+    await probe.shut;
+    await route.continue().catch(() => undefined);
+  });
+  const field = page.getByLabel("Block height or date");
+  const search = page.getByRole("search").getByRole("combobox", { name: "Search" });
+  const date = async () => {
+    if (!(await field.isVisible())) {
+      await page.getByRole("button", { name: "As of a block" }).click();
+    }
+    const asked = page.waitForRequest((r) => stamp(new URL(r.url())));
+    await field.fill("2026-01-01 17:35");
+    await field.press("Enter");
+    await asked;
+  };
+  const find = async () => {
+    const asked = page.waitForRequest((r) => probing(new URL(r.url())));
+    await search.fill(tx);
+    await search.press("Enter");
+    await asked;
+  };
+  // The field opened before either choice, so the order below is the order of the choices.
+  await page.getByRole("button", { name: "As of a block" }).click();
+  await (first === "date" ? date() : find());
+  await (first === "date" ? find() : date());
+  // The older choice's answer comes first, in full, and moves nothing.
+  const older = first === "date" ? lookup : probe;
+  const answered = page.waitForResponse((r) =>
+    (first === "date" ? stamp : probing)(new URL(r.url())),
+  );
+  older.open();
+  await (await answered).finished();
+  // Its control is idle again: the date's button reads Show, the search no longer looks up.
+  const idle =
+    first === "date"
+      ? page.getByRole("button", { name: "Show", exact: true })
+      : page.getByRole("search").getByText("Looking up");
+  await expect(idle).toHaveCount(first === "date" ? 1 : 0);
+  // Then the later one's.
+  (first === "date" ? probe : lookup).open();
+  if (first === "date") {
+    await expect(page).toHaveURL(`/regtest/tx/${tx}`);
+    await expect(page.getByRole("heading", { level: 1, name: "Transaction" })).toBeVisible();
+    expect(visited.filter((u) => u.includes("at="))).toStrictEqual([]);
+  } else {
+    await expect(page).toHaveURL(`/regtest/address/${address}?at=105`);
+    await expect(band(page).getByRole("heading")).toHaveText("As of block 105");
+    expect(visited.filter((u) => u.includes("/tx/"))).toStrictEqual([]);
+  }
+}
+
+test("a search in the header made while a date is looked up wins, even when the date answers first", async ({
+  page,
+}) => {
+  await dateAndSearch(page, "date");
+});
+
+test("a date asked while a header search waits wins, even when the search answers first", async ({
+  page,
+}) => {
+  await dateAndSearch(page, "search");
 });
 
 test("after Back within the same address, the open field still submits", async ({ page }) => {

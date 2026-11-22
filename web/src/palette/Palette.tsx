@@ -6,6 +6,7 @@ import type { JSX } from "@solidjs/web";
 import { ApiError, fetchApi } from "../lib/api";
 import { type AppConfig, loadConfig } from "../lib/config";
 import { formatBtcShort, groupDigits, truncateMiddle } from "../lib/format";
+import { intend } from "../lib/intent";
 import { NETWORK_NAMES, type Network, onNetwork, paths, stripNetwork } from "../lib/network";
 import { useNetwork } from "../lib/page";
 import { scheme, toggleTheme } from "../lib/theme";
@@ -185,9 +186,11 @@ export default function Palette(props: PaletteProps): JSX.Element {
     setLookup({ token: mine, id });
     setNote(undefined);
     lookupAbort = new AbortController();
+    // A later choice made elsewhere meanwhile (an address's date) wins over this lookup.
+    const latest = intend();
     return {
       signal: lookupAbort.signal,
-      live: () => mine === token && !ended(),
+      live: () => mine === token && !ended() && latest(),
       end: () => {
         if (mine === token) setLookup(undefined);
       },

@@ -1,6 +1,7 @@
 import { useBeforeLeave, useNavigate } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, For, onCleanup, onSettled, Show } from "solid-js";
 import { ApiError } from "../lib/api";
+import { intend } from "../lib/intent";
 import { formatBtcShort, groupDigits, truncateMiddle } from "../lib/format";
 import { NETWORK_NAMES, type Network, onNetwork, paths } from "../lib/network";
 import { useNetwork } from "../lib/page";
@@ -184,6 +185,8 @@ export function SearchField(props: SearchFieldProps) {
   const search = async (query: string, scanned = false) => {
     stop();
     const mine = generation;
+    // A later choice made elsewhere meanwhile (an address's date) wins over this answer.
+    const latest = intend();
     const net = network();
     setBusy(true);
     let outcome: Outcome | undefined;
@@ -196,6 +199,7 @@ export function SearchField(props: SearchFieldProps) {
     }
     if (outcome === undefined || mine !== generation) return;
     setBusy(false);
+    if (!latest()) return;
     if (outcome.kind === "go") {
       setText("");
       // The field, or its scan button after a scan: the search lets go of focus for the new page.
