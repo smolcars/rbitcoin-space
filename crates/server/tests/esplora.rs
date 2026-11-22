@@ -736,12 +736,10 @@ async fn heavy_routes_have_a_cost_limit_that_outlives_the_request() {
     }
     settle().await;
     assert_eq!(address_calls(&seen), 4, "only four run at once");
-    // Anyone else is told to retry, at once.
-    let started = std::time::Instant::now();
+    // Anyone else is told to retry: one that waited for a place would have timed out first (504).
     let r = heavy(7, 7).await.unwrap();
     assert_eq!((r.status, r.error().as_str()), (503, "node busy; retry"));
     assert_eq!(r.header("retry-after"), Some("1"));
-    assert!(started.elapsed() < Duration::from_millis(500));
     // Joining a call already running needs no place, and cheap routes are not limited at all
     // (this one reaches the slow node like any read, and times out like one).
     waiting.push(heavy(8, 1));

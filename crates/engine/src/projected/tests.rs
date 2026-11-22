@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use bitcoin::absolute::LockTime;
 use bitcoin::block::{Header, Version};
@@ -792,10 +792,10 @@ async fn a_found_block_is_projected_at_once_and_the_refresh_agrees() {
     let (parent, child, other) = (tx(1), tx(2), tx(3));
     mock.set(&[(&parent, 10), (&child, 5_000), (&other, 1_000)]);
     mock.join(&[&parent, &child], 5_010);
-    // Slow polls, so only the found block can explain a quick update.
+    // Polls an hour apart, so only the found block can explain an update.
     let tracker_config = mempool::Config {
-        gap: Duration::from_secs(30),
-        heartbeat: Duration::from_secs(60),
+        gap: Duration::from_secs(3600),
+        heartbeat: Duration::from_secs(3600),
         ..mempool::Config::default()
     };
     let (tracker, tracker_task) = Tracker::start(mock.clone(), tracker_config);
@@ -810,14 +810,12 @@ async fn a_found_block_is_projected_at_once_and_the_refresh_agrees() {
     let h1 = b1.block_hash();
     mock.set(&[(&child, 5_000), (&other, 1_000)]);
     mock.mine(b1, 1);
-    let at = Instant::now();
     tracker.block_found(ChainTip {
         hash: h1,
         height: 1,
     });
     let alone = u32::try_from(5_000 * 1000 / vsize(&child)).unwrap();
     until(&mut sub, &mut view, |r, _| r.len() == 2).await;
-    assert!(at.elapsed() < Duration::from_secs(5), "{:?}", at.elapsed());
     let early = projector.current();
     assert_eq!(early.tip.map(|t| t.hash), Some(h1));
     assert_eq!(view.0[&child.compute_txid()].rate, alone);

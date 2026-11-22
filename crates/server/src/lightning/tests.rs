@@ -402,24 +402,13 @@ async fn the_shutdown_flush_gives_up_at_its_deadline_behind_a_busy_writer() {
         Ok(())
     });
     let mut p = Pending::default();
-    let started = Instant::now();
-    let flushed = async {
-        flush(
-            &mut rx,
-            &mut p,
-            &t.store,
-            &l,
-            "regtest",
-            started + Duration::from_millis(200),
-        )
-        .await;
-        started.elapsed()
-    };
+    let deadline = Instant::now() + Duration::from_millis(200);
+    let flushed = flush(&mut rx, &mut p, &t.store, &l, "regtest", deadline);
     // The busy write is queued first: polled first.
-    let (done, took) = tokio::join!(busy, flushed);
+    let (done, ()) = tokio::join!(busy, flushed);
     done.unwrap();
-    assert!(took < Duration::from_millis(800), "{took:?}");
-    // It stopped waiting at the deadline, with the records still pending, not stored.
+    // It stopped waiting at the deadline, with the records still pending, not stored: one that
+    // waited for the busy writer would have stored them.
     assert_eq!(p.changes.len(), 4);
     assert_eq!(l.records.load(Ordering::Relaxed), 0);
 }

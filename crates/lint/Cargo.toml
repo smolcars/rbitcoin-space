@@ -1,0 +1,11 @@
+[package]
+name = "lint"
+description = "Checks on the workspace's own source that clippy cannot express, run as tests"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

@@ -202,11 +202,6 @@ async fn once_the_node_refuses_the_totals_for_size_the_history_never_reaches_it(
     ] {
         let r = get(&addr, &path).await;
         assert_eq!((r.status, r.error.as_str()), TOO_LARGE, "{path}");
-        assert!(
-            r.took < Duration::from_millis(200),
-            "{path} took {:?}",
-            r.took
-        );
     }
     assert_eq!(calls(&seen, BIG), 1, "no history request reached the node");
     assert_eq!(calls(&seen, &sh.digest_hex()), 0);
@@ -375,8 +370,17 @@ async fn a_page_waiting_for_a_slot_is_refused_by_a_verdict_learned_meanwhile() {
 
 #[tokio::test]
 async fn a_slow_page_releases_its_client_is_remembered_and_still_holds_its_slot() {
+    use axum::extract::ConnectInfo;
     use rbitcoin_space::esplora::HEAVY_RUNNING;
-    let (addr, seen) = start().await;
+    use rbitcoin_space::limits::Refused;
+    use tower::ServiceExt;
+    let (url, seen) = mock().await;
+    let app = App::new(&config(&url));
+    // The same server without a socket too, where a response's extensions show how it is logged.
+    let router = app.router();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap().to_string();
+    tokio::spawn(app.serve(listener, std::future::pending()));
     // Four slow pages (distinct by `?asof=`) from four clients take every slot.
     let page = |n: usize| format!("/api/address/{SLOW}/txs?asof={n:064x}");
     let waiting: Vec<_> = (0..HEAVY_RUNNING)
@@ -388,18 +392,23 @@ async fn a_slow_page_releases_its_client_is_remembered_and_still_holds_its_slot(
     for w in waiting {
         let r = w.await.unwrap();
         assert_eq!((r.status, r.error.as_str()), (504, "request timed out"));
-        assert!(
-            r.took >= DEADLINE && r.took < NODE_SLOW,
-            "took {:?}",
-            r.took
-        );
+        assert!(r.took >= DEADLINE, "took {:?}", r.took);
     }
     assert_eq!(calls(&seen, "/txs"), HEAVY_RUNNING);
 
-    // The same page again is refused at once, without a node call.
-    let r = get(&addr, &page(0)).await;
-    assert_eq!((r.status, r.error.as_str()), (504, "request timed out"));
-    assert!(r.took < Duration::from_millis(200), "took {:?}", r.took);
+    // The same page again is refused from what was learned, without a node call or a wait for a
+    // slot: one that waited would time out like the four, not be refused.
+    let mut req = axum::http::Request::get(page(0))
+        .body(axum::body::Body::empty())
+        .unwrap();
+    req.extensions_mut()
+        .insert(ConnectInfo(std::net::SocketAddr::from(([127, 0, 0, 1], 9))));
+    let r = router.oneshot(req).await.unwrap();
+    assert_eq!(r.status(), 504);
+    assert_eq!(
+        r.extensions().get::<Refused>().map(|r| r.reason),
+        Some("history_slow")
+    );
     // Another page of the same address is not judged by it, but the node is still busy with the
     // four: it waits for a slot, and reaches the node only once one is free.
     let fifth = {

@@ -1534,6 +1534,8 @@ async fn a_found_block_is_followed_by_the_projection_on_it_and_nothing_older() {
     subscribe_all(&s.ctx, &watcher);
     tokio::time::sleep(Duration::from_millis(50)).await;
     while rx.try_recv().is_ok() {}
+    // On a paused clock a message's delay is the code's, not the machine's.
+    tokio::time::pause();
 
     // The engines see the block before the `blocks` topic has announced it: the mempool topics
     // wait for its message.
@@ -1578,6 +1580,8 @@ async fn in_an_empty_mempool_the_projection_follows_every_block() {
     announce_block(&s);
     let (conn, mut rx) = conn(4096);
     subscribe_all(&s.ctx, &conn);
+    // On a paused clock a message's delay is the code's, not the machine's.
+    tokio::time::pause();
     for _ in 0..4 {
         tokio::time::sleep(Duration::from_millis(100)).await;
         mock.mine(0);

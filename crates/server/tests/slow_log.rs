@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::io::{self, Write};
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use logging::{Format, Level, QUEUE_LINES, Settings};
 use rbitcoin_space::{App, Config, Limits};
@@ -84,7 +84,6 @@ async fn a_stalled_log_never_holds_up_a_request() {
             "GET /app/config HTTP/1.1\r\nHost: t\r\nConnection: {close}\r\n\r\n"
         ));
     }
-    let started = Instant::now();
     let mut stream = TcpStream::connect(&addr).await.unwrap();
     let (mut rd, mut wr) = stream.split();
     let (_, raw) = tokio::time::timeout(Duration::from_secs(30), async {
@@ -96,7 +95,6 @@ async fn a_stalled_log_never_holds_up_a_request() {
     })
     .await
     .expect("requests were held up by the log");
-    let spent = started.elapsed();
     let ok = String::from_utf8_lossy(&raw)
         .matches("HTTP/1.1 200")
         .count();
@@ -125,8 +123,4 @@ async fn a_stalled_log_never_holds_up_a_request() {
         .sum();
     assert!(written <= QUEUE_LINES + 1, "{written}");
     assert_eq!(written as u64 + dropped, count as u64, "written or counted");
-    assert!(
-        spent < Duration::from_secs(20),
-        "{count} requests took {spent:?}"
-    );
 }

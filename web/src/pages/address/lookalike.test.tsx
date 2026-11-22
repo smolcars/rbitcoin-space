@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { Transaction, Vout } from "../../lib/esplora";
 import { lookalikes, OWN_HEAD, PAIR_HEAD, summarize, TAIL } from "./lookalike";
 import { KEPT_WHOLE, Marked } from "../../components/Lookalike";
-import { cost } from "../../lib/cost";
+import { budget } from "../../lib/budget";
 
 const BECH32 = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
 const BASE58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
@@ -264,10 +264,9 @@ describe("a huge history", () => {
           Array.from({ length: 2500 }, () => p2wpkh("", "")),
         ),
       );
-      const { value: found, ms } = cost(() => lookalikes(own, txs));
+      const found = budget(LIMIT_MS, () => lookalikes(own, txs));
       // Random addresses: about 100,000² / 2 / 32^7 = 0.15 chance of a pair agreeing by luck.
       expect(found.size).toBeLessThanOrEqual(2);
-      expect(ms).toBeLessThan(LIMIT_MS);
     },
     TIMEOUT_MS,
   );
@@ -280,10 +279,9 @@ describe("a huge history", () => {
         Array.from({ length: 50_000 }, () => p2tr("dcl", "4uu7")),
       );
       const paid = tx([own], [p2tr("dcl", "4uu7")]);
-      const { value: found, ms } = cost(() => lookalikes(own, [dust, paid]));
+      const found = budget(LIMIT_MS, () => lookalikes(own, [dust, paid]));
       expect(found.get(dust.txid)).toHaveLength(50_000);
       expect(found.get(paid.txid)).toHaveLength(1);
-      expect(ms).toBeLessThan(LIMIT_MS);
     },
     TIMEOUT_MS,
   );

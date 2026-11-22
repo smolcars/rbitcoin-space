@@ -454,11 +454,6 @@ mod tests {
             "{}",
             c.channels.len()
         );
-        assert!(
-            c.longest_hold < Duration::from_millis(100),
-            "{:?}",
-            c.longest_hold
-        );
         let seven = c.channels.iter().find(|x| x.scid == 7 << 40).unwrap();
         assert_eq!(seven.capacity, 100_007);
         assert_eq!(seven.policies[0], None);

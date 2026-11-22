@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cost } from "./cost";
+import { BENCH, budget } from "./budget";
 import type { ScriptType, Transaction, Vin, Vout } from "./esplora";
 import {
   type ChangeReading,
@@ -1027,16 +1027,6 @@ describe("unnecessary input states an inequality, not a proof (R5)", () => {
   });
 });
 
-/** The app's types leave Node out; the speed limits are asked for through the environment. */
-declare const process: { env: Record<string, string | undefined> };
-/**
- * The suite checks what the rules answer for three large shapes. How fast they answer is a time
- * budget, and a time budget runs on request (docs/CI.md "Rules for tests"): on a slow runner one
- * of these took 54 ms of processor time against a 4 ms norm, with nothing wrong in the code.
- * From `web/`: `PRIVACY_BENCH=1 bunx vitest run src/lib/privacy.test.ts`
- */
-const BENCH = process.env["PRIVACY_BENCH"] === "1";
-
 /** 5,000 equal outputs from 5,000 addresses: one group of every output. */
 const allEqual = (): Transaction => join(5_000, 100_000, 5_000);
 /** 5,000 outputs in 1,666 groups of three equal values: the most groups there can be to sort (R6). */
@@ -1067,8 +1057,10 @@ describe("large transactions", () => {
   });
 });
 
-// Well under 50 ms of processor time each on a developer's machine (lib/cost.ts); a quadratic pass
-// would take seconds.
+// How fast the rules answer for the three large shapes is a speed budget (lib/budget.ts): on a slow
+// runner one took 54 ms of processor time against a 4 ms norm, with nothing wrong in the code. Well
+// under 50 ms each on a developer's machine; a quadratic pass would take seconds. On request:
+// `BENCH=1 bunx vitest run src/lib/privacy.test.ts`.
 describe.skipIf(!BENCH)("large transactions, their speed (on request)", () => {
   it.each([
     ["5,000 outputs, all equal", allEqual],
@@ -1076,7 +1068,6 @@ describe.skipIf(!BENCH)("large transactions, their speed (on request)", () => {
     ["5,000 inputs and outputs on one address", oneAddress],
   ])("%s are checked in under 50 ms", (_name, shape) => {
     const t = shape();
-    const { ms } = cost(() => checkPrivacy(t));
-    expect(ms).toBeLessThan(50);
+    expect(budget(50, () => checkPrivacy(t)).findings.length).toBeGreaterThan(0);
   });
 });

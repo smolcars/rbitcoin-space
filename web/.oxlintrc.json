@@ -170,7 +170,27 @@
         "vitest/require-top-level-describe": "off",
         "vitest/no-hooks": "off",
         "vitest/require-hook": "off",
-        "vitest/padding-around-test-blocks": "off"
+        "vitest/padding-around-test-blocks": "off",
+        // A unit test never passes or fails on how fast the machine is (docs/CI.md "Rules for
+        // tests"), so it reads no clock to time a run.
+        "eslint/no-restricted-properties": [
+          "error",
+          {
+            "object": "performance",
+            "property": "now",
+            "message": "A test that times a run passes or fails on how fast the machine is (docs/CI.md \"Rules for tests\"). Step time with vi.useFakeTimers(); hold code to a speed with budget() from lib/budget.ts, which checks it only on a BENCH=1 run."
+          },
+          {
+            "object": "process",
+            "property": "hrtime",
+            "message": "A test that times a run passes or fails on how fast the machine is (docs/CI.md \"Rules for tests\"). Step time with vi.useFakeTimers(); hold code to a speed with budget() from lib/budget.ts, which checks it only on a BENCH=1 run."
+          },
+          {
+            "object": "process",
+            "property": "cpuUsage",
+            "message": "A test that times a run passes or fails on how fast the machine is (docs/CI.md \"Rules for tests\"). Step time with vi.useFakeTimers(); hold code to a speed with budget() from lib/budget.ts, which checks it only on a BENCH=1 run."
+          }
+        ]
       }
     },
     {

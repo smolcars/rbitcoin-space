@@ -1153,7 +1153,6 @@ async fn cards_are_built_two_at_a_time_and_a_node_that_hangs_gets_the_static_pic
     let dir = temp("card-flood");
     let (addr, log) = start(&dir.0).await;
     let picture = std::fs::read(dir.0.join("web").join(PICTURE)).unwrap();
-    let started = std::time::Instant::now();
     let mut set = tokio::task::JoinSet::new();
     for i in 0..20u32 {
         let addr = addr.clone();
@@ -1166,9 +1165,8 @@ async fn cards_are_built_two_at_a_time_and_a_node_that_hangs_gets_the_static_pic
         assert_eq!(r.header("content-type"), Some("image/png"));
         assert_eq!(r.bytes, picture);
     }
-    // Two reached the node and waited their 3 s; the rest had the picture at once.
-    let took = started.elapsed();
-    assert!(took < std::time::Duration::from_secs(5), "{took:?}");
+    // Two reached the node and waited out their 3 s; the rest had the picture without a place to
+    // wait for: one that queued for a slot would have reached the node once the slot was free.
     let asked = log
         .lock()
         .unwrap()

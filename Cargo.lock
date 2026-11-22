@@ -581,6 +581,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "lint"
+version = "0.5.0"
+
+[[package]]
 name = "ln"
 version = "0.5.0"
 dependencies = [

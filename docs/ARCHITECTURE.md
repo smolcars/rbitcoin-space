@@ -32,6 +32,7 @@ rbitcoin.space is a sidecar: one Rust server beside a stock rbitcoin node, a sta
 | `bark` | `crates/bark` | Bark VTXOs: the Bark server's `GetVtxo` call over HTTP/2 and TLS, our own decoder of its wire format, and the exit chain rebuilt and checked ([`ARK.md`](ARK.md)) |
 | `card` | `crates/card` | Link preview cards: a transaction's or block's figures drawn as a PNG from a typed value, with no I/O, clock or node, in the site's font ([`FRONTEND.md`](FRONTEND.md#link-previews)) |
 | `logging` | `crates/logging` | Typed log events, their catalogue and the non-blocking writer ([`LOGGING.md`](LOGGING.md)). Only the server emits; libraries report through values |
+| `lint` | `crates/lint` | Checks on the workspace's own source that clippy cannot express, run as its tests: none of it ships ([`CI.md`](CI.md#rules-for-tests)) |
 
 Dependencies point one way: `server` → `engine` and `ln` → `node`, `server` → `arkade`, `bark` and `card`, and only `server` uses `logging`. A crate may be split when it earns it, not before.
 

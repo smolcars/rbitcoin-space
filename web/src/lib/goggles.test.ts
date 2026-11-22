@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cost } from "./cost";
+import { BENCH, budget } from "./budget";
 import {
   census,
   formatShare,
@@ -137,18 +137,17 @@ describe("census", () => {
     expect(resultLine(census([], NO_PICK))).toBe("0 transactions");
   });
 
-  it("counts a full block in a few milliseconds", () => {
+  // A speed budget (lib/budget.ts), on request: `BENCH=1 bunx vitest run src/lib/goggles.test.ts`.
+  it.skipIf(!BENCH)("counts a full block in a few milliseconds", () => {
     const big = Array.from({ length: 16_000 }, (_, i) => ({
       vsize: 100 + (i % 300),
       flags: (i * 2_654_435_761) % 2 ** 45,
     }));
     const pick = { kinds: [TAPROOT, ACP], mode: "all" } as const;
-    census(big, pick);
-    const { ms } = cost(() => {
-      for (let i = 0; i < 10; i++) census(big, pick);
-    });
-    // Generous for a slow CI runner; about 1 ms on a laptop.
-    expect(ms / 10).toBeLessThan(25);
+    const once = census(big, pick);
+    // Ten counts, about 1 ms each on a laptop.
+    const counts = budget(250, () => Array.from({ length: 10 }, () => census(big, pick)));
+    expect(counts.every((c) => c.count === 16_000 && c.lit?.count === once.lit?.count)).toBe(true);
   });
 });
 

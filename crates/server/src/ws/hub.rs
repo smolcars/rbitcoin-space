@@ -400,9 +400,40 @@ async fn fetch_block(
             if let Some(block) = once().await {
                 return block;
             }
-            let wait = (since.elapsed() / 8).clamp(BLOCK_RETRY, BLOCK_RETRY_MAX);
-            tokio::time::sleep_until(started + wait).await;
+            tokio::time::sleep_until(started + retry_wait(since.elapsed())).await;
         }
     };
     tokio::time::timeout_at(deadline.into(), retry).await.ok()
+}
+
+/// The wait before asking again for a block first asked for `waited` ago, within the retry bounds.
+fn retry_wait(waited: Duration) -> Duration {
+    (waited / 8).clamp(BLOCK_RETRY, BLOCK_RETRY_MAX)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::retry_wait;
+
+    /// docs/WS.md: every 25 ms for the first 200 ms, then an eighth of the time waited, at most a
+    /// second apart.
+    #[test]
+    fn a_late_block_is_asked_for_again_after_an_eighth_of_the_wait() {
+        for (waited, wait) in [
+            (0, 25),
+            (200, 25),
+            (500, 62),
+            (5_000, 625),
+            (8_000, 1_000),
+            (60_000, 1_000),
+        ] {
+            assert_eq!(
+                retry_wait(Duration::from_millis(waited)).as_millis(),
+                wait,
+                "after {waited} ms"
+            );
+        }
+    }
 }

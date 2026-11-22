@@ -1,7 +1,7 @@
 // The parser against hostile input: random bytes, and real proofs cut, flipped, given huge
 // lengths and nested deep. It may only ever throw its own `ProofError`, and never work long.
 import { describe, expect, it } from "vitest";
-import { cost } from "../../lib/cost";
+import { BENCH, budget } from "../../lib/budget";
 import { LIMITS, MAGIC, parseProof, ProofError, walk } from "./ots";
 import { ATT, fixture, varuint } from "./testdata";
 
@@ -80,23 +80,18 @@ function mutate(r: () => number, base: Uint8Array): Uint8Array {
   }
 }
 
-/** The app's types leave Node out; the long form is asked for through the environment. */
-declare const process: { env: Record<string, string | undefined> };
-/**
+/*
  * The suite plays a tenth as many inputs (its own 5,000, not a part of the long form's), and holds
- * only how each one ends. The long form plays 50,000 and holds their processor time too: it is a
- * run of its own, since a time budget is a benchmark and 50,000 inputs take longer than a unit
- * test may on a slow machine (docs/CI.md "Rules for tests"):
- * `FUZZ_LONG=1 bunx vitest run src/pages/timestamp/fuzz.test.ts`
+ * how each one ends. The long form plays 50,000, and every input is held to its speed budget
+ * (lib/budget.ts) only on request, since a speed budget is a benchmark and 50,000 inputs take
+ * longer than a unit test may on a slow machine (docs/CI.md "Rules for tests"):
+ * `BENCH=1 bunx vitest run src/pages/timestamp/fuzz.test.ts`
  */
-const LONG = process.env["FUZZ_LONG"] === "1";
 
-/** Plays random bytes and mutated proofs from one seed: how each input ended, and what it cost. */
+/** Plays random bytes and mutated proofs from one seed: how many inputs ended each way. */
 function fuzz(randomInputs: number, mutatedInputs: number) {
   const r = random(20_261_120);
   const counts: Record<string, number> = {};
-  let slowest = 0;
-  let total = 0;
   for (let i = 0; i < randomInputs + mutatedInputs; i++) {
     let bytes: Uint8Array;
     if (i < randomInputs) {
@@ -106,18 +101,16 @@ function fuzz(randomInputs: number, mutatedInputs: number) {
     } else {
       bytes = mutate(r, SEEDS[i % SEEDS.length] ?? new Uint8Array());
     }
-    // Processor time, not time passed: a busy machine pauses a run without the code working.
-    const { value: outcome, ms } = cost(() => attempt(bytes));
-    slowest = Math.max(slowest, ms);
-    total += ms;
+    // Generous: under 2 ms of processor time each here.
+    const outcome = budget(250, () => attempt(bytes));
     counts[outcome] = (counts[outcome] ?? 0) + 1;
   }
-  return { counts, slowest, total };
+  return counts;
 }
 
 describe("fuzzing the proof reader", () => {
   it("throws only its own errors on random bytes and mutated proofs", () => {
-    const { counts } = fuzz(2_000, 3_000);
+    const counts = fuzz(2_000, 3_000);
     // The generator is seeded, so how the 5,000 inputs end is fixed: the record of this run.
     expect(counts).toStrictEqual({
       "not-proof": 1022,
@@ -133,10 +126,11 @@ describe("fuzzing the proof reader", () => {
     expect(counts["ok"]).toBeGreaterThan(0);
   });
 
-  it.skipIf(!LONG)(
+  it.skipIf(!BENCH)(
     "the long form: 50,000 inputs, each quick",
     () => {
-      const { counts, slowest, total } = fuzz(20_000, 30_000);
+      // About 2 s in all here.
+      const counts = budget(30_000, () => fuzz(20_000, 30_000));
       expect(counts).toStrictEqual({
         "not-proof": 10_105,
         "unknown-op": 22_425,
@@ -146,9 +140,6 @@ describe("fuzzing the proof reader", () => {
         truncated: 6589,
         version: 62,
       });
-      // Generous: under 2 ms of processor time each here, about 2 s in all.
-      expect(slowest).toBeLessThan(250);
-      expect(total).toBeLessThan(30_000);
     },
     120_000,
   );
@@ -176,14 +167,13 @@ describe("fuzzing the proof reader", () => {
     // The most rounds the work bound allows: 4,177,920 bytes, 99.6% of it.
     const most = Math.floor(LIMITS.work / (10 * 4096));
     const stats = { hashed: 0 };
-    const { value, ms } = cost(() => walk(parseProof(proof(most)), undefined, stats).length);
+    // A quarter to a third of a second of processor time on the dev machine.
+    const value = budget(2000, () => walk(parseProof(proof(most)), undefined, stats).length);
     expect({ rounds: most, hashed: stats.hashed, leaves: value }).toStrictEqual({
       rounds: 102,
       hashed: 4_177_920,
       leaves: 10,
     });
-    // A quarter to a third of a second of processor time on the dev machine.
-    expect(ms).toBeLessThan(2000);
     // One round more in every branch is refused by the work bound, partway through.
     let refused: unknown;
     try {
@@ -264,11 +254,10 @@ describe("the work bound, exactly (review round 2, T15)", () => {
     expect(over.hashed).toBe(LIMITS.work);
   });
 
-  it("plays the bound in Keccak-256, the slowest hash, in under 2 s of processor time", () => {
+  it("plays the bound in Keccak-256, the slowest hash, within its budget", () => {
     const stats = { hashed: 0 };
-    const { ms } = cost(() => walk(parseProof(proof(0x67, exact)), undefined, stats));
-    expect(stats.hashed).toBe(LIMITS.work);
     // About 0.3 s on the dev machine (docs/FRONTEND.md "Timestamp proofs").
-    expect(ms).toBeLessThan(2000);
+    budget(2000, () => walk(parseProof(proof(0x67, exact)), undefined, stats));
+    expect(stats.hashed).toBe(LIMITS.work);
   });
 });

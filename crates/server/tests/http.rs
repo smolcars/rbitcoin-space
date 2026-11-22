@@ -9,7 +9,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use axum::Router;
 use axum::body::{Body, Bytes};
@@ -472,13 +472,11 @@ async fn slow_request_times_out() {
         ..limits()
     })
     .await;
-    let t = Instant::now();
     assert_json_error(
         &get_path(&addr, "/api/slow").await,
         504,
         "request timed out",
     );
-    assert!(t.elapsed() < Duration::from_millis(900));
 }
 
 #[tokio::test]
@@ -519,13 +517,11 @@ async fn a_client_that_stops_reading_loses_its_connection() {
     let mut stalled = TcpStream::connect(&addr).await.unwrap();
     let req = "GET /assets/big.bin HTTP/1.1\r\nHost: t\r\n\r\n".repeat(32);
     stalled.write_all(req.as_bytes()).await.unwrap();
-    let t = Instant::now();
     let r = tokio::time::timeout(Duration::from_secs(5), get_path(&addr, "/healthz")).await;
     assert_eq!(
         r.expect("the stalled client kept the only slot").status,
         200
     );
-    assert!(t.elapsed() < Duration::from_secs(3));
     drop(stalled);
 }
 
