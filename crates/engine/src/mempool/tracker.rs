@@ -258,8 +258,6 @@ struct Shared {
     found: std::sync::Mutex<Option<(ChainTip, Instant)>>,
     /// The node's last `getmempoolinfo` answer.
     info: std::sync::Mutex<Option<MempoolInfo>>,
-    /// Kept-output bytes of fetched records not yet published, for tests of the budget.
-    staged: std::sync::atomic::AtomicU64,
 }
 
 /// A handle on a running tracker. Cheap to clone.
@@ -296,7 +294,6 @@ impl Tracker {
             wake: Notify::new(),
             found: std::sync::Mutex::new(None),
             info: std::sync::Mutex::new(None),
-            staged: std::sync::atomic::AtomicU64::new(0),
         });
         let poller = Poller {
             source: Arc::new(source),
@@ -313,14 +310,6 @@ impl Tracker {
             totals: (0, 0),
         };
         (Self { shared }, tokio::spawn(poller.run()))
-    }
-
-    /// Kept-output bytes of records fetched and waiting to be published.
-    #[cfg(test)]
-    pub(crate) fn staged_bytes(&self) -> u64 {
-        self.shared
-            .staged
-            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Runs `f` on the current state and subscribes in the same instant: the first delta
@@ -857,10 +846,6 @@ impl<S: Source> Poller<S> {
                 Err(e) => failed = failed.or(Some(SourceError::Failed(e.to_string()))),
             }
         }
-        let staged: u64 = self.pending.values().map(TxInfo::kept_bytes).sum();
-        self.shared
-            .staged
-            .store(staged, std::sync::atomic::Ordering::Relaxed);
         failed.map_or(Ok((calls, vanished)), Err)
     }
 

@@ -263,6 +263,14 @@ pub async fn closed(store: &Store, limit: usize) -> Result<Vec<Channel>, Error> 
         .await
 }
 
+/// The page of [`penalties`]: `?1` rows from `?2`.
+pub(super) const PENALTIES: &str = concat!(
+    "SELECT ",
+    channel_columns!(),
+    " FROM ln_channels WHERE penalty_txid IS NOT NULL ",
+    "ORDER BY penalty_height DESC, scid DESC LIMIT ?1 OFFSET ?2"
+);
+
 /// Channels whose force close was a breach, newest sweep first: `limit` of them from `offset`, and
 /// how many there are. Through the breached rows' partial index (`0019`), so it reads only them.
 pub async fn penalties(
@@ -276,12 +284,7 @@ pub async fn penalties(
                 .prepare("SELECT count(*) FROM ln_channels WHERE penalty_txid IS NOT NULL")?
                 .query_row([], |r| get(r, 0))?;
             let rows = sql
-                .prepare(concat!(
-                    "SELECT ",
-                    channel_columns!(),
-                    " FROM ln_channels WHERE penalty_txid IS NOT NULL ",
-                    "ORDER BY penalty_height DESC, scid DESC LIMIT ?1 OFFSET ?2"
-                ))?
+                .prepare(PENALTIES)?
                 .query_map(params![int(limit as u64), int(offset as u64)], row)?
                 .collect::<Result<Vec<_>, _>>()?;
             Ok((total, rows))

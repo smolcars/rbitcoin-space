@@ -327,7 +327,7 @@ async fn states(
     let txids: Vec<Txid> = chain.iter().map(|t| t.txid).collect();
     let cell = {
         let mut kept = ark.states.lock().unwrap_or_else(PoisonError::into_inner);
-        match kept.get(&outpoint).filter(|k| fresh(k) && k.txids == txids) {
+        match kept.get(&outpoint).filter(|k| k.serves(tip, now, &txids)) {
             Some(k) => Arc::clone(&k.states),
             None => {
                 let cell = Arc::new(OnceCell::new());
@@ -359,6 +359,11 @@ impl Kept {
     /// Within [`STATES_KEEP`] and on the same tip.
     fn fresh(&self, tip: Option<BlockHash>, now: Instant) -> bool {
         self.tip == tip && now.duration_since(self.at) < STATES_KEEP
+    }
+
+    /// Fresh, and the states of the same chain in the same order.
+    fn serves(&self, tip: Option<BlockHash>, now: Instant, txids: &[Txid]) -> bool {
+        self.fresh(tip, now) && self.txids == txids
     }
 }
 
@@ -437,7 +442,7 @@ mod tests {
             txids: vec![t('a'), t('b')],
             states: Arc::new(OnceCell::new()),
         };
-        let serves = |tip, at, txids: &[Txid]| kept.fresh(tip, at) && kept.txids == txids;
+        let serves = |tip, at, txids: &[Txid]| kept.serves(tip, at, txids);
         assert!(serves(tip, now, &[t('a'), t('b')]));
         // Same length, other order or other transactions: read again.
         assert!(!serves(tip, now, &[t('b'), t('a')]));

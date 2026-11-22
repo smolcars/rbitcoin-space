@@ -865,49 +865,6 @@ mod tests {
     }
 
     #[test]
-    fn without_the_site_address_the_card_is_text_only() {
-        let html = render(Network::Mainnet, &tx(), None);
-        assert!(html.ends_with("<meta name=\"twitter:card\" content=\"summary\" />"));
-        assert!(
-            !html.contains("og:url") && !html.contains("og:image"),
-            "{html}"
-        );
-    }
-
-    #[test]
-    fn with_the_site_address_the_card_has_the_picture_and_the_page_address() {
-        let at = Address {
-            site: "https://rbitcoin.space",
-            path: "/signet/tx/abc",
-            by: None,
-            card: None,
-        };
-        let html = render(Network::Signet, &tx(), Some(&at));
-        for tag in [
-            "<meta property=\"og:url\" content=\"https://rbitcoin.space/signet/tx/abc\" />"
-                .to_owned(),
-            format!("<meta property=\"og:image\" content=\"https://rbitcoin.space{IMAGE}\" />"),
-            "<meta property=\"og:image:type\" content=\"image/png\" />".to_owned(),
-            "<meta property=\"og:image:width\" content=\"1200\" />".to_owned(),
-            "<meta property=\"og:image:height\" content=\"630\" />".to_owned(),
-            format!("<meta property=\"og:image:alt\" content=\"{IMAGE_ALT}\" />"),
-            "<meta name=\"twitter:card\" content=\"summary_large_image\" />".to_owned(),
-            format!("<meta name=\"twitter:image\" content=\"https://rbitcoin.space{IMAGE}\" />"),
-        ] {
-            assert!(html.contains(&tag), "{tag} in {html}");
-        }
-        assert!(!html.contains("content=\"summary\""), "{html}");
-        let at = Address {
-            site: "https://rbitcoin.space",
-            path: "/lightning/rankings",
-            by: Some("age"),
-            card: None,
-        };
-        let html = render(Network::Mainnet, &tx(), Some(&at));
-        assert!(html.contains("content=\"https://rbitcoin.space/lightning/rankings?by=age\""));
-    }
-
-    #[test]
     fn a_hostile_path_is_escaped_in_the_page_address() {
         let at = Address {
             site: "https://rbitcoin.space",
@@ -991,13 +948,5 @@ mod tests {
         let hash = sha256::Hash::hash(&png).to_string();
         let name = IMAGE.trim_start_matches("/assets/preview-");
         assert_eq!(name, format!("{}.png", &hash[..8]), "rename the picture");
-    }
-
-    #[test]
-    fn the_shell_is_split_around_its_title() {
-        let s = Shell::new("<head><title>rbitcoin.space</title></head>".into());
-        assert_eq!(s.title, Some((6, 35)));
-        assert_eq!(Shell::new("<!doctype html>app-shell".into()).title, None);
-        assert_eq!(Shell::new("<title>no end".into()).title, None);
     }
 }

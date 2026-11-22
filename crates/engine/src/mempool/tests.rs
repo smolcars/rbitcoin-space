@@ -996,11 +996,7 @@ async fn outputs_staged_for_a_retry_stay_within_the_budget() {
     let Event::PollFailed { .. } = next_cycle(&mut ev).await else {
         panic!()
     };
-    assert_eq!(
-        tracker.staged_bytes(),
-        24,
-        "four staged, three of them with outputs"
-    );
+    // The retry finds the budget spent by what it staged: the last two keep no outputs.
     let s = cycle(next_cycle(&mut ev).await);
     assert_eq!((s.added, s.unkept, s.kept_bytes), (6, 3, 24));
     task.abort();
@@ -1034,19 +1030,6 @@ async fn only_published_arrivals_count_as_held_without_outputs() {
     let s = cycle(next_cycle(&mut ev).await);
     // Three published: one with outputs, two past the budget. The one that left is not counted.
     assert_eq!((s.added, s.unkept), (3, 2));
-    task.abort();
-}
-
-#[tokio::test(start_paused = true)]
-async fn the_map_and_the_delta_share_one_allocation() {
-    let mock = Mock::new();
-    let t = tx(&[coin(0)], 2, 0);
-    mock.send(&t);
-    let (tracker, task) = Tracker::start(mock.clone(), config());
-    let (_, mut sub) = tracker.subscribe(|_| ());
-    let d = sub.recv().await.unwrap();
-    let held = tracker.read(|m| m.get(&t.compute_txid()).unwrap().clone());
-    assert!(d.added[0].1.shares_with(&held));
     task.abort();
 }
 

@@ -238,13 +238,12 @@ async fn penalties_page_newest_sweep_first_and_a_reorg_takes_one_out() {
         (Some(Kind::Force), None)
     );
     // The list reads through the partial index, not the whole table.
+    // `prepare` takes only static text.
+    let explain: &'static str = format!("EXPLAIN QUERY PLAN {}", db::PENALTIES).leak();
     let plan = s
-        .read(crate::store::Read::Lightning, |sql| {
-            let mut q = sql.prepare(
-                "EXPLAIN QUERY PLAN SELECT scid FROM ln_channels WHERE penalty_txid IS NOT NULL \
-                 ORDER BY penalty_height DESC, scid DESC LIMIT 25",
-            )?;
-            let rows = q.query_map([], |r| r.get::<_, String>(3))?;
+        .read(crate::store::Read::Lightning, move |sql| {
+            let mut q = sql.prepare(explain)?;
+            let rows = q.query_map(crate::store::params![25, 0], |r| r.get::<_, String>(3))?;
             Ok(rows.collect::<Result<Vec<_>, _>>()?.join("; "))
         })
         .await

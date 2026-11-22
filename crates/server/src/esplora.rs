@@ -1817,32 +1817,39 @@ mod tests {
         assert_eq!(cache_control(&Route::TxRaw(t), &[2, 0]), LIVE);
     }
 
-    #[test]
-    fn upstream_errors_map_to_fixed_messages() {
+    #[tokio::test]
+    async fn upstream_errors_map_to_fixed_messages() {
         let r = Route::TipHeight;
         let b = Route::Broadcast(parse_tx(TX.as_bytes()).unwrap());
-        let s = |status: u16, body: &str, route: &Route| {
+        // The status and the `error` text the client receives.
+        let s = async |status: u16, body: &str, route: &Route| {
             let e = Error::from_status(StatusCode::from_u16(status).unwrap(), body.as_bytes());
-            let a = upstream_error(&e, route);
-            (a.status().as_u16(), format!("{a:?}"))
+            let res = upstream_error(&e, route).into_response();
+            let code = res.status().as_u16();
+            let body = axum::body::to_bytes(res.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+            (code, json["error"].as_str().unwrap().to_owned())
         };
-        assert_eq!(s(404, "Not Found", &r).0, 404);
-        let (code, msg) = s(503, "scripthash index disabled (--sh-index)", &r);
+        assert_eq!(s(404, "Not Found", &r).await.0, 404);
+        let (code, msg) = s(503, "scripthash index disabled (--sh-index)", &r).await;
         assert_eq!(code, 503);
         assert!(!msg.contains("--sh-index"), "{msg}");
-        let (code, msg) = s(503, "too many rows; raise --max-sh-creates", &r);
+        let (code, msg) = s(503, "too many rows; raise --max-sh-creates", &r).await;
         assert_eq!(code, 503);
         assert!(!msg.contains("--max"), "{msg}");
-        assert_eq!(s(503, "chain view moved", &r).0, 503);
-        assert_eq!(s(422, "after_txid not found", &r).0, 422);
-        let (code, msg) = s(400, "policy: min relay fee", &b);
-        assert_eq!(code, 400);
-        assert!(msg.contains("\"min relay fee\""), "{msg}");
-        let (_, msg) = s(400, "durable: /var/lib/node/x: disk full", &b);
+        assert_eq!(s(503, "chain view moved", &r).await.0, 503);
+        assert_eq!(s(422, "after_txid not found", &r).await.0, 422);
+        assert_eq!(
+            s(400, "policy: min relay fee", &b).await,
+            (400, "min relay fee".to_owned())
+        );
+        let (_, msg) = s(400, "durable: /var/lib/node/x: disk full", &b).await;
         assert!(!msg.contains("/var"), "{msg}");
-        let (_, msg) = s(400, &format!("duplicate {H}"), &b);
+        let (_, msg) = s(400, &format!("duplicate {H}"), &b).await;
         assert!(msg.contains("already"), "{msg}");
-        assert_eq!(s(500, "panic at src/x.rs", &r).0, 502);
+        assert_eq!(s(500, "panic at src/x.rs", &r).await.0, 502);
     }
 
     fn answer(n: u8) -> Answer {

@@ -327,13 +327,24 @@ async fn responses_are_forwarded_byte_for_byte_with_our_headers() {
         assert_eq!(r.header("x-bitcoin-chain-tip-height"), Some("800001"));
         assert_eq!(r.header("cache-control"), Some(LIVE));
         assert_eq!(r.header("access-control-allow-origin"), Some("*"));
-        assert_eq!(
-            r.header("access-control-expose-headers"),
-            Some(
-                "x-bitcoin-chain-tip, x-bitcoin-chain-tip-height, x-request-id, \
-                 x-data-from-height, x-data-from-time, x-data-complete, x-fee-source"
-            )
-        );
+        // Each header docs/API.md lets a cross-origin caller read is exposed, in any order.
+        let exposed: Vec<String> = r
+            .header("access-control-expose-headers")
+            .unwrap_or_default()
+            .split(',')
+            .map(|h| h.trim().to_ascii_lowercase())
+            .collect();
+        for h in [
+            "x-bitcoin-chain-tip",
+            "x-bitcoin-chain-tip-height",
+            "x-request-id",
+            "x-data-from-height",
+            "x-data-from-time",
+            "x-data-complete",
+            "x-fee-source",
+        ] {
+            assert!(exposed.iter().any(|e| e == h), "{h} not in {exposed:?}");
+        }
         assert!(
             r.header("x-powered-by").is_none(),
             "upstream headers are not copied"

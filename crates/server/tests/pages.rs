@@ -757,6 +757,25 @@ async fn with_the_site_address_every_page_has_the_picture_and_its_own_address() 
 }
 
 #[tokio::test]
+async fn a_shell_without_a_whole_title_is_served_as_built() {
+    for (name, shell) in [
+        ("untitled", "<!doctype html><head></head><body>app</body>"),
+        (
+            "unended",
+            "<!doctype html><head><title>rbitcoin.space</head><body>app</body>",
+        ),
+    ] {
+        let dir = temp(name);
+        std::fs::write(dir.0.join("web/index.html"), shell).unwrap();
+        let (addr, _) = start(&dir.0).await;
+        for path in ["/".to_owned(), format!("/tx/{TXID}")] {
+            let r = get(&addr, &path).await;
+            assert_eq!((r.status, r.body.as_str()), (200, shell), "{name} {path}");
+        }
+    }
+}
+
+#[tokio::test]
 async fn a_block_the_table_holds_is_described_from_it() {
     let dir = temp("table");
     let (addr, _) = start(&dir.0).await;

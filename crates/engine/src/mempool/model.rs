@@ -96,12 +96,6 @@ impl TxInfo {
         u32::try_from(n).unwrap_or(u32::MAX)
     }
 
-    /// Whether `other` holds this record's own allocation rather than a copy of it.
-    #[cfg(test)]
-    pub(crate) fn shares_with(&self, other: &TxInfo) -> bool {
-        Arc::ptr_eq(&self.words, &other.words)
-    }
-
     /// Whether its outputs could have been kept but were not: the tracker's budget was spent.
     /// Reads only the counts, never the outputs.
     pub(crate) fn outputs_unkept(&self) -> bool {
