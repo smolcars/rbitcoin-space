@@ -288,6 +288,19 @@ async fn esplora(node: Arc<Node>, pq: String) -> Response {
         [_, _, "txs", "summary", ..] if node.fail_pages.load(Ordering::SeqCst) => {
             (StatusCode::INTERNAL_SERVER_ERROR, "no").into_response()
         }
+        // A page of a script above the cap reads every create, so the node refuses it too.
+        [_, id, "txs", "summary", ..]
+            if matches!(
+                node.kinds.lock().unwrap().get(*id),
+                Some(Kind::Refused { .. })
+            ) =>
+        {
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "scripthash join exceeds --max-sh-creates (20000 creates, cap 10000)",
+            )
+                .into_response()
+        }
         [_, _, "txs", "summary", ..] | [_, _, "utxo"] => stamped(StatusCode::OK, "[]".into()),
         ["block", h, "status"] => match height_of(h) {
             Some(height) => {
@@ -851,7 +864,8 @@ async fn an_address_above_the_cap_is_added_up_through_the_socket_and_its_list_st
         .filter(|p| p.starts_with(&format!("/internal/scripthash/{sh}?asof=")))
         .collect();
     assert_eq!(asked.len(), 1, "{:?}", s.node.internal_paths());
-    // Electrum still refuses its whole list: the ledger says so, and takes the newest page.
+    // Electrum still refuses its whole list, and the node its page of history: the ledger says
+    // so, and promises nothing from before its seed.
     wait_for("list refused", || async {
         ledger(&s, 1, &a).await["history"] == "refused"
     })
@@ -860,6 +874,11 @@ async fn an_address_above_the_cap_is_added_up_through_the_socket_and_its_list_st
         ledger(&s, 1, &a).await["filling"] == false
     })
     .await;
+    assert_eq!(
+        s.node.pages().len(),
+        1,
+        "the refused page is not asked again"
+    );
     // Its totals are the ledger's now; its history pages are still refused, at once.
     let r = get(&s.addr, 1, &format!("/regtest/api/address/{a}")).await;
     assert_eq!(r.status, 200);

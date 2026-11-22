@@ -33,12 +33,13 @@ pub trait Source: Send + Sync + 'static {
         script: &Script,
         at: BlockHash,
     ) -> impl Future<Output = Result<Result<Totals, Option<ScriptSize>>, SourceError>> + Send;
-    /// The script's newest page of confirmed history as of block `at`, newest first.
+    /// The script's newest page of confirmed history as of block `at`, newest first; or the
+    /// node's refusal for size, as its `--max-sh-creates` refuses a page that reads every create.
     fn page(
         &self,
         script: &Script,
         at: BlockHash,
-    ) -> impl Future<Output = Result<Vec<TxSummary>, SourceError>> + Send;
+    ) -> impl Future<Output = Result<Result<Vec<TxSummary>, Option<ScriptSize>>, SourceError>> + Send;
     /// The script's whole confirmed history as of block `at`, in the node's order (height, then
     /// txid bytes, ascending), sent to `rows` in batches as it arrives; or the node's size refusal.
     /// A closed `rows` stops it with an error.
@@ -158,13 +159,30 @@ impl Source for NodeSource {
         totals_at(self.esplora.raw(&route).await.map_err(esplora_err)?, at)
     }
 
-    async fn page(&self, script: &Script, at: BlockHash) -> Result<Vec<TxSummary>, SourceError> {
-        let s = self
-            .esplora
-            .script_txs_summary(script_ref(script), None, Some(at))
-            .await
-            .map_err(esplora_err)?;
-        pinned(s, at)
+    async fn page(
+        &self,
+        script: &Script,
+        at: BlockHash,
+    ) -> Result<Result<Vec<TxSummary>, Option<ScriptSize>>, SourceError> {
+        let route = Route::ScriptTxsSummary {
+            script: script_ref(script),
+            last_seen: None,
+            asof: Some(at),
+        };
+        let raw = self.esplora.raw(&route).await.map_err(esplora_err)?;
+        if raw.status.as_u16() != 200 {
+            return match esplora::Error::from_status(raw.status, &raw.body) {
+                esplora::Error::TooLarge => Ok(Err(ScriptSize::from_refusal(&raw.body))),
+                e => Err(esplora_err(e)),
+            };
+        }
+        let rows: Vec<TxSummary> = serde_json::from_slice(&raw.body)
+            .map_err(|e| SourceError::Failed(format!("page: {e}")))?;
+        let stamped = esplora::Stamped {
+            value: rows,
+            tip: raw.tip,
+        };
+        Ok(Ok(pinned(stamped, at)?))
     }
 
     async fn history(

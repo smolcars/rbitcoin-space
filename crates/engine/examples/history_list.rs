@@ -66,8 +66,12 @@ impl Source for Counted {
             })
         })
     }
-    async fn page(&self, _: &Script, _: BlockHash) -> Result<Vec<TxSummary>, SourceError> {
-        Ok(Vec::new())
+    async fn page(
+        &self,
+        _: &Script,
+        _: BlockHash,
+    ) -> Result<Result<Vec<TxSummary>, Option<ScriptSize>>, SourceError> {
+        Ok(Ok(Vec::new()))
     }
     async fn history(
         &self,

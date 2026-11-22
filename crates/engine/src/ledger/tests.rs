@@ -120,6 +120,9 @@ struct Fake {
     lists: AtomicUsize,
     fail_lists: AtomicUsize,
     refuse_lists: std::sync::atomic::AtomicBool,
+    /// History pages are refused for size, as `--max-sh-creates` refuses a page that reads every
+    /// create.
+    refuse_pages: std::sync::atomic::AtomicBool,
     short_lists: AtomicUsize,
     during_list: Mutex<Option<Hook>>,
     /// Blocks at or above this height fail to read.
@@ -140,6 +143,7 @@ impl Fake {
             lists: AtomicUsize::new(0),
             fail_lists: AtomicUsize::new(0),
             refuse_lists: std::sync::atomic::AtomicBool::new(false),
+            refuse_pages: std::sync::atomic::AtomicBool::new(false),
             short_lists: AtomicUsize::new(0),
             during_list: Mutex::new(None),
             fail_blocks_from: std::sync::atomic::AtomicU32::new(u32::MAX),
@@ -353,13 +357,20 @@ impl Source for Fake {
         Ok(Ok(t))
     }
 
-    async fn page(&self, script: &Script, at: BlockHash) -> Result<Vec<TxSummary>, SourceError> {
+    async fn page(
+        &self,
+        script: &Script,
+        at: BlockHash,
+    ) -> Result<Result<Vec<TxSummary>, Option<ScriptSize>>, SourceError> {
         self.calls.fetch_add(1, Ordering::SeqCst);
         self.pages.fetch_add(1, Ordering::SeqCst);
         let fail = self.fail_pages.load(Ordering::SeqCst);
         if fail > 0 {
             self.fail_pages.store(fail - 1, Ordering::SeqCst);
             return Err(SourceError::Busy);
+        }
+        if self.refuse_pages.load(Ordering::SeqCst) {
+            return Ok(Err(None));
         }
         let i = (0..SCRIPTS)
             .find(|i| script == self::script(*i).as_script())
@@ -370,7 +381,7 @@ impl Source for Fake {
         // The node lists a block's rows in an order of its own: reversed here.
         let mut rows = self.history(i, height);
         rows.sort_by(|a, b| b.height.cmp(&a.height).then(a.position.cmp(&b.position)));
-        Ok(rows
+        Ok(Ok(rows
             .into_iter()
             .take(25)
             .map(|r| TxSummary {
@@ -380,7 +391,7 @@ impl Source for Fake {
                 time: u64::from(r.time),
                 tx_position: Some(r.position),
             })
-            .collect())
+            .collect()))
     }
 
     async fn history(
@@ -746,7 +757,11 @@ impl Source for SeedDuringBlock {
     ) -> Result<Result<Totals, Option<ScriptSize>>, SourceError> {
         self.fake.totals(script, at).await
     }
-    async fn page(&self, script: &Script, at: BlockHash) -> Result<Vec<TxSummary>, SourceError> {
+    async fn page(
+        &self,
+        script: &Script,
+        at: BlockHash,
+    ) -> Result<Result<Vec<TxSummary>, Option<ScriptSize>>, SourceError> {
         self.fake.page(script, at).await
     }
 
@@ -815,7 +830,11 @@ impl Source for ShortenDuringTotals {
         }
         t
     }
-    async fn page(&self, script: &Script, at: BlockHash) -> Result<Vec<TxSummary>, SourceError> {
+    async fn page(
+        &self,
+        script: &Script,
+        at: BlockHash,
+    ) -> Result<Result<Vec<TxSummary>, Option<ScriptSize>>, SourceError> {
         self.fake.page(script, at).await
     }
 
@@ -1789,6 +1808,54 @@ async fn a_window_cut_then_shortened_by_a_reorg_takes_no_page() {
     check(t.store(), &fake, "cut").await;
 }
 
+/// A page the node refuses for size is an answer: no page will come while its cap holds, so the
+/// script is marked filled, by its seed or by a fill, and the node is not asked again.
+#[tokio::test]
+async fn a_page_refused_for_size_marks_the_script_filled() {
+    let (_, fake) = paid_before(251);
+    fake.refuse_pages.store(true, Ordering::SeqCst);
+    let t = Temp::new();
+    // The seed's own page is refused: tracked, and filled with nothing from before it.
+    seed(t.store(), &fake, &script(0), true, 10, 0)
+        .await
+        .unwrap();
+    let v = view(t.store(), sh(0)).await.unwrap().unwrap();
+    assert!(v.tracked.filled);
+    assert_eq!(before_seed(&v), 0);
+    assert_eq!(pages(&fake), 1);
+    // Kept from an answer, with no page: the fill's refusal marks it filled.
+    answer(t.store(), &fake, 1).await;
+    assert!(
+        !view(t.store(), sh(1))
+            .await
+            .unwrap()
+            .unwrap()
+            .tracked
+            .filled
+    );
+    assert!(matches!(
+        fill(t.store(), &fake, sh(1)).await.unwrap(),
+        Filled::Skipped {
+            reason: "refused",
+            ..
+        }
+    ));
+    assert!(
+        view(t.store(), sh(1))
+            .await
+            .unwrap()
+            .unwrap()
+            .tracked
+            .filled
+    );
+    assert!(unfilled(t.store()).await.unwrap().is_empty());
+    assert_eq!(
+        fill(t.store(), &fake, sh(1)).await.unwrap(),
+        Filled::Nothing
+    );
+    assert_eq!(pages(&fake), 2);
+}
+
 #[tokio::test]
 async fn a_failed_page_is_tried_again_and_then_filled() {
     let (_, fake) = paid_before(241);
@@ -1830,11 +1897,12 @@ async fn a_page_whose_rows_overlap_the_kept_ones_adds_each_row_once() {
     let seed_hash = fake.at(seeded).await.unwrap().unwrap().hash;
     // The node's page at the tip rather than the seed block: rows kept since the seed are in it.
     let tip = fake.at(fake.tip()).await.unwrap().unwrap();
-    let rows = page_rows(fake.page(&script(0), tip.hash).await.unwrap(), tip.height).unwrap();
+    let page = fake.page(&script(0), tip.hash).await.unwrap().unwrap();
+    let rows = page_rows(page, tip.height).unwrap();
     assert!(rows.iter().any(|r| r.height > seeded));
     let f = t
         .store()
-        .write(move |sql| db::fill(sql, sh(0), seeded, Some((seed_hash, &rows))))
+        .write(move |sql| db::fill(sql, sh(0), seeded, Some((seed_hash, Some(&rows)))))
         .await
         .unwrap();
     assert!(matches!(f, Filled::Joined { .. }), "{f:?}");

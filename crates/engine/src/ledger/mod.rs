@@ -434,7 +434,9 @@ pub async fn seed<S: Source>(
     };
     let rows = if page {
         match source.page(script, anchor.hash).await {
-            Ok(rows) => page_rows(rows, anchor.height),
+            Ok(Ok(rows)) => page_rows(rows, anchor.height),
+            // Refused for size: no page will come, so none is waited for.
+            Ok(Err(_)) => Some(Vec::new()),
             Err(_) => None,
         }
     } else {
@@ -632,14 +634,19 @@ pub async fn fill<S: Source>(store: &Store, source: &S, sh: ScriptHash) -> Resul
             at.hash
         }
     };
-    let page = source.page(&s.script, hash).await?;
+    // Refused for size: an answer, not a failure to retry. The address is marked filled.
+    let Ok(page) = source.page(&s.script, hash).await? else {
+        return Ok(store
+            .write(move |sql| db::fill(sql, sh, seeded, Some((hash, None))))
+            .await?);
+    };
     let rows = page_rows(page, seeded).ok_or_else(|| {
         Error::Source(SourceError::Failed(
             "history page not at the block asked".into(),
         ))
     })?;
     Ok(store
-        .write(move |sql| db::fill(sql, sh, seeded, Some((hash, &rows))))
+        .write(move |sql| db::fill(sql, sh, seeded, Some((hash, Some(&rows)))))
         .await?)
 }
 

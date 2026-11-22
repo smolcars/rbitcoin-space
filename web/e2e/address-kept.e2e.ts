@@ -126,6 +126,18 @@ test("a long list shows a page at a time, and says when older ones are still to 
   await expect(page.getByRole("button", { name: /^Show \d+ more$/ })).toHaveCount(0);
 });
 
+test("a kept address whose earlier transactions its node will not list promises none", async ({
+  page,
+}) => {
+  // The node refused the page before the seed for size: the server marked it filled.
+  await stubLarge(page, { ledger: () => ({ ...KEPT, txs: [], filling: false }) });
+  await page.goto(`/regtest/address/${LARGE}`);
+  await expect(
+    page.getByText(/began keeping this address at block 105 and keeps none of its transactions/),
+  ).toBeVisible();
+  await expect(page.getByText(/asks its node once for the transactions before it/)).toHaveCount(0);
+});
+
 test("the unspent view of a kept address asks for nothing the server refuses", async ({ page }) => {
   const asked: string[] = [];
   page.on("request", (r) => {

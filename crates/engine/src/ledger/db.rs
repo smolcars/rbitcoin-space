@@ -670,14 +670,15 @@ pub enum Filled {
 }
 
 /// Joins `page`'s rows, the node's newest page at block `hash` at the script's seed height, below
-/// the rows kept since, and marks the script filled; with no page, marks it filled when it cannot
-/// take one. Decided again here, in the write: the script must still be the one seeded at that
+/// the rows kept since, and marks the script filled; with the node's refusal of that page for size
+/// (`Some((hash, None))`), marks it filled with nothing added; with no page, marks it filled when
+/// it cannot take one. Decided again here, in the write: the script must still be the one seeded at that
 /// block, and its rows since the seed all there.
 pub fn fill(
     sql: &Sql<'_>,
     sh: ScriptHash,
     seeded_height: u32,
-    page: Option<(BlockHash, &[TxRow])>,
+    page: Option<(BlockHash, Option<&[TxRow]>)>,
 ) -> Result<Filled, Error> {
     let Some(s) = to_fill(sql, sh)? else {
         return Ok(Filled::Nothing);
@@ -695,7 +696,12 @@ pub fn fill(
         },
         // It can take a page after all: left for the next fill.
         (None, None) => return Ok(Filled::Nothing),
-        (None, Some((_, rows))) => {
+        (None, Some((_, None))) => Filled::Skipped {
+            height: seeded_height,
+            reason: "refused",
+            tip: s.tip,
+        },
+        (None, Some((_, Some(rows)))) => {
             let before = count_rows(sql, sh)?;
             insert_rows(sql, sh, rows)?;
             Filled::Joined {
