@@ -45,10 +45,14 @@ else
   { node_modules/.bin/playwright install "$engine" && echo "e2e: browser ready at ${SECONDS}s" >&2; } &
 fi
 browser_pid=$!
-bun run build --outDir "$run/dist" --emptyOutDir --logLevel warn
+# The frontend builds while cargo does, off the path to the first test, and without the .br and
+# .gz copies, which no test reads.
+PRECOMPRESS=0 bun run build --outDir "$run/dist" --emptyOutDir --logLevel warn &
+web_pid=$!
 # One build: the seeder shares the server's features, so the engine is compiled once.
 (cd "$root" && cargo build --locked --quiet -p rbitcoin-space -p engine \
   --bin rbitcoin-space --bin history_seed)
+wait "$web_pid"
 echo "e2e: built at ${SECONDS}s" >&2
 bin="${CARGO_TARGET_DIR:-$root/target}/debug/rbitcoin-space"
 case "$bin" in /*) ;; *) bin="$root/$bin" ;; esac

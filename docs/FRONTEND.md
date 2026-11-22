@@ -17,7 +17,7 @@ web/
   public/robots.txt     Allows crawling everywhere (search renderers need /api and /app); asks eight named AI crawlers to skip /api and /app
   scripts/check-size.js First-load budget check (`bun run size`)
   scripts/docs.ts       Vite plugin: fills docs.html once per page, writes the Markdown copies and /llms.txt
-  scripts/precompress.ts Vite plugin: .br and .gz beside each text file a build writes
+  scripts/precompress.ts Vite plugin: .br and .gz beside each text file a build writes (off with PRECOMPRESS=0, as scripts/e2e.sh builds)
   scripts/e2e.sh        Browser tests in one command (`bun run e2e`)
   e2e/                  Browser tests (Playwright) and their fixtures
   src/

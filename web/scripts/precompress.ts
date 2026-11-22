@@ -26,6 +26,8 @@ function compress(path: string): void {
  */
 export function precompress(options: { own?: boolean } = {}): Plugin {
   let outDir = "";
+  // The browser tests serve the build as it is (scripts/e2e.sh): no copies to make.
+  const off = process.env["PRECOMPRESS"] === "0";
   return {
     name: "precompress",
     apply: "build",
@@ -33,11 +35,11 @@ export function precompress(options: { own?: boolean } = {}): Plugin {
       outDir = resolve(config.root, config.build.outDir);
     },
     writeBundle(_, bundle) {
-      if (options.own !== true) return;
+      if (off || options.own !== true) return;
       for (const file of Object.keys(bundle)) if (TEXT.test(file)) compress(join(outDir, file));
     },
     closeBundle() {
-      if (options.own === true) return;
+      if (off || options.own === true) return;
       for (const file of readdirSync(outDir, { recursive: true, encoding: "utf8" })) {
         if (TEXT.test(file)) compress(join(outDir, file));
       }
