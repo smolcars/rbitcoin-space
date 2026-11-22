@@ -14,7 +14,7 @@ async function open(
   networks = ["mainnet", "signet", "testnet4"],
   ark: Record<string, string[]> = {},
 ) {
-  vi.stubGlobal("fetch", async () => Response.json({ networks, version: "0.4.0", ark }));
+  vi.stubGlobal("fetch", async () => Response.json({ networks, version: "0.5.0", ark }));
   const history = memoryHistory(url);
   const Router = createRouter({ routes, history });
   const el = document.createElement("div");

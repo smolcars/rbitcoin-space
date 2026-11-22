@@ -334,7 +334,7 @@ How we differ from the reference backend, measured side by side: progress, heigh
 | Field | Here | The reference's |
 |---|---|---|
 | `hostname` | `null` | Its host's name. Private ([`SECURITY.md`](SECURITY.md) rule 17) |
-| `version` | The server's version (`0.4.0`), as `/healthz` and `/app/config` say it | Its own release |
+| `version` | The server's version (`0.5.0`), as `/healthz` and `/app/config` say it | Its own release |
 | `gitCommit` | The commit the binary was built from, the 40 digits `/healthz` reports as `revision` ([`DEPLOY.md`](DEPLOY.md#health)); `null` for a build without one | 9 digits of its own commit |
 | `lightning` | Whether this network serves the Lightning routes | The same |
 | `backend` | `"esplora"`: transactions and addresses come from the node's Esplora | Its address backend: `esplora`, `electrum` or `none` |

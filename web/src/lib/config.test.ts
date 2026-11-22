@@ -4,10 +4,10 @@ import { parseConfig } from "./config";
 describe("parseConfig", () => {
   it("keeps known networks and the version", () => {
     expect(
-      parseConfig({ networks: ["mainnet", "signet", "liquid", 3], version: "0.4.0" }),
+      parseConfig({ networks: ["mainnet", "signet", "liquid", 3], version: "0.5.0" }),
     ).toStrictEqual({
       networks: ["mainnet", "signet"],
-      version: "0.4.0",
+      version: "0.5.0",
       ark: {},
       lightning: [],
       broadcast: false,

@@ -1797,7 +1797,7 @@ mod tests {
         let n = "signet";
         vec![
             both(&ServerStarting {
-                version: "0.4.0",
+                version: "0.5.0",
                 revision: "2912d6f0c3a1e4b5d6c7e8f9a0b1c2d3e4f5a6b7",
                 listen_addr: "127.0.0.1:0".into(),
                 web_dir: "web/dist".into(),

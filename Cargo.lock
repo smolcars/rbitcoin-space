@@ -16,7 +16,7 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
 name = "arkade"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "bitcoin",
  "bytes",
@@ -94,7 +94,7 @@ dependencies = [
 
 [[package]]
 name = "bark"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "bitcoin",
  "bytes",
@@ -201,7 +201,7 @@ checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
 name = "card"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "ab_glyph_rasterizer",
  "engine",
@@ -233,7 +233,7 @@ checksum = "d9468f1a08c50bd1e5ad91b151e11ce8e806f8fa1c1eb9b07f66c7011de45a2e"
 
 [[package]]
 name = "engine"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "bitcoin",
  "node",
@@ -582,7 +582,7 @@ dependencies = [
 
 [[package]]
 name = "ln"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "lightning",
  "lightning-net-tokio",
@@ -594,7 +594,7 @@ dependencies = [
 
 [[package]]
 name = "load"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "bytes",
  "http-body-util",
@@ -606,7 +606,7 @@ dependencies = [
 
 [[package]]
 name = "logging"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -662,7 +662,7 @@ dependencies = [
 
 [[package]]
 name = "node"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "bitcoin",
  "bytes",
@@ -728,7 +728,7 @@ dependencies = [
 
 [[package]]
 name = "rbitcoin-space"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "arkade",
  "axum",

@@ -16,7 +16,7 @@ One Rust server beside a stock rbitcoin node (v0.9.2), serving a Solid frontend 
 
 rbitcoin already keeps the transaction index, the address index, the cluster mempool and per-transaction fees in one process. So there is no second indexer, no second copy of the mempool and no database server: the explorer talks to the node over Esplora, Electrum and JSON-RPC, keeps the little the node does not store in SQLite, and follows Lightning through a gossip-only LDK peer that holds no funds.
 
-Its latest release is `v0.4.0`. What is planned next is in [`docs/COMPAT.md`](docs/COMPAT.md#what-is-left).
+Its latest release is `v0.5.0`. What is planned next is in [`docs/COMPAT.md`](docs/COMPAT.md#what-is-left).
 
 ## Run it
 

@@ -80,7 +80,7 @@ Esplora is a unix socket, on no network at all; it also carries rbitcoin's bulk 
 1. Get the compose file at the release you run (the newest on the [releases page](https://github.com/smolcars/rbitcoin-space/releases)):
 
    ```sh
-   VERSION=0.4.0
+   VERSION=0.5.0
    git clone --depth 1 --branch "v$VERSION" https://github.com/smolcars/rbitcoin-space.git
    cd rbitcoin-space/deploy
    ```
@@ -147,7 +147,7 @@ The server listens on `127.0.0.1:8080` (`HTTP_PUBLISH` changes it): nothing outs
    docker run -d --name rbitcoin-space --restart unless-stopped --log-driver local \
      --read-only --cap-drop ALL --security-opt no-new-privileges --ulimit nofile=65536 \
      --env-file server.env -e DATA_DIR=/data -v rbitcoin-space-data:/data \
-     -p 127.0.0.1:8080:8080 ghcr.io/smolcars/rbitcoin-space:0.4.0
+     -p 127.0.0.1:8080:8080 ghcr.io/smolcars/rbitcoin-space:0.5.0
    ```
 
 3. Check:
@@ -177,7 +177,7 @@ Add the server to the project that already runs rbitcoin, instead of running a s
    ```yaml
    services:
      server:
-       image: ghcr.io/smolcars/rbitcoin-space:0.4.0
+       image: ghcr.io/smolcars/rbitcoin-space:0.5.0
        read_only: true
        cap_drop: [ALL]
        security_opt: [no-new-privileges:true]
@@ -247,7 +247,7 @@ The same compose file runs a private regtest chain, a safe place to try every st
 1. Get the compose file and write a regtest `.env` and cookie:
 
    ```sh
-   VERSION=0.4.0
+   VERSION=0.5.0
    git clone --depth 1 --branch "v$VERSION" https://github.com/smolcars/rbitcoin-space.git
    cd rbitcoin-space/deploy
    pass=$(openssl rand -hex 32)
@@ -632,13 +632,13 @@ The second prints `101` and then waits until `--max-time`, because the socket st
 
 | Route | Answers | Use it for |
 |---|---|---|
-| `/healthz` | `200` `{"status":"ok","version":"0.4.0","revision":…}` while the process serves HTTP. `revision` is the commit the binary was built from, or `unknown`. Never asks the node | Liveness; it is the image's health check, so `docker compose ps` shows `healthy`. After an upgrade, `revision` must be the new release's commit |
+| `/healthz` | `200` `{"status":"ok","version":"0.5.0","revision":…}` while the process serves HTTP. `revision` is the commit the binary was built from, or `unknown`. Never asks the node | Liveness; it is the image's health check, so `docker compose ps` shows `healthy`. After an upgrade, `revision` must be the new release's commit |
 | `/readyz` | `200` with `"status":"ready"` when every enabled network's node answers RPC with our credentials and its Electrum connection is up, `503` otherwise. Per network: `ready`, `rpc` (`ok`, `auth_failed`, `wrong_network`, `unreachable` with `rpc_error`, or `pending` before the first check), `rpc_checked_secs_ago`, `electrum`, `tip_height`, and `tip_age_secs`, the newest block's age by its timestamp. Four more do not count towards `ready`: `lightning` (`off`, `starting`, `syncing`, `synced` once its pages answer, `failed`, `stopped`); `address_index` (`on`, `off`, `unknown` until the node answers); `store` (`ok`; `waiting` until the node is found on this network's chain; `failing` while SQLite refuses writes; `wrong_chain`; `open_failed`; `off` without `DATA_DIR`); and `store_written_secs_ago` | Readiness, for a load balancer or monitor. A syncing node shows as a growing `tip_age_secs`. Alert on `address_index` `off` and `store` other than `ok` too |
 
 - `/readyz` costs the node nothing per request: it reads the Electrum client's state and the last RPC check, made at startup and every 30 s. The address index is asked when Electrum connects and after every reconnect: one lookup, about 20 ms of the node's time. Neither route is logged when it passes.
 - Lightning, the address index and the store are left out of `ready` on purpose: blocks, transactions and the mempool work without them. Without the index, address pages answer `503`; with the store failing, pages still answer but history (block rows, audits, the mempool chart, replacements) is not recorded. `/app/lightning/status` says when the Lightning pages have data.
 - Both routes answer anyone the proxy lets through, with the version, the commit and the labels above, never a reason: why the RPC failed, SQLite's message, paths and the node's addresses stay in the log ([`SECURITY.md`](SECURITY.md) rule 17). Hide them in the proxy if even that is too much.
-- `revision` comes from the image's build argument `SOURCE_REVISION` (the release workflow passes the commit, the same as the image's `org.opencontainers.image.revision` label), else `git` when building from a checkout, else `unknown`. Uncommitted changes are not marked. Compare: `docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' ghcr.io/smolcars/rbitcoin-space:0.4.0` and `curl -s http://127.0.0.1:8080/healthz`.
+- `revision` comes from the image's build argument `SOURCE_REVISION` (the release workflow passes the commit, the same as the image's `org.opencontainers.image.revision` label), else `git` when building from a checkout, else `unknown`. Uncommitted changes are not marked. Compare: `docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' ghcr.io/smolcars/rbitcoin-space:0.5.0` and `curl -s http://127.0.0.1:8080/healthz`.
 - The compose file adds no health check of its own and restarts on exit, not on health: the usual reason for not being ready is the node, and restarting the server would not help.
 
 ### The data directory
@@ -788,7 +788,7 @@ Not measured: connection tracking (`nf_conntrack_max`; a socket through the prox
 **Tags.** Each release is published once as `ghcr.io/smolcars/rbitcoin-space:X.Y.Z`, never moved, and as `latest`, which moves. Pin `X.Y.Z` in `SERVER_IMAGE`: `latest` would upgrade the store whenever compose pulls. Every image is for linux/amd64 and linux/arm64 and carries a signed record of the commit and workflow that built it:
 
 ```sh
-gh attestation verify oci://ghcr.io/smolcars/rbitcoin-space:0.4.0 --repo smolcars/rbitcoin-space
+gh attestation verify oci://ghcr.io/smolcars/rbitcoin-space:0.5.0 --repo smolcars/rbitcoin-space
 ```
 
 **Migrations are one-way, so back up first.** A new release may add tables to the store; it applies each once at start and logs `store_migration_applied`. An older release refuses a store a newer one migrated.
@@ -796,7 +796,7 @@ gh attestation verify oci://ghcr.io/smolcars/rbitcoin-space:0.4.0 --repo smolcar
 To upgrade, read the release's notes, then, from `deploy/`:
 
 ```sh
-VERSION=0.4.0
+VERSION=0.5.0
 git fetch --depth 1 origin tag "v$VERSION" && git checkout "v$VERSION"
 mkdir -p backup                             # then the backup command in "The data directory"
 sed -i.bak "s|^SERVER_IMAGE=.*|SERVER_IMAGE=ghcr.io/smolcars/rbitcoin-space:$VERSION|" .env && rm .env.bak
@@ -974,8 +974,8 @@ Without the argument it reports `revision` `unknown`, since `.git` is not in the
 Check those claims on any image:
 
 ```sh
-docker image inspect -f '{{.Config.User}}' ghcr.io/smolcars/rbitcoin-space:0.4.0      # 65532:65532
-c=$(docker create ghcr.io/smolcars/rbitcoin-space:0.4.0)
+docker image inspect -f '{{.Config.User}}' ghcr.io/smolcars/rbitcoin-space:0.5.0      # 65532:65532
+c=$(docker create ghcr.io/smolcars/rbitcoin-space:0.5.0)
 docker export "$c" | tar -t | grep -E '^(usr/)?(local/)?s?bin/.'                         # usr/local/bin/rbitcoin-space, alone
 docker rm "$c"
 ```
