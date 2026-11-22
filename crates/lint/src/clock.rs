@@ -517,7 +517,7 @@ impl<'a> Names<'a> {
         names
     }
 
-    /// The `let` that `name` refers to at `at`, and each assignment to it within its block.
+    /// The `let` that `name` refers to at `at`, and each assignment to that `let` before `at`.
     fn visible(&self, name: &[u8], at: usize) -> Vec<&Binding<'a>> {
         let same: Vec<&Binding<'a>> = self
             .by_name
@@ -526,21 +526,21 @@ impl<'a> Names<'a> {
             .flatten()
             .map(|&k| &self.all[k])
             .collect();
-        let Some((decl, scope)) = same
-            .iter()
-            .filter_map(|b| match &b.kind {
-                Kind::Let(scope) if b.at < at && scope.contains(&at) => Some((b.at, scope)),
-                _ => None,
-            })
-            .max_by_key(|&(decl, _)| decl)
-        else {
+        // The declaration in scope at a place: the latest `let` of the name whose block holds it.
+        let declared = |at: usize| {
+            same.iter()
+                .filter(|b| matches!(&b.kind, Kind::Let(scope) if b.at < at && scope.contains(&at)))
+                .map(|b| b.at)
+                .max()
+        };
+        let Some(decl) = declared(at) else {
             return Vec::new();
         };
         same.iter()
             .copied()
             .filter(|b| {
                 b.at == decl
-                    || (matches!(b.kind, Kind::Assign) && b.at > decl && scope.contains(&b.at))
+                    || (matches!(b.kind, Kind::Assign) && b.at < at && declared(b.at) == Some(decl))
             })
             .collect()
     }
@@ -984,6 +984,27 @@ fn shadowed() {
 }
 "#;
         assert_eq!(lines(src), [23]);
+    }
+
+    /// An assignment measures the `let` it writes, and only for what reads it afterwards.
+    #[test]
+    fn an_assignment_measures_its_own_binding_from_there_on() {
+        let src = r#"fn rows() {
+    let count = rows.len();
+    {
+        let mut count = 0;
+        count = start.elapsed().as_millis();
+    }
+    assert!(count < 4);
+}
+fn later() {
+    let mut took = Duration::ZERO;
+    assert!(took < LIMIT);
+    took = started.elapsed();
+    assert!(took < LIMIT);
+}
+"#;
+        assert_eq!(lines(src), [13]);
     }
 
     /// A tokio pause makes a bound exact only for tokio's clock, and only while it lasts.

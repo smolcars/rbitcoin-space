@@ -433,8 +433,10 @@ mod tests {
         let asks = Mutex::new(Vec::new());
         retry(
             || async {
-                asks.lock().unwrap().push(since.elapsed());
-                (since.elapsed() >= Duration::from_secs(12)).then_some(())
+                let mut asks = asks.lock().unwrap();
+                asks.push(since.elapsed());
+                // The count ends a loop that asks again without waiting, which never reaches 12 s.
+                (since.elapsed() >= Duration::from_secs(12) || asks.len() == 200).then_some(())
             },
             since,
         )

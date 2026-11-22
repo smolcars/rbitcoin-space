@@ -204,11 +204,6 @@
             "object": "self",
             "property": "performance",
             "message": "A test that times a run passes or fails on how fast the machine is (docs/CI.md \"Rules for tests\"). Step time with vi.useFakeTimers(); hold code to a speed with budget() from lib/budget.ts, which checks it only on a BENCH=1 run."
-          },
-          {
-            "object": "globalThis",
-            "property": "process",
-            "message": "A test that times a run passes or fails on how fast the machine is (docs/CI.md \"Rules for tests\"). Step time with vi.useFakeTimers(); hold code to a speed with budget() from lib/budget.ts, which checks it only on a BENCH=1 run."
           }
         ]
       }
