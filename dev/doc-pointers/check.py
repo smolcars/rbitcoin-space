@@ -10,6 +10,7 @@ import os
 import re
 import subprocess
 import sys
+from urllib.parse import unquote
 
 # Sources not read: the task list, which no pull request edits (AGENTS.md); shipped migrations,
 # frozen byte for byte by CHECKSUMS (docs/STORE.md "Adding a migration"); and this check's tests,
@@ -17,7 +18,7 @@ import sys
 SKIP = re.compile(r"^(docs/TODO\.md|crates/engine/src/store/migrations/.*|dev/doc-pointers/test_)")
 PUBLIC_DOCS = "web/docs/"
 
-FENCE = re.compile(r"^ {0,3}(```|~~~)")
+FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 ATX = re.compile(r"^ {0,3}(#{1,6})[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$")
 SETEXT = re.compile(r"^ {0,3}(=+|-+)[ \t]*$")
 CODE_SPAN = re.compile(r"(`+)(.+?)\1")
@@ -79,7 +80,8 @@ def outside_code(lines):
         if m:
             if fence is None:
                 fence = m.group(1)
-            elif m.group(1) == fence:
+            # A longer block holds shorter fences as text: only one as long closes it.
+            elif m.group(1).startswith(fence):
                 fence = None
             continue
         if fence is None:
@@ -122,8 +124,13 @@ def anchors(bases, first):
     seen, out = {}, []
     for b in bases:
         n = seen.get(b, first - 1) + 1
+        slug = b if n == first else f"{b}-{n}"
+        # A heading that is itself "a-1" has taken that anchor.
+        while slug in out:
+            n += 1
+            slug = f"{b}-{n}"
         seen[b] = n
-        out.append(b if n == first else f"{b}-{n}")
+        out.append(slug)
     return out
 
 
@@ -196,6 +203,7 @@ def check_links(repo, path, text, report):
             if re.match(r"^[a-z][a-z0-9+.-]*:|^//", href, re.I):
                 continue
             target, _, anchor = href.partition("#")
+            anchor = unquote(anchor)
             if target.startswith("/"):
                 if not (public and (target == "/docs" or target.startswith("/docs/"))):
                     continue
@@ -215,7 +223,8 @@ def check_links(repo, path, text, report):
 
 def check_citations(repo, path, text, report):
     lines = text.split("\n")
-    for i, line in enumerate(lines):
+    read = outside_code(lines) if path.endswith(".md") else enumerate(lines, 1)
+    for i, line in ((n - 1, line) for n, line in read):
         for m in CITED.finditer(line):
             doc = m.group(1)
             if not repo.exists(doc):

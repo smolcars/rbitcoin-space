@@ -51,6 +51,18 @@ class Links(unittest.TestCase):
              "nearest: web/docs/limits.md#retrying"],
         )
 
+    def test_an_example_in_a_fence_is_not_a_pointer(self):
+        md = "````md\n```\n[a](gone.md) docs/GONE.md\n```\nstill docs/GONE.md\n````\n```text\ndocs/GONE.md\n```\n"
+        self.assertEqual(run({"docs/A.md": md}), [])
+
+    def test_anchors_as_github_writes_them(self):
+        target = "# T\n\n## Caf\u00e9\n\n## Rules\n\n## Rules-1\n\n## Rules\n"
+        md = "[a](B.md#caf%C3%A9) [b](B.md#rules) [c](B.md#rules-1) [d](B.md#rules-2) [e](B.md#rules-3)\n"
+        self.assertEqual(
+            run({"docs/A.md": md, "docs/B.md": target}),
+            ["docs/A.md:1: B.md#rules-3 does not exist; nearest: docs/B.md#rules"],
+        )
+
     def test_the_task_list_is_not_read(self):
         self.assertEqual(run({"docs/TODO.md": "[a](GONE.md)\n"}), [])
 
