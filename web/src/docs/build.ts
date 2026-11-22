@@ -19,7 +19,7 @@ const ABOUT = `> Block explorer and free public API for rbitcoin on mainnet, sig
  * path on this site to its full address. Code blocks never hold a link written `](/`.
  */
 export function absoluteLinks(md: string): string {
-  return md.replaceAll(/\]\((\/[^/)\s][^)\s]*|\/)\)/g, (_, path: string) => {
+  return md.replaceAll(/\]\((\/[^/\\)\s][^)\s]*|\/)\)/g, (_, path: string) => {
     const [base = "", frag] = path.split("#", 2);
     const tail = frag === undefined ? "" : `#${frag}`;
     const docs = /^\/docs(\/[a-z0-9/-]+)?$/.exec(base);

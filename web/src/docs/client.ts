@@ -35,12 +35,19 @@ function pageMarkdown(): Promise<string> {
  * command works only inside the click's own task, with the text already at hand.
  */
 let prefetched: string | undefined;
-if (!window.isSecureContext) {
+let prefetching = false;
+function prefetch(): void {
+  if (prefetching || prefetched !== undefined) return;
+  prefetching = true;
   pageMarkdown().then(
-    (text) => (prefetched = text),
-    () => undefined,
+    (text) => {
+      prefetched = text;
+      prefetching = false;
+    },
+    () => (prefetching = false),
   );
 }
+if (!window.isSecureContext) prefetch();
 
 /** Copies the page as Markdown. The text is still on its way: Safari keeps the click's permission
  * for a clipboard item given a promise. */
@@ -48,7 +55,11 @@ async function copyPage(done: string): Promise<void> {
   // Undefined outside a secure context, whatever the types say.
   const clipboard = navigator.clipboard as Clipboard | undefined;
   if (clipboard === undefined || typeof ClipboardItem === "undefined") {
-    say(prefetched !== undefined && copyByCommand(prefetched) ? done : FAILED);
+    if (prefetched === undefined) {
+      // Still on its way, or it failed: ask again, and the next click copies.
+      prefetch();
+      say("Fetching the page. Try again in a moment");
+    } else say(copyByCommand(prefetched) ? done : FAILED);
     return;
   }
   try {
@@ -200,8 +211,9 @@ function pageMenu(): void {
     else if (action === "mcp-claude-code") {
       void copy(`claude mcp add --transport http rbitcoin ${mcpUrl}`, "Command copied");
     } else if (!(target instanceof HTMLAnchorElement)) return;
-    // A link opens in a new tab or another app: the menu is closed when the reader comes back.
-    close(false);
+    // Focus goes back to the menu's button, where the reader left off: a link opens a new tab or
+    // another app, and the menu is closed when the reader comes back.
+    close(true);
   });
 }
 

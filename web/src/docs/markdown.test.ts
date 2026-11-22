@@ -13,6 +13,7 @@ describe("inline", () => {
     expect(inline("[x](data:text/html,hi)")).toBe("x");
     expect(inline("[x](#a)")).toBe('<a href="#a">x</a>');
     expect(inline("[x](//example.org)")).toBe("x");
+    expect(inline("[x](/\\example.org)")).toBe("x");
     expect(inline("[x](https://e.com/a)")).toBe(
       '<a href="https://e.com/a" rel="noopener noreferrer">x</a>',
     );

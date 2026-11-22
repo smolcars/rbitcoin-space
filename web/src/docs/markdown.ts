@@ -48,8 +48,8 @@ export function plain(text: string): string {
 }
 
 function safeHref(href: string): string | undefined {
-  // A path, but not `//host`, which leaves the site.
-  return /^(https?:\/\/|\/(?!\/)|#)/.test(href) ? href : undefined;
+  // A path, but not `//host` or `/\host`, which a browser reads as another site.
+  return /^(https?:\/\/|\/(?![/\\])|#)/.test(href) ? href : undefined;
 }
 
 /** Inline Markdown: code spans, links and bold. Everything else is text. */

@@ -47,14 +47,15 @@ Every error is JSON with one field, and the message is fixed text:
 
 ## Caching
 
-| Answers                                                              | `Cache-Control`                       |
-| -------------------------------------------------------------------- | ------------------------------------- |
-| A block by its hash: `/block/:hash`, its header, raw bytes and txids | `public, max-age=31536000, immutable` |
-| The hex or raw bytes of a transaction without witness data           | `public, max-age=31536000, immutable` |
-| Every other successful read under `/api`                             | `public, max-age=1`                   |
-| Broadcast, and every error                                           | `no-store`                            |
+Every answer says how long it may be kept in `Cache-Control`: read it rather than assume. Most successful reads are `public, max-age=1`, and errors are `no-store`. These are kept longer:
 
-Routes under `/api/v1` set their own, from `max-age=1` for live answers to a day for a settled block: read the header each answer carries.
+| Answers                                                                      | `Cache-Control`                       |
+| ---------------------------------------------------------------------------- | ------------------------------------- |
+| A block by its hash under `/api`: the block, its header, raw bytes and txids | `public, max-age=31536000, immutable` |
+| The hex or raw bytes of a transaction without witness data                   | `public, max-age=31536000, immutable` |
+| Some `/api/v1` answers, such as a settled block or a block's audit           | up to a year                          |
+
+And some are not kept at all (`no-store`), such as a broadcast and some address answers.
 
 ## From a browser
 

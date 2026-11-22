@@ -9,4 +9,6 @@ const vite = (args: string[]): void => {
   if (run.status !== 0) process.exit(run.status ?? 1);
 };
 vite(flags);
-vite(["--config", "vite.docs.config.ts", ...flags.filter((f) => !f.startsWith("--emptyOutDir"))]);
+// Vite reads `--emptyOutDir` and `--empty-out-dir` alike, with or without `=value`.
+const empties = (f: string) => /^--empty-?out-?dir(=|$)/i.test(f);
+vite(["--config", "vite.docs.config.ts", ...flags.filter((f) => !empties(f))]);
