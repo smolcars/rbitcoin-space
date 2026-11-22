@@ -741,7 +741,8 @@ async fn with_the_site_address_every_page_has_the_picture_and_its_own_address() 
                 "{target}"
             ),
         }
-        assert_eq!(r.body.matches("twitter:card").count(), 1, "{target}");
+        let cards = r.body.matches(r#"<meta name="twitter:card""#).count();
+        assert_eq!(cards, 1, "{target}");
         assert_eq!(r.meta("name", "twitter:image"), image, "{target}");
         assert_eq!(r.meta("property", "og:image:type"), "image/png");
         assert_eq!(r.meta("property", "og:image:width"), "1200");
