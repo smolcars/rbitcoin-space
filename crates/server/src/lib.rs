@@ -647,6 +647,14 @@ pub(crate) fn is_api(path: &str) -> bool {
 /// so refusals from the limits (429, 503, 504) are readable cross-origin too. A preflight is
 /// answered by [`limits::limit`] once admitted under its own limits; here it gets its headers.
 async fn cors(req: Request, next: Next) -> Response {
+    // The docs' description of the API, a static file with nothing private in it: an OpenAPI tool
+    // on another site may load it.
+    if req.uri().path() == "/openapi.json" {
+        let mut res = next.run(req).await;
+        res.headers_mut()
+            .insert(ACCESS_CONTROL_ALLOW_ORIGIN, HeaderValue::from_static("*"));
+        return res;
+    }
     if !is_api(req.uri().path()) {
         return next.run(req).await;
     }

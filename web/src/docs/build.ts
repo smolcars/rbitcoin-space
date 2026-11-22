@@ -2,6 +2,7 @@
 // /llms.txt and /llms-full.txt for agents. Pure: the Vite plugin (scripts/docs.ts) reads and writes.
 
 import { escape, render } from "./markdown";
+import { openapi } from "./openapi";
 import { type DocPage, href, mdHref, PAGES, SITE } from "./pages";
 
 /** The files to write, by their path in the build. */
@@ -88,7 +89,7 @@ export function llmsTxt(): string {
     ([group, pages]) =>
       `## ${group}\n\n${pages.map((p) => `- [${p.label}](${SITE}${mdHref(p.slug)}): ${p.summary}`).join("\n")}`,
   );
-  const optional = `## Optional\n\n- [Every page in one file](${SITE}/llms-full.txt)`;
+  const optional = `## Optional\n\n- [Every page in one file](${SITE}/llms-full.txt)\n- [OpenAPI 3.1 description of every HTTP route](${SITE}/openapi.json)`;
   return `# ${NAME}\n\n${ABOUT}\n\n${sections.join("\n\n")}\n\n${optional}\n`;
 }
 
@@ -96,7 +97,11 @@ export function llmsTxt(): string {
  * Every file the docs add to the build. `sources` holds each page's Markdown by its slug; a page
  * without one, or a source with no title, fails the build rather than ship a hole.
  */
-export function build(template: string, sources: ReadonlyMap<string, string>): Files {
+export function build(
+  template: string,
+  sources: ReadonlyMap<string, string>,
+  version = "0.0.0",
+): Files {
   const files: Files = new Map();
   const copies: string[] = [];
   for (const p of PAGES) {
@@ -111,5 +116,6 @@ export function build(template: string, sources: ReadonlyMap<string, string>): F
   }
   files.set("llms.txt", llmsTxt());
   files.set("llms-full.txt", copies.join("\n---\n\n"));
+  files.set("openapi.json", `${JSON.stringify(openapi(sources, version), null, 2)}\n`);
   return files;
 }

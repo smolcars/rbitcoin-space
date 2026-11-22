@@ -18,6 +18,8 @@ COPY web/ ./
 # The app imports its tokens, logo and font from design/, beside web/.
 COPY design/tokens.css design/logo.svg /src/design/
 COPY design/fonts/ /src/design/fonts/
+# The docs' /openapi.json names the server's version, from the workspace's Cargo.toml.
+COPY Cargo.toml /src/Cargo.toml
 RUN bun run build
 
 FROM ${RUST_IMAGE} AS server

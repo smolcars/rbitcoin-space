@@ -249,6 +249,30 @@ The next 25 rows after `:last_seen_txid`. Takes `?asof=`, not `?after_txid=`.
 curl https://rbitcoin.space/api/address/12cbQLTFMXRnSzktFkuoG3eHoMeFtpTu3S/txs/summary/db69b82c2389cb4af3fad1c189bac315b0977741770ee4bbc08d8b1b9791597f
 ```
 
+## Scripthash routes
+
+Each address route above has a scripthash form, with the same answers for the script whose SHA-256 is `:hash` ([Scripthashes](#scripthashes)).
+
+### GET /api/scripthash/:hash/utxo
+
+As `/api/address/:address/utxo`.
+
+### GET /api/scripthash/:hash/txs
+
+As `/api/address/:address/txs`.
+
+### GET /api/scripthash/:hash/txs/chain[/:last_seen_txid]
+
+As `/api/address/:address/txs/chain`, and the page after `:last_seen_txid`.
+
+### GET /api/scripthash/:hash/txs/mempool
+
+As `/api/address/:address/txs/mempool`.
+
+### GET /api/scripthash/:hash/txs/summary[/:last_seen_txid]
+
+As `/api/address/:address/txs/summary`, and the page after `:last_seen_txid`.
+
 ## Paging through a history
 
 1. Ask `/txs/chain` for the newest 25 confirmed transactions.

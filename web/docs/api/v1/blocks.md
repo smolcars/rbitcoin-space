@@ -4,7 +4,7 @@ Blocks with the `extras` mempool.space adds: who mined each one, what it paid, i
 
 Every route here is under the explorer routes' base: `/api/v1` on mainnet, `/signet/api/v1`, `/testnet4/api/v1` and `/testnet5/api/v1` on the others. The shapes match mempool.space's, so a client written for it reads them unchanged.
 
-## GET /api/v1/blocks/:start_height
+## GET /api/v1/blocks[/:start_height]
 
 Up to 15 blocks, from `:start_height` down, newest first. Leave the height off, `GET /api/v1/blocks`, for the newest 15. Each block has the shape of `GET /api/v1/block/:hash` below.
 
@@ -243,7 +243,7 @@ curl https://rbitcoin.space/api/v1/mining/blocks/audit/score/0000000000000000000
 
 Differs from mempool.space: a block without an audit is `404`, where mempool.space answers `200` with the JSON string `"null"`.
 
-## GET /api/v1/mining/blocks/audit/scores/:height
+## GET /api/v1/mining/blocks/audit/scores[/:height]
 
 The scores of the 16 heights ending at `:height`, lowest first. Leave the height off, `GET /api/v1/mining/blocks/audit/scores`, for the 16 ending at the newest block. Heights without an audit are left out, so the array can be shorter than 16.
 

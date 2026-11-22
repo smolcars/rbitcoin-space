@@ -479,21 +479,9 @@ curl https://rbitcoin.space/api/v1/lightning/nodes/isp-ranking
 
 The three capacities are sats and add up to the whole network. `ispRanking`, capacity per hosting provider, is always `[]`: this server has no provider database.
 
-## GET /api/v1/lightning/channels-geo
-
-`[]`, and so is `/api/v1/lightning/channels-geo/:key`: this server has no location data. mempool.space answers the same for a node with no known place. A `:key` that is not 66 hex digits is still `400`, and the `503`s below apply as on every route here.
-
-```sh
-curl https://rbitcoin.space/api/v1/lightning/channels-geo
-```
-
-```json
-[]
-```
-
 ## Not served
 
-These mempool.space routes are `404` here: `/nodes/countries`, `/nodes/country/:code`, `/nodes/isp/:asn` and `/nodes/world`, which need location data; `/penalties`; and `/nodes/group/:name`, which is mempool.space's own curation.
+These mempool.space routes are `404` here: `/nodes/countries`, `/nodes/country/:code`, `/nodes/isp/:asn` and `/nodes/world`, which need location data; `/penalties`; and `/nodes/group/:name`, which is mempool.space's own curation. `/channels-geo` and `/channels-geo/:key` answer `[]` for every node, as mempool.space does for a node with no known place: this server has no location data. A `:key` that is not 66 hex digits is still `400`, and the `503`s below apply.
 
 ## Errors
 

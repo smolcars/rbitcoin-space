@@ -179,7 +179,7 @@ Cut to the first two of 315:
 
 `avgHashrate` is the pool's share of the week's blocks times the network's hashrate that week.
 
-## GET /api/v1/mining/pool/:slug/blocks/:height
+## GET /api/v1/mining/pool/:slug/blocks[/:height]
 
 Up to 100 of the pool's blocks strictly below `:height`, newest first. Leave the height off, `GET /api/v1/mining/pool/:slug/blocks`, to start at the tip. To page back, pass the height of the last block you got.
 
@@ -221,7 +221,7 @@ The `extras` fields mean what they mean on [a block](/docs/api/v1/blocks); `coin
 
 Differs from mempool.space: a block here has only the fields shown. The header fields (`version`, `bits`, `nonce`, `merkle_root`, `previousblockhash`, `mediantime`) and the per-transaction totals are absent. Use `GET /api/v1/block/:hash` for a whole block.
 
-## GET /api/v1/mining/hashrate/:interval
+## GET /api/v1/mining/hashrate[/:interval]
 
 The network's hashrate and every difficulty adjustment in the period, and the current hashrate and difficulty. Leave the interval off, `GET /api/v1/mining/hashrate`, for `all`.
 
@@ -265,7 +265,7 @@ With `hashrates` cut to the first two of 31:
 
 The hashrate is the work of the blocks over the time they took, the estimate the node's `getnetworkhashps` makes. Its daily points use a 7-day window because a single day's count of blocks varies by about 8% from luck alone.
 
-## GET /api/v1/mining/hashrate/pools/:interval
+## GET /api/v1/mining/hashrate/pools[/:interval]
 
 Each pool's hashrate and share, a point a week: every pool with a block that week, most blocks first. Leave the interval off for `all`.
 
@@ -298,7 +298,7 @@ Cut to the first three of 15:
 ]
 ```
 
-## GET /api/v1/mining/difficulty-adjustments/:interval
+## GET /api/v1/mining/difficulty-adjustments[/:interval]
 
 Past difficulty adjustments as `[time, height, difficulty, adjustment]`, newest first. `adjustment` is the new difficulty over the old, five decimals: `0.90873` is a 9.1% drop. Leave the interval off for `all`.
 
