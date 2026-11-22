@@ -67,6 +67,7 @@ Each folder under [`dev/models/`](../dev/models) holds one model: a TLA+ spec of
 |---|---|---|
 | [`flights`](../dev/models/flights/README.md) | Identical requests sharing one call: a node call (`Flights` in `crates/server/src/esplora.rs`), a kept answer's computation (`Answers` in `answers.rs`) and a card's build (`Cards` in `cards.rs`) | A call nobody holds never stays in the map; requests for one key never wait on two calls at once |
 | [`batch-ends`](../dev/models/batch-ends/README.md) | A Lightning peer's end markers for our batches of channel queries (`PeerRange` in `crates/ln/src/gossip.rs`) | A marker ends only the batch it answers |
+| [`fee-hold`](../dev/models/fee-hold/README.md) | A `fees` message waiting for its block's announcement (`run` and `serve` in `crates/server/src/ws/fees.rs`) | A message never goes out ahead of its block, never waits longer than the hold, and the hold's deadline ends the hold |
 
 How to read a failure, change a model with its code, or add one: the `verify-models` skill ([`.claude/skills/verify-models/SKILL.md`](../.claude/skills/verify-models/SKILL.md)).
 

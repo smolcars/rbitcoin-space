@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 TLC_VERSION = "1.7.4"
@@ -51,8 +52,13 @@ def java() -> str:
     return found
 
 
-def broken_rule(folder: Path, model: dict, constants: dict, tmp: Path) -> str | None:
+def broken_rule(folder: Path, model: dict, constants: dict) -> str | None:
     """Runs TLC with `constants`; the rule it found broken, or None when every rule holds."""
+    with tempfile.TemporaryDirectory() as tmp:
+        return tlc(folder, model, constants, Path(tmp))
+
+
+def tlc(folder: Path, model: dict, constants: dict, tmp: Path) -> str | None:
     cfg = tmp / "run.cfg"
     lines = [f"    {k} = {v}" for k, v in {**model["constants"], **constants}.items()]
     cfg.write_text(
@@ -91,19 +97,20 @@ def check(folder: Path, pin: bool) -> list[str]:
     path = folder / "model.json"
     model = json.loads(path.read_text())
     faults = []
-    with tempfile.TemporaryDirectory() as tmp:
-        for today in model["today"]:
-            broke = broken_rule(folder, model, today, Path(tmp))
-            if broke:
-                faults.append(f"{model['spec']}: today's design breaks {broke} with {today}")
-        for mistake in model["mistakes"]:
-            broke = broken_rule(folder, model, mistake["constants"], Path(tmp))
-            if broke != mistake["breaks"]:
-                faults.append(
-                    f"{model['spec']}: the mistake \"{mistake['was']}\" must break "
-                    f"{mistake['breaks']} and broke {broke or 'nothing'}: the model no longer "
-                    f"catches it"
-                )
+    # One checker per processor: each run is a JVM of its own, and a job's time is the sum otherwise.
+    runs = model["today"] + [m["constants"] for m in model["mistakes"]]
+    with ThreadPoolExecutor(os.cpu_count()) as pool:
+        broke = list(pool.map(lambda constants: broken_rule(folder, model, constants), runs))
+    for today, rule in zip(model["today"], broke):
+        if rule:
+            faults.append(f"{model['spec']}: today's design breaks {rule} with {today}")
+    for mistake, rule in zip(model["mistakes"], broke[len(model["today"]) :]):
+        if rule != mistake["breaks"]:
+            faults.append(
+                f"{model['spec']}: the mistake \"{mistake['was']}\" must break "
+                f"{mistake['breaks']} and broke {rule or 'nothing'}: the model no longer "
+                f"catches it"
+            )
     for cover in model["covers"]:
         now = hashlib.sha256(region(cover).encode()).hexdigest()
         if pin and not faults:

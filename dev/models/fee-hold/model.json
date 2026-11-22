@@ -1,0 +1,69 @@
+{
+  "spec": "FeeHold.tla",
+  "constants": {
+    "Hold": "3",
+    "Interval": "5",
+    "MaxTime": "12",
+    "Tips": "2"
+  },
+  "rules": [
+    "TypeOK",
+    "NeverAheadOfItsBlock",
+    "OutByTheDeadline",
+    "ADeadlineEndsTheHold"
+  ],
+  "today": [
+    {
+      "Variant": "\"fixed\""
+    },
+    {
+      "Variant": "\"fixed\"",
+      "Interval": "2"
+    }
+  ],
+  "mistakes": [
+    {
+      "was": "before #67: fees went out on a block the blocks topic had not announced",
+      "constants": {
+        "Variant": "\"nohold\""
+      },
+      "breaks": "NeverAheadOfItsBlock"
+    },
+    {
+      "was": "#67 before its review: a held message waited for the tick, past the hold's end",
+      "constants": {
+        "Variant": "\"norelease\""
+      },
+      "breaks": "OutByTheDeadline"
+    },
+    {
+      "was": "#67 before its review, with a tick shorter than the hold",
+      "constants": {
+        "Variant": "\"norelease\"",
+        "Interval": "2"
+      },
+      "breaks": "OutByTheDeadline"
+    },
+    {
+      "was": "before #76: the hold's deadline only reset the tick and stayed due",
+      "constants": {
+        "Variant": "\"resetonly\""
+      },
+      "breaks": "ADeadlineEndsTheHold"
+    }
+  ],
+  "covers": [
+    {
+      "file": "crates/server/src/ws/fees.rs",
+      "from": "^    loop \\{",
+      "to": "^                let now = SystemTime::now\\(\\);",
+      "sha256": "0e9b8c1e7e312f88d880b3873069138741ac65d0736224a1029e541851da668d"
+    },
+    {
+      "file": "crates/server/src/ws/fees.rs",
+      "from": "^fn serve\\(",
+      "to": "^/// Each projected block's totals",
+      "sha256": "b03c94efa0f26d5ee18796eca8fdfb6a91061368c2e6ee5b6145231ce57c2b49"
+    }
+  ]
+}
