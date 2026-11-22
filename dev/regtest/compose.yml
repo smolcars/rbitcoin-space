@@ -4,7 +4,8 @@ name: ${REGTEST_PROJECT:?run dev/regtest/regtest.py, or set REGTEST_PROJECT}
 
 services:
   node:
-    # Multi-arch (linux/amd64, linux/arm64) release image, pinned by digest.
+    # Multi-arch (linux/amd64, linux/arm64) nightly image, the build the explorer requires, pinned
+    # by digest.
     image: ${REGTEST_IMAGE:-ghcr.io/rbitcoin-org/rbitcoin:nightly-20261122@sha256:1a7208ea757c7b2b605f5cfda7a0b483f75fba9bd54de9639e955859c5d34d7a}
     command:
       - --network=regtest

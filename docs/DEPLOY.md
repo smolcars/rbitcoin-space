@@ -662,15 +662,17 @@ Deleting it costs the backfill's time and loses the audits, the mempool chart's 
 ```sh
 mkdir -p backup
 docker run --rm -v rbitcoin-space_server-data:/data -v "$PWD/backup":/backup alpine:3 \
-  sh -c 'apk add --no-cache sqlite >/dev/null && sqlite3 -readonly /data/mainnet.sqlite ".backup /backup/mainnet.sqlite"'
+  sh -c 'apk add --no-cache sqlite >/dev/null && for f in /data/*.sqlite; do sqlite3 -readonly "$f" ".backup /backup/${f##*/}"; done'
 ```
+
+Every network the server serves has its file; the loop backs up each.
 
 **Restore** with the server stopped, removing the old `-wal` and `-shm`:
 
 ```sh
 docker compose stop server
 docker run --rm -v rbitcoin-space_server-data:/data -v "$PWD/backup":/backup:ro alpine:3 \
-  sh -c 'rm -f /data/mainnet.sqlite-wal /data/mainnet.sqlite-shm && cp /backup/mainnet.sqlite /data/ && chown 65532:65532 /data/mainnet.sqlite'
+  sh -c 'for f in /backup/*.sqlite; do n=/data/${f##*/}; rm -f "$n-wal" "$n-shm" && cp "$f" "$n" && chown 65532:65532 "$n"; done'
 docker compose start server
 ```
 
@@ -814,24 +816,29 @@ docker compose logs --no-log-prefix server | grep store_migration_applied
 VERSION=0.1.0                               # the release you go back to
 docker compose stop server
 docker run --rm -v rbitcoin-space_server-data:/data -v "$PWD/backup":/backup:ro alpine:3 \
-  sh -c 'rm -f /data/mainnet.sqlite-wal /data/mainnet.sqlite-shm && cp /backup/mainnet.sqlite /data/ && chown 65532:65532 /data/mainnet.sqlite'
+  sh -c 'for f in /backup/*.sqlite; do n=/data/${f##*/}; rm -f "$n-wal" "$n-shm" && cp "$f" "$n" && chown 65532:65532 "$n"; done'
 git fetch --depth 1 origin tag "v$VERSION" && git checkout "v$VERSION"
 sed -i.bak "s|^SERVER_IMAGE=.*|SERVER_IMAGE=ghcr.io/smolcars/rbitcoin-space:$VERSION|" .env && rm .env.bak
 docker compose up -d
 ```
 
-What was observed between the backup and the rollback is lost. Without a backup, delete `mainnet.sqlite`: the old release starts empty and backfills. Without a migration, only the image changes.
+What was observed between the backup and the rollback is lost. Without a backup, delete each network's `.sqlite` file: the old release starts empty and backfills. Going back to 0.5.0 from a later release also needs nodes it agrees with ([below](#upgrading-from-050)). Without a migration, only the image changes.
 
 #### Upgrading from 0.5.0
 
-Explorer 0.5.0 ran beside rbitcoin v0.9.2 or a nightly before `nightly-20261122`, and asked Esplora for scripthashes byte-reversed; this release asks in digest order, which only `nightly-20261122` and later read ([`RBITCOIN.md`](RBITCOIN.md#scripthash-order)). An explorer and a node that disagree get `200` with empty totals and histories for every script asked by hash, and the explorer **writes some of that into its store**: an address above the node's `--max-sh-creates` that a reader opens is added up from those empty totals, and its newest transactions are taken from an empty page and marked done. The ledger then serves that address with wrong totals (the empty seed plus the blocks after it) and without its newest transactions, until the address is dropped, and its whole history is refused as not matching its totals. Answers in memory right themselves on a restart; these do not. So the explorer must not run while it and the node disagree, in either direction:
+Explorer 0.5.0 asks Esplora for scripthashes byte-reversed, as rbitcoin v0.9.2 and the nightlies before `nightly-20261122` read them. The releases after it ask in digest order, which only `nightly-20261122` and later read ([`RBITCOIN.md`](RBITCOIN.md#scripthash-order)). An explorer and a node that disagree get `200` with empty totals and empty histories for every script asked by hash, and the explorer **writes some of that into its store**, in its ledger of large addresses ([`API.md`](API.md#very-large-addresses)):
 
-1. Back up the store ([the data directory](#the-data-directory)).
+- **With nobody visiting:** every kept address still waiting for its page of transactions from before its seed asks it, gets an empty page, and is marked filled for good, so it never lists them.
+- **When a reader opens a large address:** one refused for size, or answered with more than 10,000 funded outputs under a raised cap, is added up and kept. A seed that asks the node for its totals by hash (one refused for size) is kept with empty totals, and shows them plus the blocks after it for as long as it is kept; its whole history is then refused as not matching them. One adopted from the address's own totals keeps the right totals, but its page is empty and marked filled as above.
+
+Discovery checks sizes by hash, sees every script as small and keeps nothing; the answers held in memory right themselves on a restart. The store does not. So the explorer must not run while it and any of its nodes disagree, in either direction: neither 0.5.0 against an upgraded node, nor a later release against an old one. Run the commands from `deploy/`, naming the service in each: a bare `docker compose up -d` starts every service, the stopped explorer too.
+
+1. Back up every network's store ([the data directory](#the-data-directory)).
 2. Stop the explorer: `docker compose stop server`.
-3. Upgrade the node: set `RBITCOIN_IMAGE` (or take this release's compose file), and start it. Its first start rewrites its store from schema 28 (or 27) to 30, one way: an older node will not open it afterwards, and going back means a re-sync. Wait until it is synced and its Esplora answers.
-4. Then upgrade and start the explorer, as [above](#upgrading).
+3. Upgrade the node to `nightly-20261122` or later and start it alone. With the compose file, check out the release after 0.5.0 (`git fetch --depth 1 origin tag "v$VERSION" && git checkout "v$VERSION"`), keep `RBITCOIN_IMAGE` unset in `.env` (or set it to such a build), check that `docker compose config --images` lists `ghcr.io/rbitcoin-org/rbitcoin:nightly-20261122@sha256:1a7208ea757c7b2b605f5cfda7a0b483f75fba9bd54de9639e955859c5d34d7a` or a later build, then run `docker compose up -d node`. A node [on another host](#the-node-on-another-host) or [in another compose project](#the-node-in-another-compose-project) is upgraded where it runs. Its first start moves its store from schema 28 (or 27) to 30, one way: an older node will not open it afterwards. Wait until it is synced and `docker compose logs node` shows its Esplora listening.
+4. With every network's node upgraded, set `SERVER_IMAGE` to the release after 0.5.0 (or later, never 0.5.0; or a [`master` image](#images-of-master) from the same commit on) and start it alone: `docker compose up -d server`. Check `curl -s http://127.0.0.1:8080/healthz`: a release's `version` is above `0.5.0`; a `master` image keeps `0.5.0` until that release, so check its `revision` instead, which is the commit its image was built from and must be the one whose compose file pins `nightly-20261122`.
 
-With several networks, every node the explorer uses comes before step 4. If the explorer did run against a node of the other kind, restore the backup from step 1 with the explorer stopped.
+**Going back to 0.5.0** needs a node that reads reversed scripthashes on every network, and a node store already at schema 30 cannot be opened by one: that means re-syncing each node from an empty directory on the older build, which takes hours to days. Keep the explorer stopped until every network has a node that matches it, then [roll back](#upgrading) with the backup from step 1. If either explorer ran against a node it disagrees with, restore that backup too, with the explorer stopped.
 
 #### Images of `master`
 

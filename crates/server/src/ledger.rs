@@ -1284,7 +1284,7 @@ impl crate::ws::track::AddressGate for Guard {
         sh: node::electrum::ScriptHash,
     ) -> Pin<Box<dyn Future<Output = crate::ws::track::Decision> + Send + '_>> {
         use crate::ws::track::Decision;
-        let sh = ScriptHash::from_byte_array(sh.0);
+        let sh = ScriptHash::from_electrum(sh);
         Box::pin(async move {
             if let Some(ledger) = &self.ledger
                 && ledger.is_tracked(sh)

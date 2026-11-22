@@ -187,7 +187,7 @@ The routes are in [`FRONTEND.md`](FRONTEND.md#block-summaries). Each request is 
 | Event | Level | Fields | When |
 |---|---|---|---|
 | `block_summary_computed` | debug | `network`, `height`, `txs`, `block_bytes`, `bytes`, `node_ms`, `duration_ms`, `cause`, `source` | A summary was computed: the block's transactions and size, the records kept, the node calls' time (the listing and the raw block, read in parallel) and the whole time including the wait for a slot. `cause` is `request` or `new_block`; `source` is what listed the transactions, `summary_route` or `getblock` ([`RBITCOIN.md`](RBITCOIN.md#listing-a-blocks-transactions)). Debug, since a busy server computes a few a second |
-| `block_txs_fell_back` | warn | `network`, `reason`, `total` | The route failed for a block, which `getblock` listed instead; the next block tries the route again. `reason` is the latest: `refused` (the node refused the route), `not_found` (the route does not list it, as for a block off the best chain), `unavailable`, `too_big`, `malformed` or `mismatch` (its row count or coinbase disagreed with the block's header). At a total of 1, 2, 4, 8… per network |
+| `block_txs_fell_back` | warn | `network`, `reason`, `total` | The route failed for a block, which is then listed through `getblock` (whose own failure is the summary's); the next block tries the route again. `reason` is the latest: `refused` (the node refused the route), `not_found` (the route does not list it, as for a block off the best chain), `unavailable`, `too_big`, `malformed` or `mismatch` (its row count or coinbase disagreed with the block's header). At a total of 1, 2, 4, 8… per network |
 | `block_summary_failed` | warn | `network`, `error`, `failures` | The node gave no usable answer (`busy`, `timeout`, `unavailable`, `response_too_big`, `decode`). At the 1st, 2nd, 4th, 8th… failure in a row. An unknown block is not a failure |
 | `block_summaries_recovered` | info | `network`, `failures` | A summary was computed after `failures` in a row |
 | `block_summaries_refused` | warn | `network`, `reason`, `total` | Requests for uncached blocks were refused: `summary_busy` (the network's queue was full) or `route_rate` (one client over its share). At a total of 1, 2, 4, 8… per reason and network |
@@ -261,7 +261,7 @@ The store is in [`STORE.md`](STORE.md); the block table's settings in [`CONFIG.m
 
 ### Very large addresses
 
-The ledger and its guard are in [`API.md`](API.md#very-large-addresses) and [`STORE.md`](STORE.md#ledger). Refusals by the guard are counted in `requests_refused` (reasons `history_too_large` and `lane_busy`), never written one by one.
+The ledger and its guard are in [`API.md`](API.md#very-large-addresses) and [`STORE.md`](STORE.md#ledger). Refusals by the guard are counted in `requests_refused` (reasons `history_too_large` and `lane_busy`), never written one by one. Every `scripthash` below is Electrum's form, the SHA-256 byte-reversed; `/api/scripthash/` takes the digest, the same bytes in the other order ([`RBITCOIN.md`](RBITCOIN.md#scripthash-order)).
 
 | Event | Level | Fields | When |
 |---|---|---|---|
