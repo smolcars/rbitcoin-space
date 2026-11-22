@@ -965,10 +965,29 @@ describe("TransactionPage", () => {
       expect(document.activeElement).toBe(heading);
     });
     open.click();
-    await vi.waitFor(() => {
-      expect(el.querySelector("#tx-inspector")).toBeNull();
-      expect(document.activeElement).toBe(open);
-    });
+    // At once, not a frame later: a wait here would pass the old code too.
+    expect(document.activeElement).toBe(open);
+    await vi.waitFor(() => expect(el.querySelector("#tx-inspector")).toBeNull());
+  });
+
+  it("Close gives the focus back at once, before anything else can take the opener's place", async () => {
+    serve(payment(confirmed), [{ spent: false }, { spent: false }]);
+    const el = page(`/tx/${TXID}`);
+    const buttons = () =>
+      el.querySelectorAll<HTMLButtonElement>(".tx-flow__col--out .tx-flow__open");
+    await vi.waitFor(() => expect(buttons()).toHaveLength(2));
+    const open = buttons()[1];
+    if (!open) throw new Error("no details button for output 1");
+    open.click();
+    await vi.waitFor(() =>
+      expect(document.activeElement).toBe(el.querySelector("#tx-inspector-title")),
+    );
+    const close = el.querySelector<HTMLButtonElement>("#tx-inspector button");
+    if (close?.textContent?.trim() !== "Close") throw new Error("no Close button");
+    close.click();
+    // No frame, no wait: closed, and the focus on the button that opened them.
+    expect(el.querySelector("#tx-inspector")).toBeNull();
+    expect(document.activeElement).toBe(open);
   });
 
   it("compares a confirmed replacement opened fresh, however long ago it confirmed", async () => {

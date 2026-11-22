@@ -1,4 +1,4 @@
-import { createMemo, createSignal, For, Match, Show, Switch } from "solid-js";
+import { createMemo, createSignal, flush, For, Match, Show, Switch } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { Amount } from "../../components/Amount";
 import { Hash } from "../../components/Hash";
@@ -92,11 +92,14 @@ export function Inspector(props: {
   const title = () =>
     `${props.selected.side === "in" ? "Input" : "Output"} ${props.selected.index}`;
   // Closed, they give the focus back to what opened them (flash.ts `returnFocus`), so a keyboard
-  // reader carries on from where they were.
+  // reader carries on from where they were. At once, so a later opener is never taken: flushed
+  // first, because wide, the rail's privacy list (where a number may have opened them) is hidden
+  // while they are open, and a hidden link cannot take the focus.
   const close = () => {
     const { side, index } = props.selected;
     props.onClose();
-    requestAnimationFrame(() => returnFocus(side, index));
+    flush();
+    returnFocus(side, index);
   };
   return (
     <section class="tx-inspector" id="tx-inspector" aria-labelledby="tx-inspector-title">
