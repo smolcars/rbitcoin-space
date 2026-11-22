@@ -21,7 +21,7 @@
   /* Three columns on a wide screen: the pages, the page, its contents. */
   .docs {
     display: grid;
-    grid-template-columns: 14rem minmax(0, 1fr) 14rem;
+    grid-template-columns: 14rem minmax(0, 1fr) minmax(0, 14rem);
     grid-template-areas: "nav main rail";
     gap: var(--space-6);
     padding-block: var(--space-6) var(--space-8);
@@ -83,6 +83,12 @@
   .docs-toc a {
     color: var(--color-text-muted);
     text-decoration: none;
+    /* A route's path is one long word: it breaks at any character rather than widen the column. */
+    overflow-wrap: anywhere;
+  }
+  .docs-toc .route {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
   }
   .for-agents {
     display: grid;
@@ -400,8 +406,9 @@
   .table tr:last-child td {
     border-bottom: 0;
   }
-  .table td code {
-    white-space: nowrap;
+  /* Code in a cell wraps (a hash, a long path) so the words beside it keep their room. */
+  .table td {
+    min-width: 5rem;
   }
   .table .right {
     text-align: right;

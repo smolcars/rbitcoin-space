@@ -51,14 +51,12 @@ curl https://rbitcoin.space/signet/api/tx/8bfc5a82630f9fea0808f9a83a07f0a394e497
 
 ## Which part to use
 
-| You want                                                                                                             | Use                                                                               |
-| -------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| What any Esplora wallet or library already reads: blocks, transactions, addresses, the mempool, broadcast            | REST at `/api`. Same routes, status codes and bodies as rbitcoin's Esplora server |
-| Fee recommendations, blocks with their miner and fees, mining pools, hashrate, block audits, replacements, Lightning | Explorer routes at `/api/v1`                                                      |
-| New blocks, mempool changes and an address's activity as they happen                                                 | The WebSocket at `/api/v1/ws`                                                     |
-| A chat bot or a coding agent that looks things up                                                                    | The MCP server at `/mcp`. See [Use with an agent](/docs/agents)                   |
-
-The full list of routes, and every way they differ from rbitcoin's own server, is in [API.md](https://github.com/smolcars/rbitcoin-space/blob/master/docs/API.md) while these pages grow.
+| You want                                                                                                                                                                                                                                     | Use                                                                               |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| What any Esplora wallet or library already reads: [blocks](/docs/api/blocks), [transactions](/docs/api/transactions), [addresses](/docs/api/addresses), the [mempool](/docs/api/mempool), [broadcast](/docs/api/broadcast)                   | REST at `/api`. Same routes, status codes and bodies as rbitcoin's Esplora server |
+| [Fee recommendations](/docs/api/v1/fees), [blocks with their miner and fees](/docs/api/v1/blocks), [mining pools and hashrate](/docs/api/v1/mining), [replacements and CPFP](/docs/api/v1/transactions), [Lightning](/docs/api/v1/lightning) | Explorer routes at `/api/v1`, shaped like mempool.space's                         |
+| New blocks, mempool changes and an address's activity as they happen                                                                                                                                                                         | The [WebSocket](/docs/websocket) at `/api/v1/ws`                                  |
+| A chat bot or a coding agent that looks things up                                                                                                                                                                                            | The MCP server at `/mcp`. See [Use with an agent](/docs/agents)                   |
 
 ## Conventions
 

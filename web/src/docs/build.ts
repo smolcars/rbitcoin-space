@@ -54,7 +54,13 @@ function sideMenu(current: string): string {
 function contents(headings: { depth: number; text: string; id: string }[]): string {
   const top = headings.filter((h) => h.depth === 2);
   if (top.length === 0) return "";
-  const items = top.map((h) => `<li><a href="#${h.id}">${escape(h.text)}</a></li>`).join("");
+  // A route's heading is listed in the monospace, as the page draws it.
+  const items = top
+    .map((h) => {
+      const cls = /^(GET|POST|HEAD|PUT|DELETE|WS) \//.test(h.text) ? ' class="route"' : "";
+      return `<li><a href="#${h.id}"${cls}>${escape(h.text)}</a></li>`;
+    })
+    .join("");
   return `<nav class="docs-toc" aria-label="On this page"><h2>On this page</h2><ul>${items}</ul></nav>`;
 }
 
