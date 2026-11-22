@@ -72,6 +72,18 @@
       "from": "^/// One request's hold on a card being built",
       "to": "^fn png_response",
       "sha256": "2a319b109425b1c380a47d283fcf0dc0b091319837ce4ed0670bf1c8d418afcb"
+    },
+    {
+      "file": "crates/server/src/answers.rs",
+      "from": "^    pub async fn serve<F>\\(",
+      "to": "^    /// The flight for `key` at its version",
+      "sha256": "71a0027106031c71c5ffcb90078703184573025f3752c05518bb360e9464944e"
+    },
+    {
+      "file": "crates/server/src/cards.rs",
+      "from": "^    async fn serve<F>\\(",
+      "to": "^    fn building\\(",
+      "sha256": "6d141c806ba32cf07570d7334baa9930d7434f3182d2e3eadc84a7a4ca5a07d0"
     }
   ]
 }

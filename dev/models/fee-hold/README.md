@@ -48,6 +48,7 @@ Each is the model with one step written as it once was, and the check fails unle
 ## What it does not cover
 
 - **The three other holds.** The projected feed (`projected_feed` in `ws/mempool.rs`) and the two `/api/v1/ws` publishers (`mempool_blocks` and `drawings` in `ws/v1.rs`) each hold their messages for a block in code of their own. They differ from this one: `serve` and `mempool_blocks` start a new hold for each message, while `projected_feed` and `drawings` hold once per disagreement and then let every message through until the block is announced.
+- **A loop that runs late.** In the model the clock stops while a branch of the `select!` is ready. The real task can be busy with a batch of arrivals, or not scheduled, when the deadline comes, so a message can wait a little past `HOLD` by the wall clock. `OutByTheDeadline` says the loop never chooses to wait longer; when the late pass does run, `serve` sees the hold has ended and publishes.
 - **That a message goes out at all.** The model checks what may never happen. A loop that stopped is the server's shutdown.
 - **What the answer says**, the fallback to the node's estimates (which is on no block, so never held) and the route's stored answer.
 - **Lagged streams.** A lagged projection stream resubscribes and resets the tick, which the model reads as `SeeProjected`.

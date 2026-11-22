@@ -56,8 +56,8 @@
     {
       "file": "crates/server/src/ws/fees.rs",
       "from": "^    loop \\{",
-      "to": "^                let now = SystemTime::now\\(\\);",
-      "sha256": "0e9b8c1e7e312f88d880b3873069138741ac65d0736224a1029e541851da668d"
+      "to": "^\\}",
+      "sha256": "5dd0c84bbf7bbfc1e75ceaec29b02792c20e6f50868a626e50b2a01d05923ed8"
     },
     {
       "file": "crates/server/src/ws/fees.rs",

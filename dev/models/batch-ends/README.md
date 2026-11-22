@@ -34,6 +34,7 @@ In the code, `a_late_end_marker_does_not_end_the_next_batch` (`crates/ln/src/tes
 ## What it does not cover
 
 - **A peer that breaks the protocol.** The model's peer answers every batch once, in order. One that skips a marker has its later markers counted as late ones, so its batches end by timeout; one that sends a marker unasked ends its own batch early. Both cost only that peer its own strikes. That is reasoning, not something this model checks.
+- **Steps the code takes together.** When a next batch is already queued, the code asks it under the same lock as the timeout or the marker that freed the peer. The model lets a marker arrive between the two, so it checks more orders than the code can take, never fewer.
 - **A reconnect.** `peer_disconnected` drops the peer's whole `PeerRange`, and markers do not cross connections.
 - **What `judge` decides** once a batch has ended, and the other peers.
 - **Whether the code is the model**: see the `verify-models` skill.

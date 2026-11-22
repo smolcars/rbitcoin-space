@@ -145,7 +145,7 @@ TypeOK ==
 \* The map never keeps a call nobody holds, except a hot path's last answer:
 \* its size is bounded by the requests in flight plus the fixed set of hot paths.
 NothingLeftBehind ==
-    (entry # None /\ ~hot) => Joined(entry) # {}
+    (entry # None /\ ~hot) => Handles(entry) > 1
 
 \* Requests for one key never wait on two calls at once (docs/SECURITY.md
 \* rule 8: concurrent identical requests share one upstream call).
