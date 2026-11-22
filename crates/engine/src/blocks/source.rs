@@ -12,6 +12,8 @@ use super::stats::{self, Facts};
 use super::{Error, Row, SourceError};
 use crate::mempool::{esplora_err, rpc_err};
 
+const BLOCK_PRUNED: &str = "Block not available (pruned data)";
+
 /// A block as Esplora's `/blocks` lists it: identity, time, size and difficulty.
 pub type Header = node::esplora::model::Block;
 
@@ -91,6 +93,11 @@ impl Source for NodeSource {
         }
         let hashes: Vec<BlockHash> = headers.iter().map(|h| h.id).collect();
         let totals = self.rpc.block_totals(&hashes).await.map_err(rpc_err)?;
+        let totals = headers
+            .iter()
+            .zip(totals)
+            .map(|(header, stats)| stats.map_err(|e| body_error(e, header.height, BLOCK_PRUNED)))
+            .collect::<Result<Vec<_>, _>>()?;
         let mut txids = Vec::with_capacity(headers.len());
         for h in headers {
             txids.push(
@@ -104,7 +111,6 @@ impl Source for NodeSource {
         let txs = self.rpc.raw_transactions(&txids).await.map_err(rpc_err)?;
         let mut rows = Vec::with_capacity(headers.len());
         for (((header, totals), txid), tx) in headers.iter().zip(totals).zip(txids).zip(txs) {
-            let totals = totals.map_err(rpc_err)?;
             let tx = match tx {
                 Ok(tx) => tx,
                 Err(_) if header.height == 0 => self.genesis_coinbase(header.id).await?,
@@ -129,7 +135,7 @@ impl Source for NodeSource {
             Ok(b) if b.hash == hash => Ok(Some(stats::facts(&b))),
             Ok(_) => Err(SourceError::Failed("a different block than asked".into()).into()),
             Err(rpc::Error::Rpc { code: -5, .. }) => Ok(None),
-            Err(e) => Err(body_error(e, height, "Block not available (pruned data)")),
+            Err(e) => Err(body_error(e, height, BLOCK_PRUNED)),
         }
     }
 

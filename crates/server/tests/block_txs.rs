@@ -25,7 +25,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use bitcoin::BlockHash;
 use engine::blocks::listing::Via;
-use engine::blocks::{Lister, NodeSource, Source, stats};
+use engine::blocks::{Error, Header, Lister, NodeSource, Source, stats};
 use logging::{Format, Level, Settings};
 use node::esplora::Esplora;
 use node::rpc::Rpc;
@@ -182,6 +182,55 @@ async fn mock(node: &Arc<Node>) -> SocketAddr {
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move { axum::serve(listener, app).await });
     addr
+}
+
+#[tokio::test]
+async fn block_totals_surface_the_height_of_a_pruned_batch_item() {
+    let app = axum::Router::new()
+        .route(
+            "/",
+            post(|Json(batch): Json<Vec<Value>>| async move {
+                let mut reply = Vec::new();
+                for req in batch {
+                    let id = &req["id"];
+                    let answer = match req["method"].as_str().unwrap() {
+                        "getblockstats" if req["params"][0] == hash(1) => json!({
+                            "id": id,
+                            "error": {"code": -8, "message": "Block not available (pruned data)"}
+                        }),
+                        "getblockstats" => json!({
+                            "id": id,
+                            "result": {"totalfee": 0, "subsidy": 312_500_000, "total_weight": 0}
+                        }),
+                        "getrawtransaction" => json!({
+                            "id": id, "result": bitcoin::consensus::encode::serialize_hex(&transactions()[0])
+                        }),
+                        method => panic!("unexpected RPC method {method}"),
+                    };
+                    reply.push(answer);
+                }
+                reply.reverse();
+                Json(reply)
+            }),
+        )
+        .route("/block/{hash}/txid/0", get(|| async { COINBASE }));
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await });
+    let source = NodeSource {
+        rpc: Rpc::new("127.0.0.1", addr.port(), "u", "p").unwrap(),
+        esplora: Esplora::new(&format!("http://{addr}")).unwrap(),
+        lister: Arc::new(Lister::default()),
+    };
+    let newer: Header =
+        serde_json::from_slice(&fixture("esplora/testnet4/block-160394.json")).unwrap();
+    let older = Header {
+        id: hash(1).parse().unwrap(),
+        height: newer.height - 1,
+        ..newer.clone()
+    };
+    let result = source.rows(&[newer, older]).await;
+    assert!(matches!(result, Err(Error::Pruned(160_393))), "{result:?}");
 }
 
 /// The app with `net` pointed at the mock, and the Electrum listener it connects to.
