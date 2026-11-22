@@ -57,8 +57,8 @@ const outputs = (page: Page) => page.getByRole("list", { name: "Outputs" });
 const balance = (page: Page) => page.getByRole("button", { name: /^Copy the exact balance/ });
 const playExit = (page: Page) => page.getByRole("button", { name: "Play exit" });
 
-/** The rule sweeps that walk `PAGES`. */
-export type Sweep = "fonts" | "targets" | "a11y" | "largeText";
+/** The rule sweeps that walk `PAGES`; `walk` is the keyboard walk, which a phone's run leaves out. */
+export type Sweep = "fonts" | "targets" | "a11y" | "walk" | "largeText";
 
 export interface SweptPage {
   /** Unique: a fragment the page never reads tells two states of one path apart. */
@@ -225,13 +225,17 @@ export const PAGES: SweptPage[] = [
       },
       targets: {
         "the brand is under 44 px wide": /^\d+ px: a\.brand "rbitcoin\.space" is \d+ × \d+ px/,
-        "Copy page and its menu are under 44 px tall": /^\d+ px: button\.split__\w+ "[^"]*" is /,
-        "each code block's Copy is under 44 px tall": /^\d+ px: button\.code__copy "Copy" is /,
+        "Copy page and its menu are under 44 px tall":
+          /^\d+ px: button\.split__\w+ "[^"]*" is \d+ × \d+ px/,
+        "each code block's Copy is under 44 px tall":
+          /^\d+ px: button\.code__copy "Copy" is \d+ × \d+ px/,
         "the table's links lie under their cell": /^\d+ px: a "[^"]*" is (under td |.* by td )/,
       },
       a11y: {
         "a code block that scrolls cannot take focus":
           /^axe-core, light: scrollable-region-focusable at \.code-block/,
+      },
+      walk: {
         'the skip link reads "Skip to the page"': /^the first stop is a "Skip to the page"/,
       },
     },

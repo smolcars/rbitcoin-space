@@ -263,8 +263,12 @@ async function largeText(page: Page, browserName: string): Promise<string[]> {
       : []),
   ];
   const cdp = chromium ? await page.context().newCDPSession(page) : undefined;
-  // The walk leaves focus on the skip link, which shows while focused.
-  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  // The walk leaves focus on the skip link, which shows while focused. Every disclosure is opened
+  // here, before the first size settles: what one holds can mount a moment after it opens.
+  await page.evaluate(() => {
+    (document.activeElement as HTMLElement | null)?.blur();
+    for (const d of document.querySelectorAll("details")) d.open = true;
+  });
   const found: string[] = [];
   for (const size of sizes) {
     const at = `${size.width} px at ${size.text} px text`;
@@ -319,9 +323,11 @@ test.describe("every page", () => {
       found.push(...(await axe(page, ["color-contrast"])).map((f) => `contrast, dark: ${f}`));
       await page.emulateMedia({ colorScheme: "light" });
       // A keyboard is a desktop's; a phone's run checks the rest.
-      if ((page.viewportSize()?.width ?? 0) > 640) found.push(...(await walk(page, browserName)));
+      const desktop = (page.viewportSize()?.width ?? 0) > 640;
+      const walked = desktop ? await walk(page, browserName) : undefined;
       found.push(...(await moved(page)).map((m) => `moves under reduced motion: ${m}`));
       expectFaults(found, swept, "a11y");
+      if (walked) expectFaults(walked, swept, "walk");
       // Last: it opens every disclosure and changes the window and the text size.
       expectFaults(await largeText(page, browserName), swept, "largeText");
     });
