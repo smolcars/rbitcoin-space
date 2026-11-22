@@ -82,7 +82,8 @@ jobs:
               - .github/job-limit.sh
             image:
               - *web
-              - Cargo.toml
+              # Any manifest: a dependency by path is one more folder the image's build reads.
+              - "**/Cargo.toml"
               - rust-toolchain.toml
               - Dockerfile
               - .dockerignore

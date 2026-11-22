@@ -16,14 +16,33 @@ REPO = Path(__file__).resolve().parent.parent
 
 
 def members() -> list[str]:
-    """Each workspace member's folder, globs expanded."""
-    listed = tomllib.loads((REPO / "Cargo.toml").read_text())["workspace"]["members"]
-    found = []
-    for pattern in listed:
-        found += sorted(
-            p.parent.relative_to(REPO).as_posix() for p in REPO.glob(f"{pattern}/Cargo.toml")
-        )
-    return found
+    """Each folder cargo reads a manifest from: the workspace's members, globs expanded, and
+    every package one of them depends on by path."""
+    workspace = tomllib.loads((REPO / "Cargo.toml").read_text())["workspace"]
+    shared = workspace.get("dependencies", {})
+    todo = [
+        p.parent
+        for pattern in workspace["members"]
+        for p in sorted(REPO.glob(f"{pattern}/Cargo.toml"))
+    ]
+    found: list[Path] = []
+    while todo:
+        folder = todo.pop(0)
+        if folder in found:
+            continue
+        found.append(folder)
+        manifest = tomllib.loads((folder / "Cargo.toml").read_text())
+        tables = [manifest, *manifest.get("target", {}).values()]
+        for table in tables:
+            for kind in ("dependencies", "dev-dependencies", "build-dependencies"):
+                for name, dep in table.get(kind, {}).items():
+                    if not isinstance(dep, dict):
+                        continue
+                    if "path" in dep:
+                        todo.append((folder / dep["path"]).resolve())
+                    elif dep.get("workspace") and "path" in shared.get(name, {}):
+                        todo.append((REPO / shared[name]["path"]).resolve())
+    return [f.relative_to(REPO).as_posix() for f in found]
 
 
 def under(path: str, folders: list[str]) -> bool:
@@ -33,6 +52,7 @@ def under(path: str, folders: list[str]) -> bool:
 def main() -> None:
     dockerfile = (REPO / "Dockerfile").read_text()
     server = dockerfile.split(" AS server\n", 1)[1].split("\nFROM ", 1)[0]
+    server = "\n".join(l for l in server.splitlines() if not l.lstrip().startswith("#"))
     copied = [m.rstrip("/") for m in re.findall(r"^COPY (?!--from)(\S+) \S+$", server, re.M)]
     touched = re.search(r"find (.+?) -exec touch", server)
     touched = touched.group(1).split() if touched else []
