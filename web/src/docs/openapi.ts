@@ -185,7 +185,9 @@ export function openapi(sources: ReadonlyMap<string, string>, version: string): 
         const op = r.method.toLowerCase();
         const entry = paths[path] ?? {};
         paths[path] = entry;
-        if (entry[op] !== undefined) continue;
+        if (entry[op] !== undefined) {
+          throw new Error(`docs: ${r.method} ${path} has two headings; give it one`);
+        }
         // A path parameter the optional part left out is not this variant's.
         const parameters = r.params
           .filter((p) => p.in === "query" || path.includes(`{${p.name}}`))

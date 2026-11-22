@@ -41,7 +41,9 @@ function served(): Set<string> {
       const cells = line.split("|").map((c) => c.trim());
       if (cells[4] !== "served") continue;
       for (const route of (cells[1] ?? "").matchAll(/`(GET|POST) (\/[^`?\s]*)/g)) {
-        for (const path of expand(route[2] ?? "")) out.add(key(route[1] ?? "", `/api${path}`));
+        // `/v1/historical-price[?currency=]`: the path stops where its query begins.
+        const path = (route[2] ?? "").replace(/\[$/, "");
+        for (const p of expand(path)) out.add(key(route[1] ?? "", `/api${p}`));
       }
     }
   }

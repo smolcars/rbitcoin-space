@@ -651,7 +651,8 @@ async fn cors(req: Request, next: Next) -> Response {
     // on another site may load it.
     if req.uri().path() == "/openapi.json" {
         let mut res = next.run(req).await;
-        if res.status().is_success() {
+        // A revalidation's 304 too: `no-cache` makes a browser ask again on every load.
+        if res.status().is_success() || res.status() == axum::http::StatusCode::NOT_MODIFIED {
             res.headers_mut()
                 .insert(ACCESS_CONTROL_ALLOW_ORIGIN, HeaderValue::from_static("*"));
         }

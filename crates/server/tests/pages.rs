@@ -1266,6 +1266,16 @@ async fn the_docs_answer_in_html_or_in_markdown_for_a_client_that_asks() {
     assert_eq!(r.status, 200);
     assert_eq!(r.header("content-type"), Some("application/json"));
     assert_eq!(r.header("access-control-allow-origin"), Some("*"));
+    // Asked again, as a browser does with `no-cache`: the 304 is readable from another site too.
+    let etag = r.header("etag").unwrap().to_owned();
+    let r = get_with(
+        &addr,
+        "/openapi.json",
+        &format!("if-none-match: {etag}\r\n"),
+    )
+    .await;
+    assert_eq!(r.status, 304);
+    assert_eq!(r.header("access-control-allow-origin"), Some("*"));
 
     // Where MCP is off, the docs' script hides its actions.
     let r = get(&addr, "/app/config").await;

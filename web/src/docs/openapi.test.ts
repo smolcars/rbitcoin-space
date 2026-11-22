@@ -133,6 +133,11 @@ describe("the document", () => {
       "# T\n## GET /api/tx/:txid\n\nOne.\n## GET /api/tx/:id\n\nTwo.\n",
     );
     expect(() => openapi(twice, "1")).toThrow(/one route/);
+    const again = new Map(sources).set(
+      "api/transactions",
+      "# T\n## GET /api/tx/:txid\n\nOne.\n## GET /api/tx/:txid\n\nTwo.\n",
+    );
+    expect(() => openapi(again, "1")).toThrow(/two headings/);
   });
 
   it("takes a heading as a route only where the page draws one", () => {
@@ -195,6 +200,8 @@ describe("the document", () => {
     expect(optional("/api/address/{address}/txs/mempool")).toStrictEqual([]);
     expect(optional("/api/tx/{txid}/status")).toStrictEqual(["asof"]);
     expect(optional("/api/blindbit/v1/tweak-index/{height}")).toStrictEqual(["dustLimit"]);
+    expect(optional("/api/scripthash/{hash}/txs")).toStrictEqual(["asof", "after_txid"]);
+    expect(optional("/api/scripthash/{hash}/txs/summary/{last_seen_txid}")).toStrictEqual(["asof"]);
     expect(Object.keys(op("/api/v1/prevouts", "post")?.requestBody?.content ?? {})).toStrictEqual([
       "application/json",
     ]);

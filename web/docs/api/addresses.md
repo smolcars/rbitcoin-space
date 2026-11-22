@@ -255,23 +255,27 @@ Each address route above has a scripthash form, with the same answers for the sc
 
 ### GET /api/scripthash/:hash/utxo
 
-As `/api/address/:address/utxo`.
+As `/api/address/:address/utxo`. Takes `?asof=`.
 
 ### GET /api/scripthash/:hash/txs
 
-As `/api/address/:address/txs`.
+As `/api/address/:address/txs`. Takes `?asof=` and `?after_txid=`.
 
 ### GET /api/scripthash/:hash/txs/chain[/:last_seen_txid]
 
-As `/api/address/:address/txs/chain`, and the page after `:last_seen_txid`.
+As `/api/address/:address/txs/chain`, and the page after `:last_seen_txid`. Takes `?asof=`.
 
 ### GET /api/scripthash/:hash/txs/mempool
 
 As `/api/address/:address/txs/mempool`.
 
-### GET /api/scripthash/:hash/txs/summary[/:last_seen_txid]
+### GET /api/scripthash/:hash/txs/summary
 
-As `/api/address/:address/txs/summary`, and the page after `:last_seen_txid`.
+As `/api/address/:address/txs/summary`. Takes `?asof=` and `?after_txid=`.
+
+### GET /api/scripthash/:hash/txs/summary/:last_seen_txid
+
+The page after `:last_seen_txid`. Takes `?asof=`, not `?after_txid=`.
 
 ## Paging through a history
 
