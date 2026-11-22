@@ -3,7 +3,7 @@
 // measured by what the browser finds under the finger, so a neighbour drawn over it takes its share
 // away. Pop-ups are opened and their controls measured too.
 import { expect, test } from "./fixtures";
-import { PAGES } from "./pages";
+import { open, PAGES } from "./pages";
 import { smallTargets } from "./targets";
 
 // A touch screen: `(pointer: coarse)` gives the controls their targets. Firefox has no mobile
@@ -15,15 +15,11 @@ test.use({
   consoleErrorsAllowed: [/status of (429|503)|due to access control checks/],
 });
 
-for (const { path, stub } of PAGES) {
-  test(`${path}: every control is a thumb's target at a phone's widths`, async ({ page }) => {
-    await stub?.(page);
+for (const swept of PAGES) {
+  test(`${swept.path}: every control is a thumb's target at a phone's widths`, async ({ page }) => {
+    test.fail(swept.faults?.targets !== undefined, swept.faults?.targets);
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto(path);
-    await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
-    await expect(page.locator("main [aria-busy='true'], main .skel")).toHaveCount(0, {
-      timeout: 15_000,
-    });
+    await open(page, swept);
     const faults: string[] = [];
     for (const width of [390, 320]) {
       await page.setViewportSize({ width, height: 844 });

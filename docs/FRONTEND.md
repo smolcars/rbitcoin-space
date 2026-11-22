@@ -109,9 +109,10 @@ Every page is loaded lazily.
    ];
    ```
 
-2. Spread `routes` into the list in `src/routes.ts`, before `notFound`. That one line is the only edit outside your directory.
+2. Spread `routes` into the list in `src/routes.ts`, before `notFound`.
+3. Give each route an entry in `PAGES` in `e2e/pages.ts`, with what it needs stubbed: the browser rule sweeps (layout in a wide font, touch targets, accessibility, large text) walk that list, and `src/sweeps.test.ts` fails on a route without one. A fault a sweep finds that you leave for later goes in the entry's `faults`, named: that sweep then expects to fail on the page, and fails once the fault is fixed, until it is taken out.
 
-Sub-pages (`/mining/pool/:slug`) go in the same `routes.ts`; you never touch `src/routes.ts` again.
+Sub-pages (`/mining/pool/:slug`) go in the same `routes.ts`, so `src/routes.ts` changes once, but each needs its entry in `e2e/pages.ts`.
 
 ### Links
 
@@ -871,7 +872,7 @@ The bar is WCAG 2.2 AA. What a new page must do:
 - **Breakpoints in `em`,** so a large text size reaches the narrow layouts. At 18.75em and below, stack what sits two to a row.
 - **Motion from the duration tokens,** so reduced motion stops it.
 
-`e2e/a11y.e2e.ts` holds these on every page type: [axe-core](https://github.com/dequelabs/axe-core) (a pinned development dependency, injected by Playwright, never served) in light and dark, a keyboard walk down and back up the page (the skip link first, every control reached, a ring at every stop, none under the header; Option-Tab in WebKit, as in Safari), no movement under reduced motion, Escape on the pop-ups and the search's answer, and the shell and the transaction page at 320 px, at a phone's large text and at 200% text (the text sizes in Chromium only, the one engine a test can set them in). Add a new page type to its list. One axe rule is off, with its reason in the file. axe holds targets at 24 px; `e2e/targets.e2e.ts` holds the design's 44 ([`DESIGN.md`](DESIGN.md#space-shape-and-layout) "Touch") on every page type in `e2e/pages.ts`, at 390 and 320 px on a touch screen, with an exact amount's pop-up open: for every control in sight it measures, from the control's centre, how far a tap still reaches it, by what the browser finds under the finger (`elementFromPoint`), so a neighbour drawn over it counts against it. A link to the same place counts as the same target, as a list's row and its first cell's link are. Give a new small control `.tap` or `.tap-line`.
+`e2e/a11y.e2e.ts` holds these on every page in `e2e/pages.ts`: [axe-core](https://github.com/dequelabs/axe-core) (a pinned development dependency, injected by Playwright, never served) in light and dark, a keyboard walk down and back up the page (the skip link first, every control reached, a ring at every stop, none under the header; Option-Tab in WebKit, as in Safari), no movement under reduced motion, and the page at 320 px, at a phone's large text and at 200% text (the text sizes in Chromium only, the one engine a test can set them in); and Escape on the pop-ups and the search's answer. One axe rule is off, with its reason in the file. axe holds targets at 24 px; `e2e/targets.e2e.ts` holds the design's 44 ([`DESIGN.md`](DESIGN.md#space-shape-and-layout) "Touch") on every page type in `e2e/pages.ts`, at 390 and 320 px on a touch screen, with an exact amount's pop-up open: for every control in sight it measures, from the control's centre, how far a tap still reaches it, by what the browser finds under the finger (`elementFromPoint`), so a neighbour drawn over it counts against it. A link to the same place counts as the same target, as a list's row and its first cell's link are. Give a new small control `.tap` or `.tap-line`.
 
 Checked by hand in November 2026 and not by a test: that no live region speaks on a mempool tick (eight seconds on every live page, mainnet); that the canvas drawings and charts have their text alternatives; the contrast of fades and loading states, which dim content on purpose while it is replaced. A screen reader has not been run; with VoiceOver, check first the home page's block strip and its new-block announcement, a transaction confirming, the search's answer, the exact-amount pop-up, and a chart's slider and figures.
 
