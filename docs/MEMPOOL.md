@@ -647,6 +647,22 @@ Left out: 6, 90, 147 and 2,410 samples whose horizon had not ended, 3 (next bloc
 
 The 14 misses left are samples where `low` was under the floor and capped it. Taking the second to fifth cheapest of the last 144 or 36 blocks instead of the cheapest did no better (71 to 82%): the misses come from the day's cheapest block drifting up, not from one outlier. Two steps is under 85% at the bottom of its interval; three costs 0.001 sat/vB more on average. `fees::score::tests::the_day_floor_meets_the_day_long_horizon_on_three_days_of_mainnet` replays every tenth sample (`fixtures/fees/score-days.json`): 181 of 587 met as served, 584 with the floor, the other three levels' answers unchanged.
 
+**The week after (to 2026-11-21).** The route read 79.3% for `no_rush` over the week and 71.8% over the month, against 85%. Not the rule: those windows still held the days before it went live. The server's own tables for 2026-11-13 14:51 to 2026-11-21 19:51 UTC (23,578 samples, 1,254 blocks) show the floor in every answer served from 2026-11-16 23:00 UTC, and every one of the 11,467 samples scored since met its horizon (100%, 99.4–100%, 589 outcomes). All 5,898 misses of the whole period are earlier: the method's own 0.100 or 0.121 against 0.121 to 0.123 needed. The week's share climbs as those samples leave its window, which holds only answers served with the floor from 2026-11-23 23:00 UTC; the month's from 2026-12-16.
+
+The margin held with room: after the floor went live, the cheapest clearing rate of a sample's next 144 blocks was never above the last day's cheapest (equal for 10,849 samples, two steps below for 618), so the drift of up to two steps that set the margin did not come back. Replayed over the whole period, each sample's floor from the blocks before it:
+
+| Rule | Met | 95% interval | Raised on average |
+|---|---|---|---|
+| As served (the floor for the last four and a half days) | 71.3% | 67.8–74.9% | |
+| Cheapest of the last 144 blocks + 0.001 | 86.0% | 83.2–88.7% | 0.0043 sat/vB |
+| + 0.002 | 93.5% | 91.6–95.5% | 0.0047 |
+| **+ 0.003 (kept)** | **99.9%** | **99.5–100%** | **0.0051** |
+| + 0.004 | 99.9% | 99.5–100% | 0.0058 |
+
+The 14 misses left are all from before the floor, where `low` was under it and capped it. Two steps would also meet 85% on this period and save 0.0004 sat/vB on average (0.1 sat on a 250 vB payment), but on the three days it was tuned on its interval reached down to 82%, and a week of one quiet regime is no reason to take the margin back. So the rule is unchanged. `fees::score::tests::the_day_floor_still_meets_the_day_long_horizon_on_the_week_after` replays every tenth sample of the five days after `score-days.json` (`fixtures/fees/score-week.json`): 1,217 of 1,234 met as served, all 1,234 with the floor, and all 1,152 served after it went live.
+
+**What a week cannot show.** Every block of the period cleared between 0.120 and 0.127 sat/vB at its cheapest but for a few hours on 2026-11-13; nothing says how far the day's cheapest block moves in a market well above the minimum. There the floor is still bounded by `low`: after a busy day whose cheapest block took 20 sat/vB, a mempool that clears at 2 within six blocks gets `no_rush` at 2, the 6-block level, and never more (`fees::tests::the_day_long_floor_raises_only_no_rush_and_never_past_low`). That overpays for a day's wait by what the six-block level asks over the day's real price, until the expensive blocks leave the last 144; it cannot reach past what an hour costs.
+
 **What it changes on the routes.** `economyFee` in `/api/v1/fees/precise` reads 0.123 where it read 0.100 or 0.121; in `/api/v1/fees/recommended` it stays `1`, the whole number of anything under 1 sat/vB. `fastestFee`, `halfHourFee`, `hourFee` and `minimumFee` are untouched, and `economyFee` is never above `hourFee`.
 
 ### Against the node and the reference
@@ -674,7 +690,7 @@ What the method cannot know, and what it assumes:
 - **The pace of blocks.** The method takes blocks to come every ten minutes. Between retargets they do not: 10.87 minutes on average in the difficulty period of these recordings, 11.5 in the week before. The 90% allowance was chosen on data from that slow stretch, so it errs towards being met when blocks are faster. The server already measures the period's pace for `/difficulty-adjustment`; counting with it is a possible next step, not taken because a choice made on slow blocks already covers them.
 - **Bursts in the stream.** Arrivals are a 30-minute average less the busiest minute. A rise in demand is followed within half an hour, not foreseen: the misses of 16:00 to 18:00 UTC on 2026-11-12 were such a rise.
 - **The tuning's evidence is a day and three hours:** 100 blocks scored from the first, 13 from the second. The rule that chose it is written above, so a longer recording can be replayed against it. The server's own score has added three days and 435 blocks since ([Three days of it](#three-days-of-it)).
-- **The day-long floor is three days of one regime:** a sea at 0.12 sat/vB that never drained. Its margin of two steps was the drift seen there; a market where the day's cheapest block moves more would need more. The score shows it if so.
+- **The day-long floor is eight days of one regime:** a sea at 0.12 sat/vB that never drained ([the week after](#the-day-long-level)). Its margin of two steps was the drift seen there; a market where the day's cheapest block moves more would need more. The score shows it if so, once its window holds only answers served with the floor.
 
 ## When a block is found
 

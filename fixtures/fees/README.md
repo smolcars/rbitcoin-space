@@ -42,3 +42,7 @@ Three days of the live server's own fee score on mainnet, 2026-11-13 14:51 to 20
 | `samples` | Every tenth sample where our own answer was served (587 of them scored at 144 blocks): `[time, high, medium, low, no_rush]` |
 
 Rates are sat per 1,000 vB.
+
+## `score-week.json`
+
+The five days after `score-days.json`, 2026-11-16 15:31 to 2026-11-21 19:50 UTC, from the same tables; the day-long floor went live on the first of them, at about 23:00 UTC. Replayed in `fees::score::tests::the_day_floor_still_meets_the_day_long_horizon_on_the_week_after` ([`docs/MEMPOOL.md`](../../docs/MEMPOOL.md#the-day-long-level)). Same fields as `score-days.json`: every tenth sample where our own answer was served (1,476, of which 1,234 are scored at 144 blocks), and every block recorded from 143 heights before the first sample's tip, so the first sample has its whole day of blocks.

@@ -190,16 +190,11 @@ fn the_day_floor_is_three_steps_over_the_last_days_cheapest_block() {
     assert_eq!(day_floor(&[block(1, 0, Some(u32::MAX))]), Some(u32::MAX));
 }
 
-/// `fixtures/fees/score-days.json`, three days of the live server's own answers on mainnet
-/// (every tenth sample of ours) and every block it recorded: served, the day-long level met its
-/// horizon about 31% of the time; with each sample's floor taken from the blocks recorded before
-/// it, at least 85%, and the other levels' answers are untouched.
-#[test]
-fn the_day_floor_meets_the_day_long_horizon_on_three_days_of_mainnet() {
-    let f: serde_json::Value =
-        serde_json::from_str(include_str!("../../../../../fixtures/fees/score-days.json")).unwrap();
+/// The blocks and our own served answers of a `fixtures/fees/score-*.json` file.
+fn recorded(json: &str) -> (Vec<Block>, Vec<(u64, [u32; 4])>) {
+    let f: serde_json::Value = serde_json::from_str(json).unwrap();
     let rate = |v: &serde_json::Value| u32::try_from(v.as_u64().unwrap()).unwrap();
-    let blocks: Vec<Block> = f["blocks"]
+    let blocks = f["blocks"]
         .as_array()
         .unwrap()
         .iter()
@@ -211,10 +206,22 @@ fn the_day_floor_meets_the_day_long_horizon_on_three_days_of_mainnet() {
             )
         })
         .collect();
+    let samples = f["samples"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| {
+            let t = s[0].as_u64().unwrap();
+            (t, [rate(&s[1]), rate(&s[2]), rate(&s[3]), rate(&s[4])])
+        })
+        .collect();
+    (blocks, samples)
+}
+
+/// Each sample as served, and with the day floor of the blocks recorded before it applied.
+fn served_and_floored(blocks: &[Block], samples: &[(u64, [u32; 4])]) -> (Vec<Sample>, Vec<Sample>) {
     let (mut served, mut floored) = (Vec::new(), Vec::new());
-    for s in f["samples"].as_array().unwrap() {
-        let t = s[0].as_u64().unwrap();
-        let levels = [rate(&s[1]), rate(&s[2]), rate(&s[3]), rate(&s[4])];
+    for &(t, levels) in samples {
         let seen = blocks.partition_point(|b| b.t <= t);
         let r = crate::fees::Rates {
             levels,
@@ -232,13 +239,25 @@ fn the_day_floor_meets_the_day_long_horizon_on_three_days_of_mainnet() {
             served: Served::Ours(r.levels),
         });
     }
-    let score = |samples| {
-        Record::new(samples, blocks.clone())
-            .report(&[(0, u64::MAX)])
-            .pop()
-            .unwrap()
-    };
-    let (before, after) = (score(served), score(floored));
+    (served, floored)
+}
+
+fn score(samples: Vec<Sample>, blocks: &[Block]) -> Report {
+    Record::new(samples, blocks.to_vec())
+        .report(&[(0, u64::MAX)])
+        .pop()
+        .unwrap()
+}
+
+/// `fixtures/fees/score-days.json`, three days of the live server's own answers on mainnet
+/// (every tenth sample of ours) and every block it recorded: served, the day-long level met its
+/// horizon about 31% of the time; with each sample's floor taken from the blocks recorded before
+/// it, at least 85%, and the other levels' answers are untouched.
+#[test]
+fn the_day_floor_meets_the_day_long_horizon_on_three_days_of_mainnet() {
+    let (blocks, samples) = recorded(include_str!("../../../../../fixtures/fees/score-days.json"));
+    let (served, floored) = served_and_floored(&blocks, &samples);
+    let (before, after) = (score(served, &blocks), score(floored, &blocks));
     let (b, a) = (&before.levels[3], &after.levels[3]);
     assert_eq!((b.met, b.total), (181, 587));
     assert_eq!((a.met, a.total), (584, 587));
@@ -252,6 +271,42 @@ fn the_day_floor_meets_the_day_long_horizon_on_three_days_of_mainnet() {
     for l in 0..3 {
         assert_eq!(before.levels[l].met, after.levels[l].met);
         assert_eq!(before.levels[l].total, after.levels[l].total);
+    }
+}
+
+/// `fixtures/fees/score-week.json`, the five days after `score-days.json` (to 2026-11-21): the
+/// floor went live part-way through its first day. Replayed, the floor meets the horizon on
+/// every scored sample; served, every answer after it went live already was the floor's, and
+/// met. The route's week read under 85% then because its window still held the days before.
+#[test]
+fn the_day_floor_still_meets_the_day_long_horizon_on_the_week_after() {
+    let (blocks, samples) = recorded(include_str!("../../../../../fixtures/fees/score-week.json"));
+    let (served, floored) = served_and_floored(&blocks, &samples);
+    // The last sample the floor would have raised: 2026-11-16 22:16 UTC, before it went live.
+    let live = served
+        .iter()
+        .zip(&floored)
+        .filter(|(s, f)| s.served != f.served)
+        .map(|(s, _)| s.t)
+        .max()
+        .unwrap();
+    assert_eq!(live, 1_794_867_373);
+    let since: Vec<Sample> = served.iter().filter(|s| s.t > live).copied().collect();
+    let (before, after, since) = (
+        score(served, &blocks),
+        score(floored, &blocks),
+        score(since, &blocks),
+    );
+    let (b, a, s) = (&before.levels[3], &after.levels[3], &since.levels[3]);
+    assert_eq!((b.met, b.total), (1_217, 1_234));
+    assert_eq!((a.met, a.total), (1_234, 1_234));
+    assert_eq!((s.met, s.total), (1_152, 1_152));
+    for t in [a, s] {
+        assert!(
+            t.blocks() >= MIN_BLOCKS && t.interval().0 >= 0.85,
+            "{:?}",
+            t.interval()
+        );
     }
 }
 

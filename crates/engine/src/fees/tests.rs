@@ -207,6 +207,16 @@ fn the_day_long_floor_raises_only_no_rush_and_never_past_low() {
     assert_eq!(quiet.no_rush_at_least(Some(1_003)), quiet);
     // A floor under the answer changes nothing.
     assert_eq!(raised.no_rush_at_least(Some(110)), raised);
+    // Busy, then falling: a day whose cheapest block took 20 sat/vB, and a mempool that now
+    // clears at 2 within six blocks. The floor costs no more than the 6-block level.
+    let falling = Rates {
+        levels: [8_000, 4_000, 2_000, 1_500],
+        minimum: 1_000,
+    };
+    assert_eq!(
+        levels(falling.no_rush_at_least(Some(20_003))),
+        [8_000, 4_000, 2_000, 2_000]
+    );
 }
 
 #[test]
