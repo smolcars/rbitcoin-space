@@ -59,7 +59,26 @@ The credentials are throwaway and fixed in [`dev/regtest/compose.yml`](../dev/re
 
 The image is `FROM scratch` with only `rbitcoin-node` and `rbitcoin-cli`: there is no shell in the container. The CLI works through Compose: `REGTEST_PROJECT=<name> docker compose -f dev/regtest/compose.yml exec node rbitcoin-cli --network regtest getblockcount`.
 
-Set `REGTEST_IMAGE` to use another image, for example one built locally from the `v0.9.2` tag with rbitcoin's `Dockerfile`.
+Set `REGTEST_IMAGE` to use another image, for example one built locally from the `v0.9.2` tag with rbitcoin's `Dockerfile`, or a nightly ([below](#against-another-image)).
+
+## Against another image
+
+Every command here, and everything that runs it, takes the node's image from `REGTEST_IMAGE`; CI and the default stay on the pinned v0.9.2. To check the server against a newer node before the live ones move to it, run the suites that talk to a node once with the default and once with the other image, and compare:
+
+```bash
+export REGTEST_IMAGE=ghcr.io/rbitcoin-org/rbitcoin:nightly-20261122@sha256:1a7208ea757c7b2b605f5cfda7a0b483f75fba9bd54de9639e955859c5d34d7a
+(cd web && bun run e2e)                      # the browser suite, its own node
+(cd web && bun run e2e --project=mines --no-deps)   # the mining tests, if the first run stopped before them
+# The Rust tests that need a node, one at a time, each after a fresh scenario:
+REGTEST_PROJECT=check dev/regtest/regtest.py scenario
+eval "$(REGTEST_PROJECT=check dev/regtest/regtest.py env | sed 's/^/export /')"
+REGTEST_PROJECT=check cargo test -p engine -- --ignored --nocapture ledger::tests::regtest::<test>
+REGTEST_PROJECT=check dev/regtest/regtest.py down
+```
+
+The ledger's regtest tests print which [scripthash order](RBITCOIN.md#scripthash-order) the node reads (`the node reads /scripthash/:hash in digest order`), so a run names the build it talked to; the server logs the same as `esplora_scripthash_order`. `the_probed_scripthash_order_is_the_one_the_node_answers` checks the probe itself against the node.
+
+**`nightly-20261122`, checked on 2026-11-22.** The scenario builds the same chain, with the same hashes and txids, on both images. The browser suite (581 tests, then the 34 mining tests) gave the same results on both, one test known to fail on the measuring machine aside, and the ledger's four regtest tests, the Lightning chain test and the Electrum read test passed on both. Differences the suites do not show, seen by asking the two nodes directly ([`RBITCOIN.md`](RBITCOIN.md#what-nightly-20261122-changes-for-us)): the scripthash order, the difficulty period (144 blocks, not 2016), a transaction already in the mempool sent again (`200` with its txid, not `400 duplicate`), `mempool_sequence` (13, not 9, after the scenario), Electrum's fee histogram (sat/vB per band), and, with `--max-sh-creates` in force (not the harness's default), history pages above the cap refused.
 
 ## Running several at once
 
