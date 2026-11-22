@@ -302,23 +302,28 @@
       opacity: 0;
     }
   }
-  /* Clipped here, not on the gauge, whose right face reaches outside it. Tinted under the figures,
-     with no seams to run through them; the mark and the right face carry the full colour. */
+  /* Tinted under the figures, once for every stack it holds, so a projected stack fading under the
+     real one never doubles it; the mark and the right face carry the full colour. */
+  .home-tile__tint {
+    position: absolute;
+    inset: 0;
+    opacity: var(--tile-tint);
+  }
+  /* Clipped here, not on the gauge, whose right face reaches outside it. No seams to run through
+     the figures. */
   .home-tile__layers {
     --strata-seam: transparent;
     position: absolute;
     inset: 0;
     overflow: hidden;
-    opacity: var(--tile-tint);
   }
   /* How full the block is, in a neutral tone: fee colors are only for fee data. */
+  /* Sized by height, not a transform, so it stays under the fill mark; it never animates its size. */
   .home-tile__fill {
     width: 100%;
-    height: 100%;
+    height: calc(var(--fill) * 100%);
     border-radius: 1px;
     background: var(--color-line);
-    transform: scaleY(var(--fill));
-    transform-origin: bottom;
     transition: opacity var(--dur-slow) var(--ease-out);
   }
   /* The layers have arrived: the gauge they settle over clears away. */
@@ -381,7 +386,6 @@
     min-height: 0;
     border-top: 2px dashed var(--color-line-strong);
     background: none;
-    transform: none;
   }
   /* "Nothing waiting" takes the two lines the median and the range would. */
   .home-tile--empty .home-tile__fee {

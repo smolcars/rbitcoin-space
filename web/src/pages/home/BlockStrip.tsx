@@ -965,24 +965,26 @@ function MinedTile(props: {
               style={{ "--fill": String(full()) }}
             />
           </Show>
-          {/* What it was projected to be, fading as the real layers grow out of it. */}
-          <Show when={guess}>
-            {(g) => (
-              <span
-                class={[
-                  "home-tile__layers home-tile__guess",
-                  { "home-tile__guess--gone": !guessing() },
-                ]}
-              >
-                <Strata layers={g()} />
+          <span class="home-tile__tint">
+            {/* What it was projected to be, fading as the real layers grow out of it. */}
+            <Show when={guess}>
+              {(g) => (
+                <span
+                  class={[
+                    "home-tile__layers home-tile__guess",
+                    { "home-tile__guess--gone": !guessing() },
+                  ]}
+                >
+                  <Strata layers={g()} />
+                </span>
+              )}
+            </Show>
+            <Show when={layers().length > 0}>
+              <span class="home-tile__layers">
+                <Strata layers={layers()} settle={settle} from={guess} />
               </span>
-            )}
-          </Show>
-          <Show when={layers().length > 0}>
-            <span class="home-tile__layers">
-              <Strata layers={layers()} settle={settle} from={guess} />
-            </span>
-          </Show>
+            </Show>
+          </span>
         </span>
         <span class="home-tile__title num">{groupDigits(b().height)}</span>
         <span class="home-tile__fee num">

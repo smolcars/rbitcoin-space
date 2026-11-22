@@ -86,8 +86,10 @@ export function ProjectedTile(props: {
                 when={layers().length > 0}
                 fallback={<span class="home-tile__fill home-tile__fill--floor" />}
               >
-                <span class="home-tile__layers">
-                  <Strata layers={layers()} settle={settling()} />
+                <span class="home-tile__tint">
+                  <span class="home-tile__layers">
+                    <Strata layers={layers()} settle={settling()} />
+                  </span>
                 </span>
               </Show>
             </span>
