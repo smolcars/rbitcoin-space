@@ -501,7 +501,7 @@ impl Drop for Ended {
 ///
 /// A page of address history whose node call runs past the history timeout is answered `504` at
 /// that moment and remembered, so it is refused at once for a while; its call keeps its places
-/// until the node has finished. A totals or unspent answer the node refuses for size is
+/// until the node has finished. A totals, unspent or history answer the node refuses for size is
 /// remembered too: that script's history is refused at once for the same while.
 async fn heavy(ctx: &NetworkContext, client: &Client, route: Route, key: String) -> Response {
     let call = route.clone();
@@ -513,8 +513,11 @@ async fn heavy(ctx: &NetworkContext, client: &Client, route: Route, key: String)
             started: None,
         }
     });
-    // Learned in the call's own task, so a client that hangs up first does not lose it.
-    let size = verdicts::unpaged_script(&route).map(|s| (s, Arc::clone(&ctx.api.verdicts)));
+    // Learned in the call's own task, so a client that hangs up first does not lose it. The node
+    // refuses a page for size as it refuses totals, with the script's counts.
+    let size = verdicts::unpaged_script(&route)
+        .or_else(|| verdicts::history_page(&route).map(|(s, _)| s))
+        .map(|s| (s, Arc::clone(&ctx.api.verdicts)));
     let known = verdicts::history_page(&route).map(|p| (p, Arc::clone(&ctx.api.verdicts)));
     match heavy_call(ctx, client, key, deadline, move |esplora| async move {
         // A verdict learned while this call waited for its slot still spares the node.
@@ -539,8 +542,8 @@ async fn heavy(ctx: &NetworkContext, client: &Client, route: Route, key: String)
     .await
     {
         // Refused by a verdict learned while it waited: counted as a refusal, like one refused on
-        // arrival. The node never refuses a page for size, and a page it timed out on took the
-        // whole history timeout, so neither answer is taken for the other.
+        // arrival. The node's own refusal is an answer, not this error, and a page it timed out on
+        // took the whole history timeout, so neither is taken for the other.
         Ok((Err(Error::TooLarge), _)) if verdicts::history_page(&route).is_some() => {
             refused_early(Verdict::TooLarge(None))
         }

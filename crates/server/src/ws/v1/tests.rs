@@ -423,6 +423,9 @@ struct History {
     /// Reads the node is working on now, and the most at once.
     running: Arc<AtomicUsize>,
     most: Arc<AtomicUsize>,
+    /// Pages are refused for size, as the node refuses a page that reads every create above
+    /// its `--max-sh-creates`.
+    refuse: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl History {
@@ -436,6 +439,12 @@ impl History {
             h.most.fetch_max(now, Ordering::Relaxed);
             tokio::time::sleep(Duration::from_millis(h.delay.load(Ordering::Relaxed))).await;
             h.running.fetch_sub(1, Ordering::Relaxed);
+            if h.refuse.load(Ordering::Relaxed) {
+                return axum::response::IntoResponse::into_response((
+                    axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                    "scripthash join exceeds --max-sh-creates (52000 creates, cap 10000)",
+                ));
+            }
             let body = h
                 .pages
                 .lock()
@@ -1078,6 +1087,42 @@ async fn an_address_history_the_node_will_not_finish_is_not_read_again() {
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert_eq!(history.reads.load(Ordering::Relaxed), 1);
     assert_eq!(ctx.v1.followed(), 2);
+}
+
+/// A page the node refuses for size teaches the size, as on the HTTP routes: the address is not
+/// read again, and the size is known.
+#[tokio::test]
+async fn an_address_page_refused_for_size_is_remembered() {
+    let history = History::default();
+    history.refuse.store(true, Ordering::Relaxed);
+    let url = history.start().await;
+    let ctx = context_with("127.0.0.1:1", &url, false, None, |_| {});
+    let c = Client::new();
+    let mut s = Session::new(&ctx, &c.conn);
+    send(&mut s, &json!({"track-address": address(3)}));
+    history.reads_reach(1).await;
+    let sh = node::esplora::ScriptHash::from_electrum(script_of(&address(3)));
+    let deadline = Instant::now() + WAIT;
+    while ctx
+        .api
+        .verdicts
+        .size(sh, std::time::Instant::now())
+        .is_none()
+    {
+        assert!(Instant::now() < deadline, "the refusal was not remembered");
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    assert_eq!(
+        ctx.api.verdicts.size(sh, std::time::Instant::now()),
+        Some(node::esplora::ScriptSize {
+            creates: 52_000,
+            cap: 10_000
+        })
+    );
+    send(&mut s, &json!({"track-address": "stop"}));
+    send(&mut s, &json!({"track-address": address(3)}));
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(history.reads.load(Ordering::Relaxed), 1);
 }
 
 #[tokio::test]

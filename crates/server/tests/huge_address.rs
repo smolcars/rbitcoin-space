@@ -32,6 +32,9 @@ const SLOW: &str = "3M219KR5vEneNb47ewrPfWyb5jQ2DjxRP6";
 const LATE: &str = "1KFHE7w8BhaENAswwryaoccDb6qcT6DbYY";
 /// Above the cap, refused in words that no longer give the counts.
 const RESHAPED: &str = "1BoatSLRHtKNngkdXEeobR76b53LETtpyT";
+/// Above the cap, and its history pages are refused for size at once, as rbitcoin
+/// `nightly-20261122` refuses a page that reads every create.
+const CAPPED: &str = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4";
 /// Everything answered at once.
 const SMALL: &str = "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq";
 const TXID: &str = "4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b";
@@ -55,6 +58,13 @@ async fn mock() -> (String, Seen) {
             let rest = pq.strip_prefix("/address/").unwrap_or_default();
             let (addr, tail) = rest.split_once(['/', '?']).unwrap_or((rest, ""));
             let history = tail.starts_with("txs") && !tail.starts_with("txs/mempool");
+            if history && addr == CAPPED {
+                return (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "scripthash join exceeds --max-sh-creates (52000 creates, cap 10000)",
+                )
+                    .into_response();
+            }
             if history && addr != SMALL {
                 tokio::time::sleep(NODE_SLOW).await;
                 return (StatusCode::OK, "[]").into_response();
@@ -281,6 +291,30 @@ async fn the_app_says_how_large_the_node_said_an_address_is_without_asking_it() 
         let r = get(&addr, &path).await;
         assert_eq!((r.status, r.error.as_str()), (400, error), "{path}");
     }
+}
+
+/// A history page the node refuses for size teaches the size as a totals refusal does: the other
+/// pages are refused without the node, and the app can say how large the address is.
+#[tokio::test]
+async fn a_page_the_node_refuses_for_size_is_remembered() {
+    let (addr, seen) = start().await;
+    let r = get(&addr, &format!("/api/address/{CAPPED}/txs")).await;
+    assert_eq!((r.status, r.error.as_str()), TOO_LARGE);
+    assert_eq!(calls(&seen, CAPPED), 1);
+    for path in [
+        format!("/api/address/{CAPPED}/txs/chain"),
+        format!("/api/address/{CAPPED}/txs/summary/{TXID}"),
+    ] {
+        let r = get(&addr, &path).await;
+        assert_eq!((r.status, r.error.as_str()), TOO_LARGE, "{path}");
+    }
+    assert_eq!(calls(&seen, CAPPED), 1, "the node is not asked again");
+    let r = get(&addr, &format!("/app/address/{CAPPED}/size")).await;
+    assert_eq!(r.status, 200);
+    assert_eq!(
+        r.body,
+        serde_json::json!({"creates": 52_000_u64, "cap": 10_000_u64})
+    );
 }
 
 #[tokio::test]
