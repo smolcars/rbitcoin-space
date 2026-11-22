@@ -78,7 +78,10 @@ function MempoolHistory(props: { network: Network }) {
   const [request, { refetch }] = createRequest(
     () => interval().id,
     async (id, signal) => {
-      const v = await fetchApp<unknown>(props.network, `/mempool/history/${id}`, { signal });
+      const v = await fetchApp<unknown>(props.network, `/mempool/history/${id}`, {
+        signal,
+        cached: true,
+      });
       if (!isHistory(v)) throw new ApiError(200, "The server sent a reply that could not be read.");
       return v;
     },

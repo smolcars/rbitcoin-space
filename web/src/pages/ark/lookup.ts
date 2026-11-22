@@ -55,7 +55,7 @@ export async function ask(
   signal: AbortSignal,
 ): Promise<Answer> {
   try {
-    await fetchApp<unknown>(network, impl.route(txid, vout), { signal });
+    await fetchApp<unknown>(network, impl.route(txid, vout), { signal, cached: true });
     return answerOf(true, undefined);
   } catch (e) {
     if (signal.aborted) throw e;

@@ -89,7 +89,7 @@ export function createBlockFeed(network: Network, status: Accessor<LiveStatus>):
       // The first load may come from the cache: the topic's first message corrects it.
       const reply = await fetchApi<unknown>(network, "/blocks", {
         signal,
-        fresh: current !== undefined,
+        cached: current === undefined,
       });
       const list = (Array.isArray(reply) ? reply.filter((b: unknown) => isBlock(b)) : [])
         // oxlint-disable-next-line unicorn/no-array-sort -- sorts a fresh array; toSorted is newer than the browsers we build for
@@ -201,7 +201,7 @@ export function createPoll<T>(
     const c = new AbortController();
     controller = c;
     lastAt = Date.now();
-    fetchApi<unknown>(network, path, { signal: c.signal }).then(
+    fetchApi<unknown>(network, path, { signal: c.signal, cached: true }).then(
       (v) => {
         if (c.signal.aborted) return;
         if (valid(v)) {

@@ -228,7 +228,7 @@ export function createPastBlocks(
     signal: AbortSignal,
   ): Promise<{ list: Block[]; tip: Stamped<unknown>["tip"] }> {
     // After a deep reorg the browser may still hold a page of the old branch for its second.
-    const ask = { signal, fresh: chain > 0 };
+    const ask = { signal, cached: !(chain > 0) };
     const page = async (path: string) => {
       const r = await fetchStamped<unknown>(network, path, ask);
       return { list: parse(r.value), tip: r.tip };

@@ -46,7 +46,9 @@ export function CheckedTx(props: {
   const network = useNetwork();
   const tx = () => props.c.tx;
   // The next block's rate, to tell a fee rate that is far too high. Absent with the engine off.
-  const [fees] = createApi<{ fastestFee?: unknown }>(() => "/v1/fees/recommended");
+  const [fees] = createApi<{ fastestFee?: unknown }>(() => "/v1/fees/recommended", {
+    cached: true,
+  });
   const next = () => {
     const f = fees.state === "errored" ? undefined : fees.latest?.fastestFee;
     return typeof f === "number" && f > 0 ? f : undefined;
@@ -74,7 +76,9 @@ export function CheckedTx(props: {
   // got no answer, or a refusal, says nothing of the kind.
   const known = () => props.c.known !== null || sent() !== undefined;
   // Nothing can spend a transaction the node does not have; one it has may be spent already.
-  const [spends] = createApi<Outspend[]>(() => (known() ? `/tx/${tx().txid}/outspends` : false));
+  const [spends] = createApi<Outspend[]>(() => (known() ? `/tx/${tx().txid}/outspends` : false), {
+    cached: true,
+  });
   const outspends = (): Outspend[] | null | undefined => {
     if (!known()) return undefined;
     return spends.state === "errored" ? null : spends.latest;

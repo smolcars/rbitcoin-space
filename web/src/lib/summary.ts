@@ -127,7 +127,11 @@ export async function fetchSummaries(
     const part = missing.slice(i, i + SUMMARY_BATCH);
     const path = `/blocks/summary?hashes=${part.map((h) => encodeURIComponent(h)).join(",")}`;
     // oxlint-disable-next-line no-await-in-loop -- one batch at a time, so a page never floods the server
-    const reply = await fetchApp<unknown>(network, path, signal ? { signal } : {});
+    const reply = await fetchApp<unknown>(
+      network,
+      path,
+      signal ? { signal, cached: true } : { cached: true },
+    );
     if (Array.isArray(reply)) {
       for (const s of reply) if (isSummary(s)) rememberSummary(network, s);
     }

@@ -80,7 +80,7 @@ function Adjustment(props: { network: Network; tip: Accessor<string | undefined>
       () =>
         fetchStamped<unknown>(props.network, "/v1/difficulty-adjustment", {
           signal: c.signal,
-          fresh,
+          cached: !fresh,
         }),
       c.signal,
     ).then(

@@ -177,9 +177,7 @@ function AddressBody(props: {
     if (s === "reconnecting" || s === "offline") ask();
   });
   // Every answer from the server: one the browser kept a second could predate the status.
-  const [stats, { refetch: refetchStats }] = createApi<AddressStats>(() => asking() && path, {
-    fresh: true,
-  });
+  const [stats, { refetch: refetchStats }] = createApi<AddressStats>(() => asking() && path);
   // Once true, stays true: a later refetch of the totals does not take the history away.
   const statsAnswered = createMemo(
     (was?: boolean) =>
@@ -192,7 +190,7 @@ function AddressBody(props: {
   const statsSettled = () => stats.state !== "unresolved" && stats.state !== "pending";
   const [ledgerAnswer, { refetch: refetchLedger }] = createRequest(
     () => statsAnswered() && `${network()} ${statsSettled() ? "settled" : "waited"}`,
-    (_, signal) => fetchApp<unknown>(untrack(network), `${path}/ledger`, { signal, fresh: true }),
+    (_, signal) => fetchApp<unknown>(untrack(network), `${path}/ledger`, { signal }),
   );
   const ledger = createMemo(() => readLedger(ledgerAnswer.latest));
   const ledgerAnswered = () =>
@@ -231,7 +229,6 @@ function AddressBody(props: {
       statsAnswered() &&
       ledgerAnswered() &&
       (whole() ? `${path}/txs/chain` : !kept() && !large() && `${path}/txs`),
-    { fresh: true },
   );
   // As an address becomes a kept one, the mixed list it had is still showing until the kept list
   // answers: confirmed only by the rows themselves too.

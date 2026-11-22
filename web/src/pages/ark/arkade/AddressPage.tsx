@@ -103,7 +103,7 @@ function List(props: { network: Network; address: string; page: number; go: (n: 
     const v = await fetchApp<unknown>(
       isNetwork(n) ? n : "mainnet",
       `/ark/arkade/address/${encodeURIComponent(address ?? "")}${query}`,
-      { signal, fresh: true },
+      { signal },
     );
     const listing = readListing(v);
     if (!listing) throw unreadable();

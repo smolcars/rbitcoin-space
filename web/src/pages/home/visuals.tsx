@@ -100,7 +100,10 @@ export function IncomingChart(props: { network: Network; height: number }) {
     controller = c;
     const fresh = asked;
     asked = true;
-    fetchApp<unknown>(props.network, "/mempool/history/2h", { signal: c.signal, fresh }).then(
+    fetchApp<unknown>(props.network, "/mempool/history/2h", {
+      signal: c.signal,
+      cached: !fresh,
+    }).then(
       (v) => {
         if (c.signal.aborted) return;
         // A reply that cannot be read counts as a failure: the last good picture stays.

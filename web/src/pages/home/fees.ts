@@ -146,7 +146,10 @@ export function createFees(
           fromTopic = false;
           setAnswer(a);
         };
-        fetchStamped<unknown>(network, "/v1/fees/precise", { signal: controller.signal }).then(
+        fetchStamped<unknown>(network, "/v1/fees/precise", {
+          signal: controller.signal,
+          cached: true,
+        }).then(
           (r) => settle(fromPrecise(r) ?? null),
           () => settle(null),
         );

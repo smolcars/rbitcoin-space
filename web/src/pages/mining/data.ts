@@ -54,7 +54,7 @@ export function createMiningData<T>(
     controller = c;
     setLoading(true);
     // Busy refusals are retried inside; a server without a table is not, since it will not grow one.
-    fetchStamped<unknown>(n, p, { signal: c.signal }).then(
+    fetchStamped<unknown>(n, p, { signal: c.signal, cached: true }).then(
       (r) => {
         if (c.signal.aborted) return;
         setLoading(false);

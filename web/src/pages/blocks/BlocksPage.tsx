@@ -236,7 +236,7 @@ export default function BlocksPage() {
       let path = f === undefined ? "/blocks" : `/blocks/${f}`;
       while (out.length < PAGE) {
         // oxlint-disable-next-line no-await-in-loop -- each answer says where the next starts
-        const part = await fetchApi<Block[]>(n, path, { signal });
+        const part = await fetchApi<Block[]>(n, path, { signal, cached: true });
         out.push(...part);
         const last = part.at(-1);
         if (part.length < API_PAGE || last === undefined || last.height === 0) break;
@@ -246,7 +246,7 @@ export default function BlocksPage() {
       return out.slice(0, PAGE + 1);
     },
   );
-  const [tip] = createApi<string>(() => "/blocks/tip/height", { as: "text" });
+  const [tip] = createApi<string>(() => "/blocks/tip/height", { as: "text", cached: true });
   usePageTitle(() => "Blocks");
   const network = useNetwork();
 

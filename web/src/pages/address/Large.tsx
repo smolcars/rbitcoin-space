@@ -28,7 +28,7 @@ export function LargeAddress(props: { address: string; note?: JSX.Element }) {
   const path = `/address/${encodeURIComponent(props.address)}`;
   const [answer] = createRequest(
     () => network(),
-    (net, signal) => fetchApp<unknown>(net, `${path}/size`, { signal, fresh: true }),
+    (net, signal) => fetchApp<unknown>(net, `${path}/size`, { signal }),
   );
   // A size the server does not know (it was forgotten, or the node's wording changed) is no error:
   // the page says what it can without it.
@@ -108,9 +108,7 @@ export function LargeAddress(props: { address: string; note?: JSX.Element }) {
 /** An address's unconfirmed transactions, asked every {@link POLL_MS} while the page is in view. */
 export function useUnconfirmed(address: string) {
   const path = `/address/${encodeURIComponent(address)}`;
-  const [pool, { refetch }] = createApi<Transaction[]>(() => `${path}/txs/mempool`, {
-    fresh: true,
-  });
+  const [pool, { refetch }] = createApi<Transaction[]>(() => `${path}/txs/mempool`);
   const ask = () => {
     if (!document.hidden && pool.state !== "pending" && pool.state !== "refreshing") refetch();
   };

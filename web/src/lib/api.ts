@@ -190,19 +190,20 @@ async function request<T>(
 }
 
 /**
- * How a call asks. `fresh: true` takes every answer from the server, never from the browser's HTTP
- * cache: for a request a live message prompted, which an answer kept from before it would undo
+ * How a call asks. Every answer comes from the server unless `cached: true` lets the browser's HTTP
+ * cache answer, with a copy up to its `max-age` old: only for a page's first ask of an answer,
+ * never for one a live message prompted, which a copy from before the message would undo
  * (docs/FRONTEND.md "Following live data").
  */
 export interface Ask {
   signal?: AbortSignal;
-  fresh?: boolean;
+  cached?: boolean;
 }
 
 /** Every request is a GET, safe to repeat, so a busy refusal is retried as it says ({@link withRetry}). */
 function cachedOrFetch<T>(url: string, kind: ReplyKind, ask: Ask): Promise<Stamped<T>> {
   if (cache.has(url)) return Promise.resolve({ value: cache.get(url) as T, tip: undefined });
-  return withRetry(() => request<T>(url, kind, ask.signal, ask.fresh === true), ask.signal);
+  return withRetry(() => request<T>(url, kind, ask.signal, ask.cached !== true), ask.signal);
 }
 
 /**
@@ -246,7 +247,7 @@ export function postApp<T>(
   network: Network,
   path: string,
   body: string,
-  ask: Ask = {},
+  ask: { signal?: AbortSignal } = {},
 ): Promise<T> {
   const url = `${onNetwork(network, "")}/app${path}`;
   return withRetry(() => request<T>(url, "json", ask.signal, false, body), ask.signal).then(
@@ -440,20 +441,21 @@ export function createRequest<S, T>(
  */
 export function createApi<T>(
   path: () => string | false | null | undefined,
-  options: { as?: ReplyKind; stamped: true; fresh?: boolean },
+  options: { as?: ReplyKind; stamped: true; cached?: boolean },
 ): ApiRequest<Stamped<T>>;
 export function createApi<T>(
   path: () => string | false | null | undefined,
-  options?: { as?: ReplyKind; fresh?: boolean },
+  options?: { as?: ReplyKind; cached?: boolean },
 ): ApiRequest<T>;
 /**
  * With `stamped: true` the value comes with the chain tip it is as of, to compare across requests.
- * With `fresh: true` every answer comes from the server, as {@link Ask} says; without it, only an
- * ask again for the same path does (`refetch`, which a live event or a reader prompts).
+ * With `cached: true` the first ask for each path may be answered from the browser's HTTP cache,
+ * as {@link Ask} says; an ask again for the same path (`refetch`, which a live event or a reader
+ * prompts) never is.
  */
 export function createApi<T>(
   path: () => string | false | null | undefined,
-  options: { as?: ReplyKind; stamped?: boolean; fresh?: boolean } = {},
+  options: { as?: ReplyKind; stamped?: boolean; cached?: boolean } = {},
 ): ApiRequest<T | Stamped<T>> {
   const network = useNetwork();
   let last: string | undefined;
@@ -466,7 +468,7 @@ export function createApi<T>(
     (url, signal): T | Stamped<T> | Promise<T | Stamped<T>> => {
       const unwrap = (r: Stamped<T>) => (options.stamped === true ? r : r.value);
       if (cache.has(url)) return unwrap({ value: cache.get(url) as T, tip: undefined });
-      const fresh = options.fresh === true || url === last;
+      const fresh = options.cached !== true || url === last;
       last = url;
       // Stays loading while a busy refusal waits to be retried.
       return withRetry(() => request<T>(url, options.as ?? "json", signal, fresh), signal).then(

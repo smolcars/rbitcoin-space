@@ -7,6 +7,7 @@ import {
   createRequest,
   errorMessage,
   fetchApi,
+  fetchApp,
   fetchStamped,
   isImmutable,
   isNotFound,
@@ -58,14 +59,21 @@ describe("fetchApi", () => {
     expect(fetch).toHaveBeenCalledWith("/signet/api/block/ab", expect.anything());
   });
 
-  it("skips the browser's HTTP cache only when asked to be fresh", async () => {
+  it("skips the browser's HTTP cache unless a cached answer will do", async () => {
     const fetch = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(async () =>
       reply(200, "[]"),
     );
     vi.stubGlobal("fetch", fetch);
     await fetchApi("mainnet", "/blocks");
-    await fetchApi("mainnet", "/blocks", { fresh: true });
-    expect(fetch.mock.calls.map(([, init]) => init?.cache)).toStrictEqual([undefined, "no-cache"]);
+    await fetchApi("mainnet", "/blocks", { cached: true });
+    await fetchStamped("mainnet", "/blocks");
+    await fetchApp("mainnet", "/blocks");
+    expect(fetch.mock.calls.map(([, init]) => init?.cache)).toStrictEqual([
+      "no-cache",
+      undefined,
+      "no-cache",
+      "no-cache",
+    ]);
   });
 
   it("reads text replies", async () => {

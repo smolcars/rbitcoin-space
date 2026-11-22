@@ -76,7 +76,7 @@ export function BalanceChart(props: {
     // Fresh once the chart is drawn: later pages follow a change the page was told of.
     fetchStamped<unknown>(network(), path, {
       signal: controller.signal,
-      fresh: history !== undefined,
+      cached: history === undefined,
     });
 
   let history: History | undefined;

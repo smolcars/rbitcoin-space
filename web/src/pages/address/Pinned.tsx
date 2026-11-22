@@ -173,7 +173,6 @@ export function AsOfForm(props: {
         const tip = await fetchApi<string>(net, "/blocks/tip/height", {
           as: "text",
           signal: controller.signal,
-          fresh: true,
         }).then(readTip, () => undefined);
         if (controller.signal.aborted) return;
         setNewest(tip);
@@ -428,7 +427,6 @@ async function resolve(net: Network, height: number, signal: AbortSignal): Promi
       const h = await fetchApi<string>(net, `/block-height/${height}`, {
         as: "text",
         signal,
-        fresh: true,
       });
       return h.trim();
     } catch (error) {
@@ -442,7 +440,6 @@ async function resolve(net: Network, height: number, signal: AbortSignal): Promi
     const tip = await fetchApi<string>(net, "/blocks/tip/height", {
       as: "text",
       signal,
-      fresh: true,
     }).then(readTip, () => undefined);
     // Not mined only when a tip was read and falls short of the height; a tip that cannot be
     // read says nothing, and is a failure to look the block up, with Try again.
@@ -460,7 +457,7 @@ async function resolve(net: Network, height: number, signal: AbortSignal): Promi
     hash = await lookup();
   }
   const block = /^[0-9a-f]{64}$/.test(hash)
-    ? await fetchApi<unknown>(net, `/block/${hash}`, { signal })
+    ? await fetchApi<unknown>(net, `/block/${hash}`, { signal, cached: true })
     : undefined;
   const pinned = readPinned(hash, block, height);
   if (pinned === undefined) throw new Error("The node's answer for this block could not be read.");
@@ -671,10 +668,13 @@ function PinnedAt(props: {
   };
   const hash = () => block()?.hash;
   // Every read is as of one hash, so the figures agree with one another.
-  const [stats, { refetch: refetchStats }] = createApi<AddressStats>(() => {
-    const h = hash();
-    return h !== undefined && pinnedPath(path, h);
-  });
+  const [stats, { refetch: refetchStats }] = createApi<AddressStats>(
+    () => {
+      const h = hash();
+      return h !== undefined && pinnedPath(path, h);
+    },
+    { cached: true },
+  );
   const failure = () => (stats.state === "errored" ? refusal(stats.error) : undefined);
   const unused = () => {
     const s = settled(stats);
@@ -682,11 +682,14 @@ function PinnedAt(props: {
   };
   // A kept address answers its history as of its last 100 blocks, though never its totals.
   const kept = () => failure() === "not-kept";
-  const [first, { refetch: refetchFirst }] = createApi<Transaction[]>(() => {
-    const h = hash();
-    const asks = (settled(stats) !== undefined && !unused()) || kept();
-    return h !== undefined && asks && pinnedPath(`${path}/txs/chain`, h);
-  });
+  const [first, { refetch: refetchFirst }] = createApi<Transaction[]>(
+    () => {
+      const h = hash();
+      const asks = (settled(stats) !== undefined && !unused()) || kept();
+      return h !== undefined && asks && pinnedPath(`${path}/txs/chain`, h);
+    },
+    { cached: true },
+  );
   const [goneSeen, setGone] = createSignal(false);
   const gone = () =>
     goneSeen() ||
@@ -708,7 +711,7 @@ function PinnedAt(props: {
   // nothing more. Neither feeds the figures, coins, chart or history shown.
   const [now, { refetch: refetchNow }] = createApi<AddressStats>(
     () => settled(stats) !== undefined && path,
-    { stamped: true, fresh: true },
+    { stamped: true },
   );
   /** The present beside the block, through the gate; undefined until both totals are in, and
    * while the current ones are being read again, so nothing is shown from the totals replaced. */
@@ -738,7 +741,7 @@ function PinnedAt(props: {
     async (key, signal): Promise<{ heights: number[]; complete: boolean }> => {
       const [, mode, pin = ""] = key.split(" ");
       const net = untrack(network);
-      const read = (p: string) => fetchStamped<unknown>(net, p, { signal });
+      const read = (p: string) => fetchStamped<unknown>(net, p, { signal, cached: true });
       if (mode === "whole") {
         // Strict: a page that fails is a failed lookup, offered again, never a short history.
         const h = await loadHistory(path, read, MAX_PAGES, undefined, pin, true);

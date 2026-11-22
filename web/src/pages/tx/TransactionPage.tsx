@@ -131,14 +131,15 @@ function BadInput(props: { value: string }) {
 
 function TransactionView(props: { txid: string }) {
   const network = useNetwork();
-  const [tx, { refetch }] = createApi<Transaction>(() => `/tx/${props.txid}`);
+  const [tx, { refetch }] = createApi<Transaction>(() => `/tx/${props.txid}`, { cached: true });
   // Fetched alongside the transaction rather than after it, so neither waits on the other.
   const [outspends, { refetch: refetchSpends }] = createApi<Outspend[]>(
     () => `/tx/${props.txid}/outspends`,
-    { stamped: true },
+    { stamped: true, cached: true },
   );
   const [tipText, { refetch: refetchTip }] = createApi<string>(() => "/blocks/tip/height", {
     as: "text",
+    cached: true,
   });
   const retry = () => {
     refetch();
@@ -260,7 +261,6 @@ function TransactionView(props: { txid: string }) {
       try {
         const next = await fetchApi<TxStatus>(network(), `/tx/${props.txid}/status`, {
           signal: controller.signal,
-          fresh: true,
         });
         setModel((m) => answered(m, next, asked, req));
       } catch (e) {
@@ -279,7 +279,6 @@ function TransactionView(props: { txid: string }) {
       const height = await fetchApi<string>(network(), "/blocks/tip/height", {
         as: "text",
         signal: controller.signal,
-        fresh: true,
       });
       if (Number.isSafeInteger(Number(height))) setPolledTip(Number(height));
     } catch {
@@ -395,6 +394,7 @@ function TransactionView(props: { txid: string }) {
       const r = parseReplacements(
         await fetchApp<unknown>(network(), `/tx/${props.txid}/replacements`, {
           signal: controller.signal,
+          cached: true,
         }),
       );
       if (r) setModel((m) => recorded(m, r.replacedBy, r.truncated));
@@ -454,6 +454,7 @@ function TransactionView(props: { txid: string }) {
         parseRelatives(
           await fetchApp<unknown>(network(), `/tx/${props.txid}/relatives`, {
             signal: controller.signal,
+            cached: true,
           }),
         ) ?? null
       );
@@ -967,11 +968,9 @@ function Body(props: {
             ? { value, tip }
             : fetchStamped<Outspend[]>(network(), `/tx/${props.tx.txid}/outspends`, {
                 signal,
-                fresh: true,
               });
         },
-        status: (txid) =>
-          fetchStamped<TxStatus>(network(), `/tx/${txid}/status`, { signal, fresh: true }),
+        status: (txid) => fetchStamped<TxStatus>(network(), `/tx/${txid}/status`, { signal }),
       });
     } catch {
       return undefined;
@@ -984,7 +983,10 @@ function Body(props: {
     setRaw({ loading: true });
     try {
       setRaw({
-        hex: await fetchApi<string>(network(), `/tx/${props.tx.txid}/hex`, { as: "text" }),
+        hex: await fetchApi<string>(network(), `/tx/${props.tx.txid}/hex`, {
+          as: "text",
+          cached: true,
+        }),
       });
     } catch (e) {
       setRaw({ error: e });

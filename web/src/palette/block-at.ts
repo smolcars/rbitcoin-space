@@ -30,6 +30,7 @@ export async function blockAt(moment: Moment, net: Network, signal: AbortSignal)
   try {
     const body = await fetchApi<unknown>(net, `/v1/mining/blocks/timestamp/${moment.at}`, {
       signal,
+      cached: true,
     });
     return isFound(body)
       ? { kind: "found", found: body }

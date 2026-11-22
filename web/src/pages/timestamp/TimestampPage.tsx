@@ -58,7 +58,7 @@ type Hashing =
 
 /** A block by height from this server's mainnet: its hash, then its header, checked against it. */
 const fetchBlock = blockFetcher((path, signal) =>
-  fetchApi<string>("mainnet", path, { as: "text", signal }),
+  fetchApi<string>("mainnet", path, { as: "text", signal, cached: true }),
 );
 
 /** Where the digest came from: a file the page hashed, or hex the reader gave. */

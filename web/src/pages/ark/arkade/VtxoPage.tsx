@@ -115,7 +115,6 @@ function Lookup(props: { network: Network; outpoint: Outpoint }) {
     async (o, signal) => {
       const v = await fetchApp<unknown>(props.network, `/ark/arkade/vtxo/${o.txid}/${o.vout}`, {
         signal,
-        fresh: true,
       });
       const a = readAnswer(v);
       if (!a) throw unreadable();

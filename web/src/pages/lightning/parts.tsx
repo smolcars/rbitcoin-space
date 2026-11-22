@@ -61,7 +61,7 @@ export async function ask<T>(
   check: (v: unknown) => v is T,
   signal: AbortSignal,
 ): Promise<T> {
-  const v = await fetchApp<unknown>(network, `/lightning${path}`, { signal });
+  const v = await fetchApp<unknown>(network, `/lightning${path}`, { signal, cached: true });
   if (!check(v)) throw unreadable();
   return v;
 }

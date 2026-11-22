@@ -45,7 +45,9 @@ export default function AuditList(props: { hash: string; audit: AuditTotals }) {
   const [detail, detailCtl] = createRequest(
     () => ({ hash: props.hash, network: network() }),
     async ({ hash, network: n }, signal) => {
-      const d = readAuditDetail(await fetchApp<unknown>(n, `/block/${hash}/audit`, { signal }));
+      const d = readAuditDetail(
+        await fetchApp<unknown>(n, `/block/${hash}/audit`, { signal, cached: true }),
+      );
       if (!d) throw new Error("The server's answer could not be read.");
       return d;
     },

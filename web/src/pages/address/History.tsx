@@ -233,7 +233,7 @@ export function History(props: {
             : `${path}/txs?after_txid=${encodeURIComponent(last.txid)}`,
           // Past the browser's cache: an empty answer says the history has no more, so one kept
           // from before a reorg must not say it for the chain that followed.
-          { signal: controller.signal, fresh: true },
+          { signal: controller.signal },
         );
         // A refresh while this was in flight may have changed the history it continues (new
         // transactions, a reorg), so the reply could leave a gap or bring back stale rows: it is
@@ -272,14 +272,11 @@ export function History(props: {
     statsFailure() !== "not-kept";
   const [utxos, { refetch: refetchUtxos }] = createApi<Utxo[]>(
     () => wantUtxos() && pin(`${path}/utxo`),
-    {
-      fresh: true,
-    },
   );
   // As of a block, confirmations are counted at it: the tip is not asked.
   const [tip, { refetch: refetchTip }] = createApi<string>(
     () => wantUtxos() && props.asof === undefined && "/blocks/tip/height",
-    { as: "text", fresh: true },
+    { as: "text" },
   );
   createEffect(
     () => utxos.state === "errored" && refusal(utxos.error) === "gone",

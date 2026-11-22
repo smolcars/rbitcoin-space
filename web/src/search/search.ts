@@ -95,8 +95,8 @@ export async function resolve(query: Query | null, probe: Probe): Promise<Outcom
 
 export type Get = (network: Network, path: string, signal: AbortSignal) => Promise<unknown>;
 
-const get: Get = (network, path, signal) => fetchApi(network, path, { signal });
-const getApp: Get = (network, path, signal) => fetchApp(network, path, { signal });
+const get: Get = (network, path, signal) => fetchApi(network, path, { signal, cached: true });
+const getApp: Get = (network, path, signal) => fetchApp(network, path, { signal, cached: true });
 
 /** A node the Lightning index matched, ready to show: its name is gossip, cleaned, never markup. */
 export interface Suggestion {

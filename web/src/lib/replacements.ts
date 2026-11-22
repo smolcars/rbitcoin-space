@@ -256,7 +256,7 @@ export function createReplacements(
     controller = c;
     void (async () => {
       try {
-        const answer = await fetchApi<unknown>(network, path, { signal: c.signal, fresh: true });
+        const answer = await fetchApi<unknown>(network, path, { signal: c.signal });
         if (!Array.isArray(answer)) {
           throw new ApiError(0, "The server sent a list this page cannot read.");
         }

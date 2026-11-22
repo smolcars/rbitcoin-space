@@ -84,7 +84,7 @@ export function BlockLightning(props: { hash: string | undefined }) {
     async ([n, hash]: readonly [Network, string], signal) => {
       const config = await loadConfig();
       if (config?.lightning.includes(n) !== true) return null;
-      const v = await fetchApp<unknown>(n, `/lightning/block/${hash}`, { signal });
+      const v = await fetchApp<unknown>(n, `/lightning/block/${hash}`, { signal, cached: true });
       return isBlockChannels(v) && (v.opened.count > 0 || v.closed.count > 0) ? v : null;
     },
   );

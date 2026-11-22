@@ -48,7 +48,7 @@ export function Compare(props: {
   const [answer, { refetch }] = createRequest(ids, async (pair, signal) => {
     const [a, b] = pair.split("/");
     const r = parseComparison(
-      await fetchApp<unknown>(network(), `/tx/${a}/compare/${b}`, { signal }),
+      await fetchApp<unknown>(network(), `/tx/${a}/compare/${b}`, { signal, cached: true }),
     );
     if (!r) throw new Error("unreadable comparison");
     return r;

@@ -95,7 +95,7 @@ export default function BlockPage() {
       const i = id();
       return i?.kind === "height" && `/block-height/${i.height}`;
     },
-    { as: "text" },
+    { as: "text", cached: true },
   );
   const hash = () => {
     const i = id();
@@ -151,7 +151,7 @@ function BadId(props: { value: string }) {
 }
 
 function NoBlockAtHeight(props: { height: number }) {
-  const [tip] = createApi<string>(() => "/blocks/tip/height", { as: "text" });
+  const [tip] = createApi<string>(() => "/blocks/tip/height", { as: "text", cached: true });
   const tipHeight = () => {
     const t = Number(ready(tip));
     return Number.isSafeInteger(t) ? t : undefined;
@@ -238,7 +238,7 @@ const CORE_LAYER_MIN = 0.005;
 function BlockView(props: { hash?: string | undefined; height?: number | undefined }) {
   const network = useNetwork();
   const at = (suffix: string) => () => props.hash && `/block/${props.hash}${suffix}`;
-  const [block, blockCtl] = createApi<Block>(at(""));
+  const [block, blockCtl] = createApi<Block>(at(""), { cached: true });
   // Stamped: confirmations and "the newest block" both come from this one reply's tip, so they can
   // never disagree the way a separate tip request could when a block lands between the two. The
   // newest block asks again when the next is found (NextListener), from the server; each reply
@@ -249,11 +249,14 @@ function BlockView(props: { hash?: string | undefined; height?: number | undefin
     async ({ hash, network: n }, signal) => {
       const fresh = statusOf === hash;
       statusOf = hash;
-      const reply = await fetchStamped<BlockStatus>(n, `/block/${hash}/status`, { signal, fresh });
+      const reply = await fetchStamped<BlockStatus>(n, `/block/${hash}/status`, {
+        signal,
+        cached: !fresh,
+      });
       return { hash, reply };
     },
   );
-  const [first, firstCtl] = createApi<Transaction[]>(at("/txs/0"));
+  const [first, firstCtl] = createApi<Transaction[]>(at("/txs/0"), { cached: true });
   // Retried quietly while the server is busy (503) or this client has asked for a lot (429).
   const [summary, summaryCtl] = createRequest(
     () => (props.hash ? { hash: props.hash, network: network() } : undefined),
@@ -268,7 +271,7 @@ function BlockView(props: { hash?: string | undefined; height?: number | undefin
     async ({ hash, network: n }, signal): Promise<GridTx[]> => {
       // The format in the URL: a cache holding another format's answer has it under another key.
       const path = `/block/${hash}/txs?v=${TXS_VERSION}`;
-      return decodeTxs(await fetchApp<ArrayBuffer>(n, path, { as: "bytes", signal }));
+      return decodeTxs(await fetchApp<ArrayBuffer>(n, path, { as: "bytes", signal, cached: true }));
     },
   );
   // The renderer's code downloads while the data does.
@@ -283,7 +286,10 @@ function BlockView(props: { hash?: string | undefined; height?: number | undefin
     const i = Number(tx.id);
     const known = txs()?.[i]?.txid;
     if (known !== undefined) return Promise.resolve(known);
-    return fetchApi<string>(network(), `/block/${props.hash ?? ""}/txid/${i}`, { as: "text" });
+    return fetchApi<string>(network(), `/block/${props.hash ?? ""}/txid/${i}`, {
+      as: "text",
+      cached: true,
+    });
   };
   // Layers arrive with a settle unless this page already had them when the block was opened.
   const settle = createMemo(() => !props.hash || !knownSummary(network(), props.hash));
@@ -349,6 +355,7 @@ function BlockView(props: { hash?: string | undefined; height?: number | undefin
     try {
       const page = await fetchApi<Transaction[]>(network(), `/block/${hash}/txs/${shown}`, {
         signal: c.signal,
+        cached: true,
       });
       if (!c.signal.aborted) setMore((m) => [...m, ...page]);
     } catch (e) {

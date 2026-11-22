@@ -22,7 +22,7 @@ const LAYER_MIN = 0.045;
 
 export function RecentBlocks() {
   const network = useNetwork();
-  const [blocks, { refetch }] = createApi<Block[]>(() => "/blocks");
+  const [blocks, { refetch }] = createApi<Block[]>(() => "/blocks", { cached: true });
   /** The blocks, once here and a list; a reply of another shape shows as not loaded. */
   const list = () => {
     const v: unknown = blocks.state === "ready" ? blocks() : undefined;

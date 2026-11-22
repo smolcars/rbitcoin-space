@@ -19,11 +19,11 @@ export function TxLightning(props: { txid: string; confirmed: boolean }) {
   const [found] = createRequest(
     () => props.confirmed && !off.has(network()) && ([network(), props.txid] as const),
     async ([n, txid], signal) => {
-      const status = await fetchApp<unknown>(n, "/lightning/status", { signal });
+      const status = await fetchApp<unknown>(n, "/lightning/status", { signal, cached: true });
       const state = isObj(status) ? status["state"] : undefined;
       if (state === "off") off.add(n);
       if (state !== "synced") return null;
-      const v = await fetchApp<unknown>(n, `/lightning/tx/${txid}`, { signal });
+      const v = await fetchApp<unknown>(n, `/lightning/tx/${txid}`, { signal, cached: true });
       const some = (k: string) => isObj(v) && Array.isArray(v[k]) && v[k].length > 0;
       return some("opened") || some("closed") ? v : null;
     },

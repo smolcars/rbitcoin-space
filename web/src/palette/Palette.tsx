@@ -101,7 +101,7 @@ const poolLists = new Map<Network, Promise<Pool[]>>();
 function loadPools(network: Network): Promise<Pool[]> {
   let list = poolLists.get(network);
   if (!list) {
-    list = fetchApi<unknown>(network, "/v1/mining/pools").then(
+    list = fetchApi<unknown>(network, "/v1/mining/pools", { cached: true }).then(
       (body) => readPools(body, cleanAlias),
       // A server without a block table has no pool list: the palette offers none.
       () => [],

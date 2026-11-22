@@ -141,7 +141,7 @@ export default function VtxoPage() {
       return v === null || !barkHere() ? false : ([network(), v] as const);
     },
     async ([n, v], signal) => {
-      const body = await fetchApp<unknown>(n, `/ark/bark/vtxo/${v}`, { signal });
+      const body = await fetchApp<unknown>(n, `/ark/bark/vtxo/${v}`, { signal, cached: true });
       const parsed = parseVtxo(body);
       if (parsed === null || parsed.id !== v)
         throw new ApiError(0, "The answer could not be read.");
@@ -194,6 +194,7 @@ export function Body(props: { vtxo: BarkVtxo }) {
   const network = useNetwork();
   const [tipText, { refetch: refetchTip }] = createApi<string>(() => "/blocks/tip/height", {
     as: "text",
+    cached: true,
   });
   const tip = () => {
     const t = Number(tipText.latest);
@@ -220,7 +221,6 @@ export function Body(props: { vtxo: BarkVtxo }) {
         // oxlint-disable-next-line no-await-in-loop -- each answer decides whether to ask for the next
         const s = await fetchApi<TxStatus>(network(), `/tx/${txid}/status`, {
           signal: controller.signal,
-          fresh: true,
         });
         next[txid] =
           s.confirmed && typeof s.block_height === "number"

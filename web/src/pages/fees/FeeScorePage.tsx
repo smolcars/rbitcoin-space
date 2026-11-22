@@ -60,7 +60,10 @@ function FeeScore(props: { network: Network }) {
   const [request, { refetch }] = createRequest(
     () => win().id,
     async (id, signal) => {
-      const v = await fetchApp<unknown>(props.network, `/fees/score?window=${id}`, { signal });
+      const v = await fetchApp<unknown>(props.network, `/fees/score?window=${id}`, {
+        signal,
+        cached: true,
+      });
       const score = readScore(v);
       // An answer for another window than the one asked would be drawn under the wrong tab.
       if (!score || score.window !== id)
