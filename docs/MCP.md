@@ -4,7 +4,7 @@
 
 ## Connecting
 
-Give the client the URL `https://<your host>/mcp` and the transport "Streamable HTTP". Nothing else is needed: no key, no OAuth.
+Give the client the URL `https://<your host>/mcp` and the transport "Streamable HTTP". Nothing else is needed: no key, no OAuth. The public docs' [`/docs/agents`](https://rbitcoin.space/docs/agents) page has the setup for each client, and each docs page's menu offers it where `/app/config` says `mcp: true`.
 
 ## Protocol
 

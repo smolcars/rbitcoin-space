@@ -1,37 +1,9 @@
-import { readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
-import { brotliCompressSync, constants, gzipSync } from "node:zlib";
-import type { Plugin } from "vite";
 import solid from "@solidjs/vite-plugin";
 import { defineConfig } from "vitest/config";
+import { precompress } from "./scripts/precompress";
 
 // The dev server proxies the Rust server, found where the server itself listens.
 const server = `http://${process.env["LISTEN_ADDR"] ?? "127.0.0.1:8080"}`;
-
-// Writes .br and .gz beside each text file in the build; the server sends them to clients that accept them.
-function precompress(): Plugin {
-  let outDir = "";
-  return {
-    name: "precompress",
-    apply: "build",
-    configResolved(config) {
-      outDir = resolve(config.root, config.build.outDir);
-    },
-    closeBundle() {
-      for (const file of readdirSync(outDir, { recursive: true, encoding: "utf8" })) {
-        if (!/\.(js|css|html|svg|json|txt)$/.test(file)) continue;
-        const path = join(outDir, file);
-        const data = readFileSync(path);
-        const br = brotliCompressSync(data, {
-          params: { [constants.BROTLI_PARAM_QUALITY]: constants.BROTLI_MAX_QUALITY },
-        });
-        const gz = gzipSync(data, { level: 9 });
-        if (br.length < data.length) writeFileSync(`${path}.br`, br);
-        if (gz.length < data.length) writeFileSync(`${path}.gz`, gz);
-      }
-    },
-  };
-}
 
 export default defineConfig({
   plugins: [solid(), precompress()],

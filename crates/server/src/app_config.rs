@@ -35,6 +35,7 @@ pub fn routes(config: &Config) -> Router {
         "ark": ark,
         "lightning": config.networks.iter().filter(|n| n.lightning.is_some()).map(|n| n.network.name()).collect::<Vec<_>>(),
         "broadcast": config.broadcast,
+        "mcp": config.mcp,
     });
     Router::new().route(
         "/app/config",

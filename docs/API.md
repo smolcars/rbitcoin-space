@@ -1,6 +1,6 @@
 # Public API
 
-The server serves rbitcoin's Esplora REST API under `/api`: the same routes, status codes, body bytes and content types as the node, behind an allow-list of parsed routes ([`SECURITY.md`](SECURITY.md) rules 1–3). Wallets and tools that speak Esplora can point at it unchanged. This page lists the routes and every way we differ from the node. The code is `crates/server/src/esplora.rs`. The mempool.space-shaped routes under `/api/v1` are [their own section](#mempoolspace-shaped-routes-apiv1).
+The server serves rbitcoin's Esplora REST API under `/api`: the same routes, status codes, body bytes and content types as the node, behind an allow-list of parsed routes ([`SECURITY.md`](SECURITY.md) rules 1–3). Wallets and tools that speak Esplora can point at it unchanged. This page lists the routes and every way we differ from the node; the reference for people and agents calling the API is served at [`/docs`](https://rbitcoin.space/docs) ([`FRONTEND.md`](FRONTEND.md#public-docs)). The code is `crates/server/src/esplora.rs`. The mempool.space-shaped routes under `/api/v1` are [their own section](#mempoolspace-shaped-routes-apiv1).
 
 | Network | Base URL |
 |---|---|

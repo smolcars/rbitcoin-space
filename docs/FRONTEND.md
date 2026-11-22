@@ -10,15 +10,21 @@ web/
   .oxfmtrc.json         Formatter settings
   tsconfig.json         Shared compiler options; tsconfig.app.json (browser) and tsconfig.node.json extend it
   index.html            The shell document: preloads the font, runs public/boot.js, loads src/index.tsx
+  docs.html             The public docs' page template (see "Public docs")
+  docs/                 The public docs' pages, in Markdown
+  vite.docs.config.ts   The public docs' own build, after the explorer's
   public/boot.js        Runs before first paint: applies a stored theme and the network (see "Theme")
   public/robots.txt     Allows crawling everywhere (search renderers need /api and /app); asks eight named AI crawlers to skip /api and /app
   scripts/check-size.js First-load budget check (`bun run size`)
+  scripts/docs.ts       Vite plugin: fills docs.html once per page, writes the Markdown copies and /llms.txt
+  scripts/precompress.ts Vite plugin: .br and .gz beside each text file a build writes
   scripts/e2e.sh        Browser tests in one command (`bun run e2e`)
   e2e/                  Browser tests (Playwright) and their fixtures
   src/
     index.tsx           Waits briefly for the font, then mounts the router
     routes.ts           The route table: every page, on every network
     styles/global.css   Layer order, reset, base and layout. Imports nothing; tokens come from design/
+    docs/               The public docs: Markdown renderer, page list, build, and the pages' script and styles
     lib/                Pure logic and hooks, no markup
       format.ts         Amounts, fee rates and bands, sizes, hashes, times
       network.ts        Networks, prefixes, `paths` for every page
@@ -170,7 +176,7 @@ During development, `bun run dev` proxies `/api`, `/app` and `/healthz` to the R
 
 ### The app's own API
 
-`GET /app/config` answers `{"networks": ["mainnet", "signet"], "version": "0.5.0", "ark": {"signet": ["bark"]}, "lightning": ["mainnet"], "broadcast": true}`: the enabled networks in server order, the server version, the Ark implementations of each network that has one ([`ARK.md`](ARK.md)), the networks whose operator switched Lightning on ([`CONFIG.md`](CONFIG.md#lightning)), and whether the server broadcasts (`BROADCAST_ENABLED`). The header shows Ark and Lightning only on those, and neither before the answer arrives; a Lightning address typed on another network still gets the page's "switched off". `loadConfig()` in `lib/config.ts` is the answer as the tab first read it, for pages that need it. It is server-wide, so it is served at the root only, whichever networks are enabled (`crates/server/src/app_config.rs`). The shell reads it once for the network switch and the footer. If the root's network (mainnet) is disabled, the shell moves to the same page on the first enabled network.
+`GET /app/config` answers `{"networks": ["mainnet", "signet"], "version": "0.5.0", "ark": {"signet": ["bark"]}, "lightning": ["mainnet"], "broadcast": true, "mcp": false}`: the enabled networks in server order, the server version, the Ark implementations of each network that has one ([`ARK.md`](ARK.md)), the networks whose operator switched Lightning on ([`CONFIG.md`](CONFIG.md#lightning)), whether the server broadcasts (`BROADCAST_ENABLED`), and whether it serves the MCP server (`MCP_ENABLED`; only the [public docs](#public-docs) read it). The header shows Ark and Lightning only on those, and neither before the answer arrives; a Lightning address typed on another network still gets the page's "switched off". `loadConfig()` in `lib/config.ts` is the answer as the tab first read it, for pages that need it. It is server-wide, so it is served at the root only, whichever networks are enabled (`crates/server/src/app_config.rs`). The shell reads it once for the network switch and the footer. If the root's network (mainnet) is disabled, the shell moves to the same page on the first enabled network.
 
 #### Block summaries
 
@@ -612,6 +618,17 @@ A second way in beside the header search, in `palette/`. ⌘K on Apple's keyboar
 - **Text from the chain or gossip** (pool names, aliases) goes through `cleanAlias` and into text nodes only.
 - **Accessibility.** A native `<dialog>` opened with `showModal()`, so the page behind is inert, holding a combobox with `aria-activedescendant` over a listbox of named groups. Arrow keys, Home and End move, Enter opens, Escape or a press outside closes, and focus goes back to where it was. A pointer selects a row only when it moves. The count is said once typing pauses. `e2e/palette.e2e.ts` and `e2e/a11y.e2e.ts` hold it.
 - **The keyboard on a phone** covers the page without resizing it, so the panel takes its height from `visualViewport`, through a custom property in the `style` object.
+
+### Public docs
+
+`/docs` is the public API's documentation, for people and for agents. It is not part of the app: each page is a static HTML file that reads in full without JavaScript, because an agent fetching a page runs none. The text is Markdown in `web/docs/` (the overview is `index.md`), listed in order in `src/docs/pages.ts`; a page's title is its file's first heading.
+
+- **Built after the app.** `bun run build` runs `vite build`, then `vite build --config vite.docs.config.ts` into the same `dist/`. Built in one pass, the two pages would share Vite's preload polyfill as a file of its own, one more for a cold home page; apart, the app's output is the same as without the docs. Vite builds `docs.html` with its own script (`src/docs/client.ts`) and stylesheet (`src/docs/docs.css`: the tokens, `global.css` and the header's styles, then the docs' own), and `scripts/docs.ts` fills that built page once per Markdown file with `src/docs/build.ts`. The template itself is not shipped.
+- **What it writes.** `docs/<slug>.html` for each page (`docs/index.html` for the overview), a Markdown copy at `docs/<slug>.md` (`docs.md` for the overview) whose links to this site are whole and point at other copies, `llms.txt` (every page with its one line from `pages.ts`, as [llmstxt.org](https://llmstxt.org) lays out) and `llms-full.txt` (every copy, one after another). A page without its Markdown, or Markdown without a title, fails the build.
+- **Markdown.** `src/docs/markdown.ts` reads only what the pages use: headings, paragraphs, lists, tables, block quotes, fenced code, rules, and inline code, links and bold. Everything is escaped, and a link goes only to `http(s)`, a path or an anchor. A heading that is a method and a path (`## GET /api/v1/fees/precise`) is drawn as a route. Write the text by [`DESIGN.md`](DESIGN.md)'s voice; keep it ASCII, since `/llms.txt` is served as `text/plain` without a charset (a test holds it).
+- **Served by the server** (`crates/server/src/docs.rs`): `/docs`, `/docs/<slug>` and their `.md` addresses. An address without `.md` is the HTML, or the Markdown for a client whose `Accept` names `text/markdown` at least as high as HTML (a browser never names it), with `Vary: Accept`; the HTML names its copy in a `Link` header and a `<link rel="alternate">`. An address that is no page is a `404`. `no-cache`, like the app's pages.
+- **The script** adds what needs one: the theme switch, a copy button on each code block, and the page menu (copy the page as Markdown, open it, and ask about it in Claude or ChatGPT, which are given the page's Markdown address on rbitcoin.space). The MCP actions (copy its URL or a Claude Code command, add it to Cursor) show only where `/app/config` says `mcp: true`. On another server, examples that name `https://rbitcoin.space` name the reader's own origin.
+- **The explorer links to it** from its footer. The header's sections are the network's own pages, fitted to a 320 px phone, so it has no tab for the docs.
 
 ## Shared components
 

@@ -34,6 +34,10 @@ export function Footer(props: {
                 Broadcast
               </Link>
             </Show>
+            {/* The public docs are pages of their own, outside the app: the router lets them load. */}
+            <a class="tap" href="/docs" rel="external">
+              Docs
+            </a>
             <a
               class="tap"
               href="https://github.com/smolcars/rbitcoin-space"

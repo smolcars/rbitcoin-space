@@ -239,6 +239,8 @@ async fn app_config_lists_enabled_networks_at_the_root_only() {
     assert_eq!(json["ark"], serde_json::json!({}));
     assert_eq!(json["lightning"], serde_json::json!([]));
     assert_eq!(json["broadcast"], true);
+    // MCP is off by default; the docs pages show its actions only where it is on.
+    assert_eq!(json["mcp"], false);
     assert_json_error(
         &get_path(&addr, "/signet/app/config").await,
         404,
@@ -257,6 +259,7 @@ async fn app_config_lists_enabled_networks_at_the_root_only() {
         max_peers: 1,
         max_channels: 1,
     });
+    c.mcp = true;
     let addr = start_with(c).await;
     let json: serde_json::Value =
         serde_json::from_str(&get_path(&addr, "/app/config").await.body).unwrap();
@@ -268,6 +271,7 @@ async fn app_config_lists_enabled_networks_at_the_root_only() {
     );
     // Lightning switched on for testnet4 alone: the header offers its tab there only.
     assert_eq!(json["lightning"], serde_json::json!(["testnet4"]));
+    assert_eq!(json["mcp"], true);
     assert_json_error(&get_path(&addr, "/app/other").await, 404, "not found");
 }
 

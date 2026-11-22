@@ -16,6 +16,7 @@ pub mod compare;
 pub mod config;
 pub mod decode;
 pub mod difficulty;
+mod docs;
 pub mod error;
 pub mod esplora;
 pub mod health;
@@ -500,6 +501,15 @@ impl App {
                         files.oneshot(req).await.map(IntoResponse::into_response)
                     }
                 });
+                // The public docs (docs/FRONTEND.md, "Public docs"): routed, not nested, so the
+                // handler sees the whole path.
+                let docs = cache("no-cache").layer(axum::handler::Handler::with_state(
+                    docs::serve,
+                    docs::Docs::new(dir),
+                ));
+                let app = ["/docs", "/docs/", "/docs/{*page}", "/docs.md"]
+                    .into_iter()
+                    .fold(app, |app, path| app.route_service(path, docs.clone()));
                 app.nest_service("/assets", cache(IMMUTABLE).layer(assets))
                     .fallback_service(cache("no-cache").layer(pages))
             }

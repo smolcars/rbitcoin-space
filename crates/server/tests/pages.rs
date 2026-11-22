@@ -292,8 +292,13 @@ impl Reply {
 
 /// `target` is sent as written, so a test can send what a browser would not.
 async fn get(addr: &str, target: &str) -> Reply {
+    get_with(addr, target, "").await
+}
+
+/// With more request headers, each ending `\r\n`.
+async fn get_with(addr: &str, target: &str, headers: &str) -> Reply {
     let mut stream = TcpStream::connect(addr).await.unwrap();
-    let req = format!("GET {target} HTTP/1.1\r\nHost: t\r\nConnection: close\r\n\r\n");
+    let req = format!("GET {target} HTTP/1.1\r\nHost: t\r\n{headers}Connection: close\r\n\r\n");
     stream.write_all(req.as_bytes()).await.unwrap();
     let mut raw = Vec::new();
     stream.read_to_end(&mut raw).await.unwrap();
@@ -1150,4 +1155,110 @@ async fn cards_are_built_two_at_a_time_and_a_node_that_hangs_gets_the_static_pic
         .filter(|l| l.contains(&format!("/tx/{SLOW}")))
         .count();
     assert_eq!(asked, 2);
+}
+
+#[tokio::test]
+async fn the_docs_answer_in_html_or_in_markdown_for_a_client_that_asks() {
+    let dir = temp("docs");
+    let web = dir.0.join("web");
+    std::fs::create_dir_all(web.join("docs")).unwrap();
+    for (file, text) in [
+        ("docs/index.html", "<!doctype html><p>overview</p>"),
+        ("docs.md", "# Overview\n"),
+        ("docs/limits.html", "<!doctype html><p>limits</p>"),
+        ("docs/limits.md", "# Limits\n"),
+        ("llms.txt", "# rbitcoin.space\n"),
+    ] {
+        std::fs::write(web.join(file), text).unwrap();
+    }
+    std::fs::write(web.join("docs/limits.html.br"), b"compressed").unwrap();
+    let (addr, _) = start(&dir.0).await;
+    const MD: &str = "accept: text/markdown, text/html;q=0.9, */*;q=0.8\r\n";
+    const BROWSER: &str = "accept: text/html,application/xhtml+xml,*/*;q=0.8\r\n";
+
+    for (path, headers, body, content_type) in [
+        ("/docs", "", "<!doctype html><p>overview</p>", "text/html"),
+        (
+            "/docs/",
+            BROWSER,
+            "<!doctype html><p>overview</p>",
+            "text/html",
+        ),
+        ("/docs", MD, "# Overview\n", "text/markdown; charset=utf-8"),
+        (
+            "/docs.md",
+            BROWSER,
+            "# Overview\n",
+            "text/markdown; charset=utf-8",
+        ),
+        (
+            "/docs/limits",
+            BROWSER,
+            "<!doctype html><p>limits</p>",
+            "text/html",
+        ),
+        (
+            "/docs/limits",
+            MD,
+            "# Limits\n",
+            "text/markdown; charset=utf-8",
+        ),
+        (
+            "/docs/limits.md",
+            "",
+            "# Limits\n",
+            "text/markdown; charset=utf-8",
+        ),
+    ] {
+        let r = get_with(&addr, path, headers).await;
+        assert_eq!(r.status, 200, "{path} {headers}");
+        assert_eq!(r.body, body, "{path} {headers}");
+        assert_eq!(r.header("content-type"), Some(content_type), "{path}");
+        assert_eq!(r.header("cache-control"), Some("no-cache"), "{path}");
+        assert!(r.header("content-security-policy").is_some(), "{path}");
+        // One address answers two ways, so caches key on Accept; a `.md` address answers one.
+        let varies = r.head.lines().any(|l| l == "vary: accept");
+        assert_eq!(varies, !path.ends_with(".md"), "{path}");
+        let alternate = r.header("link");
+        if content_type == "text/html" {
+            let md = if path.starts_with("/docs/limits") {
+                "/docs/limits.md"
+            } else {
+                "/docs.md"
+            };
+            let want = format!("<{md}>; rel=\"alternate\"; type=\"text/markdown\"");
+            assert_eq!(alternate, Some(want.as_str()), "{path}");
+        } else {
+            assert_eq!(alternate, None, "{path}");
+        }
+    }
+
+    // The build's compressed copy, to a client that takes it.
+    let r = get_with(&addr, "/docs/limits", "accept-encoding: br\r\n").await;
+    assert_eq!(r.header("content-encoding"), Some("br"));
+    assert_eq!(r.body, "compressed");
+
+    // No page: a 404, not the explorer's shell.
+    for path in [
+        "/docs/missing",
+        "/docs/missing.md",
+        "/docs/index",
+        "/docs/index.md",
+        "/docs/limits.html",
+        "/docs/Limits",
+        "/docs/../index.html",
+        "/docs/a%2f..%2fb",
+    ] {
+        let r = get(&addr, path).await;
+        assert_eq!(r.status, 404, "{path}");
+        assert_eq!(r.body, "{\"error\":\"not found\"}", "{path}");
+    }
+
+    let r = get(&addr, "/llms.txt").await;
+    assert_eq!(r.status, 200);
+    assert_eq!(r.body, "# rbitcoin.space\n");
+
+    // Where MCP is off, the docs' script hides its actions.
+    let r = get(&addr, "/app/config").await;
+    assert!(r.body.contains("\"mcp\":false"), "{}", r.body);
 }
