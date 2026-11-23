@@ -61,7 +61,7 @@ test("a busy answer for the tiles' summaries is asked again, and the tiles get t
   // Asked again after the second the server named, and answered.
   await expect.poll(() => answered).toStrictEqual([503, 200]);
   // Even the first paint's ask names the release, so a new one never reads an old cached miner.
-  for (const url of urls) expect(url).toMatch(/&r=[0-9a-z]{1,40}$/);
+  for (const url of urls) expect(url).toMatch(/&r=[0-9a-f]{40}$/);
 });
 
 test("the home page fits a phone without scrolling sideways", async ({ page }) => {

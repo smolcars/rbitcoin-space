@@ -663,7 +663,13 @@ pub async fn batch(
 ) -> Response {
     const ROUTE: &str = "block_summaries";
     let answer = async {
-        let hashes = parse_batch(uri.query())?;
+        let (hashes, release) = parse_batch(uri.query())?;
+        // A page of another release (a tab open across a deploy) keeps no copy under its URL:
+        // that release, rolled back to, would read this one's miners from it.
+        let cache = match release {
+            Some(r) if r != crate::REVISION => "no-store",
+            _ => FACTS,
+        };
         let started = Instant::now();
         let stored = stored(&ctx, &hashes).await;
         let mut starts = Vec::with_capacity(hashes.len());
@@ -718,7 +724,7 @@ pub async fn batch(
         let body = serde_json::to_vec(&published).map_err(|_| Answer::Bad(ApiError::INTERNAL))?;
         Ok(unkept_unless(
             read,
-            ok(ROUTE, "application/json", FACTS, body.into(), source),
+            ok(ROUTE, "application/json", cache, body.into(), source),
         ))
     };
     answer
@@ -786,23 +792,24 @@ const NOT_IN_BLOCK: ApiError =
     ApiError::new(StatusCode::NOT_FOUND, "transaction not found in this block");
 
 /// `hashes=`, 1 to [`MAX_BATCH`] block hashes, comma-separated (`%2C` too), then optionally
-/// `&r=` and the release the page was built with: unread, it only gives each release its own URL
-/// in a browser's cache, since a release can name a block's miner differently.
-fn parse_batch(query: Option<&str>) -> Result<Vec<BlockHash>, Answer> {
+/// `&r=` and the release the page was built with, which gives each release its own URLs in a
+/// browser's cache, since a release can name a block's miner differently. Returns the hashes and
+/// that release.
+fn parse_batch(query: Option<&str>) -> Result<(Vec<BlockHash>, Option<&str>), Answer> {
     let bad = |m| Answer::Bad(ApiError::bad_request(m));
     let query = query
         .and_then(|q| q.strip_prefix("hashes="))
         .ok_or_else(|| bad("hashes is required"))?;
-    let list = match query.split_once("&r=") {
+    let (list, release) = match query.split_once("&r=") {
         Some((list, r))
             if (1..=40).contains(&r.len())
                 && r.bytes()
                     .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit()) =>
         {
-            list
+            (list, Some(r))
         }
         Some(_) => return Err(bad("r is 1 to 40 lowercase letters and digits")),
-        None => query,
+        None => (query, None),
     };
     if list.contains(['&', '=']) {
         return Err(bad("unexpected query parameter"));
@@ -815,7 +822,7 @@ fn parse_batch(query: Option<&str>) -> Result<Vec<BlockHash>, Answer> {
     if hashes.len() > MAX_BATCH {
         return Err(bad("at most 10 hashes"));
     }
-    Ok(hashes)
+    Ok((hashes, release))
 }
 
 /// Computes each new tip's summary, then walks back up to [`WARM_BLOCKS`] blocks filling the
@@ -1005,6 +1012,7 @@ mod tests {
             parse_batch(Some(&format!("hashes={one}")))
                 .ok()
                 .unwrap()
+                .0
                 .len(),
             1
         );
@@ -1012,13 +1020,15 @@ mod tests {
             parse_batch(Some(&format!("hashes={one}%2C{one},{one}")))
                 .ok()
                 .unwrap()
+                .0
                 .len(),
             3
         );
         let rev = "0123456789abcdef0123456789abcdef01234567";
         for r in [rev, "unknown"] {
             let q = format!("hashes={one},{one}&r={r}");
-            assert_eq!(parse_batch(Some(&q)).ok().unwrap().len(), 2, "{q}");
+            let (hashes, release) = parse_batch(Some(&q)).ok().unwrap();
+            assert_eq!((hashes.len(), release), (2, Some(r)), "{q}");
         }
         let eleven = [one.as_str(); 11].join(",");
         for bad in [

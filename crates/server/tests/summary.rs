@@ -435,6 +435,19 @@ async fn facts_records_and_batches_are_served_and_cached() {
         .collect();
     assert_eq!(ids, [b.as_str(), a.as_str(), b.as_str()]);
     assert_eq!((node.calls(&a), node.calls(&b)), (1, 1));
+    // A page of another release, open across a deploy, gets the facts with no copy kept under
+    // its URL, which that release would read if it came back.
+    let other = "0".repeat(40);
+    assert_ne!(other, rbitcoin_space::REVISION);
+    let r = get(
+        &addr,
+        &format!("/regtest/app/blocks/summary?hashes={a}&r={other}"),
+        "192.0.2.1",
+    )
+    .await;
+    assert_eq!(r.status, 200, "{r:?}");
+    assert_eq!(r.header("cache-control"), Some("no-store"));
+    assert_eq!(r.json()[0]["id"], a.as_str());
     // Every block in a batch names its miner; a hostile tag is Unknown and never text here.
     assert_eq!(
         all[0]["miner"],

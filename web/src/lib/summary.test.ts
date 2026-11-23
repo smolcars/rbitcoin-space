@@ -92,9 +92,9 @@ describe("fetchSummaries", () => {
 
   it("names the page's release, so a new release never reads an old one's cached miner", async () => {
     const rev = "a8c5a81705bef0bcd931f790c282538ea1196f70";
-    const asked: string[] = [];
-    vi.stubGlobal("fetch", async (url: string) => {
-      asked.push(url);
+    const asked: [string, RequestCache | undefined][] = [];
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+      asked.push([url, init?.cache]);
       const hashes = new URL(url, "http://x").searchParams.get("hashes")?.split(",") ?? [];
       return Response.json(hashes.map((h) => summary(Number.parseInt(h, 16))));
     });
@@ -104,17 +104,21 @@ describe("fetchSummaries", () => {
       meta.content = rev;
       document.head.append(meta);
       await fetchSummaries("mainnet", [hash(5)]);
-      // Never a value that could add to the query.
-      meta.content = "a&x=1";
+      // A build with no commit, or a value that could add to the query, names no release.
+      meta.content = "unknown";
       await fetchSummaries("mainnet", [hash(6)]);
+      meta.content = "a&x=1";
+      await fetchSummaries("mainnet", [hash(7)]);
     } finally {
       meta.remove();
     }
-    await fetchSummaries("mainnet", [hash(7)]);
+    await fetchSummaries("mainnet", [hash(8)]);
+    // Only a page that names its release takes the browser's copy; the rest ask the server.
     expect(asked).toStrictEqual([
-      `/app/blocks/summary?hashes=${hash(5)}&r=${rev}`,
-      `/app/blocks/summary?hashes=${hash(6)}`,
-      `/app/blocks/summary?hashes=${hash(7)}`,
+      [`/app/blocks/summary?hashes=${hash(5)}&r=${rev}`, undefined],
+      [`/app/blocks/summary?hashes=${hash(6)}`, "no-cache"],
+      [`/app/blocks/summary?hashes=${hash(7)}`, "no-cache"],
+      [`/app/blocks/summary?hashes=${hash(8)}`, "no-cache"],
     ]);
   });
 
