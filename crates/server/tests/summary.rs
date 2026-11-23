@@ -416,7 +416,11 @@ async fn facts_records_and_batches_are_served_and_cached() {
 
     let r = get(
         &addr,
-        &format!("/regtest/app/blocks/summary?hashes={b},{a}%2C{b}"),
+        // As the page asks, with the release it was built with (docs/FRONTEND.md).
+        &format!(
+            "/regtest/app/blocks/summary?hashes={b},{a}%2C{b}&r={}",
+            rbitcoin_space::REVISION
+        ),
         "192.0.2.1",
     )
     .await;

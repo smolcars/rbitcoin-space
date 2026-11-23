@@ -113,6 +113,19 @@ export function clearSummaries(): void {
 }
 
 /**
+ * `&r=` and the commit the server wrote into the page (`<meta name="revision">`), or nothing
+ * without one (a test, the dev server). A release can name a block's miner differently, so each
+ * release's summaries have their own URLs in the browser's cache.
+ */
+function releaseParam(): string {
+  const r =
+    typeof document === "undefined"
+      ? null
+      : document.querySelector('meta[name="revision"]')?.getAttribute("content");
+  return typeof r === "string" && /^[0-9a-z]{1,40}$/.test(r) ? `&r=${r}` : "";
+}
+
+/**
  * The summaries of up to ten blocks in one request, retrying when the server says it is busy (503)
  * or this client asked for too much (429), as long as it says to wait. Summaries already known are
  * not asked for again. Resolves with every summary it has, keyed by hash.
@@ -123,9 +136,10 @@ export async function fetchSummaries(
   signal?: AbortSignal,
 ): Promise<Map<string, BlockSummary>> {
   const missing = [...new Set(hashes)].filter((h) => !known.has(key(network, h)));
+  const release = releaseParam();
   for (let i = 0; i < missing.length; i += SUMMARY_BATCH) {
     const part = missing.slice(i, i + SUMMARY_BATCH);
-    const path = `/blocks/summary?hashes=${part.map((h) => encodeURIComponent(h)).join(",")}`;
+    const path = `/blocks/summary?hashes=${part.map((h) => encodeURIComponent(h)).join(",")}${release}`;
     // oxlint-disable-next-line no-await-in-loop -- one batch at a time, so a page never floods the server
     const reply = await fetchApp<unknown>(
       network,

@@ -56,7 +56,12 @@ struct Shell {
 }
 
 impl Shell {
-    fn new(raw: String) -> Self {
+    fn new(mut raw: String) -> Self {
+        // The page puts the release in its summary URLs, so a browser never answers one release's
+        // page with another's cached miner (docs/FRONTEND.md, Block summaries).
+        if let Some(at) = raw.find("</head>") {
+            raw.insert_str(at, &revision_tag());
+        }
         let start = raw.find("<title>");
         let end = start.and_then(|s| {
             raw.get(s..)?
@@ -68,6 +73,15 @@ impl Shell {
             raw,
         }
     }
+}
+
+/// The `<meta>` element naming the commit the server was built from: 40 hex digits or `unknown`,
+/// so nothing in it needs escaping.
+fn revision_tag() -> String {
+    format!(
+        "  <meta name=\"revision\" content=\"{}\" />\n  ",
+        crate::REVISION
+    )
 }
 
 /// What a page is: its title as the page sets it, without the network or the site, and one

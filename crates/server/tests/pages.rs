@@ -312,18 +312,32 @@ async fn get_with(addr: &str, target: &str, headers: &str) -> Reply {
     }
 }
 
+/// A shell as the server serves it: as built, with the release it was built from before the end
+/// of its head, where it has one.
+fn served(shell: &str) -> String {
+    let tag = format!(
+        "  <meta name=\"revision\" content=\"{}\" />\n  ",
+        rbitcoin_space::REVISION
+    );
+    match shell.find("</head>") {
+        Some(at) => format!("{}{tag}{}", &shell[..at], &shell[at..]),
+        None => shell.to_owned(),
+    }
+}
+
 /// The shell around its title element: what every filled page keeps byte for byte.
-fn around_title() -> (&'static str, &'static str) {
-    let start = SHELL.find("<title>").unwrap();
-    let end = SHELL.find("</title>").unwrap() + "</title>".len();
-    (&SHELL[..start], &SHELL[end..])
+fn around_title() -> (String, String) {
+    let shell = served(SHELL);
+    let start = shell.find("<title>").unwrap();
+    let end = shell.find("</title>").unwrap() + "</title>".len();
+    (shell[..start].to_owned(), shell[end..].to_owned())
 }
 
 fn assert_filled(r: &Reply, path: &str) {
     assert_eq!(r.status, 200, "{path}");
     let (before, after) = around_title();
-    assert!(r.body.starts_with(before), "{path}");
-    assert!(r.body.ends_with(after), "{path}");
+    assert!(r.body.starts_with(&before), "{path}");
+    assert!(r.body.ends_with(&after), "{path}");
     let head = &r.body[before.len()..r.body.len() - after.len()];
     // Only the title and the preview tags are new, one element to a line.
     for line in head.lines().map(str::trim) {
@@ -345,6 +359,8 @@ fn assert_filled(r: &Reply, path: &str) {
     );
     assert_eq!(r.meta("property", "og:type"), "website");
     assert_eq!(r.meta("property", "og:site_name"), "rbitcoin.space");
+    // The page names the release in its summary URLs (docs/FRONTEND.md, Block summaries).
+    assert_eq!(r.meta("name", "revision"), rbitcoin_space::REVISION);
     assert_eq!(r.meta("name", "twitter:card"), "summary");
     // No absolute URL: the server is not told its own address (docs/CONFIG.md).
     assert!(
@@ -718,7 +734,7 @@ async fn with_the_site_address_every_page_has_the_picture_and_its_own_address() 
         assert_eq!(r.status, 200, "{target}");
         let (before, after) = around_title();
         assert!(
-            r.body.starts_with(before) && r.body.ends_with(after),
+            r.body.starts_with(&before) && r.body.ends_with(&after),
             "{target}"
         );
         assert_eq!(r.meta("property", "og:url"), url, "{target}");
@@ -755,7 +771,7 @@ async fn with_the_site_address_every_page_has_the_picture_and_its_own_address() 
         );
     }
     // A path that names no page is still the shell as built.
-    assert_eq!(get(&addr, "/no/such/page").await.body, SHELL);
+    assert_eq!(get(&addr, "/no/such/page").await.body, served(SHELL));
 }
 
 #[tokio::test]
@@ -772,7 +788,7 @@ async fn a_shell_without_a_whole_title_is_served_as_built() {
         let (addr, _) = start(&dir.0).await;
         for path in ["/".to_owned(), format!("/tx/{TXID}")] {
             let r = get(&addr, &path).await;
-            assert_eq!((r.status, r.body.as_str()), (200, shell), "{name} {path}");
+            assert_eq!((r.status, r.body), (200, served(shell)), "{name} {path}");
         }
     }
 }
@@ -848,7 +864,6 @@ async fn paths_that_do_not_parse_get_the_shell_as_built() {
     let long = "a".repeat(8000);
     let hostile = [
         "/no/such/page".to_owned(),
-        "/index.html".to_owned(),
         "/tx/%3Cscript%3Ealert(1)%3C/script%3E".to_owned(),
         "/tx/<script>alert(1)</script>".to_owned(),
         format!("/tx/{TXID}%00"),
@@ -910,9 +925,12 @@ async fn paths_that_do_not_parse_get_the_shell_as_built() {
             continue;
         }
         assert_eq!(r.status, 200, "{path}");
-        assert_eq!(r.body, SHELL, "{path}");
+        assert_eq!(r.body, served(SHELL), "{path}");
         assert_eq!(r.header("cache-control"), Some("no-cache"), "{path}");
     }
+    // The file itself is served as built, without the release: no page links to it, and its
+    // summaries are only asked without one.
+    assert_eq!(get(&addr, "/index.html").await.body, SHELL);
     assert_eq!(get(&addr, "/tx/a\x01b").await.status, 400);
     assert!(
         log.lock()

@@ -785,12 +785,25 @@ pub async fn v1_tx(
 const NOT_IN_BLOCK: ApiError =
     ApiError::new(StatusCode::NOT_FOUND, "transaction not found in this block");
 
-/// `hashes=` and nothing else: 1 to [`MAX_BATCH`] block hashes, comma-separated (`%2C` too).
+/// `hashes=`, 1 to [`MAX_BATCH`] block hashes, comma-separated (`%2C` too), then optionally
+/// `&r=` and the release the page was built with: unread, it only gives each release its own URL
+/// in a browser's cache, since a release can name a block's miner differently.
 fn parse_batch(query: Option<&str>) -> Result<Vec<BlockHash>, Answer> {
     let bad = |m| Answer::Bad(ApiError::bad_request(m));
-    let list = query
+    let query = query
         .and_then(|q| q.strip_prefix("hashes="))
         .ok_or_else(|| bad("hashes is required"))?;
+    let list = match query.split_once("&r=") {
+        Some((list, r))
+            if (1..=40).contains(&r.len())
+                && r.bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit()) =>
+        {
+            list
+        }
+        Some(_) => return Err(bad("r is 1 to 40 lowercase letters and digits")),
+        None => query,
+    };
     if list.contains(['&', '=']) {
         return Err(bad("unexpected query parameter"));
     }
@@ -1002,6 +1015,11 @@ mod tests {
                 .len(),
             3
         );
+        let rev = "0123456789abcdef0123456789abcdef01234567";
+        for r in [rev, "unknown"] {
+            let q = format!("hashes={one},{one}&r={r}");
+            assert_eq!(parse_batch(Some(&q)).ok().unwrap().len(), 2, "{q}");
+        }
         let eleven = [one.as_str(); 11].join(",");
         for bad in [
             None,
@@ -1013,6 +1031,12 @@ mod tests {
             Some(&format!("hashes={one}&hashes={one}")),
             Some(&format!("hashes=0x{}", &one[2..])),
             Some(&format!("hashes={eleven}")),
+            Some(&format!("hashes={one}&r=")),
+            Some(&format!("hashes={one}&r={rev}0")),
+            Some(&format!("hashes={one}&r=ABC")),
+            Some(&format!("hashes={one}&r=a&r=b")),
+            Some(&format!("hashes={one}&r=a&x=1")),
+            Some(&format!("r=a&hashes={one}")),
         ] {
             assert!(parse_batch(bad).is_err(), "{bad:?}");
         }
