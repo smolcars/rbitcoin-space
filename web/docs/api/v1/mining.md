@@ -96,14 +96,14 @@ With `pools` cut to the first two of 15:
 }
 ```
 
-| Field                                                                         | Means                                                                                   |
-| ----------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `poolId`, `poolUniqueId`                                                      | Both the pool's id in the list                                                          |
-| `blockCount`, `rank`, `emptyBlocks`                                           | The pool's blocks in the period, its place, and how many of them held only the coinbase |
-| `avgMatchRate`                                                                | The pool's block health in the period (below); `null` with no audited block             |
-| `avgFeeDelta`                                                                 | Always `null`                                                                           |
-| `blockCount` (top level)                                                      | Every block in the period                                                               |
-| `lastEstimatedHashrate`, `lastEstimatedHashrate3d`, `lastEstimatedHashrate1w` | The network's hashrate over the last 144, 432 and 1,008 blocks                          |
+| Field                                                                         | Means                                                                                                                                            |
+| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `poolId`, `poolUniqueId`                                                      | Both the pool's id in the list                                                                                                                   |
+| `blockCount`, `rank`, `emptyBlocks`                                           | The pool's blocks in the period, its place, and how many of them held only the coinbase                                                          |
+| `avgMatchRate`                                                                | The pool's block health in the period (below); `null` with no audited block                                                                      |
+| `avgFeeDelta`                                                                 | Always `null`                                                                                                                                    |
+| `blockCount` (top level)                                                      | Every block in the period                                                                                                                        |
+| `lastEstimatedHashrate`, `lastEstimatedHashrate3d`, `lastEstimatedHashrate1w` | The network's hashrate over the blocks of the last 24 hours, 3 days and 7 days. `null` until the whole window is held, or when it holds no block |
 
 ## GET /api/v1/mining/pool/:slug
 
@@ -256,12 +256,12 @@ With `hashrates` cut to the first two of 31:
 }
 ```
 
-| Field               | Means                                                                                                                                                                           |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `hashrates`         | Oldest first. A daily point is the hashrate over the 7 days up to it; a weekly point, over its week. A point appears only when its whole window is held                         |
-| `difficulty`        | Each adjustment in the period, oldest first: its first block's time and height, the new difficulty, and `adjustment`, the new difficulty over the old. `[]` when there was none |
-| `currentHashrate`   | The hashrate over the last 1,008 blocks                                                                                                                                         |
-| `currentDifficulty` | The tip's difficulty                                                                                                                                                            |
+| Field               | Means                                                                                                                                                                                                                    |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `hashrates`         | Oldest first. A daily point is the hashrate over the 7 days up to it; a weekly point, over its week. A point appears only when its whole window is held                                                                  |
+| `difficulty`        | Each adjustment in the period, oldest first: its first block's time and height, the new difficulty, and `adjustment`, the new difficulty over the old. `[]` when there was none                                          |
+| `currentHashrate`   | The hashrate over the last 1,008 blocks, however long they took. On a network whose blocks slowed down, the ranking's `lastEstimatedHashrate` and `lastEstimatedHashrate1w` say the rate of the last 24 hours and 7 days |
+| `currentDifficulty` | The tip's difficulty                                                                                                                                                                                                     |
 
 The hashrate is the work of the blocks over the time they took, the estimate the node's `getnetworkhashps` makes. Its daily points use a 7-day window because a single day's count of blocks varies by about 8% from luck alone.
 

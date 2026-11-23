@@ -697,43 +697,55 @@ async fn hashrate_points_on_a_half_filled_table_are_exact_at_any_hour() {
 }
 
 /// Testnet 5 in November 2026: its hashrate fell by two thirds, and its last 1,008 blocks reached
-/// back four days. Here the network loses three quarters of its hashrate at height 900: a block
-/// every 600 s, then every 2,400 s up to 1,100, a few minutes ago. The estimates named for a day,
-/// three days and a week count the blocks of that time, so the day says the new rate; the 1,008
-/// blocks of `currentHashrate` still reach into the fast stretch. Every window's edge falls 300 s
-/// from a block, so the server's clock and the test's agree on which blocks are in.
+/// back four days. Here the network loses three quarters of its hashrate at height 1,000: a block
+/// every 600 s, then every 2,400 s up to 1,100, a few minutes ago, so even the last 144 blocks
+/// reach into the fast stretch. The estimates named for a day, three days and a week count the
+/// blocks of that time; the 1,008 blocks of `currentHashrate` still reach back nine days. Every
+/// window's edge falls 300 s from a block, so the server's clock and the test's agree on which
+/// blocks are in. A history that starts inside a window gives no estimate for it.
 #[tokio::test]
 async fn estimates_named_for_a_time_cover_that_time() {
-    const SLOW: u32 = 900;
+    const SLOW: u32 = 1000;
     const TOP: u32 = 1100;
-    let d = dir("slowdown");
     let tip_time = now() - 300;
     let time = move |h: u32| {
         let slow = u64::from(TOP - h.max(SLOW)) * 2400;
         tip_time - slow - u64::from(SLOW.saturating_sub(h)) * 600
     };
-    fill_at(&d.0, 0..=TOP, time).await;
-    let (addr, _) = start(&d.0).await;
-    let v = get(&addr, &format!("{V1}/pools/1w")).await.json();
     // Difficulty 1 throughout: a block's work is 2^32 hashes.
     let work = 4_294_967_296.0;
-    let slow = work / 2400.0;
-    let close = |field: &str, want: f64| {
+    let close = |v: &Value, field: &str, want: f64| {
         let h = v[field].as_f64().unwrap();
         assert!((h / want - 1.0).abs() < 1e-6, "{field}: {h}, want {want}");
     };
-    // The day and three days hold only slow blocks.
-    close("lastEstimatedHashrate", slow);
-    close("lastEstimatedHashrate3d", slow);
-    // The week: 200 slow blocks and the 208 before them (693 to 900), timed from 692.
-    close("lastEstimatedHashrate1w", 408.0 * work / 604_800.0);
-    // `currentHashrate` keeps its 1,008 blocks (93 to 1,100), and so its 2.5-fold overstatement.
+
+    let d = dir("slowdown");
+    fill_at(&d.0, 0..=TOP, time).await;
+    let (addr, _) = start(&d.0).await;
+    let v = get(&addr, &format!("{V1}/pools/1w")).await.json();
+    // The day: 36 slow blocks (1,065 to 1,100), timed from 1,064. The last 144 blocks would
+    // say 144 blocks over 266,400 s, 44 of them fast.
+    close(&v, "lastEstimatedHashrate", work / 2400.0);
+    // Three days: 969 to 1,100, timed from 968.
+    close(&v, "lastEstimatedHashrate3d", 132.0 * work / 259_200.0);
+    // The week: 393 to 1,100, timed from 392.
+    close(&v, "lastEstimatedHashrate1w", 708.0 * work / 604_800.0);
+    // `currentHashrate` keeps its 1,008 blocks (93 to 1,100), and so its threefold overstatement.
     let current = get(&addr, &format!("{V1}/hashrate/1w")).await.json()["currentHashrate"]
         .as_f64()
         .unwrap();
     let want = 1008.0 * work / f64::from((TOP - SLOW) * 2400 + (SLOW - 92) * 600);
     assert!((current / want - 1.0).abs() < 1e-6, "{current} {want}");
-    assert!(current > 2.4 * slow);
+    assert!(current > 3.0 * work / 2400.0);
+
+    // A history from 600, five and a half days back: the week is not all stored.
+    let d = dir("slowdown-short");
+    fill_at(&d.0, 600..=TOP, time).await;
+    let (addr, _) = start(&d.0).await;
+    let v = get(&addr, &format!("{V1}/pools/24h")).await.json();
+    close(&v, "lastEstimatedHashrate", work / 2400.0);
+    close(&v, "lastEstimatedHashrate3d", 132.0 * work / 259_200.0);
+    assert_eq!(v["lastEstimatedHashrate1w"], Value::Null);
 }
 
 #[tokio::test]

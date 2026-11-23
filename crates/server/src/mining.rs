@@ -916,19 +916,19 @@ async fn range_hashrate(store: &Store, span: Span, r: &Range) -> Result<Option<f
 }
 
 /// The network's hashrate over the blocks stamped in the `seconds` before `now`: by time, not by
-/// a count of blocks, which on a test network whose hashrate fell reaches back days.
+/// a count of blocks, which on a test network whose hashrate fell reaches back days. `None` until
+/// the whole window is stored, so a partial history is never given as the window's rate.
 async fn hashrate_over(
     store: &Store,
     span: Span,
     now: u64,
     seconds: u64,
 ) -> Result<Option<f64>, store::Error> {
-    range_hashrate(
-        store,
-        span,
-        &since(store, span, now.saturating_sub(seconds)).await?,
-    )
-    .await
+    let r = since(store, span, now.saturating_sub(seconds)).await?;
+    if !r.complete {
+        return Ok(None);
+    }
+    range_hashrate(store, span, &r).await
 }
 
 async fn coverage(store: &Store, span: Span, r: &Range) -> Result<Coverage, store::Error> {
