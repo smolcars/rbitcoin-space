@@ -560,7 +560,7 @@ The table is only as complete as the backfill ([`STORE.md`](STORE.md#backfill)),
 | Header | Value |
 |---|---|
 | `X-Data-From-Height`, `X-Data-From-Time` | The earliest block the answer includes, and its timestamp (Unix seconds). Absent when it includes none |
-| `X-Data-Complete` | `true` when the answer covers the whole period asked for: the stored history begins before the period does (with the genesis block for `all`, a pool's statistics and its blocks); `false` otherwise |
+| `X-Data-Complete` | `true` when the answer covers the whole period asked for: the stored history begins before the period does (with the genesis block for `all`, a pool's statistics and its blocks); `false` otherwise. Judged by the first stored block's timestamp, so where timestamps run out of order at the very start of the stored history, a lower height not yet stored may be stamped inside the period: the answer then says `true` while missing it, until the backfill or the clock moves past it. The `lastEstimatedHashrate` fields and a pool's `estimatedHashrate` follow the same rule |
 
 A chart can then say "data from … onward" instead of drawing a false zero. Fee rates exist only for rated rows, the last year by default: a fee-rate point appears only when every block in it is rated, so an average of some is never presented as the whole, and a gap leaves `X-Data-Complete` `false`. A timestamp before the stored history is `404` (`no indexed block at or before that time`) rather than a wrong block. `reward-stats` starts at the stored history when asked for more (`startBlock` says where).
 
