@@ -904,9 +904,10 @@ async fn since(store: &Store, span: Span, start: u64) -> Result<Range, store::Er
 }
 
 /// The network's hashrate over a range's blocks, timed from the block before the first, which
-/// starts its first interval; `None` for an empty range or one block with nothing before it.
+/// starts its first interval. `None` for an empty range, one block with nothing before it, or a
+/// range the history does not hold whole, so a partial history is never given as its rate.
 async fn range_hashrate(store: &Store, span: Span, r: &Range) -> Result<Option<f64>, store::Error> {
-    if r.is_empty() {
+    if r.is_empty() || !r.complete {
         return Ok(None);
     }
     let lo = r.lo.saturating_sub(1).max(span.from);
@@ -916,8 +917,7 @@ async fn range_hashrate(store: &Store, span: Span, r: &Range) -> Result<Option<f
 }
 
 /// The network's hashrate over the blocks stamped in the `seconds` before `now`: by time, not by
-/// a count of blocks, which on a test network whose hashrate fell reaches back days. `None` until
-/// the whole window is stored, so a partial history is never given as the window's rate.
+/// a count of blocks, which on a test network whose hashrate fell reaches back days.
 async fn hashrate_over(
     store: &Store,
     span: Span,
@@ -925,9 +925,6 @@ async fn hashrate_over(
     seconds: u64,
 ) -> Result<Option<f64>, store::Error> {
     let r = since(store, span, now.saturating_sub(seconds)).await?;
-    if !r.complete {
-        return Ok(None);
-    }
     range_hashrate(store, span, &r).await
 }
 

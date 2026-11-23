@@ -145,7 +145,7 @@ curl https://rbitcoin.space/api/v1/mining/pool/foundryusa
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | `pool.addresses`, `pool.regexes` | The payout addresses and coinbase tags the list names the pool by. `regexes` are matched as literal text, not as patterns |
 | `blockShare`                     | The pool's blocks over every block in that span                                                                           |
-| `estimatedHashrate`              | The pool's share of the last 24 hours' blocks times the network's hashrate over them                                      |
+| `estimatedHashrate`              | The pool's share of the last 24 hours' blocks times the network's hashrate over them. `null` until the whole day is held  |
 | `reportedHashrate`               | Always `null`                                                                                                             |
 | `avgBlockHealth`                 | The pool's block health over all the blocks the server holds (below); `null` with no audited block                        |
 | `totalReward`                    | Every reward the pool has earned, in sats, as a string                                                                    |

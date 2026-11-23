@@ -746,6 +746,17 @@ async fn estimates_named_for_a_time_cover_that_time() {
     close(&v, "lastEstimatedHashrate", work / 2400.0);
     close(&v, "lastEstimatedHashrate3d", 132.0 * work / 259_200.0);
     assert_eq!(v["lastEstimatedHashrate1w"], Value::Null);
+
+    // A history from 1,080, 14 hours back: not even the day. The ranking and a pool's own page
+    // both give no estimate rather than one from the part held.
+    let d = dir("slowdown-day");
+    fill_at(&d.0, 1080..=TOP, time).await;
+    let (addr, _) = start(&d.0).await;
+    let v = get(&addr, &format!("{V1}/pools/24h")).await.json();
+    assert_eq!(v["lastEstimatedHashrate"], Value::Null);
+    let r = get(&addr, &format!("{V1}/pool/foundryusa")).await;
+    assert_eq!(r.status, 200, "{r:?}");
+    assert_eq!(r.json()["estimatedHashrate"], Value::Null);
 }
 
 #[tokio::test]
