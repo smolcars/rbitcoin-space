@@ -27,6 +27,15 @@
     "link": ""
   },
   {
+    "id": 10003,
+    "name": "testnet5.com",
+    "addresses": [],
+    "tags": [
+      "testnet5.com"
+    ],
+    "link": "https://testnet5.com"
+  },
+  {
     "id": 140,
     "name": "MARA Pool",
     "addresses": [

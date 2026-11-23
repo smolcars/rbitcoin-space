@@ -305,6 +305,8 @@ mod tests {
         assert_eq!((jao.id, jao.addresses.len()), (10001, 0));
         let pleb = p.by_slug("sv2plebhash").unwrap();
         assert_eq!((pleb.id, pleb.addresses.len()), (10002, 0));
+        let t5 = p.by_slug("testnet5com").unwrap();
+        assert_eq!((t5.id, t5.addresses.len()), (10003, 0));
         // Every address in the shipped list is a valid mainnet address.
         let listed: usize = p.all().iter().map(|p| p.addresses.len()).sum();
         assert_eq!(p.scripts.len(), listed);
@@ -377,6 +379,22 @@ mod tests {
                 .collect();
             assert_eq!(list().attribute(&hex(tag), &payouts), (10001, Method::Tag));
             assert_eq!(upstream.attribute(&hex(tag), &payouts).0, alone);
+        }
+    }
+
+    /// The pool testnet5.com by its `testnet5.com` tag, in a plain coinbase and as a Stratum V2
+    /// pool field. No block of its was read for this test: the scripts are written by hand.
+    #[test]
+    fn testnet5com_by_tag() {
+        let upstream = Pools::parse(LIST).unwrap();
+        for tag in [
+            // height 0x2000, push "/testnet5.com/"
+            "0200200e2f746573746e6574352e636f6d2f",
+            // height 0x2000, push "Sv2/testnet5.com//", push an 8-byte extranonce
+            "020020125376322f746573746e6574352e636f6d2f2f080000000000000000",
+        ] {
+            assert_eq!(list().attribute(&hex(tag), &[]), (10003, Method::Tag));
+            assert_eq!(upstream.attribute(&hex(tag), &[]), (UNKNOWN, Method::None));
         }
     }
 
@@ -579,7 +597,7 @@ mod tests {
             "upstream's three tags and four addresses, and ours"
         );
         assert_eq!(mara.tags[3].as_bytes(), hex("4d415241f09f87baf09f87b8"));
-        assert_eq!(list().all().len(), upstream.all().len() + 3);
+        assert_eq!(list().all().len(), upstream.all().len() + 4);
     }
 
     #[test]
