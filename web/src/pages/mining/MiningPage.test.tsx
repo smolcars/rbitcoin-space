@@ -1,6 +1,7 @@
 import { createRouter, memoryHistory } from "@solidjs/router";
 import { render } from "@solidjs/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { formatHashrate } from "../../components/chart/scale";
 import { mount } from "../../components/test-utils";
 import { clearApiCache } from "../../lib/api";
 import { fakeBlock } from "../../lib/fakes";
@@ -163,6 +164,30 @@ describe("mining page", () => {
     expect(caption()).toContain("40 blocks in the last week");
     answer();
     await vi.waitFor(() => expect(caption()).toContain("7 blocks in the last 24 hours"));
+  });
+
+  it("gives the hashrate over the toggle's time: a day for 24 h, else the last 7 days", async () => {
+    // `currentHashrate` counts 1,008 blocks, days of them once blocks slow down: never shown.
+    replies["/v1/mining/hashrate/1w"] = () =>
+      Response.json({ ...HASHRATES, currentHashrate: 3e21 }, { headers: PARTIAL });
+    replies["/v1/mining/pools/24h"] = () =>
+      Response.json({ ...RANKING, blockCount: 7 }, { headers: PARTIAL });
+    replies["/v1/mining/pools/1m"] = () => Response.json(RANKING, { headers: PARTIAL });
+    replies["/v1/mining/hashrate/1m"] = replies["/v1/mining/hashrate/1w"];
+    const el = mount(() => <MiningPage />, "/mining");
+    const fig = () =>
+      [...el.querySelectorAll(".mining-fig")].find((f) => f.textContent?.startsWith("Hashrate"))
+        ?.textContent ?? "";
+    await vi.waitFor(() => expect(fig()).toContain(formatHashrate(9.5e20, 4)));
+    expect(fig()).toContain("Over the last 7 days");
+    el.querySelector<HTMLAnchorElement>("a[href='/mining?period=24h']")?.click();
+    await vi.waitFor(() => expect(fig()).toContain(formatHashrate(9e20, 4)));
+    expect(fig()).toContain("Over the last 24 hours");
+    // A month is no "now": the week's figure again.
+    el.querySelector<HTMLAnchorElement>("a[href='/mining?period=1m']")?.click();
+    await vi.waitFor(() => expect(fig()).toContain(formatHashrate(9.5e20, 4)));
+    expect(fig()).toContain("Over the last 7 days");
+    expect(fig()).not.toContain(formatHashrate(3e21, 4));
   });
 
   it("says when nothing is stored for the period, and offers all time", async () => {

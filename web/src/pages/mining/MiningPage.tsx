@@ -39,6 +39,7 @@ import {
   isSizes,
   networkHashrate,
   networkNote,
+  nowWindow,
   OTHER_POOLS,
   parsePeriod,
   type Period,
@@ -240,12 +241,14 @@ function Figures(props: {
       >
         <Fig
           label="Hashrate"
-          sub={
-            competitive(props.network) ? "Over the last 1 008 blocks" : "Not meaningful on regtest"
-          }
+          sub={competitive(props.network) ? nowWindow(period()).words : "Not meaningful on regtest"}
         >
-          <Show when={h()} fallback={dash(props.hashrates.error())}>
-            {(a) => <span class="num">{formatHashrate(a().currentHashrate ?? Number.NaN, 4)}</span>}
+          <Show when={blocks()} fallback={dash(props.ranking.error())}>
+            {(a) => (
+              <span class="num">
+                {formatHashrate(a().value[nowWindow(period()).field] ?? Number.NaN, 4)}
+              </span>
+            )}
           </Show>
         </Fig>
         <Fig

@@ -388,8 +388,8 @@ export function poolLayers(
 
 /**
  * A pool's estimated hashrate over the period: its share of the blocks times the network's
- * hashrate over the same stretch (the last 144 blocks for a day, 1,008 for a week, the average of
- * the chart's points beyond).
+ * hashrate over the same stretch (the blocks of the last 24 hours, of the last 7 days, the average
+ * of the chart's points beyond).
  */
 export function networkHashrate(
   p: Period,
@@ -401,6 +401,19 @@ export function networkHashrate(
   const points = hashrates?.hashrates ?? [];
   if (points.length === 0) return undefined;
   return points.reduce((sum, h) => sum + h.avgHashrate, 0) / points.length;
+}
+
+/**
+ * The network's hashrate now: over the last 24 hours when the period is a day, else over the
+ * last 7 days. By time, not a count of blocks, which reaches back days once blocks slow down.
+ */
+export function nowWindow(p: Period): {
+  field: "lastEstimatedHashrate" | "lastEstimatedHashrate1w";
+  words: string;
+} {
+  return p.id === "24h"
+    ? { field: "lastEstimatedHashrate", words: "Over the last 24 hours" }
+    : { field: "lastEstimatedHashrate1w", words: "Over the last 7 days" };
 }
 
 /** The figures of a period's rewards, in sats; undefined for a reply that is not whole numbers. */

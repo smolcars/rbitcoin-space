@@ -903,6 +903,34 @@ async fn since(store: &Store, span: Span, start: u64) -> Result<Range, store::Er
     })
 }
 
+/// The network's hashrate over a range's blocks, timed from the block before the first, which
+/// starts its first interval; `None` for an empty range or one block with nothing before it.
+async fn range_hashrate(store: &Store, span: Span, r: &Range) -> Result<Option<f64>, store::Error> {
+    if r.is_empty() {
+        return Ok(None);
+    }
+    let lo = r.lo.saturating_sub(1).max(span.from);
+    Ok(blocks::work(store, lo, r.hi)
+        .await?
+        .and_then(|w| hashrate::estimate(w.difficulty_sum, w.max_time.saturating_sub(w.min_time))))
+}
+
+/// The network's hashrate over the blocks stamped in the `seconds` before `now`: by time, not by
+/// a count of blocks, which on a test network whose hashrate fell reaches back days.
+async fn hashrate_over(
+    store: &Store,
+    span: Span,
+    now: u64,
+    seconds: u64,
+) -> Result<Option<f64>, store::Error> {
+    range_hashrate(
+        store,
+        span,
+        &since(store, span, now.saturating_sub(seconds)).await?,
+    )
+    .await
+}
+
 async fn coverage(store: &Store, span: Span, r: &Range) -> Result<Coverage, store::Error> {
     Ok(Coverage {
         from: if r.is_empty() {
@@ -1048,13 +1076,11 @@ async fn compute_unchecked(
                         }
                     })
                     .collect(),
-                last_estimated_hashrate: shared.recent_hashrate(store, span, 144).await?.map(whole),
-                last_estimated_hashrate3d: shared
-                    .recent_hashrate(store, span, 432)
+                last_estimated_hashrate: hashrate_over(store, span, now, DAY).await?.map(whole),
+                last_estimated_hashrate3d: hashrate_over(store, span, now, 3 * DAY)
                     .await?
                     .map(whole),
-                last_estimated_hashrate1w: shared
-                    .recent_hashrate(store, span, 1008)
+                last_estimated_hashrate1w: hashrate_over(store, span, now, 7 * DAY)
                     .await?
                     .map(whole),
             };
@@ -1362,15 +1388,7 @@ async fn pool_family(
     } else {
         blocks::pool_counts(store, week.lo, week.hi).await?
     };
-    let day_hashrate = if day.is_empty() {
-        None
-    } else {
-        // The block before the day starts its first interval.
-        let lo = day.lo.saturating_sub(1).max(span.from);
-        blocks::work(store, lo, day.hi).await?.and_then(|w| {
-            hashrate::estimate(w.difficulty_sum, w.max_time.saturating_sub(w.min_time))
-        })
-    };
+    let day_hashrate = range_hashrate(store, span, &day).await?;
     let net = shared.network_points(store, span, 0, true).await?;
     // Each pool's weeks, oldest first, and the network's hashrate by week.
     let mut weekly: HashMap<u16, Vec<(u64, u32)>> = HashMap::new();
