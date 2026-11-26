@@ -95,7 +95,7 @@
     {
       "height": 260000,
       "scriptsig": "03a0f70304524290dc3900000000001d0c",
-      "reads": "RB·········"
+      "reads": "RB··9·······"
     },
     {
       "height": 270000,
@@ -150,7 +150,7 @@
     {
       "height": 400000,
       "scriptsig": "03801a060004cc2acf560433c30f37085d4a39ad543b0c000a425720537570706f727420384d200a666973686572206a696e78696e092f425720506f6f6c2f",
-      "reads": "BW Support····fisher jinxin·/BW Pool/"
+      "reads": "BW Support·····fisher jinxin·/BW Pool/"
     },
     {
       "height": 420000,
@@ -160,7 +160,7 @@
     {
       "height": 430000,
       "scriptsig": "03b08f0600041c31db57046c704c3808f16d0013627612000a425720537570706f727420384d200a666973686572206a696e78696e092f425720506f6f6c2f",
-      "reads": "BW Support····fisher jinxin·/BW Pool/"
+      "reads": "BW Support·····fisher jinxin·/BW Pool/"
     },
     {
       "height": 450000,
@@ -250,7 +250,7 @@
     {
       "height": 720000,
       "scriptsig": "0380fc0a0487f4ec612f466f756e6472792055534120506f6f6c202364726f70676f6c642f0264eb9e4401000000000000",
-      "reads": "Foundry USA Pool #dropgold/"
+      "reads": "/Foundry USA Pool #dropgold/"
     },
     {
       "height": 740000,
@@ -265,7 +265,7 @@
     {
       "height": 780000,
       "scriptsig": "03e0e60b047dc409642f466f756e6472792055534120506f6f6c202364726f70676f6c642f0692cef6798c010000000000",
-      "reads": "Foundry USA Pool #dropgold/"
+      "reads": "/Foundry USA Pool #dropgold/"
     },
     {
       "height": 800000,
@@ -290,12 +290,12 @@
     {
       "height": 870000,
       "scriptsig": "0370460d04635e33672f466f756e6472792055534120506f6f6c202364726f70676f6c642f44d44756e40a000000000000",
-      "reads": "Foundry USA Pool #dropgold/"
+      "reads": "/Foundry USA Pool #dropgold/"
     },
     {
       "height": 880000,
       "scriptsig": "03806d0d04ffa98d672f466f756e6472792055534120506f6f6c202364726f70676f6c642f32014a88fb2b000000000000",
-      "reads": "Foundry USA Pool #dropgold/"
+      "reads": "/Foundry USA Pool #dropgold/"
     },
     {
       "height": 900000,
@@ -315,7 +315,7 @@
     {
       "height": 960000,
       "scriptsig": "0300a60e04dcd9686a2f53424943727970746f2e636f6d20506f6f6c2f65750ab182026dc24c6ab1560000",
-      "reads": "SBICrypto.com Pool/"
+      "reads": "/SBICrypto.com Pool/"
     },
     {
       "height": 970000,
@@ -330,12 +330,12 @@
     {
       "height": 976277,
       "scriptsig": "0395e50e0494a417532f466f756e6472792055534120506f6f6c202364726f70676f6c642f55b585708c7e060000000000",
-      "reads": "Foundry USA Pool #dropgold/"
+      "reads": "/Foundry USA Pool #dropgold/"
     },
     {
       "height": 976278,
       "scriptsig": "0396e50e04f456e7532f466f756e6472792055534120506f6f6c202364726f70676f6c642f588bb9fd0000bef67b0b0200",
-      "reads": "Foundry USA Pool #dropgold/"
+      "reads": "/Foundry USA Pool #dropgold/"
     },
     {
       "height": 976279,
@@ -355,7 +355,7 @@
     {
       "height": 976282,
       "scriptsig": "039ae50e0442c603622f466f756e6472792055534120506f6f6c202364726f70676f6c642f687ab5478625000000000000",
-      "reads": "Foundry USA Pool #dropgold/"
+      "reads": "/Foundry USA Pool #dropgold/"
     },
     {
       "height": 976283,
@@ -395,12 +395,12 @@
     {
       "height": 976290,
       "scriptsig": "03a2e50e046da5ba6c2f466f756e6472792055534120506f6f6c202364726f70676f6c642f6dda001af342000000000000",
-      "reads": "Foundry USA Pool #dropgold/"
+      "reads": "/Foundry USA Pool #dropgold/"
     },
     {
       "height": 976291,
       "scriptsig": "03a3e50e04f30e076e2f466f756e6472792055534120506f6f6c202364726f70676f6c642f76023f96f10d000000000000",
-      "reads": "Foundry USA Pool #dropgold/"
+      "reads": "/Foundry USA Pool #dropgold/"
     },
     {
       "height": 976292,

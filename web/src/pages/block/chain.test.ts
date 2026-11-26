@@ -160,8 +160,19 @@ describe("coinbaseTag", () => {
     const t = coinbaseTag("03f3730200b22731", 160_755);
     expect(t?.readable).toBe(false);
     expect(t?.hex).toBe("00b22731");
-    expect(tagText(t)).toBe("·1");
+    // 0x27 would push 39 bytes but two are left, so it shows as the "'" it is.
+    expect(tagText(t)).toBe("·'1");
     expect(t?.words).toBe(false);
+  });
+
+  it("keeps the first letter of text written after the height without a push", () => {
+    // testnet5 block 8394: "F" (0x46) would push 70 bytes, but only 56 are left.
+    const t = coinbaseTag(
+      "02ca204675636b204c756b6520436173686a722e204c6961722c206c6561766520426974636f696e20616c6f6e6521000189bdc30500d50900000000",
+      8394,
+    );
+    expect(tagText(t)).toBe("Fuck Luke Cashjr. Liar, leave Bitcoin alone!");
+    expect(t?.hex.startsWith("4675")).toBe(true);
   });
 
   it("drops a small height pushed as an opcode", () => {
@@ -237,7 +248,8 @@ describe("coinbaseTag", () => {
     expect(coinbaseTag("zz", 1)).toBeNull();
     expect(coinbaseTag("abc", 1)).toBeNull();
     expect(coinbaseTag(undefined, 1)).toBeNull();
-    expect(coinbaseTag("4effffffff41", 999_999)?.parts).toStrictEqual([{ text: "A" }]);
+    // A push longer than the script is no push: its bytes show as they are.
+    expect(tagText(coinbaseTag("4effffffff41", 999_999))).toBe("N····A");
   });
 });
 

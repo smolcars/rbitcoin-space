@@ -119,13 +119,16 @@ function scriptNum(n: number): number[] {
 
 /**
  * Splits the script into the data it pushes. An opcode that pushes nothing is a chunk of its own
- * byte; a push that runs past the end takes what is left.
+ * byte. A push that runs past the end is no push: its "opcode" is most likely the first character
+ * of text written without one, so the last chunk is everything from that byte on, marked raw.
  */
 interface Chunk {
   op: number;
   data: Uint8Array;
   /** Where the chunk starts in the script. */
   at: number;
+  /** The bytes from here on are not a script, and are read as they are. */
+  raw?: true;
 }
 
 function scriptChunks(b: Uint8Array): Chunk[] {
@@ -147,7 +150,10 @@ function scriptChunks(b: Uint8Array): Chunk[] {
       i += 4;
     }
     if (n < 0) chunks.push({ op, data: Uint8Array.of(op), at });
-    else {
+    else if (i + n > b.length) {
+      chunks.push({ op, data: b.subarray(at), at, raw: true });
+      break;
+    } else {
       chunks.push({ op, data: b.subarray(i, i + n), at });
       i += n;
     }
@@ -285,8 +291,9 @@ export function coinbaseTag(scriptsigHex: string | undefined, height: number): C
   for (const { op, data } of chunks)
     for (const p of op > 0x4e ? [{ hidden: 1 }] : decodeChunk(data, decoder, false)) append(all, p);
   // Pushes are read one by one, so their length bytes never show. A coinbase need not be a valid
-  // script, though: from the first byte that pushes nothing, the rest is read as it is.
-  const raw = chunks.findIndex((c) => c.op > 0x4e);
+  // script, though: from the first byte that pushes nothing, or a push that overruns the end, the
+  // rest is read as it is.
+  const raw = chunks.findIndex((c) => c.op > 0x4e || c.raw === true);
   const decoded = (raw === -1 ? chunks : chunks.slice(0, raw)).map((c) =>
     decodeChunk(c.data, decoder, true),
   );
