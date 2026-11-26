@@ -248,7 +248,8 @@ describe("coinbaseTag", () => {
     expect(coinbaseTag("zz", 1)).toBeNull();
     expect(coinbaseTag("abc", 1)).toBeNull();
     expect(coinbaseTag(undefined, 1)).toBeNull();
-    expect(coinbaseTag("4effffffff41", 999_999)?.parts).toStrictEqual([{ text: "A" }]);
+    // A push longer than the script is no push: its bytes show as they are.
+    expect(tagText(coinbaseTag("4effffffff41", 999_999))).toBe("N····A");
   });
 });
 
